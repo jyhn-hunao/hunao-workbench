@@ -4,7 +4,7 @@
 // 场景 2：大A / 美股分析（本地渲染）
 // 设计：壳与 Harness 解耦——只通过 HTTP+token 认识它；场景配置在 scenarios/ 下。
 const { app, BrowserWindow, dialog, shell, ipcMain, webContents, nativeImage, screen } = require('electron');
-const { spawn, spawnSync } = require('child_process');
+const { spawn, spawnSync, execFile } = require('child_process');
 const http = require('http');
 const net = require('net');
 const path = require('path');
@@ -4894,4 +4894,44 @@ setInterval(function () {
 
 webAiServer.listen(WEB_AI_PORT, '127.0.0.1', function () {
   log('[webai] 网页版 AI 桥已就绪: http://127.0.0.1:' + WEB_AI_PORT + '/webai/keys（会话可用 scripts\\webai.mjs 问免费网页版）');
+});
+
+// ---- git 面板（程序开发场景，只读）：分支 / 工作区变更 / 最近提交 ----
+//   为什么放主进程：渲染层没有 Node、也不该自己拼 shell。这里一律 execFile('git', [...])，不经 shell。
+//   只读：不 add / commit / push —— 提交仍由会话按项目的 doc\提交准则.md 走。
+//   缺这段 = 主进程是旧的 ⇒ 面板显示「重启一次工作台」，不会白屏。
+ipcMain.handle('kun:git:panel', async (_e, repo) => {
+  const dir = String(repo || '').trim();
+  if (!dir) return { ok: false, err: '面板没配仓库路径（场景 json 的 meta.repo）' };
+  if (!fs.existsSync(dir)) return { ok: false, err: '仓库目录不存在：' + dir };
+  const run = (args) => new Promise((resolve) => {
+    execFile('git', ['-c', 'core.quotepath=false', '--no-optional-locks', '-C', dir, ...args],
+      { windowsHide: true, maxBuffer: 8 << 20, timeout: 20000 },
+      (err, stdout, stderr) => resolve({ ok: !err, out: String(stdout || ''), err: String(stderr || (err && err.message) || '') }));
+  });
+  const [head, changes, log, stat] = await Promise.all([
+    run(['status', '--porcelain=v1', '-b']),
+    run(['status', '--porcelain=v1']),
+    run(['log', '-8', '--date=short', '--pretty=%h|%ad|%s']),
+    run(['diff', '--shortstat'])
+  ]);
+  if (!head.ok) {
+    const msg = String(head.err || '').trim();
+    return { ok: false, err: /not a git repository/i.test(msg) ? '不是 git 仓库：' + dir : (msg || 'git 调用失败（本机装了 git 吗？）') };
+  }
+  // 1) 首行形如：## main...origin/main [ahead 2, behind 1]
+  const first = String(head.out).split(/\r?\n/)[0] || '';
+  const branch = (first.match(/^## ([^.\s]+)/) || [null, ''])[1];
+  const upstream = (first.match(/\.\.\.([^\s\[]+)/) || [null, ''])[1];
+  const ahead = Number((first.match(/ahead (\d+)/) || [null, 0])[1]);
+  const behind = Number((first.match(/behind (\d+)/) || [null, 0])[1]);
+  // 2) 变更清单：XY 路径（最多 60 条，面板不再往下拉）
+  const items = String(changes.out).split(/\r?\n/).filter(Boolean).slice(0, 60)
+    .map((l) => ({ code: (l.slice(0, 2).trim() || '?'), path: l.slice(3) }));
+  // 3) 最近 8 条提交：hash|date|subject
+  const commits = String(log.out).split(/\r?\n/).filter(Boolean).map((l) => {
+    const p = l.split('|');
+    return { hash: p[0], date: p[1], subject: p.slice(2).join('|') };
+  });
+  return { ok: true, repo: dir, branch, upstream, ahead, behind, changes: items, commits, diffStat: String(stat.out || '').trim() };
 });

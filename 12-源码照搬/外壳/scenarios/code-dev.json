@@ -1,7 +1,7 @@
 {
   "id": "code-dev",
   "name": "程序开发",
-  "description": "程序开发：写代码的统一入口，一个场景挂多个项目——AI 面板钉的是「当前项目」那条会话（会话 cwd = 项目根，所以那个仓的 AGENTS.md 自动生效）。上排左 = 预览（md/代码/图片/PDF），上排右 = 文件树（默认 D:），下排 = AI。换项目 = 换会话（node 外壳\\scripts\\接入项目.mjs），不是换场景。",
+  "description": "程序开发：写代码的统一入口，一个场景挂多个项目——AI 面板钉的是「当前项目」那条会话（会话 cwd = 项目根，所以那个仓的 AGENTS.md 自动生效）。上排 = 预览（md/代码/图片/PDF）+ 文件树（默认 D:）+ Git 只读看板（分支 / 未提交变更 / 最近提交，点 ⟳ 重读），下排 = AI。换项目 = 换会话（node 外壳\\scripts\\接入项目.mjs），不是换场景。",
   "layout": "grid",
   "theme": "dark",
   "cols": 4,
@@ -18,7 +18,7 @@
       "filesPanel": "cd-files",
       "col": 1,
       "row": 1,
-      "w": 3,
+      "w": 2,
       "h": 3
     },
     {
@@ -31,6 +31,17 @@
         "D:"
       ],
       "viewPanel": "cd-view",
+      "col": 3,
+      "row": 1,
+      "w": 1,
+      "h": 3
+    },
+    {
+      "id": "cd-git",
+      "title": "Git",
+      "sub": "只读 · 分支 / 变更 / 最近提交",
+      "type": "git",
+      "repo": "D:\\codeData\\myself\\luanyujia-workbench",
       "col": 4,
       "row": 1,
       "w": 1,

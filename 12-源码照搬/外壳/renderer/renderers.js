@@ -18841,3 +18841,82 @@ renderers.neuron = (body, meta, head) => {
   };
 };
 
+// ---- git（程序开发场景，只读看板）：分支 / 工作区变更 / 最近提交 ----
+//   数据来自主进程 kun:git:panel（execFile 调 git，不经 shell）；缺该 IPC ⇒ 提示重启一次工作台，不白屏。
+//   只读：不 add / commit / push —— 提交由会话按项目的 doc\提交准则.md 走。
+renderers.git = (body, meta) => {
+  const repo = String((meta && meta.repo) || '');
+  body.innerHTML = '';
+  const wrap = el('div', 'git-wrap');
+  const bar = el('div', 'git-bar');
+  const btn = el('button', 'git-btn', '⟳');
+  btn.title = '重新读取 git 状态';
+  const repoEl = el('span', 'git-repo', repo || '未配置仓库（面板里写 "repo"）');
+  repoEl.title = repo || '';
+  if (repo) repoEl.style.cursor = 'pointer';
+  bar.appendChild(btn);
+  bar.appendChild(repoEl);
+  const list = el('div', 'git-list');
+  wrap.appendChild(bar);
+  wrap.appendChild(list);
+  body.appendChild(wrap);
+
+  if (repo) {
+    repoEl.addEventListener('click', () => { try { window.app.app.openPath(repo); } catch (e) { /* 打不开就算了 */ } });
+  }
+
+  let dead = false;
+  const empty = (t) => { const d = el('div', 'git-empty', t); list.appendChild(d); return d; };
+  const codeClass = (c) => (c === 'M' ? 'is-mod' : (c === 'A' || c === '?' ? 'is-new' : (c === 'D' ? 'is-del' : '')));
+
+  async function load() {
+    if (dead) return;
+    list.innerHTML = '';
+    const api = window.app && window.app.git;
+    if (!api) { empty('这次启动的界面还没有 git 能力（主进程 / 预加载是旧的）⇒ 重启一次工作台即可。'); return; }
+    if (!repo) { empty('这块面板没配仓库路径：在 scenarios\\code-dev.json 里给它写 "repo": "<仓库根目录>"。'); return; }
+    empty('读取中…');
+    let r = null;
+    try { r = await api.panel(repo); } catch (e) { r = { ok: false, err: String((e && e.message) || e) }; }
+    if (dead) return;
+    list.innerHTML = '';
+    if (!r || !r.ok) { empty('✗ ' + ((r && r.err) || '读取失败')); return; }
+
+    // 1) 分支 / 上游 / 领先落后 / 未提交概览
+    const top = el('div', 'git-branch');
+    top.appendChild(el('span', 'git-badge', r.branch || '(detached)'));
+    if (r.upstream) top.appendChild(el('span', 'git-ahead', '→ ' + r.upstream));
+    if (r.ahead) top.appendChild(el('span', 'git-ahead', '↑' + r.ahead));
+    if (r.behind) top.appendChild(el('span', 'git-behind', '↓' + r.behind));
+    if (r.diffStat) top.appendChild(el('span', 'git-stat', r.diffStat));
+    list.appendChild(top);
+
+    // 2) 工作区变更（最多 60 条，主进程已截断）
+    list.appendChild(el('div', 'git-sec', '变更 · ' + (r.changes.length || '无')));
+    if (!r.changes.length) empty('工作区干净（没有未提交的改动）');
+    r.changes.forEach((c) => {
+      const row = el('div', 'git-row');
+      row.appendChild(el('span', 'git-code ' + codeClass(c.code), c.code));
+      const p = el('span', 'git-path', c.path);
+      p.title = c.path;
+      row.appendChild(p);
+      list.appendChild(row);
+    });
+
+    // 3) 最近提交
+    list.appendChild(el('div', 'git-sec', '最近提交 · ' + (r.commits.length || '无')));
+    if (!r.commits.length) empty('还没有提交');
+    r.commits.forEach((c) => {
+      const row = el('div', 'git-row');
+      row.appendChild(el('span', 'git-hash', c.hash));
+      const s = el('span', 'git-subj', c.subject);
+      s.title = c.date + ' · ' + c.subject;
+      row.appendChild(s);
+      list.appendChild(row);
+    });
+  }
+
+  btn.addEventListener('click', load);
+  load();
+  return () => { dead = true; };
+};

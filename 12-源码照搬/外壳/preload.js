@@ -94,6 +94,12 @@ contextBridge.exposeInMainWorld('app', {
       disks: () => ipcRenderer.invoke('kun:sys:disks'),
       load: () => ipcRenderer.invoke('kun:sys:load')
     },
+    // ---- git 面板（程序开发场景，只读）：分支 / 工作区变更 / 最近提交 ----
+    // 只读能力：不 add / commit / push；提交仍由会话按项目的 doc\提交准则.md 走。
+    // 缺这个命名空间 = 主进程/预加载还是旧的 ⇒ 面板显示「重启一次工作台」，不会白屏。
+    git: {
+      panel: (repo) => ipcRenderer.invoke('kun:git:panel', repo)
+    },
     // ---- 本地抠图（2026-10-20 宿主：「智能抠图做成本地工具」）----
     // 引擎 = <工作台>\工具\抠图\venv 里的 rembg（离线，图片不出本机）；status 看引擎/模型在不在。
     // 缺这个命名空间 = 主进程还是旧的 ⇒ 要重启一次工作台才有。

@@ -5811,3 +5811,23 @@ html[data-theme="dark"] .kneu-ds { color: rgba(255, 255, 255, .60); }
 html[data-theme="dark"] .kneu-dp { color: #8fb4ff; }
 html[data-theme="dark"] .kneu-legend { color: rgba(255, 255, 255, .55); }
 html[data-theme="dark"] .kneu-dot { box-shadow: 0 0 5px rgba(255, 255, 255, .22); }
+
+/* ---- git 面板（程序开发场景）：只读看板 ---- */
+.git-wrap { height: 100%; display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; overflow: hidden; font-size: 12px; }
+.git-bar { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.git-btn { flex: none; border: 1px solid var(--line, rgba(128,128,128,.35)); background: transparent; color: inherit; border-radius: 6px; padding: 1px 7px; cursor: pointer; font-size: 12px; line-height: 1.5; }
+.git-btn:hover { background: var(--hover, rgba(128,128,128,.12)); }
+.git-repo { color: var(--text-dim, #888); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.git-list { flex: 1 1 auto; overflow: auto; display: flex; flex-direction: column; gap: 4px; min-height: 0; }
+.git-branch { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.git-badge { font-weight: 600; font-size: 12.5px; }
+.git-ahead, .git-behind, .git-stat { font-size: 11px; color: var(--text-dim, #888); }
+.git-sec { margin-top: 6px; font-size: 11px; color: var(--text-dim, #888); border-bottom: 1px solid var(--line, rgba(128,128,128,.25)); padding-bottom: 2px; }
+.git-row { display: flex; gap: 6px; align-items: baseline; min-width: 0; }
+.git-code { flex: none; width: 1.5em; text-align: center; font-weight: 600; color: var(--text-dim, #888); font-family: ui-monospace, Consolas, monospace; }
+.git-code.is-mod { color: #b7791f; }
+.git-code.is-new { color: #2f855a; }
+.git-code.is-del { color: #c53030; }
+.git-path, .git-subj { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.git-hash { flex: none; color: var(--text-dim, #888); font-family: ui-monospace, Consolas, monospace; font-size: 11px; }
+.git-empty { color: var(--text-dim, #888); font-size: 11px; line-height: 1.7; padding: 4px 0; white-space: pre-wrap; }
