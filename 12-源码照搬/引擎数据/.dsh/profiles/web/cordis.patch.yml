@@ -1,4 +1,8 @@
-# 公开模板 patch：只挂「启动动画」
-- insert:
-    - id: boot-anim-host
-      name: dsh-plugin-boot-anim
+# 公开模板 patch：只保留需要覆盖的配置项（当前仅「设置页公告版本」）
+#   ⛔ 启动动画插件（dsh-boot-anim / @ljwei-stak/dsh-boot-animation）2026-11-10 已弃用：
+#      依赖与 bundles 均已清空，这里不要再手写 boot-anim 的 insert —— 名字对不上
+#      package.json 的 name 就会 ERR_MODULE_NOT_FOUND，每次启动刷一条 did not activate。
+- id: ui-settings-general
+  name: "@deepseek-ai/dsh-client-ui-settings-general"
+  config:
+    welcomeNoticeVersion: 2026-09-28.1
