@@ -9,12 +9,15 @@
 //   node 外壳\scripts\接入项目.mjs --root "D:\..." --name "显示名" --scene code-dev
 //   node 外壳\scripts\接入项目.mjs --root "D:\..." --no-bind     只建会话，不写面板
 //   node 外壳\scripts\接入项目.mjs --root "D:\..." --dry         只查不改
+//   node 外壳\scripts\接入项目.mjs --root "D:\..." --memory-only 只补项目记忆与登记（给已接入的项目补业务记忆）
 //
-// 做了三件事：
+// 做了四件事：
 //   1) 查 引擎数据\.dsh\storages\workspace.json：该项目的工作区没有就调 workspace/create 建一个；
 //   2) session/create 挂到该工作区 → session/rename 成项目名（侧栏分组与标题都因此对得上）；
-//   3) 把 sessionId / sessionTitle / pinTarget 写进 scenarios\<scene>.json 的 AI 面板。
-//   4) 打印第 4–5 步（项目规范 0–8 步、项目记忆与 _共享记忆\项目.json 登记）——那两步要人/AI 判断，脚本不替你做。
+//   3) 把 sessionId / sessionTitle / pinTarget 写进 scenarios\<scene>.json 的 AI 面板；
+//   4) 建 项目记忆\<项目>.md 骨架（状态区 + 业务区）并把 项目.json 的 memory 指过去——
+//      业务记忆按项目隔离，场景私有记忆只放跨项目规矩。
+//   项目规范（0–8 步）不替你做，脚本最后打印步骤。
 //
 // 前置：工作台在跑（3083），且 shell 的 server.log 里有带 token 的地址（启动.vbs 会写）。
 
@@ -38,6 +41,7 @@ const rootArg = val('--root', '');
 const scene = val('--scene', 'code-dev');
 const dry = has('--dry');
 const bind = !has('--no-bind');
+const memoryOnly = has('--memory-only');
 if (!rootArg) {
   console.error('用法：node 外壳\\scripts\\接入项目.mjs --root "<项目根目录>" [--name 名字] [--scene code-dev] [--no-bind] [--dry]');
   process.exit(2);
@@ -52,6 +56,77 @@ if (!fs.existsSync(root)) { console.error('✗ 目录不存在：' + root); proc
 const say = (s) => console.log(s);
 const WS_FILE = path.join(DSH_HOME, 'storages', 'workspace.json');
 const SCEN_FILE = path.join(SHELL, 'scenarios', scene + '.json');
+
+// ── 项目记忆（业务记忆隔离）：一项目一份 + 登记到 项目.json 的 memory ──
+//   为什么：不同项目领域不同，业务知识（术语 / 数据来源 / 契约）只该被该项目读到；
+//   场景私有记忆是共享区，只放跨项目规矩。
+const SCENE_DIR = { 'code-dev': '程序开发' }[scene] || scene;
+const MEMROOT = path.join(DSH_HOME, '场景记忆');
+const PM_DIR = path.join(MEMROOT, SCENE_DIR, '项目记忆');
+const PJ_FILE = path.join(MEMROOT, '_共享记忆', '项目.json');
+
+function ensureProjectMemory() {
+  fs.mkdirSync(PM_DIR, { recursive: true });
+  const file = path.join(PM_DIR, name + '.md');
+  if (fs.existsSync(file)) {
+    say('• 项目记忆已存在，保持不动：' + path.relative(PROJECT, file));
+  } else {
+    const today = new Date().toISOString().slice(0, 10);
+    const body = [
+      '# ' + name + ' · 项目记忆',
+      '',
+      '> 项目根：`' + root + '`｜场景：' + SCENE_DIR + '（' + scene + '）｜建单：' + today,
+      '> **业务记忆只住这里**：术语 / 数据来源 / 契约 / 领域规则都写本文件；跨项目规矩去 场景私有记忆。',
+      '',
+      '## 状态区',
+      '',
+      '- **状态**：进行中',
+      '- **一句话**：（待补：这个项目是什么、做到哪了）',
+      '- **成果/证据**：（待补：产物路径、版本、验收结论）',
+      '- **下一步**：（待补）',
+      '- **已有档案**：（待补：README / 设计文档路径）',
+      '',
+      '## 一、领域与术语',
+      '',
+      '- 业务域：（待补）',
+      '- 专有名词与口径：（待补）',
+      '- 边界：不负责什么（待补）',
+      '',
+      '## 二、数据来源与业务规则',
+      '',
+      '- 数据从哪来：（待补：表 / 接口 / 文件）',
+      '- 谁维护：（待补）',
+      '- 脏字段与例外：（待补）',
+      '',
+      '## 三、接口与契约',
+      '',
+      '- （待补：对外接口、字段含义、跨端约定、版本）',
+      '',
+      '## 四、决策与坑（只追加）',
+      '',
+      '- ' + today + '：（待补）',
+    ].join('\r\n') + '\r\n';
+    fs.writeFileSync(file, body, 'utf8');
+    say('✓ 项目记忆骨架：' + path.relative(PROJECT, file));
+  }
+  try {
+    const reg = fs.existsSync(PJ_FILE) ? JSON.parse(fs.readFileSync(PJ_FILE, 'utf8')) : { projects: [] };
+    reg.projects = Array.isArray(reg.projects) ? reg.projects : [];
+    let it = reg.projects.find((p) => p && ((p.paths || []).some((x) => norm(x) === norm(root)) || p.name === name));
+    if (!it) { it = { name, paths: [root], owner: SCENE_DIR, status: 'active', aliases: [] }; reg.projects.push(it); }
+    it.memory = file;
+    fs.writeFileSync(PJ_FILE, JSON.stringify(reg, null, 1) + '\n', 'utf8');
+    say('✓ 项目.json：' + name + ' 的 memory 指向该文件');
+  } catch (e) { say('⚠ 项目.json 未更新：' + e.message); }
+}
+
+if (memoryOnly) {
+  say('项目根：' + root);
+  say('项目名：' + name);
+  ensureProjectMemory();
+  say('\n--memory-only：只建/补项目记忆与登记，没有动工作区与会话。');
+  process.exit(0);
+}
 
 // ── 1) 工作区：先查登记表，没有再走 RPC ──
 function findWorkspace() {
@@ -142,11 +217,12 @@ if (!bind) {
   say('✓ 已回写 ' + path.basename(SCEN_FILE) + ' 的 AI 面板（sessionTitle / sessionId / pinTarget）');
 }
 
-// ── 5) 交回给人/AI 的两步 ──
+// ── 5) 项目记忆（业务记忆隔离）+ 交回给人/AI 的一步 ──
+ensureProjectMemory();
+
 say('\n接下来（脚本不替你做，需要判断）：');
 say('  ① 项目规范：按 ~/.dsh/standards 的「迁移到具体项目 0–8 步」生成');
 say('     <项目>\\AGENTS.md + doc\\提交准则.md + doc\\迁移报告.md（写「规范基线 <commit>」）');
-say('  ② 项目记忆：引擎数据\\.dsh\\场景记忆\\程序开发\\项目记忆\\' + name + '.md（长期决策/坑/上线记录）');
-say('     并在 _共享记忆\\项目.json 登记一条（命令场景的记忆神经元会读它）');
-say('  ③ 验收：node 外壳\\scripts\\sessions.mjs --check  然后顶栏 ⟳ 切到「程序开发」');
+say('  ② 填项目记忆的业务区（领域与术语 / 数据来源与业务规则 / 接口与契约）——这三节是隔离的关键');
+say('  ③ 验收：node 外壳\\scripts\\sessions.mjs --check  与  node 工具\\场景记忆.mjs check --场景 程序开发');
 say('\nsessionId = ' + sessionId);

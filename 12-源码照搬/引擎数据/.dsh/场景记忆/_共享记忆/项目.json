@@ -1,15 +1,16 @@
 {
- "projects": [
-  {
-   "name": "luanyujia-workbench",
-   "paths": [
-    "D:\\codeData\\myself\\luanyujia-workbench"
-   ],
-   "owner": "程序开发",
-   "status": "active",
-   "aliases": [
-    "工作台本体"
-   ]
-  }
- ]
+    "projects":  [
+                     {
+                         "name":  "luanyujia-workbench",
+                         "paths":  [
+                                       "D:\\codeData\\myself\\luanyujia-workbench"
+                                   ],
+                         "owner":  "程序开发",
+                         "status":  "active",
+                         "aliases":  [
+                                         "工作台本体"
+                                     ],
+                         "memory":  "D:\\codeData\\myself\\luanyujia-workbench\\12-源码照搬\\引擎数据\\.dsh\\场景记忆\\程序开发\\项目记忆\\luanyujia-workbench.md"
+                     }
+                 ]
 }

@@ -553,6 +553,24 @@ function cmdCheck(name) {
     if (pmCount > 0 && /\|\s*（暂无）\s*\|/.test(seg0)) warns.push('当前项目表写“暂无”，但项目记忆有 ' + pmCount + ' 份（表需更新）')
     if ((pmCount > 0 || hasOld) && /### 2\) 当前项目[\s\S]{0,120}?（暂无）/.test(seg0) && /### 3\)[\s\S]{0,40}?-\s*\n/.test(seg0)) warns.push('§〇 仍是空骨架（项目表暂无 + 变更/下一步为空）')
   }
+  // 项目记忆隔离（2026-11-10）：一个项目一份，必须有业务区（领域 / 数据来源）；
+  // 场景私有记忆只放跨项目规矩——里面出现项目名就等于业务知识串到了共享区（只告警，不阻断）
+  {
+    const pmDir = path.join(dir, '项目记忆')
+    const pmFiles = fs.existsSync(pmDir) ? fs.readdirSync(pmDir).filter((x) => x.endsWith('.md')) : []
+    for (const f of pmFiles) {
+      const body = fs.readFileSync(path.join(pmDir, f), 'utf8')
+      if (!/^#{1,4}[^\n]*领域/m.test(body)) problems.push('项目记忆 ' + f + ' 缺「领域」小节（业务域 / 术语 / 边界）')
+      if (!/^#{1,4}[^\n]*数据来源/m.test(body)) problems.push('项目记忆 ' + f + ' 缺「数据来源」小节（数据从哪来、谁维护、哪些字段脏）')
+    }
+    if (pmFiles.length) ok.push('项目记忆 ' + pmFiles.length + ' 份（含业务区）')
+    const names = pmFiles.map((f) => f.replace(/\.md$/, '')).filter(Boolean)
+    const shared = main
+      .replace(/## §〇[\s\S]*?(?=\n## )/, '')
+      .replace(/## 八、项目索引[\s\S]*$/, '')
+    const leaked = names.filter((n) => shared.includes(n))
+    if (leaked.length) warns.push('场景私有记忆里出现项目名（' + leaked.join('、') + '）：业务知识应写 项目记忆\\<项目>.md，这里只放跨项目规矩')
+  }
   if (sec0Bytes > 4096) problems.push('§〇 ' + sec0Bytes + ' B 超 4 KB（红线 4096）')
   const mainBytes = Buffer.byteLength(main)
   if (mainBytes > 25600) warns.push('主文件 ' + (mainBytes / 1024).toFixed(1) + ' KB 超 25 KB（红线，搬旧内容进 归档\\ 并留指针）')
