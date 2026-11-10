@@ -103,6 +103,7 @@ contextBridge.exposeInMainWorld('app', {
       diff: (repo, file) => ipcRenderer.invoke('kun:git:diff', repo, file),
       show: (repo, hash) => ipcRenderer.invoke('kun:git:show', repo, hash),
       checkout: (repo, rev, opts) => ipcRenderer.invoke('kun:git:checkout', repo, rev, opts),
+      commit: (repo, files, message, opts) => ipcRenderer.invoke('kun:git:commit', repo, files, message, opts),
       // 切分支 / 拉远程：写操作（只动工作区）。工作区脏时主进程默认拒绝，传 {force:true} 才继续。
       switch: (repo, name, opts) => ipcRenderer.invoke('kun:git:switch', repo, name, opts),
       fetch: (repo) => ipcRenderer.invoke('kun:git:fetch', repo)

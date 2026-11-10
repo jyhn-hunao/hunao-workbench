@@ -5935,3 +5935,13 @@ html[data-theme="dark"] .kneu-dot { box-shadow: 0 0 5px rgba(255, 255, 255, .22)
 .g-menu-item.is-off { opacity: .42; cursor: default; }
 .g-menu-item.is-off:hover { background: transparent; }
 .g-menu-sep { height: 1px; margin: 4px 6px; background: var(--line, rgba(128,128,128,.25)); }
+
+.g-chead { display: flex; align-items: center; gap: 8px; height: 26px; padding: 0 10px; border-bottom: 1px solid var(--line, rgba(128,128,128,.18)); color: var(--text-dim, #888); font-size: 11px; }
+.g-ck { width: 13px; height: 13px; margin: 0; flex: none; cursor: pointer; accent-color: #2f6feb; }
+.g-commitbox { border-top: 1px solid var(--line, rgba(128,128,128,.22)); padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; }
+.g-msginput { width: 100%; box-sizing: border-box; resize: vertical; min-height: 52px; max-height: 140px; border: 1px solid var(--line, rgba(128,128,128,.3)); border-radius: 6px; background: transparent; color: inherit; font: inherit; font-size: 12px; line-height: 1.5; padding: 6px 8px; outline: none; }
+.g-msginput:focus { border-color: var(--accent, #2f6feb); }
+.g-acts { display: flex; align-items: center; gap: 6px; }
+.g-acts-l { display: flex; align-items: center; gap: 5px; margin-right: auto; color: var(--text-dim, #888); font-size: 11.5px; }
+.g-acts-t { user-select: none; }
+.g-primary { border-color: var(--accent, #2f6feb); background: rgba(47,111,235,.14); font-weight: 600; }

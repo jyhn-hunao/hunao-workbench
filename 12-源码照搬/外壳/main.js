@@ -5068,3 +5068,50 @@ ipcMain.handle('kun:git:checkout', async (_e, repo, rev, opts) => {
   if (!r.ok) return { ok: false, err: String(r.err || '').trim() || 'checkout 失败' };
   return { ok: true, rev: target, dirty };
 });
+
+// ---- git commit / commit and push（IDEA Local Changes 的提交区）----
+//   只提交勾选的路径：先 git add -A -- <paths>，再 git commit -F <msg> -- <paths>，
+//   这样不会把别人已暂存的内容带进来。消息按提交准则校验 type(scope): 中文摘要。
+ipcMain.handle('kun:git:commit', async (_e, repo, files, message, opts) => {
+  const dir = String(repo || '').trim();
+  const o = opts || {};
+  const paths = (Array.isArray(files) ? files : []).map(String).filter(Boolean);
+  const msg = String(message || '').trim();
+  if (!dir) return { ok: false, err: '缺少仓库路径' };
+  if (!fs.existsSync(dir)) return { ok: false, err: '仓库目录不存在：' + dir };
+  if (!paths.length) return { ok: false, err: '没有勾选要提交的文件' };
+  if (!msg && !o.amend) return { ok: false, err: '提交信息不能为空' };
+  if (msg && !/^(feat|fix|docs|style|refactor|perf|test|build|chore|revert)(\([^)]+\))?: \S/.test(msg)) {
+    return { ok: false, err: '提交信息要写成 type(scope): 中文摘要；type 取 feat/fix/docs/style/refactor/perf/test/build/chore/revert' };
+  }
+  const run = (args) => new Promise((resolve) => {
+    execFile('git', ['-c', 'core.quotepath=false', '--no-optional-locks', '-C', dir, ...args],
+      { windowsHide: true, maxBuffer: 16 << 20, timeout: 120000 },
+      (err, stdout, stderr) => resolve({ ok: !err, out: String(stdout || ''), err: String(stderr || (err && err.message) || '') }));
+  });
+  const add = await run(['add', '-A', '--', ...paths]);
+  if (!add.ok) return { ok: false, err: String(add.err || '').trim() || 'git add 失败' };
+  const msgFile = path.join(os.tmpdir(), 'dsh-git-msg-' + Date.now() + '.txt');
+  fs.writeFileSync(msgFile, msg, 'utf8');
+  const args = ['commit'];
+  if (msg) args.push('-F', msgFile);
+  else args.push('--no-edit');
+  if (o.amend) args.push('--amend');
+  args.push('--', ...paths);
+  const c = await run(args);
+  try { fs.unlinkSync(msgFile); } catch (e) { /* 删不掉不影响结果 */ }
+  if (!c.ok) return { ok: false, err: String(c.err || '').trim() || 'git commit 失败' };
+  let pushed = null;
+  let pushErr = '';
+  if (o.push) {
+    const br = await run(['rev-parse', '--abbrev-ref', 'HEAD']);
+    const branch = String(br.out || '').trim();
+    if (!branch || branch === 'HEAD') return { ok: true, pushed: false, pushErr: '当前是 detached HEAD，不能 push' };
+    const up = await run(['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}']);
+    const hasUp = up.ok && String(up.out || '').trim();
+    const p = hasUp ? await run(['push']) : await run(['push', '-u', 'origin', branch]);
+    pushed = !!p.ok;
+    pushErr = p.ok ? '' : (String(p.err || '').trim() || 'git push 失败');
+  }
+  return { ok: true, pushed: pushed, pushErr: pushErr };
+});

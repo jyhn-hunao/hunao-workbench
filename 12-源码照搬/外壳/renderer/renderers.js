@@ -18879,6 +18879,7 @@ renderers.git = function (body, meta) {
   wrap.appendChild(pop);
 
   var dead = false, data = null, tab = 'changes', sel = '', detail = null, busy = false, picker = false;
+  var picked = {}, draftMsg = '', amendOn = false, committing = false;
   function api() { return (window.app && window.app.git) || null; }
   function msg(t) { var d = el('div', 'g-msg', t); wrap.appendChild(d); setTimeout(function () { if (d.parentNode) d.remove(); }, 6000); }
   function codeCls(c) { return c === 'M' ? 'is-mod' : ((c === 'A' || c === '?' || c === 'U') ? 'is-new' : (c === 'D' ? 'is-del' : (c === 'R' ? 'is-ren' : ''))); }
@@ -18886,19 +18887,88 @@ renderers.git = function (body, meta) {
   /* ---------- 变更 ---------- */
   function renderChanges() {
     paneChanges.innerHTML = '';
-    var list = el('div', 'g-list');
     var ch = (data && data.changes) || [];
     if (!ch.length) { paneChanges.appendChild(el('div', 'g-empty', '工作区干净 —— 没有未提交的改动')); return; }
+
+    var head = el('div', 'g-chead');
+    var ckAll = document.createElement('input');
+    ckAll.type = 'checkbox';
+    ckAll.className = 'g-ck';
+    ckAll.checked = ch.every(function (c) { return picked[c.path] !== false; });
+    ckAll.addEventListener('change', function () { ch.forEach(function (c) { picked[c.path] = ckAll.checked; }); renderChanges(); });
+    head.appendChild(ckAll);
+    head.appendChild(el('span', 'g-chead-t', '全选 · ' + ch.length + ' 个文件'));
+    paneChanges.appendChild(head);
+
+    var list = el('div', 'g-list');
     ch.forEach(function (c) {
       var row = el('div', 'g-file');
+      var ck = document.createElement('input');
+      ck.type = 'checkbox';
+      ck.className = 'g-ck';
+      ck.checked = picked[c.path] !== false;
+      ck.addEventListener('click', function (e) { e.stopPropagation(); });
+      ck.addEventListener('change', function () { picked[c.path] = ck.checked; });
+      row.appendChild(ck);
       row.appendChild(el('span', 'g-st ' + codeCls(c.code), c.code === '?' ? 'U' : c.code));
       row.appendChild(el('span', 'g-path', c.path));
-      row.title = c.path + '\n（点击在预览里看这份 diff）';
+      row.title = c.path + '（点行在预览里看 diff；勾选框决定是否提交）';
       row.addEventListener('click', function () { openDiff(c.path, row); });
       list.appendChild(row);
     });
     paneChanges.appendChild(list);
-    paneChanges.appendChild(el('div', 'g-foot', ch.length + ' 个文件有改动'));
+
+    var box = el('div', 'g-commitbox');
+    var ta = document.createElement('textarea');
+    ta.className = 'g-msginput';
+    ta.placeholder = 'type(scope): 中文摘要';
+    ta.rows = 3;
+    ta.value = draftMsg;
+    ta.addEventListener('input', function () { draftMsg = ta.value; });
+    box.appendChild(ta);
+
+    var acts = el('div', 'g-acts');
+    var left = el('div', 'g-acts-l');
+    var am = document.createElement('input');
+    am.type = 'checkbox';
+    am.className = 'g-ck';
+    am.checked = amendOn;
+    am.addEventListener('change', function () { amendOn = am.checked; });
+    left.appendChild(am);
+    left.appendChild(el('span', 'g-acts-t', 'Amend'));
+    acts.appendChild(left);
+
+    var bCommit = el('button', 'g-btn', 'Commit');
+    var bPush = el('button', 'g-btn g-primary', 'Commit and Push');
+    if (committing) { bCommit.classList.add('g-busy'); bPush.classList.add('g-busy'); }
+    bCommit.addEventListener('click', function () { doCommit(false); });
+    bPush.addEventListener('click', function () { doCommit(true); });
+    acts.appendChild(bCommit);
+    acts.appendChild(bPush);
+    box.appendChild(acts);
+    paneChanges.appendChild(box);
+  }
+
+  async function doCommit(push) {
+    var a = api();
+    if (!a || !a.commit) { msg('这次启动的界面还没有提交能力 ⇒ 重启一次工作台'); return; }
+    if (committing) return;
+    var files = ((data && data.changes) || []).filter(function (c) { return picked[c.path] !== false; }).map(function (c) { return c.path; });
+    if (!files.length) { msg('先勾选要提交的文件'); return; }
+    var message = String(draftMsg || '').trim();
+    if (!message && !amendOn) { msg('提交信息不能为空（或用 Amend 复用上一条）'); return; }
+    committing = true;
+    renderChanges();
+    var res = null;
+    try { res = await a.commit(repo, files, message, { amend: amendOn, push: push }); } catch (e) { res = { ok: false, err: String((e && e.message) || e) }; }
+    committing = false;
+    if (!res || !res.ok) { renderChanges(); msg('✗ ' + ((res && res.err) || '提交失败')); return; }
+    draftMsg = '';
+    picked = {};
+    amendOn = false;
+    await load();
+    setTab('log');
+    msg(push ? (res.pushed ? '已提交并推送' : '已提交，推送失败：' + res.pushErr) : '已提交');
   }
 
   /* ---------- 历史 ---------- */
