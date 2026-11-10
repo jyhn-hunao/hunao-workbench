@@ -1,0 +1,55 @@
+{
+  "id": "code-dev",
+  "name": "程序开发",
+  "description": "程序开发：写代码的统一入口，一个场景挂多个项目——AI 面板钉的是「当前项目」那条会话（会话 cwd = 项目根，所以那个仓的 AGENTS.md 自动生效）。上排左 = 预览（md/代码/图片/PDF），上排右 = 文件树（默认 D:），下排 = AI。换项目 = 换会话（node 外壳\\scripts\\接入项目.mjs），不是换场景。",
+  "layout": "grid",
+  "theme": "dark",
+  "cols": 4,
+  "panels": [
+    {
+      "id": "cd-view",
+      "title": "预览",
+      "sub": "点右边的文件就在此预览；只读，不改任何文件",
+      "type": "view",
+      "home": true,
+      "homeFolders": [
+        "D:\\codeData"
+      ],
+      "filesPanel": "cd-files",
+      "col": 1,
+      "row": 1,
+      "w": 3,
+      "h": 3
+    },
+    {
+      "id": "cd-files",
+      "title": "文件",
+      "sub": "D: · 代码目录",
+      "type": "file",
+      "mode": "local",
+      "drives": [
+        "D:"
+      ],
+      "viewPanel": "cd-view",
+      "col": 4,
+      "row": 1,
+      "w": 1,
+      "h": 3
+    },
+    {
+      "id": "cd-ai",
+      "title": "AI·程序开发",
+      "sub": "",
+      "type": "harness",
+      "sessionTitle": "luanyujia-workbench",
+      "sessionId": "session-05b703f9-1574-487a-be12-cdef4491858f",
+      "pinTarget": ["luanyujia-workbench", "程序开发"],
+      "expand": true,
+      "col": 1,
+      "row": 4,
+      "w": 4,
+      "h": 3
+    }
+  ],
+  "first": false
+}
