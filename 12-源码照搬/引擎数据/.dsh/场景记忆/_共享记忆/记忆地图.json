@@ -27,6 +27,13 @@
    "privateMemory": [
     "本地电脑\\场景私有记忆.md"
    ]
+  },
+  {
+   "panel": "cd-ai",
+   "scene": "程序开发",
+   "privateMemory": [
+    "程序开发\\场景私有记忆.md"
+   ]
   }
  ]
 }

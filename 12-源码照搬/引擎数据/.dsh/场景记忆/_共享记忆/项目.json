@@ -1,3 +1,15 @@
 {
- "projects": []
+ "projects": [
+  {
+   "name": "luanyujia-workbench",
+   "paths": [
+    "D:\\codeData\\myself\\luanyujia-workbench"
+   ],
+   "owner": "程序开发",
+   "status": "active",
+   "aliases": [
+    "工作台本体"
+   ]
+  }
+ ]
 }
