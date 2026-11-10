@@ -17,17 +17,24 @@ _临时/
 引擎数据/.dsh/.credentials.yaml
 引擎数据/.dsh/.anonymous-user-id
 
-# 工作台运行时
-外壳/data/electron-profile/
-外壳/data/crash-state.json
-外壳/data/start-guard.json
-外壳/data/updater-state.json
-外壳/data/version-policy-state.json
-外壳/data/windows.json
-外壳/data/sidebar-state.json
-外壳/data/boot-preview.json
+# 工作台运行时（整个 data/ 都是本机生成的：浏览器 profile、崩溃日志、扫描快照，不入库）
+外壳/data/
 外壳/server.log
 外壳/captures/
+
+# 外部引擎整目录（升级＝整目录替换，不入库；含 @deepseek-ai 第三方包与 >100MB 的二进制）
+引擎/
+
+# 引擎运行时缓存（不是配置，随启动变化）
+引擎数据/.dsh/llm-deepseek/
+
+# 排障残留（ACL 修复备份 / 诊断报告）
+_acl-recovery/
+
+# 包管理器产物（本仓不跟踪锁文件；确定用 npm 还是 pnpm 后再入库并摘掉这三行）
+外壳/package-lock.json
+外壳/pnpm-lock.yaml
+外壳/pnpm-workspace.yaml
 
 # 记忆内部层（保留骨架，不提交个人内容）
 引擎数据/.dsh/场景记忆/*/归档/*.md
