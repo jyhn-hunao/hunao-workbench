@@ -53,8 +53,11 @@ if (dry) { say('\n--dry：以上只是查了工作区，没有建会话。去掉
 
 // ── token → 签名 cookie（必须 redirect:'manual'，跟随后反而 401）──
 const LOG = process.env.DSH_LOG || path.join(root, 'server.log');
+// token 正则跟随 BASE 的端口（原来写死 3080：引擎默认跑 3083 时取不到 token）
+const PORT = (() => { try { return new URL(BASE).port || '80'; } catch (e) { return ''; } })();
 const toks = fs.existsSync(LOG)
-  ? [...fs.readFileSync(LOG, 'utf8').matchAll(/dsh web:\s*http:\/\/127\.0\.0\.1:3080\/\?token=([A-Za-z0-9_\-]{16,})/g)].map((m) => m[1]).reverse()
+  ? [...fs.readFileSync(LOG, 'utf8').matchAll(/dsh web:\s*http:\/\/127\.0\.0\.1:(\d+)\/\?token=([A-Za-z0-9_\-]{16,})/g)]
+      .filter((m) => !PORT || m[1] === PORT).map((m) => m[2]).reverse()
   : [];
 let cookie = '';
 for (const t of toks.slice(0, 3)) {

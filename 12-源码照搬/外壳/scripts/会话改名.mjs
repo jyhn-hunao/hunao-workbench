@@ -2,6 +2,7 @@
 // 用法：node 会话改名.mjs <sessionId> "<新标题>"
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const [sid, title] = process.argv.slice(2);
 if (!sid || !title) {
@@ -11,11 +12,19 @@ if (!sid || !title) {
 const BASE = process.env.DSH_GUI_BASE || 'http://127.0.0.1:3080';
 const DSH_HOME = process.env.DSH_HOME || '<盘根>:/DSH/引擎/.dsh';
 // token 在「外壳」的 server.log 里（不是 引擎 目录）；两个位置都试
-const LOG = ['<盘根>:/DSH/外壳/server.log', path.join(path.dirname(DSH_HOME), 'server.log')]
-  .find((p) => fs.existsSync(p)) || '';
+const SELF_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');   // 本仓 = 外壳\
+const LOG = [
+  process.env.DSH_LOG,
+  path.join(SELF_ROOT, 'server.log'),
+  '<盘根>:/DSH/外壳/server.log',
+  path.join(path.dirname(DSH_HOME), '外壳', 'server.log'),
+].find((x) => x && fs.existsSync(x)) || '';
 
+// token 正则跟随 BASE 的端口（原来写死 3080：引擎默认跑 3083 时取不到 token）
+const PORT = (() => { try { return new URL(BASE).port || '80'; } catch (e) { return ''; } })();
 const toks = fs.existsSync(LOG)
-  ? [...fs.readFileSync(LOG, 'utf8').matchAll(/dsh web:\s*http:\/\/127\.0\.0\.1:3080\/\?token=([A-Za-z0-9_\-]{16,})/g)].map((m) => m[1]).reverse()
+  ? [...fs.readFileSync(LOG, 'utf8').matchAll(/dsh web:\s*http:\/\/127\.0\.0\.1:(\d+)\/\?token=([A-Za-z0-9_\-]{16,})/g)]
+      .filter((m) => !PORT || m[1] === PORT).map((m) => m[2]).reverse()
   : [];
 let cookie = '';
 for (const t of toks.slice(0, 3)) {
