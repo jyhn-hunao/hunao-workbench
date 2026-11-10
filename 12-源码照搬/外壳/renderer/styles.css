@@ -5709,80 +5709,105 @@ html[data-theme="light"] .init-error { color: var(--err); }
     filter: none !important;
   }
 }
+/* ---------- ⑫ 记忆神经元（「命令」场景）：浅色画在纸上 / 深色仍是星空 ----------
+   画布颜色在 renderers.neuron 的 KNEU_LIGHT / KNEU_DARK（节点配色 COLOR / COLOR_LIGHT）里；
+   这里只管 HUD 的玻璃层与文字，两套主题各一份。
+   ⚠ 别再把 HUD 写死成"深色玻璃"：浅色主题下画布是白纸，深色玻璃会像贴了块黑补丁。 */
 
-/* ---------- ⑫ 深色舞台：记忆神经元 HUD（「命令」场景） ----------
-   这块是**有意保留的深色面**：3D 画布画的是星空，节点/连线配色写死在 renderers.neuron 的
-   COLOR 表里（#7fe3ff / #8fb4ff / #3ddc84…），都是为深底调的，硬翻成浅色会全糊。
-   所以 HUD 一律走「深色玻璃 + 固定浅色字」，**不跟主题令牌**：
-   否则浅色主题下 var(--text) 变成近黑，字直接糊在深底上看不见（本次实测：按钮、统计、
-   详情卡标题全看不见，搜索框还被全局输入框规则刷成白底）。 */
-html[data-theme] .kneu-wrap {
+/* 几何：两套主题共用 */
+html[data-theme] .kneu-searchwrap { border: 0; border-radius: 999px; padding: 4px 12px; gap: 7px; }
+html[data-theme] .kneu-search { background: transparent; border: 0; box-shadow: none; font-size: 12px; }
+html[data-theme] .kneu-search:focus { box-shadow: none; }
+html[data-theme] .kneu-btn { border: 0; border-radius: 999px; padding: 4px 11px; font-size: 11.5px; }
+html[data-theme] .kneu-detail { border: 0; border-radius: 12px; }
+html[data-theme] .kneu-dp { font-family: var(--mono); font-size: 10.5px; line-height: 1.5; }
+html[data-theme] .kneu-dt { font-size: 12.5px; font-weight: 600; }
+
+/* —— 浅色：纸面（白 → #fafafa）+ 白玻璃 HUD，节点是深色实心点 —— */
+html[data-theme="light"] .kneu-wrap {
+  background: radial-gradient(120% 90% at 50% 45%, #ffffff 0%, #fafafa 72%);
+  box-shadow: inset 0 0 0 1px rgba(16, 24, 40, .05);
+}
+html[data-theme="light"] .kneu-searchwrap {
+  background: rgba(255, 255, 255, .92);
+  box-shadow: inset 0 0 0 1px rgba(16, 24, 40, .09), 0 1px 2px rgba(16, 24, 40, .05);
+}
+html[data-theme="light"] .kneu-searchico { color: #94a3b8; }
+html[data-theme="light"] .kneu-search { color: #171717; }
+html[data-theme="light"] .kneu-search::placeholder { color: #9ca3af; opacity: 1; }
+html[data-theme="light"] .kneu-stat {
+  color: #6b6b6b;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, .85);   /* 压在节点/线上时仍然读得清 */
+}
+html[data-theme="light"] .kneu-seg.ok { color: #0f7b48; }
+html[data-theme="light"] .kneu-seg.bad { color: #b91c1c; }
+html[data-theme="light"] .kneu-btn {
+  background: rgba(255, 255, 255, .92);
+  color: #334155;
+  box-shadow: inset 0 0 0 1px rgba(16, 24, 40, .09), 0 1px 2px rgba(16, 24, 40, .04);
+}
+html[data-theme="light"] .kneu-btn:hover {
+  background: #ffffff;
+  color: #0f172a;
+  box-shadow: inset 0 0 0 1px rgba(16, 24, 40, .16), 0 1px 2px rgba(16, 24, 40, .06);
+}
+html[data-theme="light"] .kneu-btn.on {
+  background: rgba(0, 112, 243, .07);
+  color: #0070f3;
+  box-shadow: inset 0 0 0 1px rgba(0, 112, 243, .35);
+}
+html[data-theme="light"] .kneu-detail {
+  background: rgba(255, 255, 255, .94);
+  box-shadow: 0 18px 46px -14px rgba(16, 24, 40, .22), inset 0 0 0 1px rgba(16, 24, 40, .07);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+html[data-theme="light"] .kneu-dt { color: #171717; }
+html[data-theme="light"] .kneu-ds { color: #6b6b6b; }
+html[data-theme="light"] .kneu-dp { color: #0070f3; }
+html[data-theme="light"] .kneu-legend { color: #6b6b6b; }
+html[data-theme="light"] .kneu-dot { box-shadow: none; }
+
+/* —— 深色：星空 + 深色玻璃（几何同上，只换颜色） —— */
+html[data-theme="dark"] .kneu-wrap {
   background: radial-gradient(120% 90% at 50% 45%, #0b1220 0%, #05070d 72%);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, .05);
 }
-html[data-theme] .kneu-searchwrap {
+html[data-theme="dark"] .kneu-searchwrap {
   background: rgba(255, 255, 255, .07);
-  border: 0;
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .12);
-  padding: 4px 12px;
-  gap: 7px;
 }
-html[data-theme] .kneu-searchico { color: rgba(255, 255, 255, .5); }
-html[data-theme] .kneu-search {
-  background: transparent;
-  border: 0;
-  box-shadow: none;
-  color: #eef2f8;
-  font-size: 12px;
-}
-html[data-theme] .kneu-search:focus { box-shadow: none; }
-html[data-theme] .kneu-search::placeholder { color: rgba(255, 255, 255, .42); opacity: 1; }
-/* Chromium 自带的"清空"小叉在深底上是黑的，反相才看得见 */
-html[data-theme] .kneu-search::-webkit-search-cancel-button { filter: invert(1); opacity: .55; }
-
-html[data-theme] .kneu-stat {
-  color: rgba(255, 255, 255, .62);
-  text-shadow: 0 1px 2px rgba(0, 0, 0, .55);
-}
-html[data-theme] .kneu-seg.ok { color: #6fdcae; }
-html[data-theme] .kneu-seg.bad { color: #ff8b8b; }
-
-html[data-theme] .kneu-btn {
+html[data-theme="dark"] .kneu-searchico { color: rgba(255, 255, 255, .5); }
+html[data-theme="dark"] .kneu-search { color: #eef2f8; }
+html[data-theme="dark"] .kneu-search::placeholder { color: rgba(255, 255, 255, .42); opacity: 1; }
+/* Chromium 自带的"清空"小叉在深底上是黑的，反相才看得见（浅色下保持原样） */
+html[data-theme="dark"] .kneu-search::-webkit-search-cancel-button { filter: invert(1); opacity: .55; }
+html[data-theme="dark"] .kneu-stat { color: rgba(255, 255, 255, .62); text-shadow: 0 1px 2px rgba(0, 0, 0, .55); }
+html[data-theme="dark"] .kneu-seg.ok { color: #6fdcae; }
+html[data-theme="dark"] .kneu-seg.bad { color: #ff8b8b; }
+html[data-theme="dark"] .kneu-btn {
   background: rgba(255, 255, 255, .06);
   color: #eef2f8;
-  border: 0;
-  border-radius: 999px;
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .10);
-  padding: 4px 11px;
-  font-size: 11.5px;
 }
-html[data-theme] .kneu-btn:hover {
+html[data-theme="dark"] .kneu-btn:hover {
   background: rgba(255, 255, 255, .12);
   color: #ffffff;
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .18);
-  border: 0;
 }
-html[data-theme] .kneu-btn.on {
+html[data-theme="dark"] .kneu-btn.on {
   background: rgba(122, 162, 255, .18);
   color: #cfe0ff;
   box-shadow: inset 0 0 0 1px rgba(122, 162, 255, .55);
 }
-
-html[data-theme] .kneu-detail {
+html[data-theme="dark"] .kneu-detail {
   background: rgba(8, 12, 20, .90);
-  border: 0;
-  border-radius: 12px;
   box-shadow: 0 18px 46px rgba(0, 0, 0, .55), inset 0 0 0 1px rgba(255, 255, 255, .10);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
 }
-html[data-theme] .kneu-dt { color: #f4f7fb; font-size: 12.5px; font-weight: 600; }
-html[data-theme] .kneu-ds { color: rgba(255, 255, 255, .60); }
-html[data-theme] .kneu-dp {
-  color: #8fb4ff;
-  font-family: var(--mono);
-  font-size: 10.5px;
-  line-height: 1.5;
-}
-html[data-theme] .kneu-legend { color: rgba(255, 255, 255, .55); }
-html[data-theme] .kneu-dot { box-shadow: 0 0 5px rgba(255, 255, 255, .22); }
+html[data-theme="dark"] .kneu-dt { color: #f4f7fb; }
+html[data-theme="dark"] .kneu-ds { color: rgba(255, 255, 255, .60); }
+html[data-theme="dark"] .kneu-dp { color: #8fb4ff; }
+html[data-theme="dark"] .kneu-legend { color: rgba(255, 255, 255, .55); }
+html[data-theme="dark"] .kneu-dot { box-shadow: 0 0 5px rgba(255, 255, 255, .22); }

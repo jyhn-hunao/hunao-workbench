@@ -17659,6 +17659,61 @@ renderers.neuron = (body, meta, head) => {
     'mk-chat': 'content', 'sr-ai': 'content', 'pc-ai': 'ops'
   };
   const COLOR = { core: '#7fe3ff', engine: '#8fb4ff', ui: '#f0a35e', code: '#b79bff', content: '#3ddc84', ops: '#e5484d', skill: '#6f8fd6', doc: '#c9d4e6', project: '#2dd4bf', memory: '#dfe7ff', source: '#8f9bb3', chain: '#ffcf6b' };
+  // ===== 2026-11-10：神经元改成「两套配色」——浅色主题下画在纸上、深色主题下仍是星空 =====
+  //   ⚠ 画布颜色全在这里，别在绘制代码里再写死 rgb：浅色下那些为深底调的高亮色（#7fe3ff 一类）
+  //     在白底上等于没有。图例小圆点也用同一份，切换主题时由 paintLegend() 重刷。
+  const COLOR_LIGHT = {
+    core: '#0070f3', engine: '#2563eb', ui: '#d97706', code: '#7c3aed', content: '#059669',
+    ops: '#dc2626', skill: '#4f46e5', doc: '#64748b', project: '#0d9488', memory: '#475569',
+    source: '#94a3b8', chain: '#b45309'
+  };
+  // 绘制用到的全部"环境色"：浅色=纸面（无背景填充、无暗角、标签白底深字），深色=原星空
+  const KNEU_LIGHT = {
+    paper: true,
+    starRGB: '15,23,42', starK: 0.045,
+    edge: { memory: '71,85,105', project: '13,148,136', dep: '2,132,199', other: '100,116,139' },
+    edgeBaseA: 0.28, edgeGlowK: 0.10,
+    growA: '2,132,199', growB: '2,132,199',
+    scanA: '2,132,199', scanB: '2,132,199',
+    flashA: '2,132,199', flashB: '2,132,199', flashC: '2,132,199', flashK: 0.30,
+    waveA: '2,132,199', waveK: 0.30,
+    sweep0: 'rgba(2,132,199,0)', sweep1: 'rgba(2,132,199,.035)', sweep2: 'rgba(2,132,199,.10)',
+    sweepLine: '2,132,199', sweepLineK: 0.18,
+    partA: '2,132,199',
+    glowK1: 0.20, glowK2: 0.06, glowR: 2.6,
+    nodeHi: 0.40, nodeEdgeA: 0.85, glossA: 0.35,
+    ringNew: '#bfdbfe', ringCore: '#0070f3', ringRot: '#0070f3', ringSel: '#171717',
+    labelBg: '255,255,255', labelBgA: 0.82, labelBgForceA: 0.96,
+    labelFg: '#334155', labelFgForce: '#0f172a', labelDim: 'rgba(100,116,139,.45)',
+    delivery: '#d97706', archived: '#94a3b8'
+  };
+  const KNEU_DARK = {
+    paper: false,
+    starRGB: '190,215,255', starK: 0.07,
+    edge: { memory: '223,231,255', project: '45,212,191', dep: '127,227,255', other: '143,180,255' },
+    edgeBaseA: 0.22, edgeGlowK: 0.17,
+    growA: '214,242,255', growB: '120,200,255',
+    scanA: '215,235,255', scanB: '240,248,255',
+    flashA: '224,246,255', flashB: '110,200,255', flashC: '80,170,255', flashK: 1,
+    waveA: '130,214,255', waveK: 0.34,
+    sweep0: 'rgba(90,190,255,0)', sweep1: 'rgba(90,190,255,.055)', sweep2: 'rgba(180,232,255,.16)',
+    sweepLine: '190,236,255', sweepLineK: 0.22,
+    partA: '235,250,255',
+    glowK1: 0.55, glowK2: 0.16, glowR: 3.4,
+    nodeHi: 0.55, nodeEdgeA: 0.22, glossA: 0.28,
+    ringNew: '#bfe8ff', ringCore: '#7fe3ff', ringRot: '#8fd7ff', ringSel: '#cfe1ff',
+    labelBg: '6,10,18', labelBgA: 0.34, labelBgForceA: 0.62,
+    labelFg: 'rgba(226,236,255,.92)', labelFgForce: '#eaf2ff', labelDim: 'rgba(200,215,240,.35)',
+    delivery: '#f0a35e', archived: '#8b93a7'
+  };
+  function isLightTheme() {
+    try { return document.documentElement.dataset.theme === 'light'; } catch (e) { return false; }
+  }
+  function kpal() { return isLightTheme() ? KNEU_LIGHT : KNEU_DARK; }
+  function kcolor(group) {
+    return (isLightTheme() ? COLOR_LIGHT : COLOR)[group] || (isLightTheme() ? '#94a3b8' : '#94a3b8');
+  }
+
   // 项目层（2026-10-26）：不是从记忆里正则猜，而是直接列真实目录（B 盘/项目工程），归属按 area 正文里出现的名字来挂
   const PROJECT_ROOTS = P.projectRoots || [];
   // dg-dsh 审计（2026-10-26）：这 5 个是一级目录但属于「资料/介质夹」，不是项目
@@ -17706,15 +17761,27 @@ renderers.neuron = (body, meta, head) => {
   hud.appendChild(btns);
   const detail = el('div', 'kneu-detail');
   const legend = el('div', 'kneu-legend');
+  // 图例点：颜色跟主题走（画布用同一份 kcolor），切主题时 paintLegend() 重刷一遍
+  const LEGEND_KEYS = [];
+  var legendDots = [];
   [['engine', '引擎/工具'], ['ui', '界面/设计'], ['code', '代码'], ['content', '内容/业务'], ['ops', '运维/清理'], ['project', '项目'], ['memory', '私有记忆'], ['chain', '提交链'], ['source', '数据源'], ['skill', '技能'], ['doc', '共享文档']]
     .forEach(function (p) {
       var it = el('span', 'kneu-lg');
       var dot = el('i', 'kneu-dot');
-      dot.style.background = COLOR[p[0]];
+      dot.style.background = kcolor(p[0]);
+      LEGEND_KEYS.push(p[0]);
+      legendDots.push(dot);
       it.appendChild(dot);
       it.appendChild(document.createTextNode(p[1]));
       legend.appendChild(it);
     });
+  var legendTheme = null;
+  function paintLegend() {
+    for (var li = 0; li < legendDots.length; li++) {
+      legendDots[li].style.background = kcolor(LEGEND_KEYS[li]);
+    }
+    legendTheme = isLightTheme();
+  }
   body.appendChild(cv);
   body.appendChild(hud);
   body.appendChild(detail);
@@ -18189,30 +18256,36 @@ renderers.neuron = (body, meta, head) => {
   function drawInner(ctx) {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, W, H);
-    // 背景：中心微光
-    var bg = ctx.createRadialGradient(W / 2, H / 2, 0, W / 2, H / 2, Math.max(W, H) * 0.62);
-    bg.addColorStop(0, 'rgba(30,54,96,.55)');
-    bg.addColorStop(1, 'rgba(6,9,16,0)');
-    ctx.fillStyle = bg;
-    ctx.fillRect(0, 0, W, H);
+    var C = kpal();
+    // 背景：深色主题是「中心微光 + 暗角」的星空；浅色主题画在纸面上 —— 底色交给 .kneu-wrap
+    // 的 CSS 渐变（白 → #fafafa），画布保持透明，不铺深色、也不压暗角。
+    if (!C.paper) {
+      var bg = ctx.createRadialGradient(W / 2, H / 2, 0, W / 2, H / 2, Math.max(W, H) * 0.62);
+      bg.addColorStop(0, 'rgba(30,54,96,.55)');
+      bg.addColorStop(1, 'rgba(6,9,16,0)');
+      ctx.fillStyle = bg;
+      ctx.fillRect(0, 0, W, H);
+    }
     var tt = fx ? (performance.now() / 1000) : 0;
-    // 星点（有动效时轻微明暗呼吸，静止时一片星空）
+    // 星点（有动效时轻微明暗呼吸，静止时一片星空）；浅色主题退成"纸面尘埃"，只留一点纹理
     if (stars.length) {
       for (var si = 0; si < stars.length; si++) {
         var st = stars[si];
         var tw = fx ? (0.35 + 0.65 * (0.5 + 0.5 * Math.sin(tt * st.sp + st.ph))) : 0.55;
         ctx.beginPath();
-        ctx.arc(st.x, st.y, st.r, 0, 6.2832);
-        ctx.fillStyle = 'rgba(190,215,255,' + (0.07 * tw) + ')';
+        ctx.arc(st.x, st.y, C.paper ? st.r * 0.85 : st.r, 0, 6.2832);
+        ctx.fillStyle = 'rgba(' + C.starRGB + ',' + (C.starK * tw) + ')';
         ctx.fill();
       }
     }
-    // 暗角：把注意力收到中间
-    var vg = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.32, W / 2, H / 2, Math.max(W, H) * 0.78);
-    vg.addColorStop(0, 'rgba(0,0,0,0)');
-    vg.addColorStop(1, 'rgba(2,4,9,.55)');
-    ctx.fillStyle = vg;
-    ctx.fillRect(0, 0, W, H);
+    // 暗角：把注意力收到中间（纸面不压暗角，否则四边像脏了）
+    if (!C.paper) {
+      var vg = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.32, W / 2, H / 2, Math.max(W, H) * 0.78);
+      vg.addColorStop(0, 'rgba(0,0,0,0)');
+      vg.addColorStop(1, 'rgba(2,4,9,.55)');
+      ctx.fillStyle = vg;
+      ctx.fillRect(0, 0, W, H);
+    }
 
     // ══ 入场动画（2026-10-27 科幻版）══
     //   节拍：核心点火(0~0.3s) → 冲击波+扫描线(0.15~1.1s) → 连线逐条生长(0.26~1.9s) → 节点被依次点亮(0.26~1.8s) → 余晖淡出
@@ -18258,7 +18331,7 @@ renderers.neuron = (body, meta, head) => {
     // 只看记忆：留下的种类（内核/场景/私有记忆/提交链/共享文档）
     var MEM_KINDS = { core: 1, area: 1, memory: 1, chain: 1, doc: 1 };
     function keep(n) { return !onlyMem || !!MEM_KINDS[n.kind]; }
-    function col(group) { return COLOR[group] || '#94a3b8'; }
+    function col(group) { return kcolor(group); }
     function safeR(n, ps) { var r = n.r * ps; return (isFinite(r) && r > 0) ? Math.max(1.6, r) : 1.6; }
 
     // 先画线（远的先画）
@@ -18281,14 +18354,14 @@ renderers.neuron = (body, meta, head) => {
         gp = gt <= 0 ? 0 : (gt >= 1 ? 1 : 1 - Math.pow(1 - gt, 3));
         if (gp <= 0) return;                       // 还没轮到这个方向
       }
-      var alpha = (hot ? 0.55 : (active ? 0.4 : Math.max(0.05, 0.22 - s.z / 2600))) * (fx ? (0.5 + 0.5 * eo) : 1);
+      var alpha = (hot ? 0.55 : (active ? 0.4 : Math.max(0.05, C.edgeBaseA - s.z / 2600))) * (fx ? (0.5 + 0.5 * eo) : 1);
       if (introOn) alpha *= 0.35 + 0.65 * gp;
       if (s.e.kind === 'skill') alpha *= 0.55;
       if (dimmed(s.a) && dimmed(s.b)) alpha *= 0.25;
-      // 线的颜色按类型分（记忆=近白、项目=青、依赖=青蓝、其余=蓝），一眼能分出关系
-      var lc = (s.e.kind === 'memory') ? '223,231,255'
-        : (s.e.kind === 'project') ? '45,212,191'
-        : (s.e.kind === 'dep') ? '127,227,255' : '143,180,255';
+      // 线的颜色按类型分（记忆=近白/石板、项目=青、依赖=青蓝、其余=蓝），一眼能分出关系
+      var lc = (s.e.kind === 'memory') ? C.edge.memory
+        : (s.e.kind === 'project') ? C.edge.project
+        : (s.e.kind === 'dep') ? C.edge.dep : C.edge.other;
       var core = hot ? 1.7 : (s.e.kind === 'dep' ? 1.15 : 0.85);
       var ex2 = s.pb.x, ey2 = s.pb.y;
       if (gp < 1) { ex2 = s.pa.x + (s.pb.x - s.pa.x) * gp; ey2 = s.pa.y + (s.pb.y - s.pa.y) * gp; }
@@ -18299,8 +18372,8 @@ renderers.neuron = (body, meta, head) => {
         ctx.setLineDash([5, 6]);
         ctx.lineDashOffset = -(tt * 26) % 11;
       }
-      if (fx) {                                 // 霓虹光晕（宽、淡）
-        ctx.strokeStyle = 'rgba(' + lc + ',' + (alpha * 0.17) + ')';
+      if (fx) {                                 // 霓虹光晕（宽、淡）；浅色下只是极柔的一层，不能糊成色块
+        ctx.strokeStyle = 'rgba(' + lc + ',' + (alpha * C.edgeGlowK) + ')';
         ctx.lineWidth = core * 2.8;
         ctx.stroke();
       }
@@ -18311,11 +18384,11 @@ renderers.neuron = (body, meta, head) => {
       if (introOn && gp < 1) {                     // 生长头：亮点把线"推"出来
         ctx.beginPath();
         ctx.arc(ex2, ey2, 2.4 + 1.8 * (1 - gp), 0, 6.2832);
-        ctx.fillStyle = 'rgba(214,242,255,' + (0.55 + 0.4 * (1 - gp)) + ')';
+        ctx.fillStyle = 'rgba(' + C.growA + ',' + (0.55 + 0.4 * (1 - gp)) + ')';
         ctx.fill();
         ctx.beginPath();
         ctx.arc(ex2, ey2, 7 + 9 * (1 - gp), 0, 6.2832);
-        ctx.fillStyle = 'rgba(120,200,255,' + (0.22 * (1 - gp)) + ')';
+        ctx.fillStyle = 'rgba(' + C.growB + ',' + (0.22 * (1 - gp)) + ')';
         ctx.fill();
       }
     });
@@ -18335,12 +18408,12 @@ renderers.neuron = (body, meta, head) => {
           var x2 = sg2.pa.x + ddx * q2, y2 = sg2.pa.y + ddy * q2;
           ctx.beginPath();
           ctx.arc(x2, y2, 1.5 - t2 * 0.16, 0, 6.2832);
-          ctx.fillStyle = 'rgba(215,235,255,' + (0.5 * fade * (1 - t2 / 6)) + ')';
+          ctx.fillStyle = 'rgba(' + C.scanA + ',' + (0.5 * fade * (1 - t2 / 6)) + ')';
           ctx.fill();
         }
         ctx.beginPath();
         ctx.arc(hx2, hy2, 2.2, 0, 6.2832);
-        ctx.fillStyle = 'rgba(240,248,255,' + (0.85 * fade) + ')';
+        ctx.fillStyle = 'rgba(' + C.scanB + ',' + (0.85 * fade) + ')';
         ctx.fill();
       }
     }
@@ -18353,9 +18426,9 @@ renderers.neuron = (body, meta, head) => {
       if (ei < 320) {
         var fl = 1 - ei / 320;
         var fg = ctx.createRadialGradient(cx0, cy0, 0, cx0, cy0, 90 + 130 * fl);
-        fg.addColorStop(0, 'rgba(224,246,255,' + (0.45 * fl) + ')');
-        fg.addColorStop(0.4, 'rgba(110,200,255,' + (0.2 * fl) + ')');
-        fg.addColorStop(1, 'rgba(80,170,255,0)');
+        fg.addColorStop(0, 'rgba(' + C.flashA + ',' + (0.45 * fl * C.flashK) + ')');
+        fg.addColorStop(0.4, 'rgba(' + C.flashB + ',' + (0.2 * fl * C.flashK) + ')');
+        fg.addColorStop(1, 'rgba(' + C.flashC + ',0)');
         ctx.fillStyle = fg;
         ctx.fillRect(0, 0, W, H);
       }
@@ -18367,7 +18440,7 @@ renderers.neuron = (body, meta, head) => {
           ctx.beginPath();
           ctx.arc(cx0, cy0, wr, 0, 6.2832);
           ctx.lineWidth = 2.4 - 1.4 * wt;
-          ctx.strokeStyle = 'rgba(130,214,255,' + (0.34 * (1 - wt) * (1 - wt)) + ')';
+          ctx.strokeStyle = 'rgba(' + C.waveA + ',' + (C.waveK * (1 - wt) * (1 - wt)) + ')';
           ctx.stroke();
         }
       }
@@ -18376,15 +18449,15 @@ renderers.neuron = (body, meta, head) => {
       if (sc > 0 && sc < 1) {
         var sy = H * (sc * sc * (3 - 2 * sc));
         var lg = ctx.createLinearGradient(0, sy - 90, 0, sy);
-        lg.addColorStop(0, 'rgba(90,190,255,0)');
-        lg.addColorStop(0.85, 'rgba(90,190,255,.055)');
-        lg.addColorStop(1, 'rgba(180,232,255,.16)');
+        lg.addColorStop(0, C.sweep0);
+        lg.addColorStop(0.85, C.sweep1);
+        lg.addColorStop(1, C.sweep2);
         ctx.fillStyle = lg;
         ctx.fillRect(0, sy - 90, W, 90);
         ctx.beginPath();
         ctx.moveTo(0, sy); ctx.lineTo(W, sy);
         ctx.lineWidth = 1;
-        ctx.strokeStyle = 'rgba(190,236,255,' + (0.22 * Math.sin(Math.PI * sc)) + ')';
+        ctx.strokeStyle = 'rgba(' + C.sweepLine + ',' + (C.sweepLineK * Math.sin(Math.PI * sc)) + ')';
         ctx.stroke();
       }
       // ④ 沿线奔跑的粒子：入场时 5 颗，错开时间，跑完就没了
@@ -18398,7 +18471,7 @@ renderers.neuron = (body, meta, head) => {
           var hy3 = s3.pa.y + (s3.pb.y - s3.pa.y) * pr2;
           ctx.beginPath();
           ctx.arc(hx3, hy3, 1.8, 0, 6.2832);
-          ctx.fillStyle = 'rgba(235,250,255,' + (0.55 * Math.sin(Math.PI * pr2)) + ')';
+          ctx.fillStyle = 'rgba(' + C.partA + ',' + (0.55 * Math.sin(Math.PI * pr2)) + ')';
           ctx.fill();
         }
       }
@@ -18422,17 +18495,17 @@ renderers.neuron = (body, meta, head) => {
       var alpha = dimmed(n) ? 0.18 : Math.max(0.35, 1 - p.z / 1500);
       if (introOn) alpha *= 0.25 + 0.75 * np2;
       var c = col(n.group);
-      if (n.kind === 'project') { if (n.status === 'delivery') c = '#f0a35e'; else if (n.status === 'archived' || n.status === 'parked') c = '#8b93a7'; }
-      // 光晕
-      var g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, r * 3.4);
-      g.addColorStop(0, hexA(c, 0.55 * alpha));
-      g.addColorStop(0.45, hexA(c, 0.16 * alpha));
+      if (n.kind === 'project') { if (n.status === 'delivery') c = C.delivery; else if (n.status === 'archived' || n.status === 'parked') c = C.archived; }
+      // 光晕（浅色下收得很紧：白底上大范围彩色光晕会糊成脏块）
+      var g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, r * C.glowR);
+      g.addColorStop(0, hexA(c, C.glowK1 * alpha));
+      g.addColorStop(0.45, hexA(c, C.glowK2 * alpha));
       g.addColorStop(1, hexA(c, 0));
       ctx.fillStyle = g;
-      ctx.beginPath(); ctx.arc(p.x, p.y, r * 3.4, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(p.x, p.y, r * C.glowR, 0, Math.PI * 2); ctx.fill();
       // 核：球面渐变（左上亮、右下暗）+ 细内描边
       var ng = ctx.createRadialGradient(p.x - r * 0.35, p.y - r * 0.38, r * 0.15, p.x, p.y, r * 1.15);
-      ng.addColorStop(0, hexA('#ffffff', 0.55 * alpha));
+      ng.addColorStop(0, hexA('#ffffff', C.nodeHi * alpha));
       ng.addColorStop(0.35, hexA(c, 0.95 * alpha));
       ng.addColorStop(1, hexA(c, 0.72 * alpha));
       ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
@@ -18440,18 +18513,18 @@ renderers.neuron = (body, meta, head) => {
       ctx.fill();
       ctx.beginPath(); ctx.arc(p.x, p.y, Math.max(0.5, r - 0.6), 0, Math.PI * 2);
       ctx.lineWidth = 0.8;
-      ctx.strokeStyle = hexA('#ffffff', 0.22 * alpha);
+      ctx.strokeStyle = hexA('#ffffff', C.nodeEdgeA * alpha);
       ctx.stroke();
       // 高光：左上一点亮，球体感
       ctx.beginPath();
       ctx.arc(p.x - r * 0.32, p.y - r * 0.34, Math.max(0.9, r * 0.34), 0, 6.2832);
-      ctx.fillStyle = 'rgba(255,255,255,' + (0.28 * alpha) + ')';
+      ctx.fillStyle = 'rgba(255,255,255,' + (C.glossA * alpha) + ')';
       ctx.fill();
       if (nring > 0) {                             // 点亮瞬间：一圈光环扩散出去
         ctx.beginPath();
         ctx.arc(p.x, p.y, r + 4 + 26 * (1 - nring), 0, 6.2832);
         ctx.lineWidth = 1.6;
-        ctx.strokeStyle = hexA('#bfe8ff', 0.55 * nring);
+        ctx.strokeStyle = hexA(C.ringNew, 0.55 * nring);
         ctx.stroke();
       }
       if (n.missing) {                     // 2026-10-27 审计⑤：路径失效的点 → 红虚线圈
@@ -18464,7 +18537,7 @@ renderers.neuron = (body, meta, head) => {
         ctx.setLineDash([]);
       }
       if (n.kind === 'core') {
-        ctx.lineWidth = 2; ctx.strokeStyle = hexA('#7fe3ff', 0.8); ctx.stroke();
+        ctx.lineWidth = 2; ctx.strokeStyle = hexA(C.ringCore, 0.8); ctx.stroke();
       }
       if (n.kind === 'core' && fx) {       // 核心：缓慢旋转的细光环（全图唯一的常驻动效）
         ctx.save();
@@ -18474,7 +18547,7 @@ renderers.neuron = (body, meta, head) => {
         ctx.setLineDash([3, 8]);
         ctx.arc(0, 0, r + 7, 0, 6.2832);
         ctx.lineWidth = 1.1;
-        ctx.strokeStyle = hexA('#8fd7ff', 0.5);
+        ctx.strokeStyle = hexA(C.ringRot, 0.5);
         ctx.stroke();
         ctx.setLineDash([]);
         ctx.restore();
@@ -18483,7 +18556,7 @@ renderers.neuron = (body, meta, head) => {
         ctx.beginPath();
         ctx.arc(p.x, p.y, r + 5, 0, 6.2832);
         ctx.lineWidth = 1.4;
-        ctx.strokeStyle = hexA('#cfe1ff', 0.75);
+        ctx.strokeStyle = hexA(C.ringSel, 0.75);
         ctx.stroke();
       }
       // 标签：内核 / 悬停 / 选中 / 搜索命中 / 大节点
@@ -18536,10 +18609,10 @@ renderers.neuron = (body, meta, head) => {
           ctx.beginPath();
           if (ctx.roundRect) { ctx.roundRect(bx, by, bw, bh, 4); }
           else { ctx.rect(bx, by, bw, bh); }
-          ctx.fillStyle = 'rgba(6,10,18,' + (force ? 0.62 : 0.34) + ')';
+          ctx.fillStyle = 'rgba(' + C.labelBg + ',' + (force ? C.labelBgForceA : C.labelBgA) + ')';
           ctx.fill();
-          ctx.fillStyle = dimmed(n) ? 'rgba(200,215,240,.35)' : 'rgba(226,236,255,.92)';
-          ctx.fillStyle = force ? '#eaf2ff' : ctx.fillStyle;
+          ctx.fillStyle = dimmed(n) ? C.labelDim : C.labelFg;
+          ctx.fillStyle = force ? C.labelFgForce : ctx.fillStyle;
           ctx.textAlign = alignMode;
           ctx.fillText(lbl, pick.lx, ly);
         }
@@ -18555,6 +18628,8 @@ renderers.neuron = (body, meta, head) => {
   function loop(t) {
     if (disposed) return;
     if (auto && !document.hidden) { ry += 0.0032; }
+    // 主题切换（浅色/深色）时把图例点重刷一遍，画布本身每帧都会重新取色
+    if (legendTheme !== isLightTheme()) paintLegend();
     draw();
     raf = requestAnimationFrame(loop);
   }
