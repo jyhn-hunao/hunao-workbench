@@ -18841,78 +18841,95 @@ renderers.neuron = (body, meta, head) => {
   };
 };
 
-// ---- git（程序开发场景）：分支切换 + 变更审查（全部走本机 git CLI，不自己实现 git）----
-//   分支：本地（带 upstream 与 ↑↓）+ 远程；点一条即切换，远程会新建同名本地跟踪分支。
-//   工作区脏时主进程默认拒绝，面板给「仍然切换 / 取消」；fetch 手动触发。
+// ---- git（程序开发场景）：分支树 + 变更 + 提交历史（布局照 GitUI：左树右列表）----
+//   左：HEAD / 本地 / 远程 三级树，点一条切分支；右：未提交变更（点一行看 diff）+ 提交历史（作者·时间）。
 renderers.git = function (body, meta) {
   var repo = String((meta && meta.repo) || '');
   body.innerHTML = '';
   var wrap = el('div', 'git-wrap');
   var bar = el('div', 'git-bar');
-  var brBtn = el('button', 'git-btn git-br-btn', '⎇ …');
-  brBtn.title = '切换分支（本地 / 远程）';
   var rl = el('button', 'git-btn', '⟳');
-  rl.title = '重新读取 git 状态';
+  rl.title = '重新读取（分支 / 变更 / 历史）';
+  var ft = el('button', 'git-btn', 'fetch');
+  ft.title = 'git fetch --prune --all';
   var repoEl = el('span', 'git-repo', repo || '未配置仓库');
   repoEl.title = repo || '';
   if (repo) {
     repoEl.style.cursor = 'pointer';
-    repoEl.addEventListener('click', function () { try { window.app.app.openPath(repo); } catch (e) { /* 打不开就算了 */ } });
+    repoEl.addEventListener('click', function () { try { window.app.app.openPath(repo); } catch (e) { /* ignore */ } });
   }
-  bar.appendChild(brBtn);
-  bar.appendChild(rl);
-  bar.appendChild(repoEl);
-  var list = el('div', 'git-list');
-  var pop = el('div', 'git-pop');
-  pop.style.display = 'none';
+  bar.appendChild(rl); bar.appendChild(ft); bar.appendChild(repoEl);
+
+  var bodyRow = el('div', 'git-body');
+  var tree = el('div', 'git-tree');
+  var main = el('div', 'git-main');
+  bodyRow.appendChild(tree);
+  bodyRow.appendChild(main);
   wrap.appendChild(bar);
-  wrap.appendChild(list);
-  wrap.appendChild(pop);
+  wrap.appendChild(bodyRow);
   body.appendChild(wrap);
 
-  var dead = false;
-  var data = null;
-  var busy = false;
+  var dead = false, data = null, busy = false;
   function api() { return (window.app && window.app.git) || null; }
-  function empty(t) { var d = el('div', 'git-empty', t); list.appendChild(d); return d; }
   function note(t) {
     var d = el('div', 'git-note', t);
-    list.appendChild(d);
+    main.insertBefore(d, main.firstChild);
     setTimeout(function () { if (d.parentNode) d.remove(); }, 7000);
-    return d;
   }
   function codeClass(c) { return c === 'M' ? 'is-mod' : ((c === 'A' || c === '?') ? 'is-new' : (c === 'D' ? 'is-del' : '')); }
-  function hidePop() { pop.style.display = 'none'; pop.innerHTML = ''; }
 
-  async function load() {
-    if (dead) return;
-    list.innerHTML = '';
-    var a = api();
-    if (!a) { brBtn.textContent = '⎇ …'; empty('这次启动的界面还没有 git 能力（主进程 / 预加载是旧的）⇒ 重启一次工作台即可。'); return; }
-    if (!repo) { empty('这块面板没配仓库路径：在 scenarios\\code-dev.json 里给它写 "repo": "<仓库根目录>"。'); return; }
-    empty('读取中…');
-    var r = null;
-    try { r = await a.panel(repo); } catch (e) { r = { ok: false, err: String((e && e.message) || e) }; }
-    if (dead) return;
-    data = r;
-    list.innerHTML = '';
-    if (!r || !r.ok) { brBtn.textContent = '⎇ …'; empty('✗ ' + ((r && r.err) || '读取失败')); return; }
-    var cur = r.current || r.branch || '';
-    brBtn.textContent = '⎇ ' + cur;
-    brBtn.title = '当前分支 ' + cur + ' · 点击切换';
+  // 左侧分支树
+  function renderTree(r) {
+    tree.innerHTML = '';
+    var cur = r.current || '';
+    tree.appendChild(el('div', 'git-tree-head', 'HEAD（当前分支）'));
+    var head = el('div', 'git-node is-cur');
+    head.appendChild(el('span', 'git-node-dot', '●'));
+    head.appendChild(el('span', 'git-node-name', r.branch || cur || '(detached)'));
+    if (r.ahead) head.appendChild(el('span', 'git-badge-up', '↑' + r.ahead));
+    if (r.behind) head.appendChild(el('span', 'git-badge-dn', '↓' + r.behind));
+    tree.appendChild(head);
 
-    // 1) 分支 / 上游 / 领先落后 / 未提交概览
-    var top = el('div', 'git-branch');
-    top.appendChild(el('span', 'git-badge', r.branch || '(detached)'));
-    if (r.upstream) top.appendChild(el('span', 'git-ahead', '→ ' + r.upstream));
-    if (r.ahead) top.appendChild(el('span', 'git-ahead', '↑' + r.ahead));
-    if (r.behind) top.appendChild(el('span', 'git-behind', '↓' + r.behind));
-    if (r.diffStat) top.appendChild(el('span', 'git-stat', r.diffStat));
-    list.appendChild(top);
+    var locals = (r.branches && r.branches.local) || [];
+    tree.appendChild(el('div', 'git-tree-head', '本地 · ' + locals.length));
+    locals.forEach(function (b) {
+      var row = el('div', 'git-node' + (b.name === cur ? ' is-cur' : ''));
+      row.appendChild(el('span', 'git-node-dot', b.name === cur ? '●' : ''));
+      row.appendChild(el('span', 'git-node-name', b.name));
+      if (b.ahead) row.appendChild(el('span', 'git-badge-up', '↑' + b.ahead));
+      if (b.behind) row.appendChild(el('span', 'git-badge-dn', '↓' + b.behind));
+      row.title = (b.upstream ? 'upstream: ' + b.upstream + '\n' : '') + (b.subject || '') + (b.name === cur ? '' : '\n点击：切到该分支');
+      if (b.name !== cur) row.addEventListener('click', function () { switchTo(b.name, false); });
+      tree.appendChild(row);
+    });
 
-    // 2) 工作区变更：点一行 → 这份 diff 在预览面板打开
-    list.appendChild(el('div', 'git-sec', '变更 · ' + (r.changes.length || '无')));
-    if (!r.changes.length) empty('工作区干净（没有未提交的改动）');
+    var remotes = (r.branches && r.branches.remote) || [];
+    var groups = {};
+    remotes.forEach(function (b) {
+      var k = b.name.indexOf('/') > 0 ? b.name.split('/')[0] : '其他';
+      (groups[k] = groups[k] || []).push(b);
+    });
+    tree.appendChild(el('div', 'git-tree-head', '远程 · ' + remotes.length));
+    Object.keys(groups).forEach(function (k) {
+      tree.appendChild(el('div', 'git-tree-group', k));
+      groups[k].forEach(function (b) {
+        var row = el('div', 'git-node is-remote');
+        row.appendChild(el('span', 'git-node-dot', ''));
+        row.appendChild(el('span', 'git-node-name', b.name.split('/').slice(1).join('/')));
+        row.appendChild(el('span', 'git-node-when', b.when || ''));
+        row.title = b.name + '\n点击：新建同名本地分支并跟踪它';
+        row.addEventListener('click', function () { switchTo(b.name, true); });
+        tree.appendChild(row);
+      });
+    });
+  }
+
+  // 右侧：变更 + 历史
+  function renderMain(r) {
+    main.innerHTML = '';
+    var changes = el('div', 'git-sec git-sec-first', '变更 · ' + (r.changes.length || '无'));
+    main.appendChild(changes);
+    if (!r.changes.length) main.appendChild(el('div', 'git-empty', '工作区干净（没有未提交的改动）'));
     r.changes.forEach(function (c) {
       var row = el('div', 'git-row clickable');
       row.appendChild(el('span', 'git-code ' + codeClass(c.code), c.code));
@@ -18920,25 +18937,44 @@ renderers.git = function (body, meta) {
       p.title = c.path + '\n（点击在预览里看这份 diff）';
       row.appendChild(p);
       row.addEventListener('click', function () { openDiff(c.path, row); });
-      list.appendChild(row);
+      main.appendChild(row);
     });
-
-    // 3) 最近提交
-    list.appendChild(el('div', 'git-sec', '最近提交 · ' + (r.commits.length || '无')));
-    if (!r.commits.length) empty('还没有提交');
+    main.appendChild(el('div', 'git-sec', '提交历史 · ' + (r.commits.length || '无')));
+    if (!r.commits.length) main.appendChild(el('div', 'git-empty', '还没有提交'));
     r.commits.forEach(function (c) {
-      var row = el('div', 'git-row');
-      row.appendChild(el('span', 'git-hash', c.hash));
-      var s = el('span', 'git-subj', c.subject);
-      s.title = c.date + ' · ' + c.subject;
-      row.appendChild(s);
-      list.appendChild(row);
+      var row = el('div', 'git-row git-commit');
+      row.appendChild(el('span', 'git-subj', c.subject));
+      var meta = el('div', 'git-meta');
+      meta.appendChild(el('span', 'git-hash', c.hash));
+      if (c.author) meta.appendChild(el('span', 'git-author', c.author));
+      if (c.date) meta.appendChild(el('span', 'git-when', c.date));
+      row.appendChild(meta);
+      main.appendChild(row);
     });
+  }
+
+  async function load() {
+    if (dead) return;
+    tree.innerHTML = '';
+    main.innerHTML = '';
+    var a = api();
+    if (!a) { main.appendChild(el('div', 'git-empty', '这次启动的界面还没有 git 能力（主进程 / 预加载是旧的）⇒ 重启一次工作台即可。')); return; }
+    if (!repo) { main.appendChild(el('div', 'git-empty', '这块面板没配仓库路径：在 scenarios\\code-dev.json 里写 "repo": "<仓库根目录>"。')); return; }
+    main.appendChild(el('div', 'git-empty', '读取中…'));
+    var r = null;
+    try { r = await a.panel(repo); } catch (e) { r = { ok: false, err: String((e && e.message) || e) }; }
+    if (dead) return;
+    data = r;
+    tree.innerHTML = '';
+    main.innerHTML = '';
+    if (!r || !r.ok) { main.appendChild(el('div', 'git-empty', '✗ ' + ((r && r.err) || '读取失败'))); return; }
+    renderTree(r);
+    renderMain(r);
   }
 
   async function openDiff(rel, row) {
     var a = api();
-    if (!a || !a.diff) { empty('这次启动的界面还没有 diff 能力 ⇒ 重启一次工作台'); return; }
+    if (!a || !a.diff) { note('这次启动的界面还没有 diff 能力 ⇒ 重启一次工作台'); return; }
     row.classList.add('git-row-busy');
     var d = null;
     try { d = await a.diff(repo, rel); } catch (e) { d = { ok: false, err: String((e && e.message) || e) }; }
@@ -18949,45 +18985,33 @@ renderers.git = function (body, meta) {
     else note('diff 已生成：' + d.path + '（文件面板没加载，复制路径直接看）');
   }
 
-  function askDirty(name, n) {
-    var box = el('div', 'git-pop-ask');
-    box.appendChild(el('span', 'git-note', '工作区有 ' + n + ' 处未提交改动，仍要切到 ' + name + '？'));
-    var yes = el('button', 'git-btn', '仍然切换');
-    var no = el('button', 'git-btn', '取消');
-    yes.addEventListener('click', function () { box.remove(); switchTo(name, name.indexOf('/') > 0, true); });
-    no.addEventListener('click', function () { box.remove(); });
-    box.appendChild(yes);
-    box.appendChild(no);
-    list.insertBefore(box, list.firstChild);
-  }
-
   async function switchTo(name, isRemote, force) {
     var a = api();
     if (!a || !a.switch) { note('这次启动的界面还没有切分支能力 ⇒ 重启一次工作台'); return; }
     if (busy) return;
     busy = true;
-    hidePop();
-    list.innerHTML = '';
-    empty('切换中：' + name + ' …');
     var r = null;
     try { r = await a.switch(repo, name, { force: !!force }); } catch (e) { r = { ok: false, err: String((e && e.message) || e) }; }
     busy = false;
-    if (r && r.ok) {
-      await load();
-      note('已切到 ' + r.branch + (r.fromRemote ? '（新建本地跟踪分支）' : '') + ((r.dirty && force) ? ' · 带走了 ' + r.dirty + ' 处改动' : '') + '；面板与预览按 ⟳ 重载');
-    } else if (r && r.code === 'dirty') {
-      await load();
-      askDirty(name, r.dirty);
-    } else {
-      await load();
-      note('✗ ' + ((r && r.err) || '切换失败'));
-    }
+    if (r && r.ok) { await load(); note('已切到 ' + r.branch + (r.fromRemote ? '（新建本地跟踪分支）' : '') + ((r.dirty && force) ? ' · 带走了 ' + r.dirty + ' 处改动' : '') + '；壳代码变了要重启工作台'); }
+    else if (r && r.code === 'dirty') { askDirty(name, r.dirty, isRemote); }
+    else { await load(); note('✗ ' + ((r && r.err) || '切换失败')); }
+  }
+
+  function askDirty(name, n, isRemote) {
+    var box = el('div', 'git-pop-ask');
+    box.appendChild(el('span', 'git-note', '工作区有 ' + n + ' 处未提交改动，仍要切到 ' + name + '？'));
+    var yes = el('button', 'git-btn', '仍然切换');
+    var no = el('button', 'git-btn', '取消');
+    yes.addEventListener('click', function () { box.remove(); switchTo(name, isRemote, true); });
+    no.addEventListener('click', function () { box.remove(); });
+    box.appendChild(yes); box.appendChild(no);
+    main.insertBefore(box, main.firstChild);
   }
 
   async function doFetch() {
     var a = api();
     if (!a || !a.fetch) { note('这次启动的界面还没有 fetch 能力 ⇒ 重启一次工作台'); return; }
-    hidePop();
     note('fetch 中（可能几十秒）…');
     var r = null;
     try { r = await a.fetch(repo); } catch (e) { r = { ok: false, err: String((e && e.message) || e) }; }
@@ -18995,47 +19019,8 @@ renderers.git = function (body, meta) {
     else { await load(); note('✗ ' + ((r && r.err) || 'fetch 失败')); }
   }
 
-  function popRow(b, isRemote) {
-    var curName = (data && (data.current || '')) || '';
-    var isCur = !isRemote && b.name === curName;
-    var row = el('div', 'git-pop-row' + (isCur ? ' is-cur' : ''));
-    row.appendChild(el('span', 'git-pop-name', (isCur ? '● ' : '  ') + b.name));
-    var meta = [];
-    if (!isRemote) {
-      if (b.ahead) meta.push('↑' + b.ahead);
-      if (b.behind) meta.push('↓' + b.behind);
-      if (b.upstream && !b.ahead && !b.behind) meta.push('= ' + b.upstream);
-    }
-    if (b.when) meta.push(b.when);
-    row.appendChild(el('span', 'git-pop-meta', meta.join(' · ')));
-    row.title = (b.subject || '') + (isRemote ? '\n点击：新建同名本地分支并跟踪 ' + b.name : '\n点击：切到 ' + b.name);
-    if (isCur) row.style.cursor = 'default';
-    else row.addEventListener('click', function () { switchTo(b.name, isRemote, false); });
-    return row;
-  }
-
-  function openPop() {
-    if (pop.style.display !== 'none') { hidePop(); return; }
-    if (!data || !data.ok) { note('还没读到分支信息（先等 ⟳ 读完）'); return; }
-    pop.innerHTML = '';
-    var head = el('div', 'git-pop-ask');
-    head.appendChild(el('span', 'git-pop-sec', '分支 · 点一条切换'));
-    var f = el('button', 'git-btn', 'fetch 远程');
-    f.title = 'git fetch --prune --all';
-    f.addEventListener('click', function (e) { e.stopPropagation(); doFetch(); });
-    head.appendChild(f);
-    pop.appendChild(head);
-    var locals = (data.branches && data.branches.local) || [];
-    var remotes = (data.branches && data.branches.remote) || [];
-    pop.appendChild(el('div', 'git-pop-sec', '本地 · ' + locals.length));
-    locals.forEach(function (b) { pop.appendChild(popRow(b, false)); });
-    pop.appendChild(el('div', 'git-pop-sec', '远程 · ' + remotes.length));
-    remotes.forEach(function (b) { pop.appendChild(popRow(b, true)); });
-    pop.style.display = 'block';
-  }
-
-  brBtn.addEventListener('click', function (e) { e.stopPropagation(); openPop(); });
-  rl.addEventListener('click', function () { hidePop(); load(); });
+  rl.addEventListener('click', load);
+  ft.addEventListener('click', doFetch);
   load();
   return function () { dead = true; };
 };

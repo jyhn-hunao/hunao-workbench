@@ -4912,7 +4912,7 @@ ipcMain.handle('kun:git:panel', async (_e, repo) => {
   const [head, changes, log, stat] = await Promise.all([
     run(['status', '--porcelain=v1', '-b']),
     run(['status', '--porcelain=v1']),
-    run(['log', '-8', '--date=short', '--pretty=%h|%ad|%s']),
+    run(['log', '-30', '--date=format:%m-%d %H:%M', '--pretty=%h|%an|%ad|%s']),
     run(['diff', '--shortstat'])
   ]);
   if (!head.ok) {
@@ -4931,7 +4931,7 @@ ipcMain.handle('kun:git:panel', async (_e, repo) => {
   // 3) 最近 8 条提交：hash|date|subject
   const commits = String(log.out).split(/\r?\n/).filter(Boolean).map((l) => {
     const p = l.split('|');
-    return { hash: p[0], date: p[1], subject: p.slice(2).join('|') };
+    return { hash: p[0], author: p[1], date: p[2], subject: p.slice(3).join('|') };
   });
   // 4) 分支：本地（带 upstream 与领先/落后）+ 远程（含 origin/HEAD 之外的引用）
   const [cur, locals, remotes] = await Promise.all([
