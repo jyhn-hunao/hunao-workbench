@@ -15262,7 +15262,7 @@ renderers['site-urls'] = (body, meta, head) => {
     },
     // ── 两个公开仓库（各自的 GitHub 卡片）──
     {
-      icon: '/img/panel/workbench.png', name: '淋雨家的工作台',
+      icon: '/img/panel/workbench.png', name: '胡闹的工作台',
       links: [{ label: 'GitHub', url: 'https://github.com/<你的GitHub账号>/<仓库名>' }]
     },
     {

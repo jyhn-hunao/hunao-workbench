@@ -707,7 +707,7 @@ function createWindow(opts) {
     height: bounds.height,
     minWidth: 1000,
     minHeight: 660,
-    title: isMain ? 'DSH 引擎' : (sceneNameOf(scene) + ' · 淋雨家的工作台'),
+    title: isMain ? 'DSH 引擎' : (sceneNameOf(scene) + ' · 胡闹的工作台'),
     autoHideMenuBar: true,
     frame: false,
     // 2026-11-10：视觉重设计后默认浅色画布 #fafafa（渲染层 applyTheme 会再按实际主题同步一次）
