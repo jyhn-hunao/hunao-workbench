@@ -673,11 +673,24 @@ function setStatus(text, busy) {
   document.getElementById('status-dot').className = 'status-dot' + (busy ? ' busy' : '');
 }
 
-// ---------- 外观切换：深色 / 浅色 / 跟随系统（同 DSH 自带设置的三档） ----------
-const THEME_KEY = 'guiTheme';
+// ---------- 外观切换：浅色（默认）/ 深色 / 跟随系统（同 DSH 自带设置的三档） ----------
+// 2026-11-10：全量视觉重设计（Vercel / Linear 极简无边框）后，默认画布改成浅色 #fafafa。
+// 老版本的键 `guiTheme` 只有 dark（当时的默认）/ light / system 三种值 ⇒ 用 v2 键迁移一次：
+//   light / system 原样保留（那是用户真选过的），dark 与空值落到新的浅色默认。
+const THEME_KEY = 'guiTheme.v2';
+const THEME_MIGRATE_KEY = 'guiTheme.v2.migrated';
+function migrateThemeKey() {
+  try {
+    if (localStorage.getItem(THEME_MIGRATE_KEY)) return;
+    const legacy = localStorage.getItem('guiTheme');
+    const next = (legacy === 'light' || legacy === 'system') ? legacy : 'light';
+    if (!localStorage.getItem(THEME_KEY)) localStorage.setItem(THEME_KEY, next);
+    localStorage.setItem(THEME_MIGRATE_KEY, '1');
+  } catch (e) { /* localStorage 不可用就一直用默认（浅色） */ }
+}
 function currentThemeMode() {
   const v = localStorage.getItem(THEME_KEY);
-  return (v === 'light' || v === 'system') ? v : 'dark';
+  return (v === 'dark' || v === 'light' || v === 'system') ? v : 'light';
 }
 function applyTheme(mode) {
   const light = window.matchMedia('(prefers-color-scheme: light)').matches;
@@ -692,13 +705,14 @@ function applyTheme(mode) {
   // 同步窗口底色，避免浅色下缩放/重绘闪黑
   try {
     if (window.app.theme && window.app.theme.setWindowBg) {
-      window.app.theme.setWindowBg(resolved === 'light' ? '#f5f7fa' : '#0b0d12');
+      window.app.theme.setWindowBg(resolved === 'light' ? '#fafafa' : '#0a0a0a');
     }
   } catch (e) { /* ignore */ }
 }
 function initTheme() {
   const btn = document.getElementById('btn-theme');
   if (!btn) return;
+  migrateThemeKey();
   let menu = null;
   function closeMenu() {
     if (menu) { menu.remove(); menu = null; document.removeEventListener('click', onDoc, true); }

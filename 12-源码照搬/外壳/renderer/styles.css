@@ -4953,3 +4953,231 @@ html[data-theme="light"] .sb-reload { background: #fff; }
 }
 .kneu-lg { display: inline-flex; align-items: center; gap: 5px; }
 .kneu-dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; box-shadow: 0 0 6px currentColor; }
+
+/* ==========================================================================================
+   2026-11-10 · 全量视觉重设计「Vercel / Linear 极简无边框」
+   ------------------------------------------------------------------------------------------
+   宿主风格概念：纯白 / 极浅灰底（#fafafa）、取消生硬边框、用极淡阴影区分层级。
+
+   落地口径（为什么这么写）：
+   ① 只改「颜色 / 圆角 / 阴影 / 字号 / 字重 / 描边 / 内外间距」，⛔ 不动 display / position /
+      grid / flex 结构 —— 面板网格、拖拽热区、展开态内联定位、canvas 尺寸全部由 JS 决定，动不得。
+   ② **所有组件规则都带 `html[data-theme]` 前缀**：既让浅/深两套主题共用同一份规则，
+      又能以「同特异性 + 写在文件末尾」压过前面 4900 行里散落的历史覆盖（含
+      `html[data-theme="light"] .xxx` 那批），不必满篇 !important。
+   ③ 边框的替身是 `0 0 0 1px rgba(16,24,40,.04x)` 阴影环 —— 视觉上是一条 4% 的发丝线，
+      不会有 1px 实线的"硬"，也不占布局、不参与 flex 尺寸。
+   ④ 想整体回滚：整段删除即可（本段之前没有任何规则依赖它）。
+   ========================================================================================== */
+
+/* ---------- ① 设计令牌：一处定义，全站引用 ---------- */
+:root,
+html[data-theme="dark"] {
+  --bg: #000000;
+  --bg-panel: #0a0a0a;
+  --bg-panel-hover: #171717;
+  --border: rgba(255, 255, 255, .09);
+  --text: #ededed;
+  --text-dim: #a1a1a1;
+  --accent: #7aa2ff;
+  --accent-soft: rgba(122, 162, 255, .12);
+  --ok: #3ecf8e;
+  --warn: #f5a524;
+  --err: #ff6369;
+  --sans: "Inter", "Segoe UI Variable Text", "Segoe UI", -apple-system, "PingFang SC",
+          "Microsoft YaHei UI", "Microsoft YaHei", system-ui, sans-serif;
+  --mono: "JetBrains Mono", "Cascadia Code", "SF Mono", Consolas, "Courier New", monospace;
+  --r-sm: 6px;
+  --r-md: 10px;
+  --r-lg: 14px;
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 24px;
+  --fs-xs: 11.5px;
+  --fs-sm: 12.5px;
+  --fs-md: 13.5px;
+  --fs-lg: 16px;
+  --sh-1: 0 1px 1px rgba(0, 0, 0, .40), 0 0 0 1px rgba(255, 255, 255, .075);
+  --sh-2: 0 2px 6px rgba(0, 0, 0, .45), 0 0 0 1px rgba(255, 255, 255, .10);
+  --sh-3: 0 28px 72px -16px rgba(0, 0, 0, .85), 0 0 0 1px rgba(255, 255, 255, .10);
+  --line-1: rgba(255, 255, 255, .07);
+  --line-2: rgba(255, 255, 255, .09);
+  --ring: rgba(122, 162, 255, .55);
+  --dur: 150ms;
+  --scroll-thumb: rgba(255, 255, 255, .16);
+  --scroll-thumb-hover: rgba(255, 255, 255, .28);
+  /* 实心主按钮（Vercel 的反相按钮）：浅色=黑底白字，深色=白底黑字 */
+  --btn-solid: #ededed;
+  --btn-solid-fg: #0a0a0a;
+  color-scheme: dark;
+}
+
+html[data-theme="light"] {
+  --bg: #fafafa;
+  --bg-panel: #ffffff;
+  --bg-panel-hover: #f4f4f5;
+  --border: rgba(0, 0, 0, .07);
+  --text: #171717;
+  --text-dim: #6b6b6b;
+  --accent: #0070f3;
+  --accent-soft: rgba(0, 112, 243, .07);
+  --ok: #12805c;
+  --warn: #b45309;
+  --err: #d1242f;
+  --sh-1: 0 1px 2px rgba(16, 24, 40, .04), 0 0 0 1px rgba(16, 24, 40, .045);
+  --sh-2: 0 2px 6px rgba(16, 24, 40, .05), 0 14px 30px -14px rgba(16, 24, 40, .16),
+          0 0 0 1px rgba(16, 24, 40, .06);
+  --sh-3: 0 32px 80px -24px rgba(16, 24, 40, .28), 0 0 0 1px rgba(16, 24, 40, .07);
+  --line-1: rgba(0, 0, 0, .055);
+  --line-2: rgba(0, 0, 0, .075);
+  --ring: rgba(0, 112, 243, .5);
+  --scroll-thumb: rgba(0, 0, 0, .16);
+  --scroll-thumb-hover: rgba(0, 0, 0, .28);
+  --btn-solid: #171717;
+  --btn-solid-fg: #ffffff;
+  color-scheme: light;
+}
+
+/* ---------- ② 全局底座：画布 / 字体 / 选中 / 焦点 / 滚动条 ---------- */
+html[data-theme] body {
+  background: var(--bg) !important;
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 13px;
+  letter-spacing: -.006em;
+  -webkit-font-smoothing: antialiased;
+  box-shadow: none !important;
+}
+/* 去掉历史遗留的"最外层一块板"内描边与外发光 */
+html[data-theme="light"] body,
+html[data-theme="light"] html {
+  box-shadow: none !important;
+}
+html[data-theme] ::selection { background: var(--accent-soft); }
+
+html[data-theme] ::-webkit-scrollbar { width: 9px; height: 9px; }
+html[data-theme] ::-webkit-scrollbar-track { background: transparent; }
+html[data-theme] ::-webkit-scrollbar-thumb {
+  background: var(--scroll-thumb);
+  border: 2px solid transparent;
+  background-clip: content-box;
+  border-radius: 8px;
+}
+html[data-theme] ::-webkit-scrollbar-thumb:hover {
+  background: var(--scroll-thumb-hover);
+  background-clip: content-box;
+}
+
+html[data-theme] :focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+  border-radius: var(--r-sm);
+}
+
+html[data-theme] button,
+html[data-theme] input,
+html[data-theme] select,
+html[data-theme] textarea {
+  font-family: inherit;
+}
+html[data-theme] button { letter-spacing: inherit; }
+
+/* ---------- ③ 标题栏 ---------- */
+html[data-theme] #titlebar {
+  height: 40px;
+  background: var(--bg);
+  border-bottom: 0;
+  box-shadow: inset 0 -1px 0 var(--line-1);
+}
+html[data-theme] .titlebar-drag { padding-left: 14px; gap: 8px; }
+html[data-theme] .brand {
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: -.01em;
+  color: var(--text);
+}
+html[data-theme] .brand-name { color: var(--text); }
+/* 品牌点：原来是一颗会呼吸发光的蓝色小灯 ⇒ 极简一颗纯色圆点，不闪不亮 */
+html[data-theme] .brand-dot {
+  width: 7px; height: 7px;
+  background: var(--text);
+  box-shadow: none;
+  border-radius: 50%;
+  animation: none !important;
+}
+html[data-theme] .brand-dot::before,
+html[data-theme] .brand-dot::after { content: none; display: none; }
+html[data-theme] .brand-dot.brand-dot-warn { background: var(--warn); }
+
+html[data-theme] .brand-tip {
+  background: var(--bg-panel);
+  border: 0;
+  border-radius: var(--r-md);
+  box-shadow: var(--sh-3);
+  color: var(--text-dim);
+  font-size: 11.5px;
+  line-height: 1.65;
+}
+html[data-theme] .brand-tip-title { color: var(--text); font-weight: 600; }
+html[data-theme] .brand-tip b { color: var(--text); font-weight: 600; }
+
+html[data-theme] .titlebar-controls {
+  align-items: center;
+  gap: 2px;
+  padding-right: 8px;
+}
+html[data-theme] .tb-sep { display: none; }
+html[data-theme] .tb-btn {
+  width: 30px;
+  height: 28px;
+  border: 0;
+  border-radius: var(--r-sm);
+  color: var(--text-dim);
+  font-size: 13px;
+  transition: background-color var(--dur) ease, color var(--dur) ease;
+}
+html[data-theme] .tb-btn:hover {
+  background: var(--bg-panel-hover);
+  color: var(--text);
+}
+html[data-theme] .tb-tools { width: 30px; }
+/* 顶栏那些 emoji 图标（🌙 ⟳ 🧩 🛠 🤖 …）：彩色 emoji 在极简风里太跳 ⇒ 统一去色压暗，
+   悬停再提亮。只加在 .tb-tools 上：窗口控制键（─ □ ✕）是纯文字，不参与去色。 */
+html[data-theme] .tb-tools {
+  filter: grayscale(1) opacity(.72);
+  transition: filter var(--dur) ease, background-color var(--dur) ease;
+}
+html[data-theme] .tb-tools:hover { filter: grayscale(1) opacity(1); }
+html[data-theme] .tb-badges {
+  width: auto;
+  padding: 0 9px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+html[data-theme] .tb-badges[data-on="1"] {
+  background: var(--bg-panel-hover);
+  color: var(--text);
+}
+html[data-theme] .titlebar-controls .tb-btn.on {
+  background: var(--bg-panel-hover);
+  color: var(--text);
+}
+html[data-theme] .tb-close:hover { background: var(--err); color: #fff; }
+/* 顶栏那排网页版 AI 商标（DeepSeek / 豆包 / 通义 / 智谱 / Kimi）：
+   默认去色压到 60%，悬停才还原品牌色 —— 平时安静、要认人的时候一眼认得出。 */
+html[data-theme] .webai-btn {
+  border: 0;
+  border-radius: 7px;
+  transition: background-color var(--dur) ease;
+}
+html[data-theme] .webai-btn img {
+  border-radius: 6px;
+  filter: grayscale(1);
+  opacity: .60;
+  transition: filter var(--dur) ease, opacity var(--dur) ease;
+}
+html[data-theme] .webai-btn:hover { background: var(--bg-panel-hover); }
+html[data-theme] .webai-btn:hover img { filter: none; opacity: 1; }
+html[data-theme] .webai-strip { gap: 2px; }

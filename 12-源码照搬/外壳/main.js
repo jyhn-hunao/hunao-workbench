@@ -710,7 +710,8 @@ function createWindow(opts) {
     title: isMain ? 'DSH 引擎' : (sceneNameOf(scene) + ' · 淋雨家的工作台'),
     autoHideMenuBar: true,
     frame: false,
-    backgroundColor: '#0b0d12',
+    // 2026-11-10：视觉重设计后默认浅色画布 #fafafa（渲染层 applyTheme 会再按实际主题同步一次）
+    backgroundColor: '#fafafa',
     icon: path.join(__dirname, 'icon.ico'),
     show: false,
     webPreferences: {
@@ -3820,7 +3821,7 @@ ipcMain.handle('remoteAccess:action', async (e, action) => {
   const r = await remoteAccessHttp('POST', '/' + action);
   try { return JSON.parse(r.text); } catch (err) { return { ok: false, error: r.error || ('HTTP ' + r.status) }; }
 });
-// 外观：窗口底色随主题（浅色 #f5f7fa / 深色 #0b0d12），避免缩放重绘闪黑
+// 外观：窗口底色随主题（浅色 #fafafa / 深色 #0a0a0a），避免缩放重绘闪黑
 ipcMain.handle('theme:set-window-bg', (e, color) => {
   const v = String(color || '');
   if (/^#[0-9a-fA-F]{6}$/.test(v)) {
