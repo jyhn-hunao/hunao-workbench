@@ -100,7 +100,10 @@ contextBridge.exposeInMainWorld('app', {
     git: {
       panel: (repo) => ipcRenderer.invoke('kun:git:panel', repo),
       // 单文件 diff（审查用）：主进程把 未暂存 + 已暂存 两段差异落到临时 .txt，返回路径给预览面板打开
-      diff: (repo, file) => ipcRenderer.invoke('kun:git:diff', repo, file)
+      diff: (repo, file) => ipcRenderer.invoke('kun:git:diff', repo, file),
+      // 切分支 / 拉远程：写操作（只动工作区）。工作区脏时主进程默认拒绝，传 {force:true} 才继续。
+      switch: (repo, name, opts) => ipcRenderer.invoke('kun:git:switch', repo, name, opts),
+      fetch: (repo) => ipcRenderer.invoke('kun:git:fetch', repo)
     },
     // ---- 本地抠图（2026-10-20 宿主：「智能抠图做成本地工具」）----
     // 引擎 = <工作台>\工具\抠图\venv 里的 rembg（离线，图片不出本机）；status 看引擎/模型在不在。

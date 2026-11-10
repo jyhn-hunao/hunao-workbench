@@ -4933,7 +4933,22 @@ ipcMain.handle('kun:git:panel', async (_e, repo) => {
     const p = l.split('|');
     return { hash: p[0], date: p[1], subject: p.slice(2).join('|') };
   });
-  return { ok: true, repo: dir, branch, upstream, ahead, behind, changes: items, commits, diffStat: String(stat.out || '').trim() };
+  // 4) 分支：本地（带 upstream 与领先/落后）+ 远程（含 origin/HEAD 之外的引用）
+  const [cur, locals, remotes] = await Promise.all([
+    run(['rev-parse', '--abbrev-ref', 'HEAD']),
+    run(['for-each-ref', '--sort=-committerdate', '--format=%(refname:short)|%(upstream:short)|%(upstream:track)|%(committerdate:relative)|%(subject)', 'refs/heads']),
+    run(['for-each-ref', '--sort=-committerdate', '--format=%(refname:short)|%(committerdate:relative)|%(subject)', 'refs/remotes'])
+  ]);
+  const track = (t) => ({ ahead: Number((String(t).match(/ahead (\d+)/) || [null, 0])[1]), behind: Number((String(t).match(/behind (\d+)/) || [null, 0])[1]) });
+  const local = String(locals.out).split(/\r?\n/).filter(Boolean).map((l) => {
+    const p = l.split('|'); const t = track(p[2] || '');
+    return { name: p[0], upstream: p[1] || '', ahead: t.ahead, behind: t.behind, when: p[3] || '', subject: p[4] || '' };
+  });
+  const remote = String(remotes.out).split(/\r?\n/).filter(Boolean)
+    .filter((l) => { const n = l.split('|')[0] || ''; return n.indexOf('/') > 0 && !/\/HEAD$/.test(n); })
+    .map((l) => { const p = l.split('|'); return { name: p[0], when: p[1] || '', subject: p[2] || '' }; });
+  const current = String(cur.out || '').trim();
+  return { ok: true, repo: dir, branch, upstream, ahead, behind, current, branches: { local, remote }, changes: items, commits, diffStat: String(stat.out || '').trim() };
 });
 
 // ---- git 单文件 diff（审查用）：把 未暂存 + 已暂存 两段差异写成临时文本，交给预览面板打开 ----
@@ -4970,4 +4985,39 @@ ipcMain.handle('kun:git:diff', async (_e, repo, file) => {
   const outPath = path.join(os.tmpdir(), 'dsh-git-diff-' + crypto.createHash('sha1').update(dir + '|' + rel).digest('hex').slice(0, 10) + '.txt');
   fs.writeFileSync(outPath, head + parts.join('\n\n'), 'utf8');
   return { ok: true, path: outPath, bytes: Buffer.byteLength(parts.join('\n')) };
+});
+
+// ---- git 切分支 / fetch（写操作：只动工作区，不改远程）----
+//   工作区有未提交改动时默认拒绝（force=true 才继续）——切分支会覆盖/带走改动，不能默默来。
+ipcMain.handle('kun:git:switch', async (_e, repo, name, opts) => {
+  const dir = String(repo || '').trim();
+  const target = String(name || '').trim();
+  const force = !!(opts && opts.force);
+  if (!dir || !target) return { ok: false, err: '缺少仓库或分支名' };
+  if (!fs.existsSync(dir)) return { ok: false, err: '仓库目录不存在：' + dir };
+  const run = (args) => new Promise((resolve) => {
+    execFile('git', ['-c', 'core.quotepath=false', '--no-optional-locks', '-C', dir, ...args],
+      { windowsHide: true, maxBuffer: 8 << 20, timeout: 60000 },
+      (err, stdout, stderr) => resolve({ ok: !err, out: String(stdout || ''), err: String(stderr || (err && err.message) || '') }));
+  });
+  const st = await run(['status', '--porcelain=v1']);
+  const dirty = String(st.out).split(/\r?\n/).filter(Boolean).length;
+  if (dirty && !force) return { ok: false, code: 'dirty', dirty, err: '工作区有 ' + dirty + ' 处未提交改动' };
+  const isRemote = target.indexOf('/') > 0;                      // origin/xxx
+  const localName = isRemote ? target.split('/').slice(1).join('/') : target;
+  const r = isRemote ? await run(['switch', '-c', localName, '--track', target]) : await run(['switch', target]);
+  if (!r.ok) return { ok: false, err: String(r.err || '').trim() || '切换失败' };
+  return { ok: true, branch: localName, dirty, fromRemote: isRemote };
+});
+
+ipcMain.handle('kun:git:fetch', async (_e, repo) => {
+  const dir = String(repo || '').trim();
+  if (!dir || !fs.existsSync(dir)) return { ok: false, err: '仓库目录不存在：' + dir };
+  const out = await new Promise((resolve) => {
+    execFile('git', ['-c', 'core.quotepath=false', '-C', dir, 'fetch', '--prune', '--all'],
+      { windowsHide: true, maxBuffer: 8 << 20, timeout: 60000 },
+      (err, stdout, stderr) => resolve({ ok: !err, out: String(stdout || ''), err: String(stderr || (err && err.message) || '') }));
+  });
+  if (!out.ok) return { ok: false, err: String(out.err || '').trim() || 'fetch 失败（网络或凭据？）' };
+  return { ok: true, out: String(out.out || '').trim() };
 });
