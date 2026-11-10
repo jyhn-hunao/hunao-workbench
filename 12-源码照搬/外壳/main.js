@@ -4912,7 +4912,7 @@ ipcMain.handle('kun:git:panel', async (_e, repo) => {
   const [head, changes, log, stat] = await Promise.all([
     run(['status', '--porcelain=v1', '-b']),
     run(['status', '--porcelain=v1']),
-    run(['log', '-60', '--date=format:%m-%d %H:%M', '--pretty=%h|%an|%ad|%p|%s']),
+    run(['log', '-60', '--date=format:%m-%d %H:%M', '--pretty=%H|%h|%an|%ad|%p|%s']),
     run(['diff', '--shortstat'])
   ]);
   if (!head.ok) {
@@ -4931,7 +4931,7 @@ ipcMain.handle('kun:git:panel', async (_e, repo) => {
   // 3) 最近 8 条提交：hash|date|subject
   const commits = String(log.out).split(/\r?\n/).filter(Boolean).map((l) => {
     const p = l.split('|');
-    return { hash: p[0], author: p[1], date: p[2], parents: p[3] || '', subject: p.slice(4).join('|') };
+    return { full: p[0], hash: p[1], author: p[2], date: p[3], parents: p[4] || '', subject: p.slice(5).join('|') };
   });
   // 4) 分支：本地（带 upstream 与领先/落后）+ 远程（含 origin/HEAD 之外的引用）
   const [cur, locals, remotes] = await Promise.all([
@@ -5047,4 +5047,24 @@ ipcMain.handle('kun:git:show', async (_e, repo, hash) => {
     return { code: (p[0] || '').slice(0, 1) || 'M', path: p[1] || '' };
   }).filter((x) => x.path);
   return { ok: true, hash: h, files };
+});
+
+// ---- git checkout 某个提交（detached HEAD）：右键菜单用 ----
+ipcMain.handle('kun:git:checkout', async (_e, repo, rev, opts) => {
+  const dir = String(repo || '').trim();
+  const target = String(rev || '').trim();
+  const force = !!(opts && opts.force);
+  if (!dir || !target) return { ok: false, err: '缺少仓库或提交号' };
+  if (!fs.existsSync(dir)) return { ok: false, err: '仓库目录不存在：' + dir };
+  const run = (args) => new Promise((resolve) => {
+    execFile('git', ['-c', 'core.quotepath=false', '--no-optional-locks', '-C', dir, ...args],
+      { windowsHide: true, maxBuffer: 8 << 20, timeout: 60000 },
+      (err, stdout, stderr) => resolve({ ok: !err, out: String(stdout || ''), err: String(stderr || (err && err.message) || '') }));
+  });
+  const st = await run(['status', '--porcelain=v1']);
+  const dirty = String(st.out).split(/\r?\n/).filter(Boolean).length;
+  if (dirty && !force) return { ok: false, code: 'dirty', dirty, err: '工作区有 ' + dirty + ' 处未提交改动' };
+  const r = await run(['switch', '--detach', target]);
+  if (!r.ok) return { ok: false, err: String(r.err || '').trim() || 'checkout 失败' };
+  return { ok: true, rev: target, dirty };
 });

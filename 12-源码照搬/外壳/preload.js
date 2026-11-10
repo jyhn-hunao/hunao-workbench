@@ -102,6 +102,7 @@ contextBridge.exposeInMainWorld('app', {
       // 单文件 diff（审查用）：主进程把 未暂存 + 已暂存 两段差异落到临时 .txt，返回路径给预览面板打开
       diff: (repo, file) => ipcRenderer.invoke('kun:git:diff', repo, file),
       show: (repo, hash) => ipcRenderer.invoke('kun:git:show', repo, hash),
+      checkout: (repo, rev, opts) => ipcRenderer.invoke('kun:git:checkout', repo, rev, opts),
       // 切分支 / 拉远程：写操作（只动工作区）。工作区脏时主进程默认拒绝，传 {force:true} 才继续。
       switch: (repo, name, opts) => ipcRenderer.invoke('kun:git:switch', repo, name, opts),
       fetch: (repo) => ipcRenderer.invoke('kun:git:fetch', repo)

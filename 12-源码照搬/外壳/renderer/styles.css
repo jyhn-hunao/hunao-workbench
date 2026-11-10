@@ -5928,3 +5928,10 @@ html[data-theme="dark"] .kneu-dot { box-shadow: 0 0 5px rgba(255, 255, 255, .22)
 .g-pop-when { margin-left: auto; font-size: 10.5px; color: var(--text-dim, #888); flex: none; }
 .g-up { color: #2f855a; font-size: 10.5px; flex: none; }
 .g-down { color: #c53030; font-size: 10.5px; flex: none; }
+
+.g-menu { position: fixed; z-index: 60; min-width: 190px; padding: 4px; background: var(--bg-elev, #fff); border: 1px solid var(--line, rgba(128,128,128,.35)); border-radius: 8px; box-shadow: 0 12px 30px rgba(0,0,0,.24); font-size: 12px; }
+.g-menu-item { height: 26px; display: flex; align-items: center; padding: 0 10px; border-radius: 5px; cursor: pointer; white-space: nowrap; }
+.g-menu-item:hover { background: var(--hover, rgba(128,128,128,.16)); }
+.g-menu-item.is-off { opacity: .42; cursor: default; }
+.g-menu-item.is-off:hover { background: transparent; }
+.g-menu-sep { height: 1px; margin: 4px 6px; background: var(--line, rgba(128,128,128,.25)); }

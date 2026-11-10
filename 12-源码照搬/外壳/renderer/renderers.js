@@ -18935,6 +18935,7 @@ renderers.git = function (body, meta) {
       info.appendChild(meta);
       row.appendChild(info);
       row.addEventListener('click', function () { sel = c.hash; renderLog(); loadDetail(c.hash); });
+      row.addEventListener('contextmenu', function (e) { e.preventDefault(); openMenu(c, e.clientX, e.clientY); });
       left.appendChild(row);
     });
     renderDetail(right);
@@ -19005,6 +19006,73 @@ renderers.git = function (body, meta) {
     var files = window.__kunFiles && window.__kunFiles['cd-files'];
     if (files && typeof files.open === 'function') files.open(d.path);
     else msg('diff 已生成：' + d.path);
+  }
+
+  /* ---------- 右键菜单：Copy Hash / Copy Subject / Checkout Revision ---------- */
+  var menu = el('div', 'g-menu');
+  menu.style.display = 'none';
+  wrap.appendChild(menu);
+  function closeMenu() { menu.style.display = 'none'; menu.innerHTML = ''; }
+  function copyText(t) {
+    try {
+      var ta = document.createElement('textarea');
+      ta.value = t;
+      ta.style.position = 'fixed'; ta.style.left = '-9999px';
+      document.body.appendChild(ta);
+      ta.select();
+      var ok = document.execCommand('copy');
+      document.body.removeChild(ta);
+      msg(ok ? '已复制：' + t : '复制失败');
+    } catch (e) { msg('复制失败'); }
+  }
+  function openMenu(c, x, y) {
+    menu.innerHTML = "";
+    function item(label, fn, disabled, title) {
+      var it = el('div', 'g-menu-item' + (disabled ? ' is-off' : ''), label);
+      if (title) it.title = title;
+      if (!disabled && fn) it.addEventListener('click', function () { closeMenu(); fn(); });
+      menu.appendChild(it);
+    }
+    item('Copy Hash', function () { copyText(c.full || c.hash); });
+    item('Copy Subject', function () { copyText(c.subject || ''); });
+    menu.appendChild(el('div', 'g-menu-sep'));
+    item('Checkout Revision…', function () { checkoutRev(c); });
+    item('Cherry-Pick…', null, true, '未开放：会产生冲突，需要交互解决');
+    item('Revert Commit…', null, true, '未开放：会改写工作区，冲突得人工处理');
+    item('Reset Current Branch…', null, true, '未开放：会丢提交');
+    menu.style.display = 'block';
+    var w = menu.offsetWidth || 190, h = menu.offsetHeight || 150;
+    menu.style.left = Math.min(x, window.innerWidth - w - 8) + "px";
+    menu.style.top = Math.min(y, window.innerHeight - h - 8) + "px";
+  }
+  async function checkoutRev(c) {
+    var a = api();
+    if (!a || !a.checkout) { msg('这次启动的界面还没有 checkout 能力 ⇒ 重启一次工作台'); return; }
+    if (busy) return;
+    busy = true;
+    var r = null;
+    try { r = await a.checkout(repo, c.full || c.hash, {}); } catch (e) { r = { ok: false, err: String((e && e.message) || e) }; }
+    busy = false;
+    if (r && r.ok) { await load(); msg('已切到 ' + c.hash + '（detached HEAD）'); }
+    else if (r && r.code === 'dirty') { askCheckoutDirty(c, r.dirty); }
+    else { msg('✗ ' + ((r && r.err) || '切换失败')); }
+  }
+  function askCheckoutDirty(c, n) {
+    var box = el('div', 'g-ask');
+    box.appendChild(el('span', 'g-ask-t', '工作区有 ' + n + ' 处未提交改动，仍要切到 ' + c.hash + '？'));
+    var yes = el('button', 'g-btn', '仍然切换');
+    var no = el('button', 'g-btn', '取消');
+    yes.addEventListener('click', async function () {
+      box.remove();
+      var a = api();
+      var r = null;
+      try { r = await a.checkout(repo, c.full || c.hash, { force: true }); } catch (e) { r = { ok: false, err: String((e && e.message) || e) }; }
+      if (r && r.ok) { await load(); msg('已切到 ' + c.hash + '（detached HEAD）'); }
+      else msg('✗ ' + ((r && r.err) || '切换失败'));
+    });
+    no.addEventListener('click', function () { box.remove(); });
+    box.appendChild(yes); box.appendChild(no);
+    wrap.appendChild(box);
   }
 
   /* ---------- 分支选择（IDEA 的 branch 下拉） ---------- */
