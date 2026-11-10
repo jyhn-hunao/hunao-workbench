@@ -15,4 +15,4 @@
 - 规范本体在本机有两份克隆：`~/.dsh/standards`（安装目录，被本文件引用）与 `D:\codeData\myself\ai-compilation-specifications`（开发目录）。改完推 gitee，再 `git -C ~/.dsh/standards pull`。
 - 本工作台的固定接入流程：技能 `project-onboarding` + `外壳\scripts\接入项目.mjs`（工作区 → 会话 → 回写面板）。
 - 推送例外：`luanyujia-workbench` 已获准自主推送 gitee `hunao-workbench` 里的 `main`；原仓 `upstream` 的 push 已置 `DISABLED`。
-- 这里的记忆是文件：`引擎数据\.dsh\场景记忆\`（场景私有记忆 §〇/§五、项目记忆按项目分文件）与 `引擎数据\.dsh\skills\`。公开版引擎不带记忆插件，**没有 `.mnemon` 常驻记忆**——铁律靠本文件每轮注入 + 技能按需读正文，别把规范正文复制进场景记忆或技能。
+- 这里的记忆就是文件：`引擎数据\.dsh\场景记忆\`（场景私有记忆 §〇 交接 / §五 只追加、项目记忆按项目分文件、`_共享记忆` 放跨场景内容）与 `引擎数据\.dsh\skills\`（技能正文按需读）。本工作台不用 `.mnemon` 常驻记忆，铁律靠**本文件每轮注入** + 技能按需读正文；**不要把规范正文复制进场景记忆或技能**（三份必漂移）。
