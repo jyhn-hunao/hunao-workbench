@@ -33,6 +33,7 @@ logs/
 # 密钥与本地配置
 .env
 .env.*
+!.env.example
 *credential*
 *credentials*
 *secret*
