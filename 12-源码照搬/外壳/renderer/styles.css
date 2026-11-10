@@ -5367,3 +5367,343 @@ html[data-theme] .panel.panel-anim {
 }
 html[data-theme] .panel.panel-anim::after { content: none; display: none; }
 html[data-theme] .grid-backdrop { display: none !important; }
+
+/* ---------- ⑥ 通用控件：按钮 / 输入 / 胶囊 / 标签 ---------- */
+/* 面板标题行里的工具按钮：默认幽灵态（无底无框），悬停才出现浅底 */
+html[data-theme] .file-refresh,
+html[data-theme] .panel-head button:not(.panel-expand),
+html[data-theme] .view-acts button,
+html[data-theme] .sf-btn,
+html[data-theme] .sk-btn,
+html[data-theme] .tbs-btn,
+html[data-theme] .detach-btn,
+html[data-theme] .boot-btn {
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 11.5px;
+  box-shadow: none;
+}
+html[data-theme] .file-refresh:hover,
+html[data-theme] .panel-head button:not(.panel-expand):hover,
+html[data-theme] .view-acts button:hover,
+html[data-theme] .sf-btn:hover,
+html[data-theme] .sk-btn:hover,
+html[data-theme] .tbs-btn:hover,
+html[data-theme] .detach-btn:hover {
+  background: var(--bg-panel-hover);
+  color: var(--text);
+  border: 0;
+}
+/* 按钮里的 emoji 小图标（💾 ⟳ 📌 📋 ✕）：彩色 emoji 会把"极简"打回"玩具"，
+   统一去色与线性图标同族；`.dirty`（未保存）那一枚保留琥珀色，语义不能丢。 */
+html[data-theme] .file-refresh:not(.dirty),
+html[data-theme] .panel-head button:not(.panel-expand),
+html[data-theme] .view-acts button,
+html[data-theme] .sk-btn {
+  filter: grayscale(1);
+}
+/* 实心主按钮：保存 / 立即进入 / 重试这类"就一个主动作"的键 */
+html[data-theme] .file-refresh.primary,
+html[data-theme] .sk-btn.primary,
+html[data-theme] .view-acts .file-refresh.primary,
+html[data-theme] .boot-btn,
+html[data-theme] .detach-btn.primary {
+  background: var(--btn-solid);
+  color: var(--btn-solid-fg);
+  box-shadow: 0 1px 2px rgba(16, 24, 40, .12);
+}
+html[data-theme] .file-refresh.primary:hover,
+html[data-theme] .sk-btn.primary:hover,
+html[data-theme] .boot-btn:hover,
+html[data-theme] .detach-btn.primary:hover {
+  background: var(--btn-solid);
+  color: var(--btn-solid-fg);
+  opacity: .88;
+}
+html[data-theme] .file-refresh.on {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+html[data-theme] .file-refresh.dirty { color: var(--warn); }
+
+html[data-theme] input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+html[data-theme] textarea,
+html[data-theme] select {
+  background: var(--bg-panel);
+  color: var(--text);
+  border: 0;
+  border-radius: var(--r-sm);
+  box-shadow: inset 0 0 0 1px var(--line-2);
+}
+html[data-theme] input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):focus,
+html[data-theme] textarea:focus,
+html[data-theme] select:focus {
+  box-shadow: inset 0 0 0 1px var(--ring), 0 0 0 3px var(--accent-soft);
+  outline: none;
+}
+html[data-theme] input::placeholder,
+html[data-theme] textarea::placeholder { color: var(--text-dim); opacity: .7; }
+
+/* 小卡片 / 统计块：白卡 + 阴影环，替代原来的 1px 实线 */
+html[data-theme] .stat-card,
+html[data-theme] .web-card,
+html[data-theme] .plg-card,
+html[data-theme] .mdl-card,
+html[data-theme] .sk-card,
+html[data-theme] .site-project-card,
+html[data-theme] .site-media-card,
+html[data-theme] .site-contact-card,
+html[data-theme] .site-donate-card,
+html[data-theme] .bd-stk-card,
+html[data-theme] .wbc-card,
+html[data-theme] .pc-drive-card,
+html[data-theme] .mdl-default,
+html[data-theme] .modal-note {
+  border: 0;
+  border-radius: 10px;
+  background: var(--bg-panel);
+  box-shadow: var(--sh-1);
+}
+html[data-theme] .sk-card { padding-top: 10px; }
+html[data-theme] .sk-card::before { content: none; display: none; }
+html[data-theme] .sk-card:hover,
+html[data-theme] .wbc-card:hover,
+html[data-theme] .site-project-card:hover {
+  border: 0;
+  box-shadow: var(--sh-2);
+}
+html[data-theme] .wbc-card { background: var(--bg-panel); }
+html[data-theme] .wbc-card:hover { background: var(--bg-panel); }
+html[data-theme] .wbc-tpl,
+html[data-theme] .wbc-cus,
+html[data-theme] .wbc-plain { border-left: 0; }
+html[data-theme] .modal-note { background: var(--accent-soft); box-shadow: none; }
+
+/* 小胶囊 / 标签：去掉描边，只留一层极淡底色 */
+html[data-theme] .tag,
+html[data-theme] .sk-chip,
+html[data-theme] .mdl-chip,
+html[data-theme] .wbc-count,
+html[data-theme] .sk-when-k,
+html[data-theme] .panel-badge {
+  border: 0;
+  background: var(--bg-panel-hover);
+  color: var(--text-dim);
+}
+html[data-theme] .tag.ok { background: rgba(18, 128, 92, .10); color: var(--ok); }
+html[data-theme] .tag.warn { background: rgba(180, 83, 9, .10); color: var(--warn); }
+html[data-theme] .sk-when-k { color: var(--accent); background: var(--accent-soft); }
+
+/* ---------- ⑦ 浮层：弹窗 / 菜单 / 顶栏弹层 / 右键菜单 ---------- */
+html[data-theme] .modal-mask {
+  background: rgba(15, 23, 42, .32);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+}
+html[data-theme="dark"] .modal-mask { background: rgba(0, 0, 0, .55); }
+html[data-theme] .modal {
+  background: var(--bg-panel);
+  border: 0;
+  border-radius: var(--r-lg);
+  box-shadow: var(--sh-3);
+}
+html[data-theme] .modal-head {
+  padding: 14px 18px;
+  border-bottom: 0;
+  box-shadow: inset 0 -1px 0 var(--line-1);
+}
+html[data-theme] .modal-title { font-size: 13.5px; font-weight: 600; letter-spacing: -.008em; }
+html[data-theme] .modal-close {
+  border: 0;
+  border-radius: var(--r-sm);
+  color: var(--text-dim);
+}
+html[data-theme] .modal-close:hover { background: var(--bg-panel-hover); color: var(--text); }
+html[data-theme] .modal-body { padding: 16px 18px; }
+html[data-theme] .modal-body::-webkit-scrollbar-thumb {
+  background: var(--scroll-thumb);
+  background-clip: content-box;
+}
+
+html[data-theme] .theme-menu,
+html[data-theme] .tbs-pop,
+html[data-theme] .flow-ctxmenu,
+html[data-theme] .flow-nodemenu,
+html[data-theme] .tbs-toasts {
+  background: var(--bg-panel);
+  border: 0;
+  border-radius: var(--r-md);
+  box-shadow: var(--sh-3);
+}
+html[data-theme] .theme-menu { padding: 4px; gap: 1px; }
+html[data-theme] .theme-item {
+  border-radius: var(--r-sm);
+  font-size: 12.5px;
+  color: var(--text);
+}
+html[data-theme] .theme-item:hover { background: var(--bg-panel-hover); }
+html[data-theme] .theme-item.on {
+  background: var(--bg-panel-hover);
+  color: var(--text);
+  font-weight: 500;
+}
+html[data-theme] .theme-item-ico { filter: grayscale(1); opacity: .8; }
+
+/* ---------- ⑧ 面板内部常见块 ---------- */
+/* 内容区顶部工具条：不要整条实线，改成发丝内阴影 */
+html[data-theme] .view-bar,
+html[data-theme] .file-col-head,
+html[data-theme] .combo-slot-head,
+html[data-theme] .sk-bar,
+html[data-theme] .tbs-pop-f {
+  border: 0 !important;
+  box-shadow: inset 0 -1px 0 var(--line-1);
+  background: transparent;
+}
+html[data-theme] .sk-bar { background: var(--bg); }
+html[data-theme] .view-ta {
+  background: var(--bg-panel);
+  color: var(--text);
+  font-size: 12.5px;
+  line-height: 1.7;
+  border: 0;
+  box-shadow: none;   /* 它是 <textarea>：别吃到上面那条全局输入框的阴影环 */
+}
+html[data-theme] .view-ta:focus,
+html[data-theme] .view-ta:focus-visible {
+  box-shadow: none;   /* 预览/编辑器是整块正文，聚焦时不要描一圈蓝边 */
+  outline: none;
+}
+/* 文件面板左右两栏：原来是"实线框 + 10px 圆角" ⇒ 白卡 + 阴影环 */
+html[data-theme] .file-col {
+  background: var(--bg-panel);
+  border: 0;
+  border-radius: 10px;
+  box-shadow: var(--sh-1);
+}
+html[data-theme] .file-cols { gap: 10px; }
+html[data-theme] .file-row { border-radius: var(--r-sm); border: 0; }
+/* 文件树里的 📁 / 📄 / 🖼 彩色 emoji：跟顶栏、按钮同一口径去色，整屏只剩文字与状态色 */
+html[data-theme] .file-row .ic,
+html[data-theme] .file-row .file-ic,
+html[data-theme] .file-jump .ic {
+  filter: grayscale(1);
+  opacity: .8;
+}
+html[data-theme] .file-row:hover { background: var(--bg-panel-hover); }
+html[data-theme] .file-crumbs {
+  background: var(--bg-panel-hover);
+  border: 0;
+  border-radius: var(--r-sm);
+  font-size: 11px;
+}
+html[data-theme] .view-empty-icon { opacity: .9; }
+html[data-theme] .view-empty-title { font-size: 13px; font-weight: 600; color: var(--text); }
+html[data-theme] .view-empty-sub { font-size: 12px; color: var(--text-dim); line-height: 1.7; }
+html[data-theme] .view-empty-path {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--text-dim);
+  background: var(--bg-panel-hover);
+  border: 0;
+  border-radius: var(--r-sm);
+}
+html[data-theme] .view-open-input { border: 0; box-shadow: inset 0 0 0 1px var(--line-2); }
+
+/* 空态卡片（场景里没有面板时的兜底） */
+html[data-theme] .detach-card {
+  border: 1px dashed var(--line-2);
+  border-radius: 12px;
+  background: var(--bg-panel);
+  box-shadow: var(--sh-1);
+}
+
+/* ---------- ⑨ 启动加载页：去掉 HUD / 霓虹，只留一行进度 ---------- */
+html[data-theme] .boot-overlay,
+html[data-theme] #boot-overlay[data-anim],
+html[data-theme] #boot-overlay[data-anim="ideal"],
+html[data-theme] #boot-overlay[data-anim="ideal2"],
+html[data-theme] #boot-overlay[data-anim="minimal"],
+html[data-theme] #boot-overlay[data-anim="rings"],
+html[data-theme] #boot-overlay[data-anim="terminal"] {
+  background: var(--bg) !important;
+}
+html[data-theme] .boot-overlay::before,
+html[data-theme] .boot-overlay::after,
+html[data-theme] .boot-card::before,
+html[data-theme] .boot-card::after { content: none !important; display: none !important; }
+html[data-theme] .boot-card {
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  gap: 10px;
+}
+html[data-theme] .boot-logo { border-radius: 14px; animation: none !important; filter: none !important; }
+html[data-theme] .boot-title {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -.01em;
+  color: var(--text);
+}
+html[data-theme] .boot-stage { font-size: 12px; color: var(--text-dim); }
+html[data-theme] .boot-bar {
+  height: 4px;
+  border-radius: 999px;
+  background: var(--line-2) !important;
+  box-shadow: none !important;
+  overflow: hidden;
+}
+html[data-theme] .boot-bar-in {
+  border-radius: 999px;
+  background: var(--text) !important;
+  box-shadow: none !important;
+  animation: none !important;
+}
+html[data-theme] .boot-meta { font-size: 10.5px; color: var(--text-dim); }
+html[data-theme] .boot-hint { font-size: 10.5px; color: var(--text-dim); opacity: .8; }
+html[data-theme] .boot-btn { border-radius: 999px; padding: 6px 16px; }
+html[data-theme] .boot-retry {
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--accent);
+  box-shadow: 0 0 0 1px var(--line-2);
+}
+
+/* ---------- ⑩ 场景内部的硬编码配色护栏（浅色主题下可读性） ---------- */
+/* 这些场景当初只按深色写死了浅色字（#cfd8e6 / #dbe8ff 一类），白底上会"看不见"。
+   这里只压「文字色 + 浅底」，不动布局。 */
+html[data-theme="light"] .sr-doc-name,
+html[data-theme="light"] .sr-raw-t,
+html[data-theme="light"] .sr-btn,
+html[data-theme="light"] .sr-qbtn,
+html[data-theme="light"] .sr-empty-t,
+html[data-theme="light"] .sr-head-tip,
+html[data-theme="light"] .sr-crumb-i.on,
+html[data-theme="light"] .oa-file-rootpath,
+html[data-theme="light"] .oa-file-headbtn,
+html[data-theme="light"] .oa-file-headup,
+html[data-theme="light"] .oa-img-btn,
+html[data-theme="light"] .oa-thumb-play,
+html[data-theme="light"] .oa-img-bar {
+  color: var(--text);
+}
+html[data-theme="light"] .sr-md h1,
+html[data-theme="light"] .sr-md h2,
+html[data-theme="light"] .sr-md h3,
+html[data-theme="light"] .sr-md h4,
+html[data-theme="light"] .sr-md h5,
+html[data-theme="light"] .sr-md h6 { color: var(--text); }
+html[data-theme="light"] .sr-cut { color: var(--warn); }
+html[data-theme="light"] .init-error { color: var(--err); }
+
+/* ---------- ⑪ 呼吸 / 光效：一律关掉（极简风不闪） ---------- */
+@media (prefers-reduced-motion: no-preference) {
+  html[data-theme] #scenario-tabs .tab.tab-working .tab-ico,
+  html[data-theme] #scenario-tabs .tab.tab-working .tab-ico-img {
+    animation: none !important;
+    filter: none !important;
+  }
+}
