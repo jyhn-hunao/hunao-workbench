@@ -18891,15 +18891,28 @@ renderers.git = (body, meta) => {
     if (r.diffStat) top.appendChild(el('span', 'git-stat', r.diffStat));
     list.appendChild(top);
 
-    // 2) 工作区变更（最多 60 条，主进程已截断）
+    // 2) 工作区变更（最多 60 条，主进程已截断）；点一行 → 这份 diff 在预览面板里打开
     list.appendChild(el('div', 'git-sec', '变更 · ' + (r.changes.length || '无')));
     if (!r.changes.length) empty('工作区干净（没有未提交的改动）');
+    const openDiff = async (rel, row) => {
+      const safe = window.app && window.app.git && window.app.git.diff;
+      if (!safe) { empty('这次启动的界面还没有 diff 能力 ⇒ 重启一次工作台'); return; }
+      row.classList.add('git-row-busy');
+      let d = null;
+      try { d = await api.diff(repo, rel); } catch (e) { d = { ok: false, err: String((e && e.message) || e) }; }
+      row.classList.remove('git-row-busy');
+      if (!d || !d.ok) { empty('✗ ' + ((d && d.err) || '取 diff 失败')); return; }
+      const files = window.__kunFiles && window.__kunFiles['cd-files'];
+      if (files && typeof files.open === 'function') files.open(d.path);
+      else empty('diff 已生成：' + d.path + '（文件面板没加载，复制这个路径直接看）');
+    };
     r.changes.forEach((c) => {
-      const row = el('div', 'git-row');
+      const row = el('div', 'git-row clickable');
       row.appendChild(el('span', 'git-code ' + codeClass(c.code), c.code));
       const p = el('span', 'git-path', c.path);
-      p.title = c.path;
+      p.title = c.path + '\n（点击在预览里看这份 diff）';
       row.appendChild(p);
+      row.addEventListener('click', () => { openDiff(c.path, row); });
       list.appendChild(row);
     });
 

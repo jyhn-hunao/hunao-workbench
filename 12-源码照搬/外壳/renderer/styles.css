@@ -5831,3 +5831,6 @@ html[data-theme="dark"] .kneu-dot { box-shadow: 0 0 5px rgba(255, 255, 255, .22)
 .git-path, .git-subj { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .git-hash { flex: none; color: var(--text-dim, #888); font-family: ui-monospace, Consolas, monospace; font-size: 11px; }
 .git-empty { color: var(--text-dim, #888); font-size: 11px; line-height: 1.7; padding: 4px 0; white-space: pre-wrap; }
+.git-row.clickable { cursor: pointer; border-radius: 4px; padding: 1px 4px; margin-left: -4px; }
+.git-row.clickable:hover { background: var(--hover, rgba(128,128,128,.14)); }
+.git-row-busy { opacity: .55; }

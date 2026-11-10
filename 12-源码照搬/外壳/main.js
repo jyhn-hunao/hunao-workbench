@@ -4935,3 +4935,39 @@ ipcMain.handle('kun:git:panel', async (_e, repo) => {
   });
   return { ok: true, repo: dir, branch, upstream, ahead, behind, changes: items, commits, diffStat: String(stat.out || '').trim() };
 });
+
+// ---- git 单文件 diff（审查用）：把 未暂存 + 已暂存 两段差异写成临时文本，交给预览面板打开 ----
+//   为什么落地成文件：预览面板是按"路径"取内容的，写一份临时 .txt 最省事，也不改仓库任何东西。
+ipcMain.handle('kun:git:diff', async (_e, repo, file) => {
+  const dir = String(repo || '').trim();
+  const rel = String(file || '').trim();
+  if (!dir || !rel) return { ok: false, err: '缺少仓库或文件路径' };
+  if (!fs.existsSync(dir)) return { ok: false, err: '仓库目录不存在：' + dir };
+  const run = (args) => new Promise((resolve) => {
+    execFile('git', ['-c', 'core.quotepath=false', '--no-optional-locks', '-C', dir, ...args],
+      { windowsHide: true, maxBuffer: 16 << 20, timeout: 20000 },
+      (err, stdout, stderr) => resolve({ ok: !err, out: String(stdout || ''), err: String(stderr || (err && err.message) || '') }));
+  });
+  const [unstaged, staged, st] = await Promise.all([
+    run(['diff', '--no-color', '--', rel]),
+    run(['diff', '--cached', '--no-color', '--', rel]),
+    run(['status', '--porcelain=v1', '--', rel])
+  ]);
+  if (!unstaged.ok) return { ok: false, err: unstaged.err || 'git diff 失败' };
+  const parts = [];
+  if (staged.out.trim()) parts.push('### 已暂存（staged）\n' + staged.out.trim());
+  if (unstaged.out.trim()) parts.push('### 未暂存（working tree）\n' + unstaged.out.trim());
+  // 未跟踪文件没有 diff：直接给前 400 行，标成新增
+  if (!parts.length && /^\?\?/m.test(st.out)) {
+    const p = path.join(dir, rel);
+    if (fs.existsSync(p)) {
+      const body = fs.readFileSync(p, 'utf8').split(/\r?\n/).slice(0, 400).map((l) => '+ ' + l).join('\n');
+      parts.push('### 新文件（未跟踪）\n' + body);
+    }
+  }
+  if (!parts.length) return { ok: false, err: '这个文件没有可显示的差异（可能没改动，或整份都是二进制）' };
+  const head = '# ' + rel + '\n# 仓库：' + dir + '\n\n';
+  const outPath = path.join(os.tmpdir(), 'dsh-git-diff-' + crypto.createHash('sha1').update(dir + '|' + rel).digest('hex').slice(0, 10) + '.txt');
+  fs.writeFileSync(outPath, head + parts.join('\n\n'), 'utf8');
+  return { ok: true, path: outPath, bytes: Buffer.byteLength(parts.join('\n')) };
+});
