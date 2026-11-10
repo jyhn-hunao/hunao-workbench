@@ -4912,7 +4912,7 @@ ipcMain.handle('kun:git:panel', async (_e, repo) => {
   const [head, changes, log, stat] = await Promise.all([
     run(['status', '--porcelain=v1', '-b']),
     run(['status', '--porcelain=v1']),
-    run(['log', '-30', '--date=format:%m-%d %H:%M', '--pretty=%h|%an|%ad|%s']),
+    run(['log', '-60', '--date=format:%m-%d %H:%M', '--pretty=%h|%an|%ad|%p|%s']),
     run(['diff', '--shortstat'])
   ]);
   if (!head.ok) {
@@ -4931,7 +4931,7 @@ ipcMain.handle('kun:git:panel', async (_e, repo) => {
   // 3) 最近 8 条提交：hash|date|subject
   const commits = String(log.out).split(/\r?\n/).filter(Boolean).map((l) => {
     const p = l.split('|');
-    return { hash: p[0], author: p[1], date: p[2], subject: p.slice(3).join('|') };
+    return { hash: p[0], author: p[1], date: p[2], parents: p[3] || '', subject: p.slice(4).join('|') };
   });
   // 4) 分支：本地（带 upstream 与领先/落后）+ 远程（含 origin/HEAD 之外的引用）
   const [cur, locals, remotes] = await Promise.all([
@@ -4953,10 +4953,18 @@ ipcMain.handle('kun:git:panel', async (_e, repo) => {
 
 // ---- git 单文件 diff（审查用）：把 未暂存 + 已暂存 两段差异写成临时文本，交给预览面板打开 ----
 //   为什么落地成文件：预览面板是按"路径"取内容的，写一份临时 .txt 最省事，也不改仓库任何东西。
-ipcMain.handle('kun:git:diff', async (_e, repo, file) => {
+ipcMain.handle('kun:git:diff', async (_e, repo, file, hash) => {
   const dir = String(repo || '').trim();
   const rel = String(file || '').trim();
   if (!dir || !rel) return { ok: false, err: '缺少仓库或文件路径' };
+  // 指定了提交 ⇒ 看那次提交里这个文件的改动（历史详情用）
+  if (hash) {
+    const rr = await run(['show', '--no-renames', '--no-color', String(hash), '--', rel]);
+    if (!rr.ok) return { ok: false, err: String(rr.err || '').trim() || 'git show 失败' };
+    const p2 = path.join(os.tmpdir(), 'dsh-git-diff-' + crypto.createHash('sha1').update(dir + '|' + hash + '|' + rel).digest('hex').slice(0, 10) + '.txt');
+    fs.writeFileSync(p2, '# ' + rel + ' @ ' + hash + '\n\n' + rr.out, 'utf8');
+    return { ok: true, path: p2, bytes: Buffer.byteLength(rr.out) };
+  }
   if (!fs.existsSync(dir)) return { ok: false, err: '仓库目录不存在：' + dir };
   const run = (args) => new Promise((resolve) => {
     execFile('git', ['-c', 'core.quotepath=false', '--no-optional-locks', '-C', dir, ...args],
@@ -5020,4 +5028,23 @@ ipcMain.handle('kun:git:fetch', async (_e, repo) => {
   });
   if (!out.ok) return { ok: false, err: String(out.err || '').trim() || 'fetch 失败（网络或凭据？）' };
   return { ok: true, out: String(out.out || '').trim() };
+});
+
+// ---- git 单次提交的文件清单（历史详情用）：git show --name-status ----
+ipcMain.handle('kun:git:show', async (_e, repo, hash) => {
+  const dir = String(repo || '').trim();
+  const h = String(hash || '').trim();
+  if (!dir || !h) return { ok: false, err: '缺少仓库或提交号' };
+  if (!fs.existsSync(dir)) return { ok: false, err: '仓库目录不存在：' + dir };
+  const out = await new Promise((resolve) => {
+    execFile('git', ['-c', 'core.quotepath=false', '--no-optional-locks', '-C', dir, 'show', '--no-renames', '--name-status', '--format=', h],
+      { windowsHide: true, maxBuffer: 16 << 20, timeout: 20000 },
+      (err, stdout, stderr) => resolve({ ok: !err, out: String(stdout || ''), err: String(stderr || (err && err.message) || '') }));
+  });
+  if (!out.ok) return { ok: false, err: String(out.err || '').trim() || 'git show 失败' };
+  const files = String(out.out).split(/\r?\n/).filter(Boolean).map((l) => {
+    const p = l.split('\t');
+    return { code: (p[0] || '').slice(0, 1) || 'M', path: p[1] || '' };
+  }).filter((x) => x.path);
+  return { ok: true, hash: h, files };
 });

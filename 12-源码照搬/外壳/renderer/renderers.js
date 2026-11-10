@@ -18841,186 +18841,318 @@ renderers.neuron = (body, meta, head) => {
   };
 };
 
-// ---- git（程序开发场景）：分支树 + 变更 + 提交历史（布局照 GitUI：左树右列表）----
-//   左：HEAD / 本地 / 远程 三级树，点一条切分支；右：未提交变更（点一行看 diff）+ 提交历史（作者·时间）。
+// ---- git 面板（程序开发场景）：照 IDEA 的 Git 工具窗交互 ----
+//   结构：工具栏（刷新 · 分支选择 · 过滤 · fetch）→ 选项卡（变更 / 历史）→ 内容。
+//   历史：左提交列表（图谱点 + 摘要 + 作者·时间），右详情（提交信息 + 改动文件，点文件看 diff）。
+//   变更：文件列表（状态字母 + 路径），点一行在预览面板看 diff。
 renderers.git = function (body, meta) {
   var repo = String((meta && meta.repo) || '');
   body.innerHTML = '';
-  var wrap = el('div', 'git-wrap');
-  var bar = el('div', 'git-bar');
-  var rl = el('button', 'git-btn', '⟳');
-  rl.title = '重新读取（分支 / 变更 / 历史）';
-  var ft = el('button', 'git-btn', 'fetch');
-  ft.title = 'git fetch --prune --all';
-  var repoEl = el('span', 'git-repo', repo || '未配置仓库');
-  repoEl.title = repo || '';
-  if (repo) {
-    repoEl.style.cursor = 'pointer';
-    repoEl.addEventListener('click', function () { try { window.app.app.openPath(repo); } catch (e) { /* ignore */ } });
-  }
-  bar.appendChild(rl); bar.appendChild(ft); bar.appendChild(repoEl);
 
-  var bodyRow = el('div', 'git-body');
-  var tree = el('div', 'git-tree');
-  var main = el('div', 'git-main');
-  bodyRow.appendChild(tree);
-  bodyRow.appendChild(main);
-  wrap.appendChild(bar);
-  wrap.appendChild(bodyRow);
+  var wrap = el('div', 'g-wrap');
+  // ── 工具栏 ──
+  var tb = el('div', 'g-tb');
+  var btnRefresh = el('button', 'g-ico', '⟳'); btnRefresh.title = '刷新（分支 / 变更 / 历史）';
+  var btnBranch = el('button', 'g-branch', '⎇ …'); btnBranch.title = '切换分支';
+  var filter = document.createElement('input');
+  filter.className = 'g-filter';
+  filter.placeholder = '过滤提交（摘要 / 作者 / hash）';
+  filter.spellcheck = false;
+  var btnFetch = el('button', 'g-ico', '⇣'); btnFetch.title = 'fetch 远程（--prune --all）';
+  tb.appendChild(btnRefresh); tb.appendChild(btnBranch); tb.appendChild(filter); tb.appendChild(btnFetch);
+
+  // ── 选项卡 ──
+  var tabs = el('div', 'g-tabs');
+  var tabChanges = el('button', 'g-tab is-on', '变更');
+  var tabLog = el('button', 'g-tab', '历史');
+  tabs.appendChild(tabChanges); tabs.appendChild(tabLog);
+
+  var paneChanges = el('div', 'g-pane');
+  var paneLog = el('div', 'g-pane');
+  paneLog.style.display = 'none';
+
+  wrap.appendChild(tb); wrap.appendChild(tabs); wrap.appendChild(paneChanges); wrap.appendChild(paneLog);
   body.appendChild(wrap);
 
-  var dead = false, data = null, busy = false;
+  var pop = el('div', 'g-pop');
+  pop.style.display = 'none';
+  wrap.appendChild(pop);
+
+  var dead = false, data = null, tab = 'changes', sel = '', detail = null, busy = false, picker = false;
   function api() { return (window.app && window.app.git) || null; }
-  function note(t) {
-    var d = el('div', 'git-note', t);
-    main.insertBefore(d, main.firstChild);
-    setTimeout(function () { if (d.parentNode) d.remove(); }, 7000);
-  }
-  function codeClass(c) { return c === 'M' ? 'is-mod' : ((c === 'A' || c === '?') ? 'is-new' : (c === 'D' ? 'is-del' : '')); }
+  function msg(t) { var d = el('div', 'g-msg', t); wrap.appendChild(d); setTimeout(function () { if (d.parentNode) d.remove(); }, 6000); }
+  function codeCls(c) { return c === 'M' ? 'is-mod' : ((c === 'A' || c === '?' || c === 'U') ? 'is-new' : (c === 'D' ? 'is-del' : (c === 'R' ? 'is-ren' : ''))); }
 
-  // 左侧分支树
-  function renderTree(r) {
-    tree.innerHTML = '';
-    var cur = r.current || '';
-    tree.appendChild(el('div', 'git-tree-head', 'HEAD（当前分支）'));
-    var head = el('div', 'git-node is-cur');
-    head.appendChild(el('span', 'git-node-dot', '●'));
-    head.appendChild(el('span', 'git-node-name', r.branch || cur || '(detached)'));
-    if (r.ahead) head.appendChild(el('span', 'git-badge-up', '↑' + r.ahead));
-    if (r.behind) head.appendChild(el('span', 'git-badge-dn', '↓' + r.behind));
-    tree.appendChild(head);
-
-    var locals = (r.branches && r.branches.local) || [];
-    tree.appendChild(el('div', 'git-tree-head', '本地 · ' + locals.length));
-    locals.forEach(function (b) {
-      var row = el('div', 'git-node' + (b.name === cur ? ' is-cur' : ''));
-      row.appendChild(el('span', 'git-node-dot', b.name === cur ? '●' : ''));
-      row.appendChild(el('span', 'git-node-name', b.name));
-      if (b.ahead) row.appendChild(el('span', 'git-badge-up', '↑' + b.ahead));
-      if (b.behind) row.appendChild(el('span', 'git-badge-dn', '↓' + b.behind));
-      row.title = (b.upstream ? 'upstream: ' + b.upstream + '\n' : '') + (b.subject || '') + (b.name === cur ? '' : '\n点击：切到该分支');
-      if (b.name !== cur) row.addEventListener('click', function () { switchTo(b.name, false); });
-      tree.appendChild(row);
-    });
-
-    var remotes = (r.branches && r.branches.remote) || [];
-    var groups = {};
-    remotes.forEach(function (b) {
-      var k = b.name.indexOf('/') > 0 ? b.name.split('/')[0] : '其他';
-      (groups[k] = groups[k] || []).push(b);
-    });
-    tree.appendChild(el('div', 'git-tree-head', '远程 · ' + remotes.length));
-    Object.keys(groups).forEach(function (k) {
-      tree.appendChild(el('div', 'git-tree-group', k));
-      groups[k].forEach(function (b) {
-        var row = el('div', 'git-node is-remote');
-        row.appendChild(el('span', 'git-node-dot', ''));
-        row.appendChild(el('span', 'git-node-name', b.name.split('/').slice(1).join('/')));
-        row.appendChild(el('span', 'git-node-when', b.when || ''));
-        row.title = b.name + '\n点击：新建同名本地分支并跟踪它';
-        row.addEventListener('click', function () { switchTo(b.name, true); });
-        tree.appendChild(row);
-      });
-    });
-  }
-
-  // 右侧：变更 + 历史
-  function renderMain(r) {
-    main.innerHTML = '';
-    var changes = el('div', 'git-sec git-sec-first', '变更 · ' + (r.changes.length || '无'));
-    main.appendChild(changes);
-    if (!r.changes.length) main.appendChild(el('div', 'git-empty', '工作区干净（没有未提交的改动）'));
-    r.changes.forEach(function (c) {
-      var row = el('div', 'git-row clickable');
-      row.appendChild(el('span', 'git-code ' + codeClass(c.code), c.code));
-      var p = el('span', 'git-path', c.path);
-      p.title = c.path + '\n（点击在预览里看这份 diff）';
-      row.appendChild(p);
+  /* ---------- 变更 ---------- */
+  function renderChanges() {
+    paneChanges.innerHTML = '';
+    var list = el('div', 'g-list');
+    var ch = (data && data.changes) || [];
+    if (!ch.length) { paneChanges.appendChild(el('div', 'g-empty', '工作区干净 —— 没有未提交的改动')); return; }
+    ch.forEach(function (c) {
+      var row = el('div', 'g-file');
+      row.appendChild(el('span', 'g-st ' + codeCls(c.code), c.code === '?' ? 'U' : c.code));
+      row.appendChild(el('span', 'g-path', c.path));
+      row.title = c.path + '\n（点击在预览里看这份 diff）';
       row.addEventListener('click', function () { openDiff(c.path, row); });
-      main.appendChild(row);
+      list.appendChild(row);
     });
-    main.appendChild(el('div', 'git-sec', '提交历史 · ' + (r.commits.length || '无')));
-    if (!r.commits.length) main.appendChild(el('div', 'git-empty', '还没有提交'));
-    r.commits.forEach(function (c) {
-      var row = el('div', 'git-row git-commit');
-      row.appendChild(el('span', 'git-subj', c.subject));
-      var meta = el('div', 'git-meta');
-      meta.appendChild(el('span', 'git-hash', c.hash));
-      if (c.author) meta.appendChild(el('span', 'git-author', c.author));
-      if (c.date) meta.appendChild(el('span', 'git-when', c.date));
-      row.appendChild(meta);
-      main.appendChild(row);
-    });
+    paneChanges.appendChild(list);
+    paneChanges.appendChild(el('div', 'g-foot', ch.length + ' 个文件有改动'));
   }
 
-  async function load() {
-    if (dead) return;
-    tree.innerHTML = '';
-    main.innerHTML = '';
+  /* ---------- 历史 ---------- */
+  function renderLog() {
+    paneLog.innerHTML = '';
+    var sp = el('div', 'g-split');
+    var left = el('div', 'g-loglist');
+    var right = el('div', 'g-detail');
+    sp.appendChild(left); sp.appendChild(right);
+    paneLog.appendChild(sp);
+
+    var all = (data && data.commits) || [];
+    var q = String(filter.value || '').trim().toLowerCase();
+    var rows = all.filter(function (c) {
+      if (!q) return true;
+      return (c.subject || '').toLowerCase().indexOf(q) >= 0 || (c.author || '').toLowerCase().indexOf(q) >= 0 || (c.hash || '').indexOf(q) >= 0;
+    });
+    if (!rows.length) { left.appendChild(el('div', 'g-empty', q ? '没有匹配「' + q + '」的提交' : '还没有提交')); return; }
+    left.appendChild(el('div', 'g-loghead', rows.length + ' 条' + (q ? '（已过滤）' : '')));
+    if (!sel || !rows.some(function (c) { return c.hash === sel; })) sel = rows[0].hash;
+
+    rows.forEach(function (c) {
+      var row = el('div', 'g-commit' + (c.hash === sel ? ' is-sel' : ''));
+      var graph = el('span', 'g-graph');
+      graph.appendChild(el('i', 'g-dot' + ((c.parents || '').split(' ').length > 1 ? ' is-merge' : '')));
+      row.appendChild(graph);
+      var info = el('div', 'g-cinfo');
+      info.appendChild(el('div', 'g-subj', c.subject || '(无摘要)'));
+      var meta = el('div', 'g-cmeta');
+      meta.appendChild(el('span', 'g-author', c.author || ''));
+      meta.appendChild(el('span', 'g-sep', '·'));
+      meta.appendChild(el('span', 'g-when', c.date || ''));
+      meta.appendChild(el('span', 'g-hash', c.hash || ''));
+      info.appendChild(meta);
+      row.appendChild(info);
+      row.addEventListener('click', function () { sel = c.hash; renderLog(); loadDetail(c.hash); });
+      left.appendChild(row);
+    });
+    renderDetail(right);
+    if (!detail || detail.hash !== sel) loadDetail(sel);
+  }
+
+  function renderDetail(host) {
+    host.innerHTML = '';
+    var c = ((data && data.commits) || []).filter(function (x) { return x.hash === sel; })[0];
+    if (!c) { host.appendChild(el('div', 'g-empty', '选一条提交看详情')); return; }
+    var head = el('div', 'g-dhead');
+    head.appendChild(el('div', 'g-dsubj', c.subject || ''));
+    var meta = el('div', 'g-dmeta');
+    meta.appendChild(el('span', '', (c.author || '') + ' · ' + (c.date || '')));
+    meta.appendChild(el('span', 'g-hash', c.hash || ''));
+    head.appendChild(meta);
+    host.appendChild(head);
+    var files = el('div', 'g-dfiles');
+    if (!detail || detail.hash !== c.hash) files.appendChild(el('div', 'g-empty', '读取中…'));
+    else if (!detail.ok) files.appendChild(el('div', 'g-empty', '✗ ' + (detail.err || '读不到这次提交')));
+    else if (!detail.files.length) files.appendChild(el('div', 'g-empty', '这次提交没有文件变更（合并提交？）'));
+    else {
+      detail.files.forEach(function (f) {
+        var row = el('div', 'g-file g-dfile');
+        row.appendChild(el('span', 'g-st ' + codeCls(f.code), f.code));
+        row.appendChild(el('span', 'g-path', f.path));
+        row.title = f.path + '\n（点击在预览里看这次提交里的改动）';
+        row.addEventListener('click', function () { openCommitFile(c.hash, f.path, row); });
+        files.appendChild(row);
+      });
+      files.appendChild(el('div', 'g-foot', detail.files.length + ' 个文件'));
+    }
+    host.appendChild(files);
+  }
+
+  async function loadDetail(hash) {
     var a = api();
-    if (!a) { main.appendChild(el('div', 'git-empty', '这次启动的界面还没有 git 能力（主进程 / 预加载是旧的）⇒ 重启一次工作台即可。')); return; }
-    if (!repo) { main.appendChild(el('div', 'git-empty', '这块面板没配仓库路径：在 scenarios\\code-dev.json 里写 "repo": "<仓库根目录>"。')); return; }
-    main.appendChild(el('div', 'git-empty', '读取中…'));
+    if (!a || !a.show) return;
+    detail = { hash: hash, ok: false, err: '', files: [] };
     var r = null;
-    try { r = await a.panel(repo); } catch (e) { r = { ok: false, err: String((e && e.message) || e) }; }
-    if (dead) return;
-    data = r;
-    tree.innerHTML = '';
-    main.innerHTML = '';
-    if (!r || !r.ok) { main.appendChild(el('div', 'git-empty', '✗ ' + ((r && r.err) || '读取失败'))); return; }
-    renderTree(r);
-    renderMain(r);
+    try { r = await a.show(repo, hash); } catch (e) { r = { ok: false, err: String((e && e.message) || e) }; }
+    if (dead || hash !== sel) return;
+    detail = { hash: hash, ok: !!(r && r.ok), err: (r && r.err) || '', files: (r && r.files) || [] };
+    if (tab === 'log') renderLog();
   }
 
+  /* ---------- 动作 ---------- */
   async function openDiff(rel, row) {
     var a = api();
-    if (!a || !a.diff) { note('这次启动的界面还没有 diff 能力 ⇒ 重启一次工作台'); return; }
-    row.classList.add('git-row-busy');
+    if (!a || !a.diff) { msg('这次启动的界面还没有 diff 能力 ⇒ 重启一次工作台'); return; }
+    row.classList.add('g-busy');
     var d = null;
     try { d = await a.diff(repo, rel); } catch (e) { d = { ok: false, err: String((e && e.message) || e) }; }
-    row.classList.remove('git-row-busy');
-    if (!d || !d.ok) { note('✗ ' + ((d && d.err) || '取 diff 失败')); return; }
+    row.classList.remove('g-busy');
+    if (!d || !d.ok) { msg('✗ ' + ((d && d.err) || '取 diff 失败')); return; }
     var files = window.__kunFiles && window.__kunFiles['cd-files'];
     if (files && typeof files.open === 'function') files.open(d.path);
-    else note('diff 已生成：' + d.path + '（文件面板没加载，复制路径直接看）');
+    else msg('diff 已生成：' + d.path);
+  }
+  async function openCommitFile(hash, rel, row) {
+    var a = api();
+    if (!a || !a.diff) { msg('这次启动的界面还没有 diff 能力 ⇒ 重启一次工作台'); return; }
+    row.classList.add('g-busy');
+    var d = null;
+    try { d = await a.diff(repo, rel, hash); } catch (e) { d = { ok: false, err: String((e && e.message) || e) }; }
+    row.classList.remove('g-busy');
+    if (!d || !d.ok) { msg('✗ ' + ((d && d.err) || '取 diff 失败')); return; }
+    var files = window.__kunFiles && window.__kunFiles['cd-files'];
+    if (files && typeof files.open === 'function') files.open(d.path);
+    else msg('diff 已生成：' + d.path);
+  }
+
+  /* ---------- 分支选择（IDEA 的 branch 下拉） ---------- */
+  function closePop() { pop.style.display = 'none'; pop.innerHTML = ''; picker = false; }
+  function openPop() {
+    if (picker) { closePop(); return; }
+    if (!data || !data.ok) { msg('还没读到分支信息，先 ⟳'); return; }
+    picker = true;
+    pop.innerHTML = '';
+    var search = document.createElement('input');
+    search.className = 'g-filter g-pop-search';
+    search.placeholder = '搜索分支';
+    search.spellcheck = false;
+    pop.appendChild(search);
+    var body = el('div', 'g-pop-body');
+    pop.appendChild(body);
+
+    function paint(q) {
+      body.innerHTML = '';
+      var kw = String(q || '').trim().toLowerCase();
+      var cur = data.current || '';
+      var head = el('div', 'g-pop-row is-cur');
+      head.appendChild(el('span', 'g-pop-check', '✓'));
+      head.appendChild(el('span', 'g-pop-name', data.branch || cur || '(detached)'));
+      if (data.ahead) head.appendChild(el('span', 'g-up', '↑' + data.ahead));
+      if (data.behind) head.appendChild(el('span', 'g-down', '↓' + data.behind));
+      body.appendChild(el('div', 'g-pop-head', 'HEAD'));
+      body.appendChild(head);
+
+      var locals = ((data.branches && data.branches.local) || []).filter(function (b) { return !kw || b.name.toLowerCase().indexOf(kw) >= 0; });
+      body.appendChild(el('div', 'g-pop-head', '本地'));
+      if (!locals.length) body.appendChild(el('div', 'g-empty', '没有匹配的本地分支'));
+      locals.forEach(function (b) {
+        var row = el('div', 'g-pop-row' + (b.name === cur ? ' is-cur' : ''));
+        row.appendChild(el('span', 'g-pop-check', b.name === cur ? '✓' : ''));
+        row.appendChild(el('span', 'g-pop-name', b.name));
+        if (b.ahead) row.appendChild(el('span', 'g-up', '↑' + b.ahead));
+        if (b.behind) row.appendChild(el('span', 'g-down', '↓' + b.behind));
+        if (b.when) row.appendChild(el('span', 'g-pop-when', b.when));
+        row.title = (b.upstream ? 'upstream: ' + b.upstream + '\n' : '') + (b.subject || '');
+        if (b.name !== cur) row.addEventListener('click', function () { switchTo(b.name, false); });
+        body.appendChild(row);
+      });
+
+      var remotes = ((data.branches && data.branches.remote) || []).filter(function (b) { return !kw || b.name.toLowerCase().indexOf(kw) >= 0; });
+      body.appendChild(el('div', 'g-pop-head', '远程'));
+      if (!remotes.length) body.appendChild(el('div', 'g-empty', '没有匹配的远程分支'));
+      remotes.forEach(function (b) {
+        var row = el('div', 'g-pop-row is-remote');
+        row.appendChild(el('span', 'g-pop-check', ''));
+        row.appendChild(el('span', 'g-pop-name', b.name));
+        if (b.when) row.appendChild(el('span', 'g-pop-when', b.when));
+        row.title = b.name + '\n点击：新建同名本地分支并跟踪它';
+        row.addEventListener('click', function () { switchTo(b.name, true); });
+        body.appendChild(row);
+      });
+    }
+    paint('');
+    search.addEventListener('input', function () { paint(search.value); });
+    pop.style.display = 'block';
+    setTimeout(function () { try { search.focus(); } catch (e) { /* ignore */ } }, 0);
   }
 
   async function switchTo(name, isRemote, force) {
     var a = api();
-    if (!a || !a.switch) { note('这次启动的界面还没有切分支能力 ⇒ 重启一次工作台'); return; }
+    if (!a || !a.switch) { msg('这次启动的界面还没有切分支能力 ⇒ 重启一次工作台'); return; }
     if (busy) return;
-    busy = true;
+    busy = true; closePop();
+    msg('切换中：' + name + ' …');
     var r = null;
     try { r = await a.switch(repo, name, { force: !!force }); } catch (e) { r = { ok: false, err: String((e && e.message) || e) }; }
     busy = false;
-    if (r && r.ok) { await load(); note('已切到 ' + r.branch + (r.fromRemote ? '（新建本地跟踪分支）' : '') + ((r.dirty && force) ? ' · 带走了 ' + r.dirty + ' 处改动' : '') + '；壳代码变了要重启工作台'); }
+    if (r && r.ok) { await load(); msg('已切到 ' + r.branch + (r.fromRemote ? '（新建跟踪分支）' : '') + '；壳代码变了要重启工作台'); }
     else if (r && r.code === 'dirty') { askDirty(name, r.dirty, isRemote); }
-    else { await load(); note('✗ ' + ((r && r.err) || '切换失败')); }
+    else { await load(); msg('✗ ' + ((r && r.err) || '切换失败')); }
   }
 
   function askDirty(name, n, isRemote) {
-    var box = el('div', 'git-pop-ask');
-    box.appendChild(el('span', 'git-note', '工作区有 ' + n + ' 处未提交改动，仍要切到 ' + name + '？'));
-    var yes = el('button', 'git-btn', '仍然切换');
-    var no = el('button', 'git-btn', '取消');
+    var box = el('div', 'g-ask');
+    box.appendChild(el('span', 'g-ask-t', '工作区有 ' + n + ' 处未提交改动，仍要切到 ' + name + '？'));
+    var yes = el('button', 'g-btn', '仍然切换');
+    var no = el('button', 'g-btn', '取消');
     yes.addEventListener('click', function () { box.remove(); switchTo(name, isRemote, true); });
     no.addEventListener('click', function () { box.remove(); });
     box.appendChild(yes); box.appendChild(no);
-    main.insertBefore(box, main.firstChild);
+    wrap.appendChild(box);
   }
 
   async function doFetch() {
     var a = api();
-    if (!a || !a.fetch) { note('这次启动的界面还没有 fetch 能力 ⇒ 重启一次工作台'); return; }
-    note('fetch 中（可能几十秒）…');
+    if (!a || !a.fetch) { msg('这次启动的界面还没有 fetch 能力 ⇒ 重启一次工作台'); return; }
+    closePop();
+    btnFetch.classList.add('g-busy');
+    msg('fetch 中（可能几十秒）…');
     var r = null;
     try { r = await a.fetch(repo); } catch (e) { r = { ok: false, err: String((e && e.message) || e) }; }
-    if (r && r.ok) { await load(); note('已 fetch（远程分支已更新）'); }
-    else { await load(); note('✗ ' + ((r && r.err) || 'fetch 失败')); }
+    btnFetch.classList.remove('g-busy');
+    await load();
+    msg(r && r.ok ? '已 fetch，远程分支已更新' : '✗ ' + ((r && r.err) || 'fetch 失败'));
   }
 
-  rl.addEventListener('click', load);
-  ft.addEventListener('click', doFetch);
+  /* ---------- 主流程 ---------- */
+  async function load() {
+    if (dead) return;
+    var a = api();
+    paneChanges.innerHTML = '';
+    paneLog.innerHTML = '';
+    if (!a) {
+      paneChanges.appendChild(el('div', 'g-empty', '这次启动的界面还没有 git 能力（主进程 / 预加载是旧的）⇒ 重启一次工作台即可。'));
+      return;
+    }
+    if (!repo) { paneChanges.appendChild(el('div', 'g-empty', '这块面板没配仓库路径：在 scenarios\\code-dev.json 里写 "repo": "<仓库根目录>"。')); return; }
+    paneChanges.appendChild(el('div', 'g-empty', '读取中…'));
+    var r = null;
+    try { r = await a.panel(repo); } catch (e) { r = { ok: false, err: String((e && e.message) || e) }; }
+    if (dead) return;
+    data = r;
+    paneChanges.innerHTML = '';
+    if (!r || !r.ok) {
+      btnBranch.textContent = '⎇ …';
+      paneChanges.appendChild(el('div', 'g-empty', '✗ ' + ((r && r.err) || '读取失败')));
+      return;
+    }
+    btnBranch.textContent = '⎇ ' + (r.current || r.branch || '?');
+    tabChanges.textContent = '变更' + (r.changes.length ? ' ' + r.changes.length : '');
+    tabLog.textContent = '历史' + (r.commits.length ? ' ' + r.commits.length : '');
+    if (tab === 'changes') renderChanges(); else renderLog();
+  }
+
+  function setTab(t) {
+    tab = t;
+    tabChanges.classList.toggle('is-on', t === 'changes');
+    tabLog.classList.toggle('is-on', t === 'log');
+    paneChanges.style.display = t === 'changes' ? 'block' : 'none';
+    paneLog.style.display = t === 'log' ? 'block' : 'none';
+    if (!data || !data.ok) return;
+    if (t === 'changes') renderChanges(); else renderLog();
+  }
+
+  btnRefresh.addEventListener('click', function () { closePop(); load(); });
+  btnBranch.addEventListener('click', function (e) { e.stopPropagation(); openPop(); });
+  btnFetch.addEventListener('click', doFetch);
+  tabChanges.addEventListener('click', function () { setTab('changes'); });
+  tabLog.addEventListener('click', function () { setTab('log'); });
+  filter.addEventListener('input', function () { if (tab === 'log') renderLog(); });
+  var onDocDown = function (e) { if (picker && !pop.contains(e.target) && e.target !== btnBranch) closePop(); };
+  document.addEventListener('mousedown', onDocDown);
+
   load();
   return function () { dead = true; };
 };
