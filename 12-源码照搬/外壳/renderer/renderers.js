@@ -18880,6 +18880,7 @@ renderers.git = function (body, meta) {
 
   var dead = false, data = null, tab = 'changes', sel = '', detail = null, busy = false, picker = false;
   var picked = {}, draftMsg = '', amendOn = false, committing = false;
+  var viewRev = '', logData = null;
   function api() { return (window.app && window.app.git) || null; }
   function msg(t) { var d = el('div', 'g-msg', t); wrap.appendChild(d); setTimeout(function () { if (d.parentNode) d.remove(); }, 6000); }
   function codeCls(c) { return c === 'M' ? 'is-mod' : ((c === 'A' || c === '?' || c === 'U') ? 'is-new' : (c === 'D' ? 'is-del' : (c === 'R' ? 'is-ren' : ''))); }
@@ -18980,14 +18981,16 @@ renderers.git = function (body, meta) {
     sp.appendChild(left); sp.appendChild(right);
     paneLog.appendChild(sp);
 
-    var all = (data && data.commits) || [];
+    var all = currentCommits();
     var q = String(filter.value || '').trim().toLowerCase();
     var rows = all.filter(function (c) {
       if (!q) return true;
       return (c.subject || '').toLowerCase().indexOf(q) >= 0 || (c.author || '').toLowerCase().indexOf(q) >= 0 || (c.hash || '').indexOf(q) >= 0;
     });
     if (!rows.length) { left.appendChild(el('div', 'g-empty', q ? '没有匹配「' + q + '」的提交' : '还没有提交')); return; }
-    left.appendChild(el('div', 'g-loghead', rows.length + ' 条' + (q ? '（已过滤）' : '')));
+    var curRev = (data && (data.current || data.branch)) || '';
+    var viewTag = (viewRev && viewRev !== curRev) ? ' · 查看 ' + viewRev : '';
+    left.appendChild(el('div', 'g-loghead', rows.length + ' 条' + (q ? '（已过滤）' : '') + viewTag));
     if (!sel || !rows.some(function (c) { return c.hash === sel; })) sel = rows[0].hash;
 
     rows.forEach(function (c) {
@@ -19147,6 +19150,53 @@ renderers.git = function (body, meta) {
 
   /* ---------- 分支选择（IDEA 的 branch 下拉） ---------- */
   function closePop() { pop.style.display = 'none'; pop.innerHTML = ''; picker = false; }
+  function currentCommits() {
+    return (logData && logData.ok && logData.commits) || (data && data.commits) || [];
+  }
+
+  async function refreshLog() {
+    var a = api();
+    if (!a) return;
+    var cur = (data && (data.current || data.branch)) || '';
+    if (!viewRev || viewRev === cur) { logData = null; if (tab === 'log') renderLog(); return; }
+    if (!a.log) { msg('这次启动的界面还没有按分支查历史的能力 ⇒ 重启一次工作台'); return; }
+    var r = null;
+    try { r = await a.log(repo, viewRev); } catch (e) { r = { ok: false, err: String((e && e.message) || e) }; }
+    if (dead) return;
+    logData = r && r.ok ? { ok: true, commits: r.commits || [] } : { ok: false, err: (r && r.err) || '读不到该分支历史', commits: [] };
+    if (tab === 'log') renderLog();
+  }
+
+  function viewBranch(name) {
+    var cur = (data && (data.current || data.branch)) || '';
+    viewRev = name === cur ? '' : name;
+    closePop();
+    refreshLog();
+  }
+
+  function openBranchMenu(b, isRemote, x, y) {
+    menu.innerHTML = '';
+    function item(label, fn, disabled, title) {
+      var it = el('div', 'g-menu-item' + (disabled ? ' is-off' : ''), label);
+      if (title) it.title = title;
+      if (!disabled && fn) it.addEventListener('click', function () { closeMenu(); fn(); });
+      menu.appendChild(it);
+    }
+    if (isRemote) {
+      item('Checkout as New Local Branch…', function () { switchTo(b.name, true); });
+    } else {
+      var cur = (data && (data.current || data.branch)) || '';
+      item('Checkout', function () { switchTo(b.name, false); }, b.name === cur, b.name === cur ? '已经是当前分支' : '');
+    }
+    item('Show History', function () { viewBranch(b.name); });
+    menu.appendChild(el('div', 'g-menu-sep'));
+    item('Copy Branch Name', function () { copyText(b.name); });
+    menu.style.display = 'block';
+    var w = menu.offsetWidth || 200, h = menu.offsetHeight || 120;
+    menu.style.left = Math.min(x, window.innerWidth - w - 8) + 'px';
+    menu.style.top = Math.min(y, window.innerHeight - h - 8) + 'px';
+  }
+
   function openPop() {
     if (picker) { closePop(); return; }
     if (!data || !data.ok) { msg('还没读到分支信息，先 ⟳'); return; }
@@ -19159,31 +19209,44 @@ renderers.git = function (body, meta) {
     pop.appendChild(search);
     var body = el('div', 'g-pop-body');
     pop.appendChild(body);
+    var hint = el('div', 'g-pop-hint', '双击看该分支历史 · 右键切换 / 复制');
+    pop.appendChild(hint);
+
+    function mark(row) {
+      var all = body.querySelectorAll('.g-pop-row');
+      for (var i = 0; i < all.length; i++) all[i].classList.remove('is-sel');
+      row.classList.add('is-sel');
+    }
 
     function paint(q) {
       body.innerHTML = '';
       var kw = String(q || '').trim().toLowerCase();
       var cur = data.current || '';
-      var head = el('div', 'g-pop-row is-cur');
+      body.appendChild(el('div', 'g-pop-head', 'HEAD'));
+      var head = el('div', 'g-pop-row is-cur' + ((viewRev === '' || viewRev === cur) ? ' is-sel' : ''));
       head.appendChild(el('span', 'g-pop-check', '✓'));
       head.appendChild(el('span', 'g-pop-name', data.branch || cur || '(detached)'));
       if (data.ahead) head.appendChild(el('span', 'g-up', '↑' + data.ahead));
       if (data.behind) head.appendChild(el('span', 'g-down', '↓' + data.behind));
-      body.appendChild(el('div', 'g-pop-head', 'HEAD'));
+      head.title = '当前分支：双击看它的历史';
+      head.addEventListener('click', function () { mark(head); });
+      head.addEventListener('dblclick', function () { viewBranch(cur); });
       body.appendChild(head);
 
       var locals = ((data.branches && data.branches.local) || []).filter(function (b) { return !kw || b.name.toLowerCase().indexOf(kw) >= 0; });
       body.appendChild(el('div', 'g-pop-head', '本地'));
       if (!locals.length) body.appendChild(el('div', 'g-empty', '没有匹配的本地分支'));
       locals.forEach(function (b) {
-        var row = el('div', 'g-pop-row' + (b.name === cur ? ' is-cur' : ''));
+        var row = el('div', 'g-pop-row' + (b.name === cur ? ' is-cur' : '') + (viewRev === b.name ? ' is-sel' : ''));
         row.appendChild(el('span', 'g-pop-check', b.name === cur ? '✓' : ''));
         row.appendChild(el('span', 'g-pop-name', b.name));
         if (b.ahead) row.appendChild(el('span', 'g-up', '↑' + b.ahead));
         if (b.behind) row.appendChild(el('span', 'g-down', '↓' + b.behind));
         if (b.when) row.appendChild(el('span', 'g-pop-when', b.when));
-        row.title = (b.upstream ? 'upstream: ' + b.upstream + '\n' : '') + (b.subject || '');
-        if (b.name !== cur) row.addEventListener('click', function () { switchTo(b.name, false); });
+        row.title = (b.upstream ? 'upstream: ' + b.upstream + '\n' : '') + (b.subject || '') + '\n双击：看历史　右键：切换';
+        row.addEventListener('click', function () { mark(row); });
+        row.addEventListener('dblclick', function () { viewBranch(b.name); });
+        row.addEventListener('contextmenu', function (e) { e.preventDefault(); openBranchMenu(b, false, e.clientX, e.clientY); });
         body.appendChild(row);
       });
 
@@ -19191,12 +19254,14 @@ renderers.git = function (body, meta) {
       body.appendChild(el('div', 'g-pop-head', '远程'));
       if (!remotes.length) body.appendChild(el('div', 'g-empty', '没有匹配的远程分支'));
       remotes.forEach(function (b) {
-        var row = el('div', 'g-pop-row is-remote');
+        var row = el('div', 'g-pop-row is-remote' + (viewRev === b.name ? ' is-sel' : ''));
         row.appendChild(el('span', 'g-pop-check', ''));
         row.appendChild(el('span', 'g-pop-name', b.name));
         if (b.when) row.appendChild(el('span', 'g-pop-when', b.when));
-        row.title = b.name + '\n点击：新建同名本地分支并跟踪它';
-        row.addEventListener('click', function () { switchTo(b.name, true); });
+        row.title = b.name + '\n双击：看历史　右键：检出新本地分支';
+        row.addEventListener('click', function () { mark(row); });
+        row.addEventListener('dblclick', function () { viewBranch(b.name); });
+        row.addEventListener('contextmenu', function (e) { e.preventDefault(); openBranchMenu(b, true, e.clientX, e.clientY); });
         body.appendChild(row);
       });
     }

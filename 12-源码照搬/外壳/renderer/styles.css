@@ -5945,3 +5945,6 @@ html[data-theme="dark"] .kneu-dot { box-shadow: 0 0 5px rgba(255, 255, 255, .22)
 .g-acts-l { display: flex; align-items: center; gap: 5px; margin-right: auto; color: var(--text-dim, #888); font-size: 11.5px; }
 .g-acts-t { user-select: none; }
 .g-primary { border-color: var(--accent, #2f6feb); background: rgba(47,111,235,.14); font-weight: 600; }
+
+.g-pop-hint { padding: 2px 6px 6px; font-size: 10.5px; color: var(--text-dim, #888); border-top: 1px solid var(--line, rgba(128,128,128,.2)); margin-top: 4px; }
+.g-pop-row.is-sel { background: rgba(47,111,235,.14); }

@@ -5115,3 +5115,22 @@ ipcMain.handle('kun:git:commit', async (_e, repo, files, message, opts) => {
   }
   return { ok: true, pushed: pushed, pushErr: pushErr };
 });
+
+// ---- 按分支/引用取历史（分支下拉双击 = 看该分支的提交）----
+ipcMain.handle('kun:git:log', async (_e, repo, rev) => {
+  const dir = String(repo || '').trim();
+  const ref = String(rev || '').trim() || 'HEAD';
+  if (!dir) return { ok: false, err: '缺少仓库路径' };
+  if (!fs.existsSync(dir)) return { ok: false, err: '仓库目录不存在：' + dir };
+  const r = await new Promise((resolve) => {
+    execFile('git', ['-c', 'core.quotepath=false', '--no-optional-locks', '-C', dir, 'log', ref, '-60', '--date=format:%m-%d %H:%M', '--pretty=%H|%h|%an|%ad|%p|%s'],
+      { windowsHide: true, maxBuffer: 16 << 20, timeout: 20000 },
+      (err, stdout, stderr) => resolve({ ok: !err, out: String(stdout || ''), err: String(stderr || (err && err.message) || '') }));
+  });
+  if (!r.ok) return { ok: false, err: String(r.err || '').trim() || '读不到该分支的历史' };
+  const commits = String(r.out).split(/\r?\n/).filter(Boolean).map((l) => {
+    const p = l.split('|');
+    return { full: p[0], hash: p[1], author: p[2], date: p[3], parents: p[4] || '', subject: p.slice(5).join('|') };
+  });
+  return { ok: true, rev: ref, commits };
+});
