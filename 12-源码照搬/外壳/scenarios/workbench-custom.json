@@ -1,0 +1,58 @@
+{
+  "id": "workbench-custom",
+  "name": "工作台定制",
+  "description": "工作台定制：改这套工作台本身（编号文档板块 + 外壳 + 脚本 + 引擎配置）。上排左 = 预览（md/代码/图片/PDF 内嵌看），上排右 = 仓库文件树（点开就在左边预览），下排 = 内置 AI 会话「工作台定制」，会话跑在 luanyujia-workbench 仓库目录上，改动按 doc\\提交准则.md 落单元提交、只推 gitee 的 hunao-workbench。",
+  "layout": "grid",
+  "theme": "dark",
+  "cols": 4,
+  "panels": [
+    {
+      "id": "wc-view",
+      "title": "预览",
+      "sub": "点右边的文件就在此预览；只读，不改任何文件",
+      "type": "view",
+      "home": true,
+      "homeFolders": [
+        "D:\\codeData\\myself\\luanyujia-workbench"
+      ],
+      "filesPanel": "wc-files",
+      "col": 1,
+      "row": 1,
+      "w": 3,
+      "h": 3
+    },
+    {
+      "id": "wc-files",
+      "title": "文件",
+      "sub": "D: · 工作台仓库",
+      "type": "file",
+      "mode": "local",
+      "drives": [
+        "D:"
+      ],
+      "viewPanel": "wc-view",
+      "col": 4,
+      "row": 1,
+      "w": 1,
+      "h": 3
+    },
+    {
+      "id": "wc-ai",
+      "title": "AI·工作台定制",
+      "sub": "",
+      "type": "harness",
+      "sessionTitle": "工作台定制",
+      "sessionId": "session-2b0022b7-36ee-4586-828c-5f52aa6e59e2",
+      "pinTarget": [
+        "工作台定制",
+        "工作台"
+      ],
+      "expand": true,
+      "col": 1,
+      "row": 4,
+      "w": 4,
+      "h": 3
+    }
+  ],
+  "first": false
+}
