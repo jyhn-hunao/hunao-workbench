@@ -1,6 +1,6 @@
 ' 启动.vbs —— 启动「淋雨家的工作台」（公开模板）
 Option Explicit
-Dim fso, sh, root, shellDir, engineData, electron
+Dim fso, sh, root, shellDir, engineData, electron, env
 Set fso = CreateObject("Scripting.FileSystemObject")
 Set sh = CreateObject("WScript.Shell")
 root = fso.GetParentFolderName(WScript.ScriptFullName)
@@ -11,6 +11,7 @@ Set env = sh.Environment("PROCESS")
 env("DSH_PORT") = "3083"
 env("DSH_CUSTOMER_HOME") = engineData
 env("DSH_SHELL_DIR") = shellDir
+env("PATH") = root & "\引擎\node_modules\.bin;" & env("PATH")
 electron = shellDir & "\node_modules\electron\dist\electron.exe"
 If fso.FileExists(electron) Then
   sh.CurrentDirectory = shellDir
