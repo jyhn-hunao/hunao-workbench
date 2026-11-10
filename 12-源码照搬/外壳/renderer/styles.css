@@ -5428,7 +5428,9 @@ html[data-theme] .file-refresh.on {
 }
 html[data-theme] .file-refresh.dirty { color: var(--warn); }
 
-html[data-theme] input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+/* ⚠ 排除 .kneu-search：神经元 HUD 的搜索框长在深色舞台上，白底会变成一块刺眼的白条
+   （这条 :not 链让它的特异性高到能压过后面的 .kneu-search 规则，所以只能在这里排除）。 */
+html[data-theme] input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not(.kneu-search),
 html[data-theme] textarea,
 html[data-theme] select {
   background: var(--bg-panel);
@@ -5437,7 +5439,7 @@ html[data-theme] select {
   border-radius: var(--r-sm);
   box-shadow: inset 0 0 0 1px var(--line-2);
 }
-html[data-theme] input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):focus,
+html[data-theme] input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not(.kneu-search):focus,
 html[data-theme] textarea:focus,
 html[data-theme] select:focus {
   box-shadow: inset 0 0 0 1px var(--ring), 0 0 0 3px var(--accent-soft);
@@ -5707,3 +5709,80 @@ html[data-theme="light"] .init-error { color: var(--err); }
     filter: none !important;
   }
 }
+
+/* ---------- ⑫ 深色舞台：记忆神经元 HUD（「命令」场景） ----------
+   这块是**有意保留的深色面**：3D 画布画的是星空，节点/连线配色写死在 renderers.neuron 的
+   COLOR 表里（#7fe3ff / #8fb4ff / #3ddc84…），都是为深底调的，硬翻成浅色会全糊。
+   所以 HUD 一律走「深色玻璃 + 固定浅色字」，**不跟主题令牌**：
+   否则浅色主题下 var(--text) 变成近黑，字直接糊在深底上看不见（本次实测：按钮、统计、
+   详情卡标题全看不见，搜索框还被全局输入框规则刷成白底）。 */
+html[data-theme] .kneu-wrap {
+  background: radial-gradient(120% 90% at 50% 45%, #0b1220 0%, #05070d 72%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .05);
+}
+html[data-theme] .kneu-searchwrap {
+  background: rgba(255, 255, 255, .07);
+  border: 0;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .12);
+  padding: 4px 12px;
+  gap: 7px;
+}
+html[data-theme] .kneu-searchico { color: rgba(255, 255, 255, .5); }
+html[data-theme] .kneu-search {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  color: #eef2f8;
+  font-size: 12px;
+}
+html[data-theme] .kneu-search:focus { box-shadow: none; }
+html[data-theme] .kneu-search::placeholder { color: rgba(255, 255, 255, .42); opacity: 1; }
+/* Chromium 自带的"清空"小叉在深底上是黑的，反相才看得见 */
+html[data-theme] .kneu-search::-webkit-search-cancel-button { filter: invert(1); opacity: .55; }
+
+html[data-theme] .kneu-stat {
+  color: rgba(255, 255, 255, .62);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, .55);
+}
+html[data-theme] .kneu-seg.ok { color: #6fdcae; }
+html[data-theme] .kneu-seg.bad { color: #ff8b8b; }
+
+html[data-theme] .kneu-btn {
+  background: rgba(255, 255, 255, .06);
+  color: #eef2f8;
+  border: 0;
+  border-radius: 999px;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .10);
+  padding: 4px 11px;
+  font-size: 11.5px;
+}
+html[data-theme] .kneu-btn:hover {
+  background: rgba(255, 255, 255, .12);
+  color: #ffffff;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .18);
+  border: 0;
+}
+html[data-theme] .kneu-btn.on {
+  background: rgba(122, 162, 255, .18);
+  color: #cfe0ff;
+  box-shadow: inset 0 0 0 1px rgba(122, 162, 255, .55);
+}
+
+html[data-theme] .kneu-detail {
+  background: rgba(8, 12, 20, .90);
+  border: 0;
+  border-radius: 12px;
+  box-shadow: 0 18px 46px rgba(0, 0, 0, .55), inset 0 0 0 1px rgba(255, 255, 255, .10);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+html[data-theme] .kneu-dt { color: #f4f7fb; font-size: 12.5px; font-weight: 600; }
+html[data-theme] .kneu-ds { color: rgba(255, 255, 255, .60); }
+html[data-theme] .kneu-dp {
+  color: #8fb4ff;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  line-height: 1.5;
+}
+html[data-theme] .kneu-legend { color: rgba(255, 255, 255, .55); }
+html[data-theme] .kneu-dot { box-shadow: 0 0 5px rgba(255, 255, 255, .22); }
