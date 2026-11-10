@@ -4144,7 +4144,7 @@ function loadCpuPercent() {
 }
 function nvidiaSmiOnce() {
   return new Promise((resolve) => {
-    const exe = '<盘根>:\\Windows\\System32\\nvidia-smi.exe';
+    const exe = 'C:\\Windows\\System32\\nvidia-smi.exe';
     let out = '', done = false, cp = null;
     try { cp = spawn(exe, ['--query-gpu=name,utilization.gpu,temperature.gpu,memory.used,memory.total', '--format=csv,noheader,nounits'], { windowsHide: true }); }
     catch (e) { return resolve(null); }
