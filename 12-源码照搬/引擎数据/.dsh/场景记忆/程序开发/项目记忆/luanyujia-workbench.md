@@ -28,3 +28,18 @@
 ## 五、上线记录（只追加）
 
 - 2026-11-10：首次推送到 gitee `hunao-workbench`（main），此后每次改动都只推这里。
+
+## 六、外观皮肤与主题（并入自「工作台定制」场景记忆，2026-11-10）
+
+- 皮肤段：`外壳\renderer\styles.css` 末尾「全量视觉重设计」段（§①~⑪，约 754 行）——令牌浅/深 + 底座 + 标题栏 + 场景栏 + 面板 + 控件 + 浮层 + 启动页 + 浅色护栏；说明文档 `08-升级与改造清单\外观皮肤与设计令牌.md`。
+- 决策：换外观走「末尾皮肤段 + 设计令牌」，不重写 `styles.css`（4900 行里混着布局与 JS 依赖的尺寸）；组件规则一律带 `html[data-theme]` 前缀，靠「同特异性 + 文件末尾」压过历史覆盖，能不写 `!important` 就不写。
+- 决策：默认主题 dark → light，键改 `guiTheme.v2` 并做一次性迁移（light/system 保留、dark 落回浅色）；默认值在 `renderer.js` 的 `currentThemeMode()`。
+- 坑：`styles.css` 有 78 行 `!important`（70% 在启动页）；`#scenebar` 的背景/边框是 `!important`，皮肤段里也必须 `!important`；启动页的 `position:fixed / z-index:30000 / flex 居中` 同理。
+- 坑：`.view-ta` 是 `<textarea>`，会被全局 `textarea` 的阴影环命中 ⇒ 必须显式 `box-shadow:none`，否则预览区凭空多一圈边框。
+- 坑：改 `renderer.js`（主题默认、preload 之外的启动逻辑）热更新不生效，只有整页重载才重新执行；`刷新面板.mjs` 只重拉 `styles.css` 与 `renderers.js`。整页重载：先 `(Get-Item 外壳\renderer\topbar-status.js).LastWriteTime = Get-Date`，再跑 `刷新面板.mjs all`（主进程有它的 mtime 哨兵）。
+- 坑：`check-gui.mjs` 第 10 项会报 3 个 FAIL（`外壳\.idea`、`pnpm-lock.yaml`、`pnpm-workspace.yaml` 不属于目录契约），是既有问题，别当成自己改坏的。
+- 判据：自绘画布也必须能换皮——颜色集中成常量表（`renderers.neuron` 的 `KNEU_LIGHT`/`KNEU_DARK` + `COLOR`/`COLOR_LIGHT`），绘制代码里不留 hex。浅色画在白纸上（不铺深色背景、不压暗角、星点退成纸面尘埃、标签白底深字、连线按类型走石板/青/蓝），深色维持原星空；HUD 给两套玻璃；图例点由 `paintLegend()` 跟主题重刷。当初返工就是因为颜色散落在 30 处 `rgba(...)` 里。
+
+## 七、待办
+
+- 四个场景（B站 / 命令 / 自我复盘 / 本地电脑）在浅色下逐屏核对正文对比度（写死浅色字的类只补了一批护栏，还没逐屏看）。
