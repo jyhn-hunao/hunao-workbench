@@ -10,8 +10,9 @@
 //
 // 用法：
 //   node 工具\省token开关.mjs --status              看现在开没开（读配置 + 跑 dump-config 复核）
-//   node 工具\省token开关.mjs --on                  打开（默认 阈值 30% / 摘要后留 10%）
-//   node 工具\省token开关.mjs --on --threshold 0.4 --retain 0.12
+//   node 工具\省token开关.mjs --on                  打开（默认 阈值 50% / 摘要后留 12%）
+//   node 工具\省token开关.mjs --on --threshold 0.7 --retain 0.12   # 保守：只给超长会话兜底
+//   node 工具\省token开关.mjs --on --threshold 0.3 --retain 0.10   # 激进：长会话的记忆会被重写多次
 //   node 工具\省token开关.mjs --off                 关掉（整段删掉，回到出厂状态）
 //   node 工具\省token开关.mjs --dry                 只打印要写的字节，不落盘
 //   node 工具\省token开关.mjs --file <yml>          指定别的 patch 文件（自检用）
@@ -38,8 +39,10 @@ const has = (k) => argv.includes(k);
 const val = (k, d) => { const i = argv.indexOf(k); return i >= 0 && argv[i + 1] ? argv[i + 1] : d; };
 const file = path.resolve(val('--file', DEFAULT_FILE));
 const dry = has('--dry');
-const threshold = Number(val('--threshold', '0.3'));
-const retain = Number(val('--retain', '0.1'));
+// 默认取 50%/12% 而不是 30%/10%：30% 会让今天那种 336 步的会话压两次（每次把记忆重写成摘要），
+// 50% 只压一次，省得少一些但"记得更细"；要极限省钱再显式 --threshold 0.3。
+const threshold = Number(val('--threshold', '0.5'));
+const retain = Number(val('--retain', '0.12'));
 
 function die(msg) { console.error('✗ ' + msg); process.exit(1); }
 
