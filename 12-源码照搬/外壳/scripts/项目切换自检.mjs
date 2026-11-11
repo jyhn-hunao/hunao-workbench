@@ -32,7 +32,8 @@ const dshHome = path.join(tmp, 'dsh');
 const projects = path.join(tmp, 'projects', 'myself');
 for (const d of [scenDir, path.join(dshHome, 'storages', 'session_projcache', 'sessions'),
   path.join(dshHome, '场景记忆', '_共享记忆'), path.join(projects, 'alpha', '.git'),
-  path.join(projects, 'beta', '.git'), path.join(projects, 'gamma'), path.join(projects, 'delta')]) {
+  path.join(projects, 'beta', '.git'), path.join(projects, 'gamma'), path.join(projects, 'delta'),
+  path.join(projects, 'epsilon')]) {
   fs.mkdirSync(d, { recursive: true });
 }
 fs.writeFileSync(path.join(projects, 'delta', 'package.json'), '{}\n', 'utf8');   // 有工程标志、但没登记也没会话
@@ -67,6 +68,7 @@ mkSession('session-A', path.join(projects, 'alpha'), 'alpha', 1000);
 mkSession('session-OLD', path.join(projects, 'alpha'), 'alpha-old', 2000);
 mkSession('session-B', path.join(projects, 'beta'), 'beta', 3000);
 mkSession('session-ARCH', path.join(projects, 'beta'), 'beta', 4000);
+mkSession('session-E', path.join(projects, 'epsilon'), '', 5000);   // 无标题会话（引擎里叫「无标题」）
 
 write(path.join(dshHome, 'storages', 'workspace.json'), JSON.stringify({
   global: { archivedSessionIds: ['session-ARCH'] },
@@ -83,6 +85,7 @@ write(path.join(dshHome, '场景记忆', '_共享记忆', '项目.json'), JSON.s
     { name: 'alpha', paths: [path.join(projects, 'alpha')], owner: '程序开发', status: 'active' },
     { name: 'beta', paths: [path.join(projects, 'beta')], owner: '程序开发', status: 'active' },
     { name: 'gamma', paths: [path.join(projects, 'gamma')], owner: '程序开发', status: 'active' },
+    { name: 'epsilon', paths: [path.join(projects, 'epsilon')], owner: '程序开发', status: 'active' },
     { name: '别场景的项目', paths: [path.join(projects, 'beta')], owner: 'B站', status: 'active' }
   ]
 }, null, 2));
@@ -162,6 +165,8 @@ ok(beta && beta.sessionId === 'session-B', 'beta 选中 session-B（已归档的
 ok(gamma && gamma.hasSession === false, 'gamma 标记为无会话');
 const delta = list1.projects.find((p) => p.name === 'delta');
 ok(delta && delta.discovered === true && delta.hasSession === false, 'delta（同级目录 + package.json）被扫出来，标记未接入');
+const epsilon = list1.projects.find((p) => p.name === 'epsilon');
+ok(epsilon && epsilon.hasSession === false, '只有「无标题」会话的项目不算可切（pinTarget 只能靠标题认人）');
 
 // ---------- 4) 切换（含切回） ----------
 console.log('\n[4] 切换项目');
@@ -175,6 +180,8 @@ const scenText = read(path.join(scenDir, 'code-dev.json'));
 ok(scenText.indexOf('"pinTarget": ["beta", "程序开发"]') > 0, 'pinTarget 首项 = 会话名（行内写法保留）');
 ok(read(path.join(scenDir, 'code-dev-context.md')).indexOf('`session-B`') > 0, '定位卡已回写');
 ok(read(path.join(scenDir, '_场景身份索引.md')).indexOf('| beta | `session-B` |') > 0, '索引表已回写');
+const idxText = read(path.join(scenDir, '_场景身份索引.md'));
+ok((idxText.match(/\r\n/g) || []).length === (idxText.match(/\n/g) || []).length, '索引表行尾保持 CRLF（没有整篇变 LF）');
 
 const sw2 = svc.switchTo('code-dev', 'cd-ai', path.join(projects, 'alpha'));
 ok(sw2.ok, '切回 alpha 成功', sw2.err);
@@ -193,6 +200,9 @@ ok(!sw4.ok && /没有这个目录/.test(sw4.err), '不存在的目录 → 明确
 
 const sw5 = svc.switchTo('code-dev', 'cd-ai', path.join(projects, 'delta'));
 ok(!sw5.ok && sw5.needOnboard, 'delta 未接入 → needOnboard（交给主进程自动跑接入脚本）');
+
+const sw6 = svc.switchTo('code-dev', 'cd-ai', path.join(projects, 'epsilon'));
+ok(!sw6.ok && sw6.needOnboard, 'epsilon 只有无标题会话 → 拒绝并提示先接入');
 
 // ---------- 输出 ----------
 console.log('\n结果：' + pass + ' 通过，' + fail + ' 失败');

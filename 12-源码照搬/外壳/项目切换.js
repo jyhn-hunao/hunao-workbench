@@ -246,6 +246,7 @@ function patchContextCard(text, opts) {
 }
 
 function patchIdentityIndex(text, opts) {
+  const eol = text.indexOf('\r\n') >= 0 ? '\r\n' : '\n';   // 按原行尾回写：这个文件是 CRLF，整篇用 \n 拼会变成全文件 diff
   const lines = text.split(/\r?\n/);
   const tag = '`' + opts.sceneId + '`';
   const notes = [];
@@ -256,7 +257,7 @@ function patchIdentityIndex(text, opts) {
     cells[4] = ' ' + opts.name + ' ';
     cells[5] = ' `' + opts.sessionId + '` ';
     lines[i] = cells.join('|');
-    return { changed: true, text: lines.join('\n'), notes };
+    return { changed: true, text: lines.join(eol), notes };
   }
   notes.push('场景索引表里没有 ' + opts.sceneId + ' 这一行');
   return { changed: false, text, notes };
@@ -335,12 +336,14 @@ function createService(ctx) {
       }
       pool.sort((a, b) => b.createdAt - a.createdAt);
       const chosen = pickSession(pool, item.name, currentId, currentTitle);
+      // 没标题的会话（引擎里的「无标题」）不能当钉子用：pinTarget 只能靠标题认人
+      const usable = chosen && chosen.title ? chosen : null;
       list.push(Object.assign({}, item, {
-        hasSession: !!chosen,
-        sessionId: chosen ? chosen.id : '',
-        sessionTitle: chosen ? chosen.title : '',
+        hasSession: !!usable,
+        sessionId: usable ? usable.id : '',
+        sessionTitle: usable ? usable.title : '',
         sessionCount: pool.length,
-        current: !!chosen && chosen.id === currentId
+        current: !!usable && usable.id === currentId
       }));
     }
     list.sort(function (a, b) {
@@ -363,13 +366,15 @@ function createService(ctx) {
     if (!res.ok) return res;
     const item = res.projects.filter((p) => norm(p.root) === norm(root))[0];
     if (!item) return { ok: false, notListed: true, err: '项目列表里没有这个目录：' + root };
-    if (!item.sessionId) {
+    if (!item.sessionId || !item.sessionTitle) {
       return {
         ok: false,
         needOnboard: true,
         root: item.root,
         name: item.name,
-        err: '「' + item.name + '」还没有可用会话：先跑 node 外壳\\scripts\\接入项目.mjs --root "' + item.root + '"'
+        err: !item.sessionId
+          ? '「' + item.name + '」还没有可用会话：先跑 node 外壳\\scripts\\接入项目.mjs --root "' + item.root + '"'
+          : '「' + item.name + '」的会话没有标题（引擎里叫「无标题」），没法钉：先跑 node 外壳\\scripts\\接入项目.mjs --root "' + item.root + '" 建一条有标题的会话'
       };
     }
 
