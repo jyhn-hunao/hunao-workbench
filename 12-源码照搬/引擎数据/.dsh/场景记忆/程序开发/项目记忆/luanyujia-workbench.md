@@ -1,6 +1,6 @@
 # luanyujia-workbench · 项目记忆
 
-> 项目根：`D:\codeData\myself\luanyujia-workbench`｜场景：程序开发（code-dev）｜建单 2026-11-10｜最近更新 2026-11-10
+> 项目根：`D:\codeData\myself\luanyujia-workbench`｜场景：程序开发（code-dev）｜建单 2026-11-10｜最近更新 2026-11-11
 > **业务记忆只住这里**：术语 / 数据来源 / 契约 / 领域规则都写本文件；跨项目规矩去场景私有记忆。
 
 ## 状态区
@@ -30,6 +30,7 @@
 - **引擎 RPC**：`POST /api/<method>`，body `{type:'client-request', rpcId, method, payload:{args}}`；已用：`session/create`、`session/rename`、`session/prompt`、`session/cancel`、`workspace/create`、`workspace/archiveSession`。
 - **鉴权**：token 从 `外壳\server.log` 的 `dsh web: http://127.0.0.1:<port>/?token=…` 取，`fetch(BASE + '/?token=…', {redirect:'manual'})` 换签名 cookie；redirect 跟随会 401。
 - **端口**：`DSH_PORT` 默认 3083（`启动.vbs` 与 `main.js` 各写一处，必须同改）。
+- **启动 token 的时序契约**（2026-11-11 查明）：`?token=` 不是配置项，是 `dsh web` 每进程随机生成（`randomBytes` + 内存里的 `PROCESS_LAUNCH_TOKENS`），唯一出口是 stdout 的 `dsh web: http://127.0.0.1:<port>/?token=…` 那一行；而这行**要等插件树 `loader.await()` + `auditStartupEntries` 之后才打印**，HTTP 端口更早就 listen 了 ⇒「端口通」≠「token 到手」。`引擎数据\.dsh\.credentials.yaml` 里只有 `DEEPSEEK_API_KEY` 和浏览器 cookie 的签名 `grant` 记录，没有任何地方能"配置"这个 token。
 
 ## 四、技术栈与目录
 
@@ -54,10 +55,12 @@
 - 2026-11-10（外观坑）：改 `renderer.js`（主题默认、preload 之外的启动逻辑）热更新不生效，只有整页重载才重新执行；`刷新面板.mjs` 只重拉 `styles.css` 与 `renderers.js`。整页重载：先 `(Get-Item 外壳\renderer\topbar-status.js).LastWriteTime = Get-Date`，再跑 `刷新面板.mjs all`（主进程有它的 mtime 哨兵）。
 - 2026-11-10（外观坑）：`check-gui.mjs` 第 10 项会报 3 个 FAIL（`外壳\.idea`、`pnpm-lock.yaml`、`pnpm-workspace.yaml` 不属于目录契约），是既有问题，别当成自己改坏的。
 - 2026-11-10（外观判据）：自绘画布也必须能换皮——颜色集中成常量表（`renderers.neuron` 的 `KNEU_LIGHT`/`KNEU_DARK` + `COLOR`/`COLOR_LIGHT`），绘制代码里不留 hex；浅色画在白纸上，深色维持原星空；HUD 给两套玻璃；图例点由 `paintLegend()` 跟主题重刷。当初返工就是因为颜色散落在 30 处 `rgba(...)` 里。
+- 2026-11-11（启动页卡 92%）：根因＝上面那条时序契约 + 壳的判定口径——`probe()` 只要端口有响应（**401 也算**）就判"就绪"→ 立刻 `broadcast('harness:ready')`（`main.js` 启动链）→ 渲染层 `loadHarness()` 里 `isHarnessReady()` 拿到 false 就 `return`，**之后再没人调它** ⇒ 启动页永久停在 92%「引擎已就绪，正在加载界面…」，只能点「⟳ 立即进入」。日志判据：`[boot] 引擎就绪总耗时` 出现在 `[token] captured` **之前** ⇒ 必卡（18:21 那次 8.4s、2026-11-11 09:09 那次 78.1s 都是这个顺序）。已修：主进程 `harness:ready` 有界等 token 3s；渲染层 400ms 轮询最多 10s，超时给失败态 +「重试」；再用 `bootState().stage` 区分「引擎还没起」（继续走进度条）与「引擎起了但没 token」（报错），否则 `init()` 末尾的 `await loadHarness()` 会在冷启动早期误报失败。未验证：运行时行为要下次重启工作台才看得到（重启会连带杀掉当前引擎会话）。
 
 ## 七、上线记录（只追加）
 
 - 2026-11-10：首次推送到 gitee `hunao-workbench`（main），此后每次改动都只推这里。
+- 2026-11-11：启动页 token 竞态修复推 gitee——`dd09e6e`（主修复：main.js + renderer.js）、`9fb6db5`（renderers.js 一行 + 还原误产生的行尾噪声）。
 
 ## 八、待办
 
