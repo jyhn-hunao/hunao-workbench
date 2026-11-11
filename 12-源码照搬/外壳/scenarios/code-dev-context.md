@@ -7,7 +7,7 @@
 | 项 | 值 |
 |---|---|
 | 场景 / 面板 | `code-dev` / `cd-ai` · `AI·程序开发` |
-| 当前项目 / 会话 | `mlw` / `session-04b22e81-a3af-46c8-aa13-1ae33d51c077` |
+| 当前项目 / 会话 | `luanyujia-workbench` / `session-cd208a77-8ce1-4687-b915-8dfb67eaf220` |
 | 主技能 / 记忆 | `code-dev` + `project-onboarding`；场景记忆 `...\程序开发\` |
 
 我负责：给任何项目写/改代码，按规范铁律 + 项目 `AGENTS.md` 交付。不管生活类活。
