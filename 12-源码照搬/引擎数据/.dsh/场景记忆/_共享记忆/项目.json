@@ -1,16 +1,26 @@
 {
-    "projects":  [
-                     {
-                         "name":  "luanyujia-workbench",
-                         "paths":  [
-                                       "D:\\codeData\\myself\\luanyujia-workbench"
-                                   ],
-                         "owner":  "程序开发",
-                         "status":  "active",
-                         "aliases":  [
-                                         "工作台本体"
-                                     ],
-                         "memory":  "D:\\codeData\\myself\\luanyujia-workbench\\12-源码照搬\\引擎数据\\.dsh\\场景记忆\\程序开发\\项目记忆\\luanyujia-workbench.md"
-                     }
-                 ]
+ "projects": [
+  {
+   "name": "luanyujia-workbench",
+   "paths": [
+    "D:\\codeData\\myself\\luanyujia-workbench"
+   ],
+   "owner": "程序开发",
+   "status": "active",
+   "aliases": [
+    "工作台本体"
+   ],
+   "memory": "D:\\codeData\\myself\\luanyujia-workbench\\12-源码照搬\\引擎数据\\.dsh\\场景记忆\\程序开发\\项目记忆\\luanyujia-workbench.md"
+  },
+  {
+   "name": "mlw",
+   "paths": [
+    "D:\\codeData\\workData\\workCode\\mlw"
+   ],
+   "owner": "程序开发",
+   "status": "active",
+   "aliases": [],
+   "memory": "D:\\codeData\\myself\\luanyujia-workbench\\12-源码照搬\\引擎数据\\.dsh\\场景记忆\\程序开发\\项目记忆\\mlw.md"
+  }
+ ]
 }
