@@ -296,14 +296,14 @@ function createService(ctx) {
       if (owner && owner !== sceneName && owner !== sceneId) continue;
       byRoot.set(norm(root), { name: String(p.name || path.basename(root)), root: root, registered: true, owner: owner });
     }
+    // 工作区只用来"补会话"，不单独成为一项：DSH 的工作区不一定是一个项目
+    // （本机就有个「工作区」是外壳的临时目录，里面躺着其它场景的会话——列出来会让 AI 面板钉到别人的会话上）。
     for (const id of Object.keys(wsTable)) {
       const w = wsTable[id] || {};
       const root = String(w.path || '');
       if (!root) continue;
       const hit = byRoot.get(norm(root));
-      const ids = Array.isArray(w.sessionIds) ? w.sessionIds : [];
-      if (hit) { hit.workspaceId = id; hit.sessionIds = ids; }
-      else byRoot.set(norm(root), { name: String(w.title || path.basename(root)), root: root, registered: false, owner: '', workspaceId: id, sessionIds: ids });
+      if (hit) { hit.workspaceId = id; hit.sessionIds = Array.isArray(w.sessionIds) ? w.sessionIds : []; }
     }
 
     const currentId = String(panel.sessionId || '');

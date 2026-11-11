@@ -33,7 +33,7 @@ const projects = path.join(tmp, 'projects', 'myself');
 for (const d of [scenDir, path.join(dshHome, 'storages', 'session_projcache', 'sessions'),
   path.join(dshHome, '场景记忆', '_共享记忆'), path.join(projects, 'alpha', '.git'),
   path.join(projects, 'beta', '.git'), path.join(projects, 'gamma'), path.join(projects, 'delta'),
-  path.join(projects, 'epsilon')]) {
+  path.join(projects, 'epsilon'), path.join(projects, 'scratch')]) {
   fs.mkdirSync(d, { recursive: true });
 }
 fs.writeFileSync(path.join(projects, 'delta', 'package.json'), '{}\n', 'utf8');   // 有工程标志、但没登记也没会话
@@ -69,13 +69,16 @@ mkSession('session-OLD', path.join(projects, 'alpha'), 'alpha-old', 2000);
 mkSession('session-B', path.join(projects, 'beta'), 'beta', 3000);
 mkSession('session-ARCH', path.join(projects, 'beta'), 'beta', 4000);
 mkSession('session-E', path.join(projects, 'epsilon'), '', 5000);   // 无标题会话（引擎里叫「无标题」）
+mkSession('session-S', path.join(projects, 'scratch'), 'scratch', 6000);   // 只存在于"工作区"、不是项目
 
 write(path.join(dshHome, 'storages', 'workspace.json'), JSON.stringify({
   global: { archivedSessionIds: ['session-ARCH'] },
   tables: {
     workspaces: {
       'ws-alpha': { path: path.join(projects, 'alpha'), title: 'alpha', sessionIds: ['session-A', 'session-OLD'] },
-      'ws-beta': { path: path.join(projects, 'beta'), title: 'beta', sessionIds: ['session-B', 'session-ARCH'] }
+      'ws-beta': { path: path.join(projects, 'beta'), title: 'beta', sessionIds: ['session-B', 'session-ARCH'] },
+      // 一个"不是项目"的工作区（没有工程标志、也没登记）：以前会进下拉，等于把别人的会话钉上来
+      'ws-scratch': { path: path.join(projects, 'scratch'), title: 'scratch', sessionIds: ['session-S'] }
     }
   }
 }, null, 2));
@@ -167,6 +170,7 @@ const delta = list1.projects.find((p) => p.name === 'delta');
 ok(delta && delta.discovered === true && delta.hasSession === false, 'delta（同级目录 + package.json）被扫出来，标记未接入');
 const epsilon = list1.projects.find((p) => p.name === 'epsilon');
 ok(epsilon && epsilon.hasSession === false, '只有「无标题」会话的项目不算可切（pinTarget 只能靠标题认人）');
+ok(!list1.projects.find((p) => p.name === 'scratch'), '只有工作区、没有工程标志的目录不进下拉（免得钉到别人的会话上）');
 
 // ---------- 4) 切换（含切回） ----------
 console.log('\n[4] 切换项目');
