@@ -4369,6 +4369,22 @@ ipcMain.handle('topbar:pressure', async () => {
   }  return { ok: true, at: Date.now(), rows, total: arr.length, mine: map.size, missing, helpers, helperReg: helperIds.size };
 });
 
+// ---- 会话用量（2026-11-11）----
+// 数据面在 用量.js（读引擎投影缓存，算上下文 / 每步重发 / 重放率 / 分档），这里只接 IPC。
+// 为什么要它：2026-11-11 统计出 6 条会话一天烧 2.95 亿 token、99.3% 是每一步重读历史；
+//   而顶栏的「压力」胶囊 2026-10-23 已按用户要求删掉，之后没有任何地方能看见「这条会话有多贵」。
+// 只读：不写场景、不碰会话；越线提示由渲染层 用量面板.js 负责。
+const usageSvc = require('./用量').createService({
+  scenariosDir: SCENARIOS_DIR,
+  dshHome: DSH_HOME,
+  fsx: {
+    readText: function (p) { try { return fs.readFileSync(p, 'utf8'); } catch (e) { return null; } },
+    readDir: function (p) { try { return fs.readdirSync(p); } catch (e) { return []; } },
+    exists: function (p) { try { return fs.existsSync(p); } catch (e) { return false; } }
+  }
+});
+ipcMain.handle('usage:list', () => usageSvc.list());
+
 // ② 谁在等我：共用定位卡 §六 未办结行 + 各场景记忆 §〇 的「卡点」
 ipcMain.handle('topbar:pending', () => {
   const items = [];

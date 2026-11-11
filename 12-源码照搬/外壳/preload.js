@@ -347,6 +347,8 @@ contextBridge.exposeInMainWorld('app', {
   // 顶栏状态区（2026-10-16 新增，只给 renderer\topbar-status.js 用；老宿主没这组 IPC 时那边自动不显示）
   topbar: {
     pressure: () => ipcRenderer.invoke('topbar:pressure'),
+    // 会话用量（2026-11-11）：只读，口径见 外壳\用量.js；渲染层是 renderer\用量面板.js
+    usage: () => ipcRenderer.invoke('usage:list'),
     pending: () => ipcRenderer.invoke('topbar:pending'),
     snapshots: () => ipcRenderer.invoke('topbar:snapshots'),
     snapshot: () => ipcRenderer.invoke('topbar:snapshot'),
