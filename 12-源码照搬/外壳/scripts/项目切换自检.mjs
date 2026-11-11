@@ -148,9 +148,19 @@ ok(/会话 id\s*\|\s*`session-B`/.test(card1.text), '定位卡：会话 id → s
 ok(card1.text.indexOf('（换项目时会变，换完回写）') > 0, '定位卡：行尾说明没被吃掉');
 
 const idx0 = read(path.join(scenDir, '_场景身份索引.md'));
-const idx1 = PS.patchIdentityIndex(idx0, { sceneId: 'code-dev', name: 'beta', sessionId: 'session-B' });
-ok(idx1.changed && /\| `code-dev` \| `cd-ai` \| AI·程序开发 \| beta \| `session-B` \|/.test(idx1.text), '索引表：code-dev 行的会话名/id 已换');
+const idx1 = PS.patchIdentityIndex(idx0, { sceneId: 'code-dev', panelId: 'cd-ai', name: 'beta', sessionId: 'session-B' });
+ok(idx1.changed && /\| `code-dev` \| `cd-ai` \|[^|]*\| beta \| `session-B` \|/.test(idx1.text), '索引表：code-dev 行的会话名/id 已换');
 ok(idx1.text.indexOf('| `command` |') > 0, '索引表：其它场景行原样保留');
+
+// 双 AI 面板场景（程序开发：工作区 cd-ai-home + 项目 cd-ai）：必须按面板 id 命中，不许改错那条
+const idxTwo = '| `code-dev` | `cd-ai` | AI·项目 | alpha | `session-A` | `scenarios\\code-dev-context.md` | code-dev |\r\n'
+  + '| `code-dev` | `cd-ai-home` | AI·工作区 | 程序开发·工作区 | `session-H` | `scenarios\\code-dev-context.md` | code-dev |\r\n';
+const idx3 = PS.patchIdentityIndex(idxTwo, { sceneId: 'code-dev', panelId: 'cd-ai-home', name: 'beta', sessionId: 'session-B' });
+ok(idx3.changed, '索引表·双面板：按面板 id 命中 cd-ai-home');
+ok(/\| `cd-ai-home` \| AI·工作区 \| beta \| `session-B` \|/.test(idx3.text), '索引表·双面板：cd-ai-home 行已换');
+ok(/\| `cd-ai` \| AI·项目 \| alpha \| `session-A` \|/.test(idx3.text), '索引表·双面板：cd-ai 行不动');
+const idx4 = PS.patchIdentityIndex(idxTwo, { sceneId: 'code-dev', panelId: 'cd-ai-x', name: 'z', sessionId: 'session-Z' });
+ok(!idx4.changed && idx4.notes.some((n) => n.indexOf('cd-ai-x') >= 0), '索引表·双面板：对不上面板就报错不写（不静默改错行）');
 
 // ---------- 3) 项目列表 ----------
 console.log('\n[3] 项目列表');

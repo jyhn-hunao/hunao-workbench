@@ -178,7 +178,9 @@ function patchScenario(text, opts) {
   let scene;
   try { scene = JSON.parse(text); } catch (e) { return { ok: false, err: '场景 JSON 解析失败：' + e.message }; }
   const panels = Array.isArray(scene.panels) ? scene.panels : [];
+  // 一个场景可能挂两块 AI 面板（程序开发：工作区 + 项目）⇒ 没给 panelId 时不许乱改第一块，优先挑带项目下拉的
   const target = panels.filter((p) => p.type === 'harness' && (!opts.panelId || p.id === opts.panelId))[0]
+    || panels.filter((p) => p.type === 'harness' && p.projectSwitch)[0]
     || panels.filter((p) => p.type === 'harness')[0];
   if (!target) return { ok: false, err: '场景里没有 harness 面板' };
 
@@ -249,18 +251,31 @@ function patchIdentityIndex(text, opts) {
   const eol = text.indexOf('\r\n') >= 0 ? '\r\n' : '\n';   // 按原行尾回写：这个文件是 CRLF，整篇用 \n 拼会变成全文件 diff
   const lines = text.split(/\r?\n/);
   const tag = '`' + opts.sceneId + '`';
+  const panelTag = opts.panelId ? ('`' + opts.panelId + '`') : '';
   const notes = [];
+  // 1. 先按「场景 + 面板」精确命中（一个场景可能挂两块 AI 面板：工作区 / 项目）；
+  // 2. 只有该场景在表里就一行时才敢退回按场景命中；多行又对不上面板 ⇒ 报错不写（宁可不写，也不改错那条）。
+  const hits = [];
   for (let i = 0; i < lines.length; i++) {
     const cells = lines[i].split('|');
     if (cells.length < 7) continue;
     if (cells[1].trim() !== tag) continue;
-    cells[4] = ' ' + opts.name + ' ';
-    cells[5] = ' `' + opts.sessionId + '` ';
-    lines[i] = cells.join('|');
-    return { changed: true, text: lines.join(eol), notes };
+    hits.push({ i: i, exact: !!panelTag && cells[2].trim() === panelTag });
   }
-  notes.push('场景索引表里没有 ' + opts.sceneId + ' 这一行');
-  return { changed: false, text, notes };
+  const exact = hits.filter((x) => x.exact)[0];
+  const only = hits.length === 1 ? hits[0] : null;
+  const pick = exact || only;
+  if (!pick) {
+    notes.push(hits.length > 1
+      ? ('场景索引表里 ' + opts.sceneId + ' 有 ' + hits.length + ' 行，但没有面板 id 为 ' + (opts.panelId || '(未给)') + ' 的行')
+      : ('场景索引表里没有 ' + opts.sceneId + ' 这一行'));
+    return { changed: false, text, notes };
+  }
+  const cells = lines[pick.i].split('|');
+  cells[4] = ' ' + opts.name + ' ';
+  cells[5] = ' `' + opts.sessionId + '` ';
+  lines[pick.i] = cells.join('|');
+  return { changed: true, text: lines.join(eol), notes };
 }
 
 // ---------- 服务：list / switchTo ----------
@@ -278,6 +293,7 @@ function createService(ctx) {
     const sceneName = String(scene.name || sceneId);
     const panels = Array.isArray(scene.panels) ? scene.panels : [];
     const panel = (panelId && panels.filter((p) => p.id === panelId && p.type === 'harness')[0])
+      || panels.filter((p) => p.type === 'harness' && p.projectSwitch)[0]
       || panels.filter((p) => p.type === 'harness')[0];
     if (!panel) return { ok: false, err: '场景 ' + sceneId + ' 里没有 harness 面板' };
 
@@ -401,7 +417,7 @@ function createService(ctx) {
     }
     const idxFile = path.join(scenariosDir, '_场景身份索引.md');
     if (fsx.exists(idxFile)) {
-      const r = patchIdentityIndex(fsx.readText(idxFile) || '', { sceneId: sceneId, name: item.sessionTitle || item.name, sessionId: item.sessionId });
+      const r = patchIdentityIndex(fsx.readText(idxFile) || '', { sceneId: sceneId, panelId: res.panelId, name: item.sessionTitle || item.name, sessionId: item.sessionId });
       if (r.changed) fsx.writeText(idxFile, r.text);
       docs.push({ file: idxFile, changed: r.changed, notes: r.notes });
     }

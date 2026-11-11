@@ -165,8 +165,11 @@ function bindingBlock(id, ident, dirName, sceneJson) {
   const card = ident && ident.card ? ident.card : ''
   const fp = card ? sha(card) : ''
   const panels = (sceneJson?.panels || []).map((p) => `${p.id}:${p.type}${p.url ? '=' + p.url : p.sessionId ? '(会话)' : ''}`).join(' ｜ ')
+  // 一个场景可能挂两块 AI 面板（程序开发：工作区 + 项目）⇒ 每条会话都要写出来，别只留第一块
+  const ais = (sceneJson?.panels || []).filter((p) => p.type === 'harness').map((p) => `${p.id} = ${p.sessionId || '(未绑)'}`).join(' ｜ ')
   return `<!-- 场景绑定 BEGIN · 由 场景记忆.mjs 生成，⛔ 手改即校验失败 -->
 > **场景** \`${id}\` ｜ **面板** \`${ident?.panel || '?'}\` ｜ **会话** \`${ident?.sessionId || '?'}\`
+> **AI 会话** ${ais || '(无)'}
 > **定位卡** \`${card ? path.relative('<工作台>', card) : '(缺)'}\` ｜ **卡指纹** \`sha256:${fp ? fp.slice(0, 16) : '(缺)'}…\` ｜ **盖章** ${stamp()}
 > **地盘** \`${dirName}\`
 > **权限** 只写自己的记忆文件夹与本人资产；⛔ 不改别的场景、不重启引擎、不关 GUI
