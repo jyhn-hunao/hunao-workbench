@@ -23,6 +23,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));          // 12-源码照搬\工具
@@ -43,13 +44,33 @@ const dry = has('--dry');
 // 50% 只压一次，省得少一些但"记得更细"；要极限省钱再显式 --threshold 0.3。
 const threshold = Number(val('--threshold', '0.5'));
 const retain = Number(val('--retain', '0.12'));
+// --only pruner：只开裁剪，不碰压缩；缺省 all
+const only = String(val('--only', 'all')).toLowerCase();
 
 function die(msg) { console.error('✗ ' + msg); process.exit(1); }
 
 // ---------- 1. 生成要插入的那段 ----------
-function block(t, r) {
+// --only pruner：只开裁剪（截断大块工具返回），不动压缩与 /compact。
+//   为什么要有：压缩会摘要历史（有损），有人只想先要"大段文本进不来"这一条无争议的。
+function block(t, r, only) {
   if (!(t > 0 && t <= 1)) die('--threshold 要在 (0,1] 之间：' + t);
   if (!(r > 0 && r < t)) die('--retain 要在 (0, threshold) 之间：' + r);
+  const pruner = [
+    '- id: tool-result-pruner',
+    "  name: '@deepseek-ai/dsh-compaction-tool-result-pruner'",
+    '  config:',
+    '    thresholdChars: 4096',
+    '    headChars: 1536',
+    '    tailChars: 512',
+  ];
+  if (only === 'pruner') {
+    return [
+      BEGIN,
+      '# 只开裁剪：单条工具返回超 4096 字符就截成 head 1536 + tail 512。',
+      '# 效果：整读大文件/整份日志在物理上进不了上下文，模型只能改用 offset/limit 或只看尾巴。',
+      '# 不动压缩（不动历史摘要），所以没有"记忆被重写"的副作用。',
+    ].concat(pruner, [END]).join('\n');
+  }
   return [
     BEGIN,
     '# 引擎自带、但 web 层默认 disabled 的三个机制：',
@@ -66,14 +87,7 @@ function block(t, r) {
     '- id: command-compact',
     "  name: '@deepseek-ai/dsh-command-compact'",
     '  disabled: false',
-    '- id: tool-result-pruner',
-    "  name: '@deepseek-ai/dsh-compaction-tool-result-pruner'",
-    '  config:',
-    '    thresholdChars: 4096',
-    '    headChars: 1536',
-    '    tailChars: 512',
-    END
-  ].join('\n');
+  ].concat(pruner, [END]).join('\n');
 }
 
 // ---------- 2. 读现状 ----------
@@ -105,8 +119,16 @@ if (has('--status') || (!has('--on') && !has('--off') && !has('--dry'))) {
   console.log('配置文件：' + file);
   console.log('脚本块：' + (on ? '已写入（第 ' + (i0 + 1) + '–' + (i1 + 1) + ' 行）' : '未写入（= 出厂状态，省 token 的三条都没开）'));
   const d = dumpCheck();
-  if (!d.known) console.log('生效复核：' + d.note);
-  else console.log('生效复核：compaction-basic ' + (d.disabled ? '仍是 disabled（重启后才会变）' : '已启用 ✓'));
+  // ⛔ dump-config 默认**不读 user layer**（dsh-app-boot 里 userLayer:false 就是默认 dump），
+  //    所以它永远看不到这一段；别拿它判断"没生效"。这里只自证「文件里有这一段、整份 YAML 能解析」。
+  void d;
+  try {
+    const reqYaml = createRequire(path.join(BASE, '引擎', 'node_modules', '_.js'));
+    reqYaml('js-yaml').load(fs.readFileSync(file, 'utf8'));
+    console.log('配置校验：YAML 可解析 ✓（真正生效以重启后的行为为准）');
+  } catch (e) {
+    console.log('配置校验：✗ ' + String((e && e.message) || e));
+  }
   if (!on) console.log('\n要开：node 工具\\省token开关.mjs --on   然后重启工作台');
   process.exit(0);
 }
@@ -120,7 +142,7 @@ if (has('--off')) {
   while (head.length && head[head.length - 1].trim() === '') head.pop();
   next = head.join(eol) + (/\r?\n$/.test(before) ? eol : '');
 } else {
-  const seg = block(threshold, retain).split('\n');
+  const seg = block(threshold, retain, only).split('\n');
   const body = before.replace(/(\r?\n)+$/, '');
   next = on
     ? b.slice(0, i0).concat(seg, b.slice(i1 + 1)).join(eol)   // 已存在：整段替换（参数可改）
