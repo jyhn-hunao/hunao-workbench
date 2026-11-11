@@ -54,8 +54,11 @@
       "sub": "",
       "type": "harness",
       "sessionTitle": "mlw",
-      "sessionId": "session-5c171f34-77cf-41d1-9ca7-f480583481dc",
-      "pinTarget": ["mlw", "程序开发"],
+      "sessionId": "session-04b22e81-a3af-46c8-aa13-1ae33d51c077",
+      "pinTarget": [
+        "mlw",
+        "程序开发"
+      ],
       "projectSwitch": true,
       "expand": true,
       "col": 1,
