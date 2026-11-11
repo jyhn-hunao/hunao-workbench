@@ -93,12 +93,24 @@ async function listSessions() {
   if (!flags.has('--go')) { say('\n（dry-run：加 --go 才归档）'); return; }
 
   const rpc = await connect();
-  let r = await rpc('workspace/archiveSession', { request: { sessionId: hit.id } });
-  if (r.status !== 200) {
-    say('第一次没成（HTTP ' + r.status + '）⇒ 带 stopActivity 重试');
-    r = await rpc('workspace/archiveSession', { request: { sessionId: hit.id, stopActivity: true } });
+  // 2026-11-11：老格式会话 id 没有 session- 前缀（例 199809da-…），引擎按**裸 id** 认人。
+  //   上面 listSessions() 会把裸 id 统一补成 session-… ⇒ 必须两个形态都试，否则永远 session/not-found。
+  const tryIds = [hit.id];
+  if (hit.id.startsWith('session-')) tryIds.push(hit.id.slice('session-'.length));
+  let r = null, used = hit.id, notFound = false;
+  for (const sid of tryIds) {
+    used = sid;
+    r = await rpc('workspace/archiveSession', { request: { sessionId: sid } });
+    // 引擎对未知会话回 **HTTP 200 + ok:false**（error.code=session/not-found）⇒ 不能只看状态码
+    notFound = String(r.t || '').includes('session/not-found');
+    if (r.status !== 200 && !notFound) {
+      say('第一次没成（HTTP ' + r.status + '）⇒ 带 stopActivity 重试');
+      r = await rpc('workspace/archiveSession', { request: { sessionId: sid, stopActivity: true } });
+    }
+    if (!notFound) break;
+    if (sid !== tryIds[tryIds.length - 1]) say('  ↻ 引擎不认 ' + sid + '（session/not-found）⇒ 换裸 id 再试');
   }
-  const ok = r.status === 200 && archivedIds().has(hit.id);
-  say((ok ? '✓ 已真归档' : '✗ 归档失败（HTTP ' + r.status + '）') + '：' + hit.id + (ok ? '（设置页「取消归档」可恢复）' : ' ' + String(r.t).slice(0, 160)));
+  const ok = r.status === 200 && (archivedIds().has(used) || archivedIds().has(hit.id));
+  say((ok ? '✓ 已真归档' : '✗ 归档失败（HTTP ' + r.status + '）') + '：' + used + (ok ? '（设置页「取消归档」可恢复）' : ' ' + String(r.t).slice(0, 160)));
   process.exit(ok ? 0 : 1);
 })().catch((e) => { say('出错：' + e.message); process.exit(1); });
