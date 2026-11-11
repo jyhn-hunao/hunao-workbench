@@ -13945,24 +13945,21 @@ renderers.radar = (body) => { body.classList.add('radar-panel'); return makeRada
 
 // ============ 程序开发 · 项目下拉（2026-11-11）============
 // 为什么需要它：AI 面板钉死一条会话（= 一个项目），面板里又把引擎侧栏藏了 ⇒ 换项目在界面上没有任何入口。
-// 现在把「换项目」做成标题栏一个下拉，选中的目录 = 要干活的仓：
-//   ① 已接入（有会话）→ 主进程改场景 json（会话三字段 + Git 仓库 + 定位卡/索引）→ 整场重建；
-//   ② 没接入（同级目录扫出来的）→ 主进程先跑既有的 接入项目.mjs，再切（不另写一套 onboarding）；
-//   ③ 「＋ 接入新项目…」= 选任意目录接入（不在当前项目父目录下的项目走这条）。
-// 渲染层只负责递选择与刷新；写盘、判断、失败原因都在主进程（外壳\项目切换.js）。
-// 上一次切换留下的提示（warnings，比如「该项目不是 git 仓库，Git 面板没跟着换」）：
-// 成功后整场重建会换掉面板，消息先放这里，由新面板挂载时补显——不能因为重建就把原因吞掉。
+// 实现要点（第二版）：**不用原生 <select>**。原生下拉是系统弹窗，紧挨着一个 <webview>，切换项目后
+//   guest 抢焦点会把弹窗顶掉，表现为"点了下拉一闪就没了"（用户实测）。现在改成自绘菜单：挂在 body 上、
+//   position:fixed（和弹窗同一层），焦点怎么变都不影响它。菜单只递选择，写盘与判断都在主进程。
 var projectSwitchNotice = '';
 var mountProjectSwitch = function (meta, acts) {
   var api = window.app || {};
   if (typeof api.sceneProjects !== 'function') {
     acts.insertBefore(el('span', 'ai-project-msg', '项目切换：需重启工作台（主进程未更新）'), acts.firstChild);
-    return;
+    return null;
   }
-  var sel = el('select', 'ai-project-select');
-  sel.title = '切换项目：AI 面板改钉到该项目的会话（会话 cwd = 项目根），并同步 Git 仓库与定位卡';
-  sel.disabled = true;
-  acts.insertBefore(sel, acts.firstChild);
+  var btn = el('button', 'ai-project-btn', '项目 ▾');
+  btn.type = 'button';
+  btn.title = '切换项目：AI 面板改钉到该项目的会话，并同步 Git 仓库、文件面板与定位卡';
+  btn.disabled = true;
+  acts.insertBefore(btn, acts.firstChild);
   var note = el('span', 'ai-project-msg', '');
   acts.appendChild(note);
   var noteTimer = null;
@@ -13974,49 +13971,95 @@ var mountProjectSwitch = function (meta, acts) {
     if (text && !bad) noteTimer = setTimeout(function () { note.textContent = ''; }, 8000);
   };
   if (projectSwitchNotice) { say(projectSwitchNotice, true); projectSwitchNotice = ''; }
+
+  // 菜单挂在 body 上（不放面板里）：面板的 overflow / 层叠与 <webview> 都裁不到它
+  var menu = el('div', 'ai-project-menu');
+  menu.setAttribute('role', 'menu');
+  menu.style.display = 'none';
+  document.body.appendChild(menu);
+  var projects = [];
+  var open = false;
+
+  var place = function () {
+    var r = btn.getBoundingClientRect();
+    var w = Math.max(220, Math.min(380, Math.round(r.width) + 180));
+    menu.style.left = Math.round(Math.max(6, Math.min(r.left, window.innerWidth - w - 8))) + 'px';
+    menu.style.top = Math.round(r.bottom + 4) + 'px';
+    menu.style.minWidth = w + 'px';
+  };
+  var close = function () {
+    if (!open) return;
+    open = false;
+    menu.style.display = 'none';
+  };
+  var showMenu = function () {
+    if (open) { close(); return; }
+    place();
+    menu.style.display = '';
+    open = true;
+  };
+  var onDocDown = function (ev) {
+    if (!open) return;
+    if (menu.contains(ev.target) || btn.contains(ev.target)) return;
+    close();
+  };
+  var onKey = function (ev) { if (ev.key === 'Escape') close(); };
+  document.addEventListener('pointerdown', onDocDown, true);
+  document.addEventListener('keydown', onKey, true);
+
   var scene = meta.scenario;
+  var render = function () {
+    menu.innerHTML = '';
+    projects.forEach(function (p) {
+      var it = el('button', 'ai-project-item' + (p.current ? ' cur' : ''));
+      it.type = 'button';
+      var line = el('span', 'ai-project-line');
+      line.appendChild(el('span', 'ai-project-name', (p.current ? '✓ ' : '') + p.name));
+      var tag = p.registered ? '' : (p.hasSession ? '未登记' : '未接入');
+      if (tag) line.appendChild(el('span', 'ai-project-tag', tag));
+      it.appendChild(line);
+      it.appendChild(el('span', 'ai-project-path', p.root));
+      it.title = p.root + (p.sessionTitle ? '\n会话：' + p.sessionTitle : '\n还没有会话：选中会先接入');
+      it.addEventListener('click', function (ev) { ev.stopPropagation(); close(); run(p.root); });
+      menu.appendChild(it);
+    });
+    if (!projects.length) menu.appendChild(el('div', 'ai-project-empty', '还没有可切换的项目'));
+    var add = el('button', 'ai-project-item add');
+    add.type = 'button';
+    var al = el('span', 'ai-project-line');
+    al.appendChild(el('span', 'ai-project-name', '＋ 接入新项目…'));
+    add.appendChild(al);
+    add.appendChild(el('span', 'ai-project-path', '选一个目录，走 接入项目.mjs'));
+    add.addEventListener('click', function (ev) { ev.stopPropagation(); close(); run('__add__'); });
+    menu.appendChild(add);
+  };
+
   var fill = function () {
-    sel.disabled = true;
+    btn.disabled = true;
     return Promise.resolve(api.sceneProjects(scene, meta.id)).then(function (r) {
-      sel.innerHTML = '';
-      if (!r || !r.ok) { say('项目列表读取失败：' + ((r && r.err) || '未知'), true); return; }
-      var list = r.projects || [];
-      var cur = false;
-      list.forEach(function (p) {
-        var o = document.createElement('option');
-        o.value = p.root;
-        o.textContent = p.name + (p.registered ? '' : (p.hasSession ? '（未登记）' : '（未接入）'));
-        o.title = p.root + (p.sessionTitle ? '\n会话：' + p.sessionTitle : '');
-        if (p.current) { o.selected = true; cur = true; }
-        sel.appendChild(o);
-      });
-      if (list.length && !cur) {
-        var o0 = document.createElement('option');
-        o0.value = '';
-        o0.textContent = '（当前会话不在项目列表里）';
-        o0.selected = true;
-        sel.insertBefore(o0, sel.firstChild);
-      }
-      var add = document.createElement('option');
-      add.value = '__add__';
-      add.textContent = '＋ 接入新项目…';
-      sel.appendChild(add);
-      sel.disabled = false;
-      if (!list.length) say('还没有可切换的项目：点「＋ 接入新项目…」选一个目录');
+      if (!r || !r.ok) { btn.textContent = '项目 ▾'; say('项目列表读取失败：' + ((r && r.err) || '未知'), true); return; }
+      projects = r.projects || [];
+      var cur = projects.filter(function (p) { return p.current; })[0] || null;
+      btn.textContent = (cur ? cur.name : '项目') + ' ▾';
+      btn.title = '切换项目' + (cur ? '（当前：' + cur.root + '）' : '') + '\nAI 面板会改钉到该项目的会话，Git / 文件面板一起换';
+      render();
+      btn.disabled = false;
     }).catch(function (err) {
+      btn.textContent = '项目 ▾';
       say('项目列表读取失败：' + ((err && err.message) || err), true);
     });
   };
+
   var run = function (value) {
-    sel.disabled = true;
+    btn.disabled = true;
     say(value === '__add__' ? '选择目录…' : '切换中…（首次接入要建会话，稍等）');
     var call = value === '__add__' ? api.sceneAddProject(scene, meta.id) : api.sceneSwitchProject(scene, meta.id, value);
     Promise.resolve(call).then(function (r) {
       if (!r || !r.ok) {
-        if (r && r.canceled) { say(''); sel.disabled = false; fill(); return; }
+        if (r && r.canceled) { say(''); btn.disabled = false; fill(); return; }
         say('切换失败：' + ((r && r.err) || '未知原因'), true);
         try { console.error('[project-switch]', r); } catch (e) { /* ignore */ }
-        sel.disabled = false;
+        btn.disabled = false;
         fill();
         return;
       }
@@ -14024,14 +14067,22 @@ var mountProjectSwitch = function (meta, acts) {
       projectSwitchNotice = (r.warnings && r.warnings.length) ? r.warnings.join('；') : '';
       var rebuild = window.APP_RELOAD_SCENE;
       if (typeof rebuild === 'function') {
-        try { rebuild(scene); return; } catch (e) { /* 落到下面的提示 */ }
+        try { rebuild(scene); return; } catch (e) { /* 落到提示 */ }
       }
       say('已写盘，但界面没能自动重建：请点标题栏 ⟳', true);
-      sel.disabled = false;
+      btn.disabled = false;
     });
   };
-  sel.addEventListener('change', function () { if (sel.value) run(sel.value); });
+
+  btn.addEventListener('click', function (ev) { ev.stopPropagation(); showMenu(); });
   fill();
+
+  return function () {
+    close();
+    try { menu.remove(); } catch (e) { /* ignore */ }
+    document.removeEventListener('pointerdown', onDocDown, true);
+    document.removeEventListener('keydown', onKey, true);
+  };
 };
 
 renderers.harness = (body, meta, head) => {
@@ -14042,6 +14093,8 @@ renderers.harness = (body, meta, head) => {
   let hostTimer = null;   // 加载后 30s 注入兜底窗口
   let pinTimer = null;    // 常驻钉住重注入（5s）
   let disposed = false;   // 场景切换后停止一切注入
+  let switchCleanup = null;   // 项目下拉的菜单挂在 body 上，场景重建时要摘掉
+
   const reloadBtn = el('button', 'file-refresh', '🔄 重新加载');
   reloadBtn.title = '重新加载对话窗口';
   reloadBtn.addEventListener('click', () => {
@@ -14071,8 +14124,8 @@ renderers.harness = (body, meta, head) => {
     acts.appendChild(reloadBtn);
     acts.appendChild(diag);
     head.appendChild(acts);
-    // 程序开发场景：标题栏再加一个「项目」下拉（换项目 = 换会话 + 换 Git 仓库）
-    if (meta.projectSwitch) mountProjectSwitch(meta, acts);
+    // 程序开发场景：标题栏再加一个「项目」按钮（换项目 = 换会话 + 换 Git 仓库 + 文件面板跟过去）
+    if (meta.projectSwitch) switchCleanup = mountProjectSwitch(meta, acts);
   }
 
   const msg = el('div', 'harness-loading', '正在加载对话窗口…');
@@ -14864,6 +14917,7 @@ renderers.harness = (body, meta, head) => {
     disposed = true;
     if (hostTimer) clearInterval(hostTimer);
     if (pinTimer) clearInterval(pinTimer);
+    if (switchCleanup) { try { switchCleanup(); } catch (e) { /* ignore */ } }
   };
 };
 
@@ -16492,8 +16546,16 @@ renderers['file'] = (body, meta, head) => {
   setTimeout(function () {
     if (disposed) return;
     panes.forEach(function (p) {
-      if (p.side === 'local') p.load(DRIVES ? '::drives' : DISP_ROOT);   // ★ drives 模式先停在「此电脑」（C/D/E/F）
-      else p.load('/opt/langchen_oa');
+      if (p.side !== 'local') { p.load('/opt/langchen_oa'); return; }
+      // ★2026-11-11★ 文件面板跟着「当前项目」走（面板写 followProject:true 才生效）：
+      //   先问主进程"现在钉的是哪个项目"，有就打开它的根目录；问不到 / 没开这个功能 ⇒ 照旧停在「此电脑」。
+      var follow = !!(meta && meta.followProject) && window.app && typeof window.app.sceneProjects === 'function';
+      if (!follow) { p.load(DRIVES ? '::drives' : DISP_ROOT); return; }
+      Promise.resolve(window.app.sceneProjects(meta.scenario, '')).then(function (r) {
+        if (disposed) return;
+        var cur = r && r.ok && r.current;
+        p.load((cur && cur.root) || (DRIVES ? '::drives' : DISP_ROOT));
+      }).catch(function () { if (!disposed) p.load(DRIVES ? '::drives' : DISP_ROOT); });
     });
   }, 10);
 

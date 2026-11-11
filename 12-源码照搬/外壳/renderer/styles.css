@@ -1424,14 +1424,34 @@ html[data-theme="light"] .grid-backdrop {
   min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;   /* 窄面板下省略号收尾 */
 }
 
-/* 程序开发 · 项目下拉（2026-11-11）：标题栏里换项目 = 换面板钉的会话（+ 换 Git 仓库） */
-.ai-project-select {
-  height: 24px; max-width: 220px; min-width: 96px; padding: 0 6px;
+/* 程序开发 · 项目下拉（2026-11-11）：自绘菜单 —— 原生 select 的弹窗会被旁边的 webview 抢焦点顶掉 */
+.ai-project-btn {
+  height: 24px; max-width: 240px; padding: 0 10px;
   border: 1px solid var(--border); border-radius: 6px;
   background: var(--bg-panel); color: var(--text); font-size: 11px; cursor: pointer;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.ai-project-select:hover { border-color: var(--accent); }
-.ai-project-select:disabled { opacity: .6; cursor: default; }
+.ai-project-btn:hover { border-color: var(--accent); }
+.ai-project-btn:disabled { opacity: .6; cursor: default; }
+.ai-project-menu {
+  position: fixed; z-index: 20000; max-width: 420px; max-height: 340px; overflow-y: auto;
+  padding: 4px; border: 1px solid var(--border); border-radius: 8px;
+  background: var(--bg-panel); box-shadow: 0 12px 32px rgba(0, 0, 0, .45);
+}
+.ai-project-item {
+  display: block; width: 100%; padding: 6px 8px; border: 0; border-radius: 6px;
+  background: transparent; color: var(--text); text-align: left; cursor: pointer; font-size: 12px;
+}
+.ai-project-item:hover { background: var(--bg-panel-hover); }
+.ai-project-item.cur { background: var(--accent-soft); }
+.ai-project-line { display: flex; align-items: center; gap: 6px; }
+.ai-project-name { font-weight: 600; }
+.ai-project-tag { font-size: 10px; color: var(--text-dim); }
+.ai-project-path {
+  display: block; margin-top: 2px; font-size: 10px; color: var(--text-dim);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ai-project-empty { padding: 8px; font-size: 11px; color: var(--text-dim); }
 .ai-project-msg {
   font-size: 10px; color: var(--text-dim);
   max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
