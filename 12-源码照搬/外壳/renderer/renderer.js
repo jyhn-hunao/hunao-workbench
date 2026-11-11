@@ -791,12 +791,55 @@ function showView(name) {
 // 场景 0：加载 Harness（带 token）
 // 注意：引擎未就绪时不再直接返回空界面——保留加载页进度条，
 // 引擎就绪后由 onHarnessReady 自动触发加载（原来必须手动点一次标签才会加载）。
+// 2026-11-11 修「启动页永远停在 92%」：
+//   引擎的「端口通」和「打印 token」是两步——webServer 先 listen，`dsh web: …?token=` 要等插件树加载 + 审计完才打印。
+//   从前这里 !ready 直接 return，那次 harness:ready 被吞掉后**没人再调 loadHarness** ⇒ 永久停在 92%（用户只能点「立即进入」）。
+//   现在：短轮询等 token（主进程侧每次询问也会先等 3s），10s 仍等不到就明确报失败 + 露出「重试」，不静默停住。
+const HARNESS_READY_WAIT_MS = 10000;    // 引擎已报就绪后，最多再等 token 10s
+const HARNESS_READY_RETRY_MS = 400;     // 重试间隔（每轮主进程内部先等 3s，所以实际节奏更慢）
+let harnessLoadSeq = 0;                 // 初始化 / harness:ready 事件 / 点标签 都会调，只认最新那一次
+// 引擎当前处在哪一阶段（init/check/spawn/wait/ready/error）——用来区分
+// 「引擎根本没起来（该继续显示进度条）」和「引擎起来了但 token 没到（该报错让用户重试）」。
+async function bootStageNow() {
+  try { const v = await window.app.bootState(); return (v && v.stage) || ''; } catch (e) { return ''; }
+}
+async function waitHarnessReady() {
+  const started = Date.now();
+  for (;;) {
+    let ok = false;
+    try { ok = await window.app.isHarnessReady(); } catch (e) { ok = false; }
+    if (ok) return true;
+    // 引擎还没报「ready」⇒ 启动页进度条还在跑，这里不抢戏、不干等，直接交还
+    if (await bootStageNow() !== 'ready') return false;
+    if (Date.now() - started >= HARNESS_READY_WAIT_MS) return false;
+    if (window.__bootPaint) {
+      window.__bootPaint({
+        stage: 'ui', pct: 94, text: '引擎已就绪，正在等 token…',
+        detail: '已等待 ' + Math.round((Date.now() - started) / 1000) + 's（token 由引擎启动时随机生成）'
+      });
+    }
+    await new Promise((r) => setTimeout(r, HARNESS_READY_RETRY_MS));
+  }
+}
 async function loadHarness() {
-  const ready = await window.app.isHarnessReady();
+  // 1. 等 token 到手（端口通 ≠ token 到手）
+  const seq = ++harnessLoadSeq;
+  const ready = await waitHarnessReady();
+  if (seq !== harnessLoadSeq) return;      // 期间又有新的一次调用 ⇒ 旧结果作废
   if (!ready) {
-    setStatus('引擎启动中…', true);
+    // 2a. 引擎自己都没就绪（冷启动早期 / 启动失败）⇒ 保持原样：进度条 / 引擎自己的失败态归启动页管
+    if (await bootStageNow() !== 'ready') { setStatus('引擎启动中…', true); return; }
+    // 2b. 引擎已就绪但 token 始终没到 ⇒ 明确报错 + 露出「重试」，不要停在 92% 假等待
+    setStatus('引擎已就绪但取不到 token', false);
+    if (window.__bootPaint) {
+      window.__bootPaint({
+        stage: 'error', pct: 100, text: '引擎已就绪，但取不到 token',
+        detail: '已等 ' + Math.round(HARNESS_READY_WAIT_MS / 1000) + ' 秒仍没等到（引擎没打印 dsh web URL）· 可点「重试」或看 server.log'
+      });
+    }
     return;
   }
+  // 3. 拿到带 token 的地址后才挂 webview
   const url = await window.app.getHarnessUrl();
   if (webview.getAttribute('src') !== url) {
     webview.setAttribute('src', url);
@@ -1083,7 +1126,17 @@ async function init() {
     if (rb) rb.addEventListener('click', (ev) => { ev.stopImmediatePropagation(); enterSolo(); }, true);
     safeStep('分离窗口就绪监听', () => {
       if (window.app.onHarnessReady) window.app.onHarnessReady(() => { enterSolo(); });
-      Promise.resolve(window.app.isHarnessReady()).then(ok => { if (ok) enterSolo(); }).catch(() => { /* ignore */ });
+      // 同一个「token 晚到」问题：分离窗口也先等 token；只有「引擎已就绪但 token 没到」才报错
+      waitHarnessReady().then((ok) => {
+        if (ok) { enterSolo(); return; }
+        bootStageNow().then((st) => {
+          if (st !== 'ready' || !window.__bootPaint) return;
+          window.__bootPaint({
+            stage: 'error', pct: 100, text: '引擎已就绪，但取不到 token',
+            detail: '已等 ' + Math.round(HARNESS_READY_WAIT_MS / 1000) + ' 秒仍没等到 · 可点「重试」或看 server.log'
+          });
+        }).catch(() => { /* ignore */ });
+      }).catch(() => { /* ignore */ });
     });
     showView('harness');   // 先显示启动加载页，就绪后自动切到场景
     return;

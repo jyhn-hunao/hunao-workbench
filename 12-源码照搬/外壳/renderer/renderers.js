@@ -14720,7 +14720,9 @@ renderers.harness = (body, meta, head) => {
   const load = async () => {
     if (disposed) return;
     try {
-      const ready = await window.app.isHarnessReady();
+      // 2026-11-11：面板打开时也可能撞上「端口先通、token 后到」⇒ 用渲染层的统一等待（最多 10s），
+      // 别因为一次 isHarnessReady()=false 就停到「引擎尚未就绪」等人点重试。
+      const ready = await waitHarnessReady();
       if (!ready) {
         msg.textContent = 'Harness 引擎尚未就绪。请稍候或点击「重试」。';
         const retry = el('button', 'file-refresh', '🔄 重试');

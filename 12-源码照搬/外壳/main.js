@@ -921,7 +921,35 @@ ipcMain.handle('harness:url', () => {
   const token = harnessToken;
   return token ? (BASE + '/?token=' + token) : (BASE + '/');
 });
-ipcMain.handle('harness:ready', () => engineIsForeign || !!harnessToken);
+// ---- 2026-11-11：token 晚到（端口先 listen、`dsh web: …?token=` 那行后打印）----
+// 引擎的打印顺序：webServer 先 listen → loader.await()（整棵插件树）→ auditStartupEntries → 才 log 带 token 的 URL。
+// 而壳的 probe() 只要端口有响应（401 也算）就判"就绪"⇒ 广播 harness:ready 时 harnessToken 可能仍是 null，
+// 渲染层那次 isHarnessReady() 拿到 false 就再也不重试，启动页永远停在 92%。所以这里补一段**有界等待**。
+// 等不到也不静默：返回 false 并写一条日志，渲染层会继续重试，最终给失败态 +「重试」。
+const HARNESS_TOKEN_WAIT_MS = 3000;      // 单次询问最多等 3s（渲染层总共等 ~10s，会问 3 轮左右）
+let tokenWaitWarned = false;             // 只在第一次等不到时写日志，避免渲染层重试刷屏
+function waitHarnessToken(ms) {
+  if (engineIsForeign || harnessToken) return Promise.resolve(true);
+  return new Promise(function (resolve) {
+    const t0 = Date.now();
+    const timer = setInterval(function () {
+      if (engineIsForeign || harnessToken) { clearInterval(timer); resolve(true); return; }
+      if (Date.now() - t0 >= ms) { clearInterval(timer); resolve(false); }
+    }, 100);
+  });
+}
+ipcMain.handle('harness:ready', async () => {
+  // 1. 外部引擎（走 /chat 保命入口）或 token 已到手 ⇒ 立刻放行
+  if (engineIsForeign || harnessToken) return true;
+  // 2. 端口通了但 token 行还没到 ⇒ 等一会儿，等不到返回 false 交给渲染层重试
+  const ok = await waitHarnessToken(HARNESS_TOKEN_WAIT_MS);
+  if (ok) { tokenWaitWarned = false; return true; }   // 等到了：下次再晚到还要能重新告警
+  if (!tokenWaitWarned) {
+    tokenWaitWarned = true;
+    log('[boot] 端口已通，但 ' + HARNESS_TOKEN_WAIT_MS + 'ms 内没解析到 token（引擎还没打印 dsh web URL）⇒ 等渲染层重试');
+  }
+  return false;
+});
 
 // ---- IPC：版本信息（左上角品牌区悬停显示）----
 // 放主进程读的原因：版本号来自各处 package.json，渲染层没有文件系统权限；
@@ -4584,6 +4612,8 @@ if (!gotLock) {
       return;
     }
     log('[boot] 引擎就绪总耗时 ' + ((Date.now() - APP_T0) / 1000).toFixed(1) + 's');
+    // 判据留痕：这一行说明「端口先通、token 后到」，渲染层会等它（见 harness:ready 的 3s 有界等待）
+    if (!engineIsForeign && !harnessToken) log('[boot] token 行尚未到达（端口先通）⇒ 渲染层会等待并重试');
     // 通知渲染层：Harness 已就绪（所有窗口的 webview 都可以加载了）
     try {
       broadcast('harness:ready');
