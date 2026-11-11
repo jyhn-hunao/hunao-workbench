@@ -18049,7 +18049,7 @@ renderers.neuron = (body, meta, head) => {
           { id: 'doc-general-rules', label: '通用规则', path: MEM_ROOT.replace(/[\\\/][^\\\/]+$/, '') + '\\AGENTS.md' }
         ].forEach(function (d) {
           jobs.push(statSize(d.path).then(function (sz) {
-            nodes.push({ id: d.id, label: d.label, kind: 'doc', group: 'doc', path: d.path, size: sz, r: 7 });
+            nodes.push({ id: d.id, label: d.label, kind: 'shareddoc', group: 'doc', path: d.path, size: sz, r: 7 });
             edges.push({ a: 'area-cd-ai', b: d.id, kind: 'doc' });
           }));
         });
@@ -18383,6 +18383,21 @@ renderers.neuron = (body, meta, head) => {
       }
       n.r = 5.4;
     });
+    // 2026-11-11：开发场景的共享记忆（编码规范/通用规则）贴着 cd-ai 区域外侧摆，
+    //   不能跟待办/通知/冲突同用 kind='doc'——否则 layout 里按 [0,2.1,4.2] 三个角度取模，会正好压住待办/通知。
+    var shareds = nodes.filter(function (n) { return n.kind === 'shareddoc'; });
+    shareds.forEach(function (n, i) {
+      var own = areaByLabel['cd-ai'];
+      if (own) {
+        var ang = Math.atan2(own.z, own.x) + 0.22 + i * 0.16;
+        var rad = Math.hypot(own.x, own.z) * 1.22;
+        n.x = Math.cos(ang) * rad; n.z = Math.sin(ang) * rad;
+        n.y = own.y + 20 + i * 14; n.r = 6.5;
+      } else {
+        var t = 0.6 + i * 0.5;
+        n.x = Math.cos(t) * 190; n.z = Math.sin(t) * 190; n.y = i ? 18 : -18; n.r = 6.5;
+      }
+    });
     docs.forEach(function (n, i) {
       var t = [0, 2.1, 4.2][i % 3];
       n.x = Math.cos(t) * R0; n.y = Math.sin(t) * 30; n.z = Math.sin(t) * R0; n.r = 8;
@@ -18508,7 +18523,7 @@ renderers.neuron = (body, meta, head) => {
       return false;
     }
     // 只看记忆：留下的种类（内核/场景/私有记忆/提交链/共享文档）
-    var MEM_KINDS = { core: 1, area: 1, memory: 1, chain: 1, doc: 1 };
+    var MEM_KINDS = { core: 1, area: 1, memory: 1, chain: 1, doc: 1, shareddoc: 1 };
     function keep(n) { return drill ? true : (!onlyMem || !!MEM_KINDS[n.kind]); }
     function col(group) { return kcolor(group); }
     function safeR(n, ps) { var r = n.r * ps; return (isFinite(r) && r > 0) ? Math.max(1.6, r) : 1.6; }
@@ -19079,6 +19094,7 @@ renderers.neuron = (body, meta, head) => {
         else if (n.kind === 'memory') c.memory++;
         else if (n.kind === 'chain') { c.chain++; c.chainSeg += (n.total || 0); }
         else if (n.kind === 'doc') c.doc++;
+        else if (n.kind === 'shareddoc') c.doc++;
       });
       stat.textContent = '只看记忆 · 场景 ' + c.area + ' · 私有记忆 ' + c.memory + ' · 提交链 ' + c.chain + ' 条/' + c.chainSeg + ' 段 · 共享 ' + c.doc;
     } else if (statAll) {
