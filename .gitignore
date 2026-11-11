@@ -53,6 +53,7 @@ desktop.ini
 *.bak
 _tmp/
 临时/
+.tmp-diag/
 
 # 本机记忆与旧记忆引擎（默认不入库；本仓 AGENTS.md 是模板规则，属例外，见 doc\记忆能力改造设计.md §3.4）
 memory/
