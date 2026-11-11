@@ -4929,6 +4929,14 @@ html[data-theme="light"] .sb-reload { background: #fff; }
 .kneu-seg.bad { color: #ff9a9a; }
 .kneu-sep { opacity: .38; }
 .kneu-btns { pointer-events: auto; margin-left: auto; display: flex; gap: 6px; flex: 0 0 auto; }
+/* 2026-11-11：项目记忆下钻的面包屑与返回（只在双击项目节点后出现） */
+.kneu-crumb {
+  position: absolute; left: 10px; top: 46px; z-index: 4; display: none; align-items: center; gap: 8px;
+  background: rgba(10, 16, 27, .92); border: 1px solid var(--border); border-radius: 10px;
+  padding: 4px 8px; backdrop-filter: blur(8px); max-width: 82%;
+}
+.kneu-crumb-t { font-size: 11.5px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+html[data-theme="light"] .kneu-crumb { background: rgba(255, 255, 255, .94); }
 .kneu-btn {
   background: rgba(12, 18, 30, .82); color: var(--text); border: 1px solid var(--border);
   border-radius: 8px; padding: 4px 9px; font-size: 11.5px; cursor: pointer; backdrop-filter: blur(6px);

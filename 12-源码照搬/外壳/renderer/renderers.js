@@ -17918,6 +17918,11 @@ renderers.neuron = (body, meta, head) => {
   hud.appendChild(btns);
   const detail = el('div', 'kneu-detail');
   const legend = el('div', 'kneu-legend');
+  // 项目记忆下钻：面包屑 + 返回（2026-11-11）
+  const crumb = el('div', 'kneu-crumb');
+  const crumbBack = el('button', 'kneu-btn', '← 返回');
+  const crumbText = el('span', 'kneu-crumb-t', '');
+  crumb.appendChild(crumbBack); crumb.appendChild(crumbText);
   // 图例点：颜色跟主题走（画布用同一份 kcolor），切主题时 paintLegend() 重刷一遍
   const LEGEND_KEYS = [];
   var legendDots = [];
@@ -17943,6 +17948,7 @@ renderers.neuron = (body, meta, head) => {
   body.appendChild(hud);
   body.appendChild(detail);
   body.appendChild(legend);
+  body.appendChild(crumb);
   if (head) {
     head.appendChild(el('span', 'stat-refresh', '共享记忆 · 只读'));
   }
@@ -17952,6 +17958,7 @@ renderers.neuron = (body, meta, head) => {
   let edges = [];        // {a,b,kind}
   let ry = -0.35, rx = 0.18, zoom = 1.42;
   let hover = null, sel = null, auto = true, disposed = false, raf = 0, last = 0;
+  let drill = null, savedView = null;   // drill = 当前下钻的项目节点 id（null = 全局视图）
   var ownerSkill = {};   // skill 节点 id → 面板 id（layout 贴 owner 用）
   let labelMode = 1;   // 1=全部（默认，宿主 2026-10-26：所有点都要有文字标签） 0=自动 2=关
   let fx = true;       // 动效（星点/流光/呼吸）；卡就一键关
@@ -18035,6 +18042,19 @@ renderers.neuron = (body, meta, head) => {
         }));
       });
 
+      // 2026-11-11：开发场景的「共享记忆」= 编码规范 + 通用规则，挂到 area-cd-ai 上（不单开区域）
+      if (areas.some(function (a) { return a.owner === 'cd-ai'; })) {
+        [
+          { id: 'doc-code-rules', label: '编码规范', path: ROOT + '\\areas\\编码规范.md' },
+          { id: 'doc-general-rules', label: '通用规则', path: MEM_ROOT.replace(/[\\\/][^\\\/]+$/, '') + '\\AGENTS.md' }
+        ].forEach(function (d) {
+          jobs.push(statSize(d.path).then(function (sz) {
+            nodes.push({ id: d.id, label: d.label, kind: 'doc', group: 'doc', path: d.path, size: sz, r: 7 });
+            edges.push({ a: 'area-cd-ai', b: d.id, kind: 'doc' });
+          }));
+        });
+      }
+
       // 场景区域节点（球壳 1）+ 依赖边
       areas.forEach(function (a, i) {
         var id = 'area-' + a.owner;
@@ -18065,6 +18085,8 @@ renderers.neuron = (body, meta, head) => {
             owner: owner,
             status: String(pr.status || 'active'),
             aliases: Array.isArray(pr.aliases) ? pr.aliases : [],
+            memoryRoot: String(pr.memoryRoot || ''),
+            memoryIndex: String(pr.memoryIndex || ''),
             size: 0
           });
         });
@@ -18487,7 +18509,7 @@ renderers.neuron = (body, meta, head) => {
     }
     // 只看记忆：留下的种类（内核/场景/私有记忆/提交链/共享文档）
     var MEM_KINDS = { core: 1, area: 1, memory: 1, chain: 1, doc: 1 };
-    function keep(n) { return !onlyMem || !!MEM_KINDS[n.kind]; }
+    function keep(n) { return drill ? true : (!onlyMem || !!MEM_KINDS[n.kind]); }
     function col(group) { return kcolor(group); }
     function safeR(n, ps) { var r = n.r * ps; return (isFinite(r) && r > 0) ? Math.max(1.6, r) : 1.6; }
 
@@ -18870,6 +18892,9 @@ renderers.neuron = (body, meta, head) => {
     detail.appendChild(t);
     if (n.region) detail.appendChild(el('div', 'kneu-ds', n.region));
     if (n.owner) detail.appendChild(el('div', 'kneu-ds', '归属：' + n.owner + (n.status && n.status !== 'active' ? (' · 状态：' + n.status) : '')));
+    if (n.kind === 'memcat') detail.appendChild(el('div', 'kneu-ds', '记忆分类：' + n.cat + ' · ' + n.count + ' 篇'));
+    if (n.kind === 'memdoc') detail.appendChild(el('div', 'kneu-ds', '记忆分类：' + n.cat + (n.date ? (' · ' + n.date) : '')));
+    if (n.kind === 'project') detail.appendChild(el('div', 'kneu-ds', '双击进入项目记忆（分类 → 文档）'));
     (n.paths && n.paths.length ? n.paths : [n.path]).filter(Boolean).forEach(function (pp) {
       detail.appendChild(el('div', 'kneu-dp', pp));
     });
@@ -18927,6 +18952,108 @@ renderers.neuron = (body, meta, head) => {
     detail.classList.add('on');
   }
 
+  // ---------- 项目记忆下钻（2026-11-11） ----------
+  //   双击项目节点 → 读 <项目>\memory\_索引.json → 项目 / 分类 / 文档 三层；
+  //   空白双击 / ESC / 返回 退出并还原视角。全程只读。
+  function drillLayout() {
+    var proj = nodes.filter(function (n) { return n.kind === 'drillproj'; })[0];
+    var cats = nodes.filter(function (n) { return n.kind === 'memcat'; });
+    var docs = nodes.filter(function (n) { return n.kind === 'memdoc'; });
+    if (proj) { proj.x = 0; proj.y = 0; proj.z = 0; proj.r = 14; }
+    var R1 = 175, R2 = 300;
+    cats.forEach(function (c, i) {
+      var t = (i / Math.max(1, cats.length)) * Math.PI * 2 - Math.PI / 2;
+      c.x = Math.cos(t) * R1; c.z = Math.sin(t) * R1; c.y = (i % 2 ? 16 : -16); c.r = 9;
+    });
+    var per = {};
+    docs.forEach(function (d) {
+      var c = cats.filter(function (x) { return x.cat === d.cat; })[0];
+      if (!c) return;
+      var k = per[d.cat] = (per[d.cat] || 0);
+      per[d.cat]++;
+      var ang = Math.atan2(c.z, c.x) + (k - 1) * 0.2;
+      var rad = R2 + (k % 2 ? 0 : 26);
+      d.x = Math.cos(ang) * rad; d.z = Math.sin(ang) * rad;
+      d.y = c.y + (k % 3 - 1) * 18;
+      d.r = 4.6;
+    });
+  }
+
+  function enterDrill(p) {
+    if (!p || p.kind !== 'project') return;
+    var idxPath = p.memoryIndex || (p.memoryRoot ? (p.memoryRoot + '\\memory\\_索引.json') : '');
+    if (!idxPath) { stat.textContent = '这个项目没有登记记忆索引（项目.json 的 memoryIndex）'; return; }
+    stat.textContent = '读取项目记忆…';
+    readText(idxPath).then(function (txt) {
+      var data = null;
+      try { data = txt ? JSON.parse(txt) : null; } catch (e) { data = null; }
+      if (!data || !Array.isArray(data.docs) || !data.docs.length) {
+        stat.textContent = '⚠ 没有记忆或索引为空：' + idxPath + '（先 node 工具\\记忆.mjs init --project "<根>"）';
+        return;
+      }
+      var memRoot = p.memoryRoot || '';
+      var nd = [], ed = [];
+      nd.push({ id: 'drill-proj', label: p.label, kind: 'drillproj', group: 'project', r: 14, path: p.path, memoryRoot: memRoot, memoryIndex: idxPath, size: 0 });
+      var byCat = {};
+      data.docs.forEach(function (d) { (byCat[d.category] = byCat[d.category] || []).push(d); });
+      var cats = Object.keys(byCat).sort();
+      cats.forEach(function (cat, ci) {
+        var cid = 'drill-cat-' + cat;
+        nd.push({
+          id: cid, label: cat + ' ' + byCat[cat].length, kind: 'memcat', group: 'memory', r: 9,
+          path: memRoot ? (memRoot + '\\memory\\' + cat) : '', cat: cat, count: byCat[cat].length, size: 0
+        });
+        ed.push({ a: 'drill-proj', b: cid, kind: 'memory' });
+        byCat[cat].forEach(function (d, di) {
+          var did = 'drill-doc-' + ci + '-' + di;
+          nd.push({
+            id: did, label: String(d.title || d.path || '').slice(0, 22), kind: 'memdoc', group: 'doc', r: 4.6,
+            path: memRoot ? (memRoot + '\\memory\\' + String(d.path || '').replace(/\//g, '\\')) : '',
+            title: d.title, date: d.date, cat: cat, size: 0
+          });
+          ed.push({ a: cid, b: did, kind: 'doc' });
+        });
+      });
+      savedView = { ry: ry, rx: rx, zoom: zoom, sel: sel, hover: hover };
+      drill = p.id;
+      nodes = nd; edges = ed;
+      var deg = {};
+      edges.forEach(function (e) { deg[e.a] = (deg[e.a] || 0) + 1; deg[e.b] = (deg[e.b] || 0) + 1; });
+      nodes.forEach(function (n) { n.deg = deg[n.id] || 0; });
+      drillLayout();
+      sel = null; hover = null; detail.classList.remove('on');
+      crumbText.textContent = '记忆神经元 › ' + p.label + ' · ' + data.docs.length + ' 篇';
+      crumb.style.display = 'flex';
+      stat.textContent = '下钻 · ' + p.label + ' · 分类 ' + cats.length + ' · 文档 ' + data.docs.length + '（空白双击 / ESC 返回）';
+      bornAt = performance.now();
+    });
+  }
+
+  function exitDrill() {
+    if (!drill) return;
+    drill = null;
+    crumb.style.display = 'none';
+    if (savedView) { ry = savedView.ry; rx = savedView.rx; zoom = savedView.zoom; sel = savedView.sel; hover = savedView.hover; savedView = null; }
+    detail.classList.remove('on');
+    load();
+  }
+
+  function onDbl(ev) {
+    var p2 = pos(ev);
+    var n = pick(p2.x, p2.y);
+    if (drill) {
+      if (!n) { ev.stopPropagation(); exitDrill(); return; }
+      if (n.kind === 'memdoc') { openNode(n); return; }
+      if (n.kind === 'memcat') { stat.textContent = '分类 ' + n.cat + ' · ' + n.count + ' 篇（双击文档节点打开）'; return; }
+      return;
+    }
+    if (n && n.kind === 'project') { ev.stopPropagation(); enterDrill(n); }
+  }
+
+  crumbBack.addEventListener('click', function (ev) { ev.stopPropagation(); exitDrill(); });
+  function onKey(ev) { if (ev.key === 'Escape' && drill) exitDrill(); }
+  window.addEventListener('keydown', onKey);
+
   bRot.addEventListener('click', function () {
     auto = !auto;
     bRot.classList.toggle('on', auto);
@@ -18972,6 +19099,7 @@ renderers.neuron = (body, meta, head) => {
   cv.addEventListener('pointerdown', onDown);
   cv.addEventListener('pointermove', onMove);
   cv.addEventListener('pointerup', onUp);
+  cv.addEventListener('dblclick', onDbl);
   cv.addEventListener('pointerleave', function () { hover = null; });
   cv.addEventListener('wheel', onWheel, { passive: false });
   bRot.classList.toggle('on', auto);
@@ -18993,6 +19121,8 @@ renderers.neuron = (body, meta, head) => {
     cv.removeEventListener('pointerdown', onDown);
     cv.removeEventListener('pointermove', onMove);
     cv.removeEventListener('pointerup', onUp);
+    cv.removeEventListener('dblclick', onDbl);
+    window.removeEventListener('keydown', onKey);
     cv.removeEventListener('wheel', onWheel);
     body.innerHTML = '';
   };
