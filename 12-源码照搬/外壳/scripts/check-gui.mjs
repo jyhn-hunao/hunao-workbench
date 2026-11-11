@@ -375,6 +375,7 @@ head('10. 目录契约（哪里放什么 · 防乱建）');
 const ALLOWED_DIRS = ['renderer', 'scenarios', 'scripts', 'data', 'captures', 'node_modules', '.git', 'GUI改造的项目信息'];   // 2026-10-16：归档并进 scenarios\归档，顶层不再有 归档
 const ALLOWED_FILES = [
   'main.js', 'preload.js', 'stock-store.js', 'oa-store.js', 'oa-ssh.js', 'updater.js', 'crash.js',
+  '项目切换.js',   // 2026-11-11：程序开发「项目下拉」的数据面（main.js require；单测见 scripts\项目切换自检.mjs）
   'package.json', 'package-lock.json', 'start.vbs', 'icon.ico', 'icon.png',
   'server.log', 'server.log.prev', '.gitignore', '项目信息.md', 'GUI改造私有记忆.md', '官方能力搬迁计划.md', '迁移手册.md',
 ];
