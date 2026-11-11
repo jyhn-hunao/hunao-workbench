@@ -117,6 +117,11 @@
     state.open = false;
     if (pop && pop.parentNode) pop.parentNode.removeChild(pop);
     pop = null;
+    // 监听只挂一次、关掉就摘：反复开合不会把 document 上的处理器越堆越多
+    try {
+      document.removeEventListener('click', onDocClick, true);
+      document.removeEventListener('keydown', onKey, true);
+    } catch (e) { /* ignore */ }
   }
 
   function copyText(t) {
