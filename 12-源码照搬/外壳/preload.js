@@ -49,6 +49,11 @@ contextBridge.exposeInMainWorld('app', {
   injectHarnessPanel: (webContentsId, pinTarget) => ipcRenderer.invoke('harness:wv:inject', webContentsId, pinTarget),
   listScenarios: () => ipcRenderer.invoke('scenarios:list'),
   getScenario: (id) => ipcRenderer.invoke('scenario:get', id),
+  // ---- 程序开发 · 项目下拉（2026-11-11）----
+  // 缺这组 = 主进程/preload 还是旧的 ⇒ 面板会显示「需重启工作台」，不会假装能用。
+  sceneProjects: (scene, panelId) => ipcRenderer.invoke('scene:projects', scene, panelId),
+  sceneSwitchProject: (scene, panelId, root) => ipcRenderer.invoke('scene:switch-project', scene, panelId, root),
+  sceneAddProject: (scene, panelId) => ipcRenderer.invoke('scene:add-project', scene, panelId),
   // ---- 设置：读取 / 打开 Harness 配置文件 ----
   settings: {
     list: () => ipcRenderer.invoke('settings:list'),

@@ -11,6 +11,7 @@ const path = require('path');
 const os = require('os');
 const fs = require('fs');
 const crypto = require('crypto');
+const projectSwitch = require('./项目切换');   // 程序开发场景「项目下拉」的数据面（可单测：scripts\项目切换自检.mjs）
 
 const DSH_PORT = String(process.env.DSH_PORT || '3083');
 const BASE = 'http://127.0.0.1:' + DSH_PORT;
@@ -31,6 +32,9 @@ const HARNESS_DIR = (function () {
 })();
 const NPM_BIN = path.join(os.homedir(), 'AppData', 'Roaming', 'npm');
 const PNPM_CMD = path.join(NPM_BIN, 'pnpm.cmd');
+// 引擎 home（会话 / 存储 / 场景记忆都在这里）：启动.vbs 用 DSH_CUSTOMER_HOME 指到「引擎数据\.dsh」，
+// 没设时退回「引擎\.dsh」。项目下拉要读 项目.json / workspace.json / 会话索引，必须和引擎同一份。
+const DSH_HOME = process.env.DSH_CUSTOMER_HOME || path.join(HARNESS_DIR, '.dsh');
 const LOG_FILE = path.join(__dirname, 'server.log');
 const LOG_PREV = path.join(__dirname, 'server.log.prev');
 const LOG_MAX_BYTES = 4 * 1024 * 1024;   // 超过 4MB 就轮转，只留上一份（见 rotateLog）
@@ -48,6 +52,23 @@ function rotateLog() {
 }
 rotateLog();
 const SCENARIOS_DIR = path.join(__dirname, 'scenarios');
+
+// ---- 程序开发 · 项目下拉（2026-11-11）----
+// 数据面在 项目切换.js（列项目 / 定点改场景 json / 同步定位卡与索引），这里只接 fs 与 IPC。
+// 口径：一条会话 = 一个项目（会话 cwd = 项目根），所以「切项目」就是改面板钉的那条会话。
+const projectSwitchSvc = projectSwitch.createService({
+  scenariosDir: SCENARIOS_DIR,
+  dshHome: DSH_HOME,
+  // 扫同级目录时跳过壳自己与工作台根（它们不是"能接进来干活的项目"）
+  exclude: [__dirname, path.resolve(__dirname, '..')],
+  fsx: {
+    readText: function (p) { try { return fs.readFileSync(p, 'utf8'); } catch (e) { return null; } },
+    writeText: function (p, t) { fs.writeFileSync(p, t, 'utf8'); },
+    exists: function (p) { try { return fs.existsSync(p); } catch (e) { return false; } },
+    readDir: function (p) { try { return fs.readdirSync(p); } catch (e) { return []; } },
+    isDir: function (p) { try { return fs.statSync(p).isDirectory(); } catch (e) { return false; } }
+  }
+});
 
 // ---- 个人站场景：官网静态服务（<工作台> → http://127.0.0.1:SITE_PORT）----
 const SITE_DIR = process.env.SITE_DIR || path.resolve(__dirname, '..');   // 公开版：默认 = 本夹根（12-源码照搬）
@@ -280,7 +301,7 @@ function serverSpawnEnv() {
   env.Path = NPM_BIN + ';' + (env.Path || '');
   // DSH_HOME 显式指向 D 盘项目目录（数据盘隔离：会话/存储/缓存绝不落 C 盘）。
   // 不设置的话 dsh 默认用 <用户目录>\<user>\.dsh，导致历史会话在界面里"消失"。
-  env.DSH_HOME = process.env.DSH_CUSTOMER_HOME || path.join(HARNESS_DIR, '.dsh');
+  env.DSH_HOME = DSH_HOME;
   return env;
 }
 
@@ -1211,6 +1232,70 @@ ipcMain.handle('harness:wv:inject', (e, webContentsId, pinTarget) => {
 });
 ipcMain.handle('scenarios:list', () => listScenarios());
 ipcMain.handle('scenario:get', (e, id) => getScenario(id));
+// ---- 程序开发 · 项目下拉（2026-11-11）----
+// 三个通道：列项目 / 切项目 / 接入新目录。写盘与判断全在 项目切换.js，这里只负责
+// 「首次接入」时跑既有脚本（工作区 + 会话 + 改名 + 项目记忆），不另写一套 onboarding。
+function runOnboardProject(root) {
+  return new Promise(function (resolve) {
+    const script = path.join(__dirname, 'scripts', '接入项目.mjs');
+    if (!fs.existsSync(script)) { resolve({ ok: false, err: '找不到接入脚本：' + script }); return; }
+    const nodeExe = resolveNodeExe();
+    // 脚本按 DSH_GUI_BASE 的端口取 token、按 DSH_HOME 找会话：显式给一遍，别让它退回 3080 或 C 盘
+    const env = Object.assign({ DSH_GUI_BASE: BASE, DSH_HOME: DSH_HOME, DSH_LOG: LOG_FILE }, process.env);
+    let cmd = nodeExe, args = [script, '--root', root];
+    if (!nodeExe) { env.ELECTRON_RUN_AS_NODE = '1'; cmd = process.execPath; }
+    execFile(cmd, args, { cwd: __dirname, env: env, timeout: 120000, windowsHide: true, maxBuffer: 4 * 1024 * 1024 },
+      function (err, stdout, stderr) {
+        const out = String(stdout || '') + (stderr ? '\n' + String(stderr) : '');
+        if (err) { resolve({ ok: false, err: '接入脚本失败：' + ((err && err.message) || err), log: out.slice(-2000) }); return; }
+        resolve({ ok: true, log: out.slice(-2000) });
+      });
+  });
+}
+ipcMain.handle('scene:projects', (e, scene, panelId) => {
+  try { return projectSwitchSvc.list(String(scene || ''), String(panelId || '')); }
+  catch (ex) { return { ok: false, err: '项目列表读取失败：' + String((ex && ex.message) || ex) }; }
+});
+ipcMain.handle('scene:switch-project', async (e, scene, panelId, root) => {
+  const sid = String(scene || ''), pid = String(panelId || ''), wantRoot = String(root || '');
+  let r;
+  try { r = projectSwitchSvc.switchTo(sid, pid, wantRoot); }
+  catch (ex) { return { ok: false, err: '切换失败：' + String((ex && ex.message) || ex) }; }
+  if (!r || r.ok || !r.needOnboard) return r;
+  // 这个目录还没接入（没工作区/没会话）⇒ 先按既有流程接入，成功后再切一次
+  const on = await runOnboardProject(r.root || wantRoot);
+  if (!on.ok) return { ok: false, err: on.err, log: on.log };
+  try { r = projectSwitchSvc.switchTo(sid, pid, r.root || wantRoot); }
+  catch (ex) { return { ok: false, err: '接入成功但切换失败：' + String((ex && ex.message) || ex), log: on.log }; }
+  return Object.assign({ onboarded: true, log: on.log }, r);
+});
+ipcMain.handle('scene:add-project', async (e, scene, panelId) => {
+  const win = windowOfEvent(e) || mainWindow;
+  if (!win) return { ok: false, err: '没有窗口' };
+  let pick;
+  try {
+    pick = await dialog.showOpenDialog(win, {
+      title: '选择要接入「程序开发」的项目目录',
+      buttonLabel: '接入这个目录',
+      properties: ['openDirectory']
+    });
+  } catch (ex) { return { ok: false, err: '打开目录选择框失败：' + String((ex && ex.message) || ex) }; }
+  if (!pick || pick.canceled || !pick.filePaths || !pick.filePaths.length) return { ok: false, canceled: true };
+  const root = pick.filePaths[0];
+  const sid = String(scene || ''), pid = String(panelId || '');
+  // 已经接入过的目录（有会话）直接切，不再建第二条会话；
+  // 不在项目表里的目录（对话框选的、父目录也不在同级）同样要走接入。
+  let first = null;
+  try { first = projectSwitchSvc.switchTo(sid, pid, root); } catch (ex) { first = { ok: false, err: String((ex && ex.message) || ex) }; }
+  if (first && first.ok) return first;
+  if (first && !first.needOnboard && !first.notListed) return first;
+  const on = await runOnboardProject(root);
+  if (!on.ok) return { ok: false, err: on.err, log: on.log };
+  let r;
+  try { r = projectSwitchSvc.switchTo(sid, pid, root); }
+  catch (ex) { return { ok: false, err: '接入成功但切换失败：' + String((ex && ex.message) || ex), log: on.log }; }
+  return Object.assign({ onboarded: true, log: on.log }, r);
+});
 // 场景标签顺序（拖拽换位）：渲染层拖完报上来，下次开机 / 其它窗口都读它
 ipcMain.handle('scenes:order:get', () => ({ saved: fs.existsSync(SCENE_ORDER_FILE), ids: readSceneTabOrder() }));
 ipcMain.handle('scenes:order:set', (e, ids) => saveSceneTabOrder(ids));

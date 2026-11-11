@@ -13943,6 +13943,97 @@ var makeRadar = (host) => {
 // 独立面板形态（scenarios 里 type="radar" 时用）；同一份实现也被「选股建议 · 🛰️ 雷达」页签复用
 renderers.radar = (body) => { body.classList.add('radar-panel'); return makeRadar(body); };
 
+// ============ 程序开发 · 项目下拉（2026-11-11）============
+// 为什么需要它：AI 面板钉死一条会话（= 一个项目），面板里又把引擎侧栏藏了 ⇒ 换项目在界面上没有任何入口。
+// 现在把「换项目」做成标题栏一个下拉，选中的目录 = 要干活的仓：
+//   ① 已接入（有会话）→ 主进程改场景 json（会话三字段 + Git 仓库 + 定位卡/索引）→ 整场重建；
+//   ② 没接入（同级目录扫出来的）→ 主进程先跑既有的 接入项目.mjs，再切（不另写一套 onboarding）；
+//   ③ 「＋ 接入新项目…」= 选任意目录接入（不在当前项目父目录下的项目走这条）。
+// 渲染层只负责递选择与刷新；写盘、判断、失败原因都在主进程（外壳\项目切换.js）。
+// 上一次切换留下的提示（warnings，比如「该项目不是 git 仓库，Git 面板没跟着换」）：
+// 成功后整场重建会换掉面板，消息先放这里，由新面板挂载时补显——不能因为重建就把原因吞掉。
+var projectSwitchNotice = '';
+var mountProjectSwitch = function (meta, acts) {
+  var api = window.app || {};
+  if (typeof api.sceneProjects !== 'function') {
+    acts.insertBefore(el('span', 'ai-project-msg', '项目切换：需重启工作台（主进程未更新）'), acts.firstChild);
+    return;
+  }
+  var sel = el('select', 'ai-project-select');
+  sel.title = '切换项目：AI 面板改钉到该项目的会话（会话 cwd = 项目根），并同步 Git 仓库与定位卡';
+  sel.disabled = true;
+  acts.insertBefore(sel, acts.firstChild);
+  var note = el('span', 'ai-project-msg', '');
+  acts.appendChild(note);
+  var noteTimer = null;
+  var say = function (text, bad) {
+    note.textContent = text || '';
+    note.title = text || '';
+    note.classList.toggle('bad', !!bad);
+    if (noteTimer) { clearTimeout(noteTimer); noteTimer = null; }
+    if (text && !bad) noteTimer = setTimeout(function () { note.textContent = ''; }, 8000);
+  };
+  if (projectSwitchNotice) { say(projectSwitchNotice, true); projectSwitchNotice = ''; }
+  var scene = meta.scenario;
+  var fill = function () {
+    sel.disabled = true;
+    return Promise.resolve(api.sceneProjects(scene, meta.id)).then(function (r) {
+      sel.innerHTML = '';
+      if (!r || !r.ok) { say('项目列表读取失败：' + ((r && r.err) || '未知'), true); return; }
+      var list = r.projects || [];
+      var cur = false;
+      list.forEach(function (p) {
+        var o = document.createElement('option');
+        o.value = p.root;
+        o.textContent = p.name + (p.registered ? '' : (p.hasSession ? '（未登记）' : '（未接入）'));
+        o.title = p.root + (p.sessionTitle ? '\n会话：' + p.sessionTitle : '');
+        if (p.current) { o.selected = true; cur = true; }
+        sel.appendChild(o);
+      });
+      if (list.length && !cur) {
+        var o0 = document.createElement('option');
+        o0.value = '';
+        o0.textContent = '（当前会话不在项目列表里）';
+        o0.selected = true;
+        sel.insertBefore(o0, sel.firstChild);
+      }
+      var add = document.createElement('option');
+      add.value = '__add__';
+      add.textContent = '＋ 接入新项目…';
+      sel.appendChild(add);
+      sel.disabled = false;
+      if (!list.length) say('还没有可切换的项目：点「＋ 接入新项目…」选一个目录');
+    }).catch(function (err) {
+      say('项目列表读取失败：' + ((err && err.message) || err), true);
+    });
+  };
+  var run = function (value) {
+    sel.disabled = true;
+    say(value === '__add__' ? '选择目录…' : '切换中…（首次接入要建会话，稍等）');
+    var call = value === '__add__' ? api.sceneAddProject(scene, meta.id) : api.sceneSwitchProject(scene, meta.id, value);
+    Promise.resolve(call).then(function (r) {
+      if (!r || !r.ok) {
+        if (r && r.canceled) { say(''); sel.disabled = false; fill(); return; }
+        say('切换失败：' + ((r && r.err) || '未知原因'), true);
+        try { console.error('[project-switch]', r); } catch (e) { /* ignore */ }
+        sel.disabled = false;
+        fill();
+        return;
+      }
+      try { console.log('[project-switch] 已切换', r); } catch (e) { /* ignore */ }
+      projectSwitchNotice = (r.warnings && r.warnings.length) ? r.warnings.join('；') : '';
+      var rebuild = window.APP_RELOAD_SCENE;
+      if (typeof rebuild === 'function') {
+        try { rebuild(scene); return; } catch (e) { /* 落到下面的提示 */ }
+      }
+      say('已写盘，但界面没能自动重建：请点标题栏 ⟳', true);
+      sel.disabled = false;
+    });
+  };
+  sel.addEventListener('change', function () { if (sel.value) run(sel.value); });
+  fill();
+};
+
 renderers.harness = (body, meta, head) => {
   body.classList.add('harness-panel');
 
@@ -13980,6 +14071,8 @@ renderers.harness = (body, meta, head) => {
     acts.appendChild(reloadBtn);
     acts.appendChild(diag);
     head.appendChild(acts);
+    // 程序开发场景：标题栏再加一个「项目」下拉（换项目 = 换会话 + 换 Git 仓库）
+    if (meta.projectSwitch) mountProjectSwitch(meta, acts);
   }
 
   const msg = el('div', 'harness-loading', '正在加载对话窗口…');

@@ -1424,6 +1424,20 @@ html[data-theme="light"] .grid-backdrop {
   min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;   /* 窄面板下省略号收尾 */
 }
 
+/* 程序开发 · 项目下拉（2026-11-11）：标题栏里换项目 = 换面板钉的会话（+ 换 Git 仓库） */
+.ai-project-select {
+  height: 24px; max-width: 220px; min-width: 96px; padding: 0 6px;
+  border: 1px solid var(--border); border-radius: 6px;
+  background: var(--bg-panel); color: var(--text); font-size: 11px; cursor: pointer;
+}
+.ai-project-select:hover { border-color: var(--accent); }
+.ai-project-select:disabled { opacity: .6; cursor: default; }
+.ai-project-msg {
+  font-size: 10px; color: var(--text-dim);
+  max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ai-project-msg.bad { color: #e6a23c; }
+
 /* 一键操作 */
 .act-list { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
 .act-btn {

@@ -1044,6 +1044,13 @@ async function loadScenario(id) {
   try { if (kUtils().packAutoGrid) kUtils().packAutoGrid(grid); } catch (e) { /* ignore */ }
   applyBadges();
 }
+// 外部（renderers.js 里的项目下拉等）改完场景 json 后要整场重建：这里给出唯一入口，
+// 免得 renderers.js 去猜本文件的局部函数名。场景 id 省略 = 重建当前标签。
+window.APP_RELOAD_SCENE = function (sceneId) {
+  const id = sceneId || currentTab;
+  if (!id || id === 'harness') return false;
+  return loadScenario(id);
+};
 
 // 渲染层兜底：任何一步失败都在界面上留痕，不出现"窗口开了但空白、还不知道为啥"
 function bootFail(where, err) {
