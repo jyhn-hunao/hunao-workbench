@@ -1,0 +1,9 @@
+# 守卫插件的 bundle 清单：被组进 profile 时才会加载
+# 注意 `- insert:` 这一层不能省：patch 里带 id 的条目是「改已有条目」，
+#   要**新增**一个条目必须写成 insert（且 insert 这层不带 id），引擎才会把它追加到树里。
+# 真正的 mode 由 工具\守卫开关.mjs 在安装时改写（shadow / enforce）
+- insert:
+    - id: token-guard
+      name: dsh-token-guard
+      config:
+        mode: shadow

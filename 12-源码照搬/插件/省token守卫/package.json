@@ -1,0 +1,17 @@
+{
+  "name": "dsh-token-guard",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js"
+  },
+  "description": "省 token 守卫：在工具派发前拦住重复读、整读大文件、重复命令（默认影子模式，只记不拦）",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "license": "MIT"
+}
