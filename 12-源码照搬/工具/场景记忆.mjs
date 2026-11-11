@@ -555,11 +555,18 @@ function cmdCheck(name) {
   }
   // 项目记忆隔离（2026-11-10）：一个项目一份，必须有业务区（领域 / 数据来源）；
   // 场景私有记忆只放跨项目规矩——里面出现项目名就等于业务知识串到了共享区（只告警，不阻断）
+  // 2026-11-11（记忆改造 P1）：项目记忆改成「薄卡 + memory\ 正文」后，薄卡只放指针、正文在 memory\，
+  // 业务区校验交给 记忆.mjs check；薄卡自身不再要求「领域 / 数据来源」标题，否则两套校验互相打架。
   {
     const pmDir = path.join(dir, '项目记忆')
     const pmFiles = fs.existsSync(pmDir) ? fs.readdirSync(pmDir).filter((x) => x.endsWith('.md')) : []
     for (const f of pmFiles) {
       const body = fs.readFileSync(path.join(pmDir, f), 'utf8')
+      const thinCard = body.includes('记忆薄卡')
+      if (thinCard) {
+        if (!body.includes('MEMORY_INDEX.md')) problems.push('项目薄卡 ' + f + ' 没有指向 memory\\MEMORY_INDEX.md')
+        continue
+      }
       if (!/^#{1,4}[^\n]*领域/m.test(body)) problems.push('项目记忆 ' + f + ' 缺「领域」小节（业务域 / 术语 / 边界）')
       if (!/^#{1,4}[^\n]*数据来源/m.test(body)) problems.push('项目记忆 ' + f + ' 缺「数据来源」小节（数据从哪来、谁维护、哪些字段脏）')
     }
