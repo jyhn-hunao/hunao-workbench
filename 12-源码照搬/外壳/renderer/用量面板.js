@@ -7,7 +7,8 @@
  *
  * 规矩（照「自我复盘」§五 第 60 条：看不见就别做视觉改动）：
  *   · 只读：不改场景 JSON、不改会话、不写任何文件；
- *   · 不碰 styles.css，配色只用 CSS 变量 + 内联兜底；
+ *   · 样式走 styles.css 里的 .upop* 组件类（2026-11-11 起）——**不再内联写死颜色**：
+ *     深色常量（#e6edf3 / #8b949e）在浅色主题下是白字白底，用户直接截图说看不见；
  *   · 所有动态文字走 textContent，不拼 innerHTML（会话标题里可能有尖括号）。
  *
  * 数据：window.app.topbar.usage()（主进程 IPC → 外壳\用量.js → 引擎投影缓存）。
@@ -41,10 +42,18 @@
     return String(Math.round(n));
   }
 
+  // 颜色一律给**令牌**（--err / --warn / --text-dim），浅色/深色主题各自解析；
+  // 以前写死 #ff6b6b / #8b949e，浅色主题下基本看不见（2026-11-11 用户截图反馈）。
   function levelColor(level) {
-    if (level === 'over') return '#ff6b6b';
-    if (level === 'warn') return '#f0b429';
-    return '#8b949e';
+    if (level === 'over') return 'var(--err)';
+    if (level === 'warn') return 'var(--warn)';
+    return 'var(--text-dim)';
+  }
+
+  function levelClass(level) {
+    if (level === 'over') return 'is-over';
+    if (level === 'warn') return 'is-warn';
+    return '';
   }
 
   // ---------- 取数 ----------
@@ -156,110 +165,51 @@
   }
 
   function buildRow(r) {
-    var box = el('div');
-    box.style.padding = '7px 10px';
-    box.style.borderTop = '1px solid rgba(255,255,255,0.07)';
-    var head = el('div');
-    head.style.display = 'flex';
-    head.style.alignItems = 'center';
-    head.style.gap = '6px';
-    var dot = el('span', '', '●');
-    dot.style.color = levelColor(r.level);
-    dot.style.fontSize = '10px';
-    head.appendChild(dot);
-    var name = el('span', '', (r.sceneName || '') + ' · ' + (r.sessionTitle || r.panelTitle || '未命名会话'));
-    name.style.fontWeight = '600';
-    name.style.color = '#e6edf3';
-    name.style.overflow = 'hidden';
-    name.style.textOverflow = 'ellipsis';
-    name.style.whiteSpace = 'nowrap';
-    head.appendChild(name);
+    var box = el('div', 'upop-row');
+    var head = el('div', 'upop-row-head');
+    head.appendChild(el('span', 'upop-dot ' + levelClass(r.level), '●'));
+    head.appendChild(el('span', 'upop-name', (r.sceneName || '') + ' · ' + (r.sessionTitle || r.panelTitle || '未命名会话')));
     box.appendChild(head);
 
-    var meta = el('div', '', r.hasData
+    box.appendChild(el('div', 'upop-meta', r.hasData
       ? (r.steps + ' 步 · 上下文 ' + r.pct + '% · 每步重发 ' + wan(r.perStep) + ' · 重放 ' + r.replayPct + '%')
-      : '还没数据（引擎没给这条会话写过用量）');
-    meta.style.marginTop = '3px';
-    meta.style.fontSize = '11.5px';
-    meta.style.color = '#8b949e';
-    meta.style.fontFamily = 'var(--mono, monospace)';
-    box.appendChild(meta);
+      : '还没数据（引擎没给这条会话写过用量）'));
 
-    if (r.hasData) {
-      var adv = el('div', '', r.advice);
-      adv.style.marginTop = '2px';
-      adv.style.fontSize = '11.5px';
-      adv.style.color = levelColor(r.level);
-      box.appendChild(adv);
-    }
+    if (r.hasData) box.appendChild(el('div', 'upop-adv ' + levelClass(r.level), r.advice));
     return box;
   }
-
   function openPanel() {
     closePanel();
     state.open = true;
-    pop = el('div');
+    pop = el('div', 'upop');
     pop.id = 'usage-pop';
-    pop.style.position = 'fixed';
-    pop.style.zIndex = '9999';
-    pop.style.width = '420px';
-    pop.style.maxHeight = '60vh';
-    pop.style.overflow = 'auto';
-    pop.style.background = 'var(--bg-panel, #161b22)';
-    pop.style.border = '1px solid var(--border, rgba(255,255,255,0.15))';
-    pop.style.borderRadius = '8px';
-    pop.style.boxShadow = '0 8px 28px rgba(0,0,0,0.45)';
-    pop.style.fontSize = '12.5px';
-    pop.style.color = '#e6edf3';
 
-    // 标题
-    var bar = el('div');
-    bar.style.display = 'flex';
-    bar.style.alignItems = 'center';
-    bar.style.justifyContent = 'space-between';
-    bar.style.padding = '8px 10px';
-    var ttl = el('span', '', '省 token · 各场景会话的用量');
-    ttl.style.fontWeight = '600';
-    bar.appendChild(ttl);
-    var close = el('button', '', '✕');
-    close.style.background = 'transparent';
-    close.style.border = '0';
-    close.style.color = '#8b949e';
-    close.style.cursor = 'pointer';
+    // 标题栏
+    var bar = el('div', 'upop-head');
+    bar.appendChild(el('span', 'upop-title', '省 token · 各场景会话的用量'));
+    var close = el('button', 'upop-x', '✕');
+    close.type = 'button';
+    close.title = '关闭';
     close.addEventListener('click', function (e) { e.stopPropagation(); closePanel(); });
     bar.appendChild(close);
     pop.appendChild(bar);
 
-    // 说明（口径一句话，省得下次又要解释）
-    var hint = el('div', '', '口径：上下文 / 窗口（本机 1M）；每步重发 = 累计(缓存重读+新增输入) / 步数。越线才在这里排前面。');
-    hint.style.padding = '0 10px 8px';
-    hint.style.fontSize = '11px';
-    hint.style.color = '#8b949e';
-    pop.appendChild(hint);
+    // 口径（一句话，省得下次又要解释）
+    pop.appendChild(el('div', 'upop-hint',
+      '口径：上下文 / 窗口（本机 1M）；每步重发 = 累计(缓存重读+新增输入) / 步数。越线才在这里排前面。'));
 
     if (state.err) {
-      var err = el('div', '', '取数失败：' + state.err);
-      err.style.padding = '8px 10px';
-      err.style.color = '#ff6b6b';
-      pop.appendChild(err);
+      pop.appendChild(el('div', 'upop-msg is-err', '取数失败：' + state.err));
     } else if (!state.rows.length) {
-      var empty = el('div', '', '还没有会话：等引擎给某条会话写过用量之后再看。');
-      empty.style.padding = '8px 10px';
-      empty.style.color = '#8b949e';
-      pop.appendChild(empty);
+      pop.appendChild(el('div', 'upop-msg', '还没有会话：等引擎给某条会话写过用量之后再看。'));
     } else {
       for (var i = 0; i < state.rows.length; i++) pop.appendChild(buildRow(state.rows[i]));
     }
 
-    // 底栏：复制交接指令 / 刷新
-    var foot = el('div');
-    foot.style.display = 'flex';
-    foot.style.gap = '8px';
-    foot.style.padding = '8px 10px';
-    foot.style.borderTop = '1px solid rgba(255,255,255,0.07)';
-    var cp = el('button', '', '复制交接指令');
-    cp.style.flex = '1';
-    cp.style.cursor = 'pointer';
+    // 底栏：复制交接指令（主操作）+ 刷新（次操作）—— 用 .upop-btn，别再裸 <button>（会渲染成系统灰按钮）
+    var foot = el('div', 'upop-foot');
+    var cp = el('button', 'upop-btn is-primary', '复制交接指令');
+    cp.type = 'button';
     cp.addEventListener('click', function (e) {
       e.stopPropagation();
       var target = state.worst || state.rows[0] || null;
@@ -268,8 +218,8 @@
       setTimeout(function () { cp.textContent = '复制交接指令'; }, 1800);
     });
     foot.appendChild(cp);
-    var rf = el('button', '', '刷新');
-    rf.style.cursor = 'pointer';
+    var rf = el('button', 'upop-btn', '刷新');
+    rf.type = 'button';
     rf.addEventListener('click', function (e) {
       e.stopPropagation();
       rf.textContent = '…';
@@ -284,7 +234,7 @@
       var r = chip && chip.getBoundingClientRect ? chip.getBoundingClientRect() : null;
       if (r && r.width) {
         pop.style.top = Math.round(r.bottom + 6) + 'px';
-        pop.style.left = Math.max(8, Math.round(r.right - 420)) + 'px';
+        pop.style.left = Math.max(8, Math.round(r.right - 440)) + 'px';
       } else {
         pop.style.top = '44px';
         pop.style.right = '16px';
@@ -296,7 +246,6 @@
       document.addEventListener('keydown', onKey, true);
     }, 0);
   }
-
   function onDocClick(ev) {
     if (!pop) return;
     if (pop.contains(ev.target) || (chip && chip === ev.target)) return;

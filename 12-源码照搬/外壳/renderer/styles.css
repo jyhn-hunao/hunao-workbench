@@ -5990,3 +5990,38 @@ html[data-theme="dark"] .kneu-dot { box-shadow: 0 0 5px rgba(255, 255, 255, .22)
 
 .g-pop-hint { padding: 2px 6px 6px; font-size: 10.5px; color: var(--text-dim, #888); border-top: 1px solid var(--line, rgba(128,128,128,.2)); margin-top: 4px; }
 .g-pop-row.is-sel { background: rgba(47,111,235,.14); }
+
+/* ---------- 顶栏「省 token」用量面板（2026-11-11 按用户截图反馈重做）----------
+   之前每个元素都用内联 style 写死深色（文字 #e6edf3 / 次要 #8b949e），浅色主题下变成
+   “白字白底”，几乎读不出来；底栏还是裸 <button>，渲染成系统灰按钮。
+   现在一律走设计令牌 + 组件类：浅色/深色自动跟着主题走，按钮用 .upop-btn。 */
+.upop { position: fixed; z-index: 9999; width: min(440px, calc(100vw - 24px)); max-height: 62vh; overflow: auto;
+  background: var(--bg-panel); color: var(--text); border: 1px solid var(--border); border-radius: 10px;
+  box-shadow: var(--sh-2); font-size: 12.5px; font-family: var(--sans); }
+.upop-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 12px 6px; }
+.upop-title { font-size: 13px; font-weight: 600; color: var(--text); }
+.upop-x { border: 0; background: transparent; color: var(--text-dim); font-size: 13px; line-height: 1;
+  padding: 4px 6px; border-radius: 6px; cursor: pointer; font-family: inherit; }
+.upop-x:hover { background: var(--bg-panel-hover); color: var(--text); }
+.upop-hint { padding: 0 12px 9px; font-size: 12px; line-height: 1.55; color: var(--text-dim); }
+.upop-msg { padding: 10px 12px; font-size: 12.5px; line-height: 1.5; color: var(--text-dim); }
+.upop-msg.is-err { color: var(--err); }
+.upop-row { padding: 9px 12px; border-top: 1px solid var(--border); }
+.upop-row-head { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.upop-dot { flex: none; font-size: 10px; line-height: 1; color: var(--text-dim); }
+.upop-dot.is-warn { color: var(--warn); }
+.upop-dot.is-over { color: var(--err); }
+.upop-name { font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.upop-meta { margin-top: 4px; font-size: 12px; line-height: 1.5; color: var(--text-dim); font-family: var(--mono); }
+.upop-adv { margin-top: 3px; font-size: 12px; line-height: 1.5; color: var(--text-dim); }
+.upop-adv.is-warn { color: var(--warn); }
+.upop-adv.is-over { color: var(--err); font-weight: 600; }
+.upop-foot { display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding: 10px 12px;
+  border-top: 1px solid var(--border);
+  /* 内容超高时按钮不能被卷走：底栏吸在面板底部（2026-11-11 首版渲染里被截掉过） */
+  position: sticky; bottom: 0; background: var(--bg-panel); }
+.upop-btn { border: 1px solid var(--border); background: transparent; color: var(--text); font-size: 12px;
+  line-height: 1.2; padding: 6px 12px; border-radius: 8px; cursor: pointer; font-family: inherit; }
+.upop-btn:hover { background: var(--bg-panel-hover); }
+.upop-btn.is-primary { border-color: transparent; background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.upop-btn.is-primary:hover { border-color: var(--accent); }
