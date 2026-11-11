@@ -1,9 +1,11 @@
 /* 用量面板.js —— 顶栏「省 token」提示（2026-11-11）
  *
- * 干什么：把「这条会话已经有多贵」摆到眼前 —— 只在越线时才冒一个胶囊，点开是明细。
+ * 干什么：把「这条会话已经有多贵」摆到眼前 —— 顶栏一颗常驻胶囊，点开是明细。
  *   · 2026-11-11 实测：6 条会话一天烧 2.95 亿 token，99.3% 是每一步重读历史；
  *   · 顶栏原来的「压力」胶囊 2026-10-23 按用户要求删掉了，之后没人看得见这个数；
- *   · 这里不复活那个胶囊：**默认什么都不显示**，只有某条会话越过阈值才出现。
+ *   · 2026-11-11 晚（用户反馈「省 token 按钮和面板不见了」）：原来「越线才出现」，
+ *     而浮层只能从胶囊打开 ⇒ 换会话后用量掉到 8%，入口和面板一起消失、再也打不开。
+ *     现在改成**常驻**：平时低对比显示 ⚡ 8%，只有越过阈值才换成 warn / err 色。
  *
  * 规矩（照「自我复盘」§五 第 60 条：看不见就别做视觉改动）：
  *   · 只读：不改场景 JSON、不改会话、不写任何文件；
@@ -110,14 +112,23 @@
 
   function paintChip() {
     if (!chip) return;
-    var w = state.worst;
-    // 一条数据都没有（新装的壳 / 引擎没写过用量）⇒ 不显示，别拿 0% 骗人
-    if (!w || !w.hasData) { chip.style.display = 'none'; return; }
-    if (w.level === 'ok') { chip.style.display = 'none'; return; }
+    // 1. 入口常驻：不管有没有数据、档位高低，胶囊都留在顶栏（浮层唯一的入口）
     chip.style.display = '';
+    var w = state.worst;
+
+    // 2. 一条数据都没有（新装的壳 / 引擎没写过用量）⇒ 显示 ⚡ —，但别拿 0% 骗人
+    if (!w || !w.hasData) {
+      chip.textContent = '⚡ —';
+      chip.style.color = 'var(--text-dim)';
+      chip.style.borderColor = 'var(--border)';
+      chip.title = '省 token：还没有会话用量（引擎还没给任何会话写过）';
+      return;
+    }
+
+    // 3. 有数据：百分比常显；ok 档用 --text-dim 弱化，越线才换 warn / err 色
     chip.textContent = '⚡ ' + w.pct + '%';
     chip.style.color = levelColor(w.level);
-    chip.style.borderColor = levelColor(w.level);
+    chip.style.borderColor = w.level === 'ok' ? 'var(--border)' : levelColor(w.level);
     chip.title = (w.sessionTitle || w.sceneName || '会话') + '：' + w.advice + '（点开看明细）';
   }
 
