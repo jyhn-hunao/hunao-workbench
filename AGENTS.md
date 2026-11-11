@@ -39,6 +39,7 @@
 | 环境自检 | `node 12-源码照搬\外壳\scripts\自检.mjs` | `12-源码照搬/外壳/scripts/自检.mjs:2` |
 | 场景与会话核对 | `node 12-源码照搬\外壳\scripts\sessions.mjs --check` | `12-源码照搬/外壳/scripts/sessions.mjs:12` |
 | 建会话 | `node 12-源码照搬\外壳\scripts\建会话.mjs --title "场景名"` | `12-源码照搬/外壳/scripts/建会话.mjs:13` |
+| 换会话（建新 + 归档旧 + 回写绑定） | `node 12-源码照搬\外壳\scripts\换会话.mjs <面板id> --go` | `12-源码照搬/外壳/scripts/换会话.mjs:7` |
 | 场景记忆自检 | `node 12-源码照搬\工具\场景记忆.mjs check --场景 <目录名>` | `12-源码照搬/工具/场景记忆.mjs:608` |
 | 发布前检查 | `node 12-源码照搬\工具\发布前检查.mjs` | `12-源码照搬/工具/发布前检查.mjs:4` |
 | 规则落地复核 | `powershell -File ~/.dsh/standards/install/verify.ps1 -Segment project,drift -Project D:\codeData\myself\luanyujia-workbench` | `~/.dsh/standards/install/verify.ps1` |
@@ -68,6 +69,7 @@
 | 不静默兜底 | 失败要说清是哪一环（端口 / 引擎 / token / 场景 JSON），错误在归属层抛出 | catch 里吞掉，只留一行空日志 |
 | 只改相关 | 不顺手重排 `main.js` 其它段落、不批量格式化、不改既有中文文件名 | 一次提交里夹带全文件缩进调整 |
 | 自审阈值 | 单方法 < 80 行、嵌套 ≤ 3 层、入参 < 5 个、无死代码 | 单函数 200 行、五层 if |
+| 换会话一步到位 | 用户说「开新会话 / 换会话」= **一条命令做完四件事**：建新会话 → 面板改绑（scenarios/*.json 三字段 + 定位卡 + 身份索引）→ 旧会话**真归档** → 跑 `sessions.mjs --check`。⛔ 不许只建会话然后让用户手动改 JSON | 只跑 `建会话.mjs` 就回「新会话开好了」，面板还指着旧会话 |
 | 交付八项 | 缺陷（按严重度）、边界（数据量 / 并发 / 空值）、3 个用例（正常 / 边界 / 异常）、最易误用点，并标注「已验证 / 静态推断 / 未验证」 | 只写「已修好」 |
 
 > 通用正文第 2/3/5/6/7 章与 `install/iron-rules.txt` 的 12 条不因本表而豁免；本表只补本仓需要落地的判据。
