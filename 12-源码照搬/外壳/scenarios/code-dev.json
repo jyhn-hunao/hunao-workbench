@@ -1,7 +1,7 @@
 {
   "id": "code-dev",
   "name": "程序开发",
-  "description": "程序开发：写代码的统一入口，一个场景挂多个项目——AI 面板钉的是「当前项目」那条会话（会话 cwd = 项目根，所以那个仓的 AGENTS.md 自动生效）。上排 = Git（左分支树 / 右变更与提交历史，可切分支、点文件看 diff）+ 预览（md/代码/图片/PDF）+ 文件树（跟着当前项目根，仍可上翻到盘符），下排 = AI。换项目 = AI 面板标题栏的「项目」按钮（会话 / Git 仓库 / 文件面板 / 定位卡一起换，未接入的目录会先走接入脚本），也可 node 外壳\\scripts\\接入项目.mjs 手动接入；不是换场景。",
+  "description": "程序开发：写代码的统一入口，一个场景挂多个项目——AI 面板钉的是「当前项目」那条会话（会话 cwd = 项目根，所以那个仓的 AGENTS.md 自动生效）。上排 = Git（左分支树 / 右变更与提交历史，可切分支、点文件看 diff）+ 预览（md/代码/图片/PDF）+ 文件树（跟着当前项目根，仍可上翻到盘符），下排 = 两块 AI：左「AI·工作区」是常驻的项目管理会话（cwd = 12-源码照搬\\工作区，管接入 / 切项目 / 跨项目规矩，不会被项目顶掉），右「AI·项目」钉当前项目的会话（cwd = 项目根，那个仓的 AGENTS.md 自动生效）。换项目 = 「AI·项目」标题栏的「项目」按钮（会话 / Git 仓库 / 文件面板 / 定位卡一起换，未接入的目录会先走接入脚本），也可 node 外壳\\scripts\\接入项目.mjs 手动接入；不是换场景。",
   "layout": "grid",
   "theme": "dark",
   "cols": 6,
@@ -50,17 +50,31 @@
     },
     {
       "id": "cd-ai",
-      "title": "AI·程序开发",
-      "sub": "",
+      "title": "AI·项目",
+      "sub": "钉当前项目的会话（cwd = 项目根）；换项目用标题栏「项目」",
       "type": "harness",
       "sessionTitle": "luanyujia-workbench",
       "sessionId": "session-cd208a77-8ce1-4687-b915-8dfb67eaf220",
       "pinTarget": ["luanyujia-workbench", "程序开发"],
       "projectSwitch": true,
       "expand": true,
+      "col": 3,
+      "row": 4,
+      "w": 4,
+      "h": 3
+    },
+    {
+      "id": "cd-ai-home",
+      "title": "AI·工作区",
+      "sub": "管项目：接入 / 切项目 / 跨项目规矩；会话 cwd = 12-源码照搬\\工作区",
+      "type": "harness",
+      "sessionTitle": "程序开发·工作区",
+      "sessionId": "session-f28099f4-f86d-4529-bad4-870c386f8a43",
+      "pinTarget": ["程序开发·工作区", "程序开发"],
+      "expand": true,
       "col": 1,
       "row": 4,
-      "w": 6,
+      "w": 2,
       "h": 3
     }
   ],

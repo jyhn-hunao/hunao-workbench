@@ -6,8 +6,10 @@
 
 | 项 | 值 |
 |---|---|
-| 场景 / 面板 | `code-dev` / `cd-ai` · `AI·程序开发` |
-| 当前项目 / 会话 | `luanyujia-workbench` / `session-cd208a77-8ce1-4687-b915-8dfb67eaf220` |
+| 场景 / 面板 | `code-dev` / `cd-ai-home`（`AI·工作区`）+ `cd-ai`（`AI·项目`） |
+| 工作区会话 | `程序开发·工作区` / `session-f28099f4-f86d-4529-bad4-870c386f8a43`（面板 `cd-ai-home`，cwd = `12-源码照搬\工作区`） |
+| 当前项目（pinTarget 首项） | `luanyujia-workbench`（换项目时会变，换完回写） |
+| 会话 id | `session-cd208a77-8ce1-4687-b915-8dfb67eaf220`（面板 `cd-ai`，cwd = 工作台仓库根） |
 | 主技能 / 记忆 | `code-dev` + `project-onboarding`；场景记忆 `...\程序开发\` |
 
 我负责：给任何项目写/改代码，按规范铁律 + 项目 `AGENTS.md` 交付。不管生活类活。
@@ -25,11 +27,11 @@
 
 | 用户说 | 去哪 |
 |---|---|
-| 接入项目 | 技能 `project-onboarding` |
+| 接入项目 | 在「AI·工作区」会话里走技能 `project-onboarding`（cwd = 工作区；别在项目会话里接别的项目） |
 | 业务 / 规则 / 数据来源 | `MEMORY_INDEX.md` → 类目 README → `记忆.mjs recall` |
 | 改代码 / 修 bug | 技能 `code-dev` + 项目 `AGENTS.md` |
 | 提交 / 推代码 | 项目 `doc\提交准则.md` |
-| 换项目 / 记忆坏了 | AI 面板「项目」下拉；`记忆.mjs check` |
+| 换项目 / 记忆坏了 | 「AI·项目」面板的「项目」下拉；`记忆.mjs check` |
 
 ## 四、流程
 
@@ -46,4 +48,5 @@
 
 ## 六、上次进度
 
+- 2026-11-11（场景结构调整）：程序开发拆两块 AI —— `cd-ai-home`「AI·工作区」常驻管项目（会议室 = `12-源码照搬\工作区`，会话 `程序开发·工作区`）；`cd-ai`「AI·项目」钉当前项目会话（cwd = 项目根），换项目仍走标题栏「项目」下拉。管理类对话不再被项目会话顶掉。
 - 2026-11-11（收工）：mlw 态势大屏交付完成（22 提交，HEAD `1584e2ef`），复盘见 `mlw\memory\handoffs\2026-11-11-收工复盘.md`；下一会话 P0 = 配权限点/菜单 + 联调 5 条新 SQL、互斥写入方。详见场景 §〇。
