@@ -35,5 +35,19 @@
     "程序开发\\场景私有记忆.md"
    ]
   }
+ ],
+ "projects": [
+  {
+   "name": "luanyujia-workbench",
+   "memoryRoot": "D:\\codeData\\myself\\luanyujia-workbench",
+   "memoryIndex": "D:\\codeData\\myself\\luanyujia-workbench\\memory\\_索引.json",
+   "card": "D:\\codeData\\myself\\luanyujia-workbench\\12-源码照搬\\引擎数据\\.dsh\\场景记忆\\程序开发\\项目记忆\\luanyujia-workbench.md"
+  },
+  {
+   "name": "mlw",
+   "memoryRoot": "D:\\codeData\\workData\\workCode\\mlw",
+   "memoryIndex": "D:\\codeData\\workData\\workCode\\mlw\\memory\\_索引.json",
+   "card": "D:\\codeData\\myself\\luanyujia-workbench\\12-源码照搬\\引擎数据\\.dsh\\场景记忆\\程序开发\\项目记忆\\mlw.md"
+  }
  ]
 }

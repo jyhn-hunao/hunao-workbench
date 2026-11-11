@@ -10,7 +10,9 @@
    "aliases": [
     "工作台本体"
    ],
-   "memory": "D:\\codeData\\myself\\luanyujia-workbench\\12-源码照搬\\引擎数据\\.dsh\\场景记忆\\程序开发\\项目记忆\\luanyujia-workbench.md"
+   "memory": "D:\\codeData\\myself\\luanyujia-workbench\\12-源码照搬\\引擎数据\\.dsh\\场景记忆\\程序开发\\项目记忆\\luanyujia-workbench.md",
+   "memoryRoot": "D:\\codeData\\myself\\luanyujia-workbench",
+   "memoryIndex": "D:\\codeData\\myself\\luanyujia-workbench\\memory\\_索引.json"
   },
   {
    "name": "mlw",
@@ -20,7 +22,9 @@
    "owner": "程序开发",
    "status": "active",
    "aliases": [],
-   "memory": "D:\\codeData\\myself\\luanyujia-workbench\\12-源码照搬\\引擎数据\\.dsh\\场景记忆\\程序开发\\项目记忆\\mlw.md"
+   "memory": "D:\\codeData\\myself\\luanyujia-workbench\\12-源码照搬\\引擎数据\\.dsh\\场景记忆\\程序开发\\项目记忆\\mlw.md",
+   "memoryRoot": "D:\\codeData\\workData\\workCode\\mlw",
+   "memoryIndex": "D:\\codeData\\workData\\workCode\\mlw\\memory\\_索引.json"
   }
  ]
 }

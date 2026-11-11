@@ -31,6 +31,14 @@
    "memory": "场景记忆/本地电脑",
    "file": "areas/pc-cleanup.md",
    "panel": "pc-ai"
+  },
+  {
+   "id": "code-dev",
+   "name": "程序开发",
+   "owner": "cd-ai",
+   "memory": "场景记忆/程序开发",
+   "file": "areas/code-dev.md",
+   "panel": "cd-ai"
   }
  ]
 }

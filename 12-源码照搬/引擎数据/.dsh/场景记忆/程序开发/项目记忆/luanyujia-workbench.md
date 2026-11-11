@@ -1,69 +1,21 @@
-# luanyujia-workbench · 项目记忆
+# luanyujia-workbench · 记忆薄卡
 
-> 项目根：`D:\codeData\myself\luanyujia-workbench`｜场景：程序开发（code-dev）｜建单 2026-11-10｜最近更新 2026-11-11
-> **业务记忆只住这里**：术语 / 数据来源 / 契约 / 领域规则都写本文件；跨项目规矩去场景私有记忆。
+> 正文在 `<项目根>\memory\`；本卡只放指针，不放业务知识。
 
-## 状态区
+<!-- AUTO:BEGIN -->
+- 项目根：`D:\codeData\myself\luanyujia-workbench`
+- 记忆索引：`memory\MEMORY_INDEX.md`（分类见各目录 README）
+- 项目规则：`AGENTS.md`（默认不入库）；提交：见项目 `AGENTS.md` / `doc\提交准则.md`
+- 最近 5 条：
+  - `memory/architecture/2026-11-11-工作台定位与目录边界.md` · 工作台定位、术语与目录边界 · 2026-11-11
+  - `memory/decisions/2026-11-11-换项目用面板下拉.md` · 换项目改走面板标题栏「项目」下拉，不再只靠接入脚本 · 2026-11-11
+  - `memory/function_realize/2026-11-11-换项目下拉的方法流转.md` · 换项目下拉的方法流转：面板 → IPC → 项目切换.js → 回写 · 2026-11-11
+  - `memory/function_realize/2026-11-11-记忆能力改造落地与验证.md` · 记忆能力改造 P1+P3 的落地与验证 · 2026-11-11
+  - `memory/function_realize/2026-11-11-启动页token竞态修复.md` · 启动页 token 竞态修复的方法流转与未验证项 · 2026-11-11
+- 召回：`node "D:\codeData\myself\luanyujia-workbench\12-源码照搬\工具\记忆.mjs" recall --project "D:\codeData\myself\luanyujia-workbench" "<关键词>"`
+<!-- AUTO:END -->
 
-- **状态**：进行中
-- **一句话**：一套「多场景 AI 工作台」的搭建方法与可跑纯壳模板（Electron 外壳 + DSH 引擎 + 场景 JSON + 记忆工具）。
-- **成果/证据**：场景 5 个（命令 / B站 / 自我复盘 / 本地电脑 / 程序开发），`sessions.mjs --check` 5/5 通过；项目规则 `AGENTS.md` + `doc\提交准则.md` + `doc\迁移报告.md` 已落地（基线 `f0fc18f`）。
-- **下一步**：四个场景在浅色下逐屏核对正文对比度（见 §八）。
-- **已有档案**：`README.md`、`doc\迁移报告.md`、`08-升级与改造清单\外观皮肤与设计令牌.md`、`12-源码照搬\说明\使用说明.md`。
-
-## 一、领域与术语
-
-- **业务域**：AI 工作台——把「一个聊天窗口」变成「按场景分工的工作室」；产物是方法 + 模板，不是业务系统。
-- **术语**：场景（职责/工作模式，顶栏一个标签）、面板（场景里的一块格子，`type` 决定渲染器）、会话（DSH session，AI 面板钉一条）、工作区（DSH 侧栏分组 = 项目目录）、记忆三层（全局 AGENTS → 技能 → 定位卡 → 场景记忆）、共享记忆（`_共享记忆\areas`）、技能（`.dsh\skills\<名>\SKILL.md`）。
-- **边界**：不含引擎、密钥、真实用户数据；不是通用安装包（壳能跑，方法要接到自己的内容上）。
-
-## 二、数据来源与业务规则
-
-- **场景配置**是事实源：`外壳\scenarios\<id>.json`，`id` 必须等于文件名；面板 `type` 必须是已注册渲染器（`view`/`file`/`harness`/`neuron`/`embed`/`pc-*` 等）。
-- **会话绑定**：AI 面板三字段 `sessionId` / `sessionTitle` / `pinTarget`；`sessionId` 只能来自 `建会话.mjs` 或 `接入项目.mjs` 的输出，不能手填。
-- **会话数据**在 `引擎数据\.dsh\sessions\`（不入库）；**场景记忆**在 `引擎数据\.dsh\场景记忆\`（入库，但归档与运行态文件忽略）。
-- **规则**：一个场景挂多项目时，业务知识进 `项目记忆\<项目>.md`；场景私有记忆只放跨项目规矩。
-- **脏字段与例外**：`sessionId` 是本机数据，换机器必然失效；标题必须与界面显示逐字一致（重名会串台）。
-
-## 三、接口与契约
-
-- **引擎 RPC**：`POST /api/<method>`，body `{type:'client-request', rpcId, method, payload:{args}}`；已用：`session/create`、`session/rename`、`session/prompt`、`session/cancel`、`workspace/create`、`workspace/archiveSession`。
-- **鉴权**：token 从 `外壳\server.log` 的 `dsh web: http://127.0.0.1:<port>/?token=…` 取，`fetch(BASE + '/?token=…', {redirect:'manual'})` 换签名 cookie；redirect 跟随会 401。
-- **端口**：`DSH_PORT` 默认 3083（`启动.vbs` 与 `main.js` 各写一处，必须同改）。
-- **启动 token 的时序契约**（2026-11-11 查明）：`?token=` 不是配置项，是 `dsh web` 每进程随机生成（`randomBytes` + 内存里的 `PROCESS_LAUNCH_TOKENS`），唯一出口是 stdout 的 `dsh web: http://127.0.0.1:<port>/?token=…` 那一行；而这行**要等插件树 `loader.await()` + `auditStartupEntries` 之后才打印**，HTTP 端口更早就 listen 了 ⇒「端口通」≠「token 到手」。`引擎数据\.dsh\.credentials.yaml` 里只有 `DEEPSEEK_API_KEY` 和浏览器 cookie 的签名 `grant` 记录，没有任何地方能"配置"这个 token。
-
-## 四、技术栈与目录
-
-- Electron 43.4.0，Node `>=24.9 <25`；外壳主进程 CJS，脚本用 `.mjs`。
-- 文本 UTF-8 无 BOM；换行以各文件现状为准（多数 CRLF，`sessions.mjs` 是 LF——改前先看，别整文件重排）。
-- 关键目录：`外壳/scenarios/`（场景）、`外壳/scripts/`（会话与接入脚本）、`引擎数据/.dsh/`（记忆/技能/配置）。
-
-## 五、规范与提交
-
-- 项目规则：`AGENTS.md`；提交准则：`doc/提交准则.md`；迁移矩阵与基线：`doc/迁移报告.md`（基线 `f0fc18f`）。
-- 远程：`origin` = gitee `hunao-workbench`，获准自主 push；`upstream` = 原仓且 push 被置 `DISABLED`。
-
-## 六、决策与坑（只追加）
-
-- 2026-11-10：会话脚本 token 正则写死 3080，本机 3083 取不到 cookie → 已改为按 `DSH_GUI_BASE` 端口过滤（提交 7c4a386）。
-- 2026-11-10：`自检.mjs` 找的是 `引擎/apps/cli/lib/bin.js`，本机引擎是打包布局 `引擎/lib/`，所以它总走"复用 3083 实例"分支。
-- 2026-11-10：`init` 会在每个场景目录生成 `<场景>场景私有记忆.md` 副本，与正本逐字节相同；已有清理，且 `身份卡/场景画像` 已加入忽略。
-- 2026-11-10（外观）：皮肤段在 `外壳\renderer\styles.css` 末尾（§①~⑪，约 754 行）；换外观走「末尾皮肤段 + 设计令牌」，不重写 `styles.css`（4900 行里混着布局与 JS 依赖的尺寸）；组件规则一律带 `html[data-theme]` 前缀，靠「同特异性 + 文件末尾」压过历史覆盖，能不写 `!important` 就不写。
-- 2026-11-10（外观）：默认主题 dark → light，键改 `guiTheme.v2` 并做一次性迁移（light/system 保留、dark 落回浅色）；默认值在 `renderer.js` 的 `currentThemeMode()`。
-- 2026-11-10（外观坑）：`styles.css` 有 78 行 `!important`（70% 在启动页）；`#scenebar` 的背景/边框是 `!important`，皮肤段里也必须 `!important`；启动页的 `position:fixed / z-index:30000 / flex 居中` 同理。
-- 2026-11-10（外观坑）：`.view-ta` 是 `<textarea>`，会被全局 `textarea` 的阴影环命中 ⇒ 必须显式 `box-shadow:none`，否则预览区凭空多一圈边框。
-- 2026-11-10（外观坑）：改 `renderer.js`（主题默认、preload 之外的启动逻辑）热更新不生效，只有整页重载才重新执行；`刷新面板.mjs` 只重拉 `styles.css` 与 `renderers.js`。整页重载：先 `(Get-Item 外壳\renderer\topbar-status.js).LastWriteTime = Get-Date`，再跑 `刷新面板.mjs all`（主进程有它的 mtime 哨兵）。
-- 2026-11-10（外观坑）：`check-gui.mjs` 第 10 项会报 3 个 FAIL（`外壳\.idea`、`pnpm-lock.yaml`、`pnpm-workspace.yaml` 不属于目录契约），是既有问题，别当成自己改坏的。
-- 2026-11-10（外观判据）：自绘画布也必须能换皮——颜色集中成常量表（`renderers.neuron` 的 `KNEU_LIGHT`/`KNEU_DARK` + `COLOR`/`COLOR_LIGHT`），绘制代码里不留 hex；浅色画在白纸上，深色维持原星空；HUD 给两套玻璃；图例点由 `paintLegend()` 跟主题重刷。当初返工就是因为颜色散落在 30 处 `rgba(...)` 里。
-- 2026-11-11（启动页卡 92%）：根因＝上面那条时序契约 + 壳的判定口径——`probe()` 只要端口有响应（**401 也算**）就判"就绪"→ 立刻 `broadcast('harness:ready')`（`main.js` 启动链）→ 渲染层 `loadHarness()` 里 `isHarnessReady()` 拿到 false 就 `return`，**之后再没人调它** ⇒ 启动页永久停在 92%「引擎已就绪，正在加载界面…」，只能点「⟳ 立即进入」。日志判据：`[boot] 引擎就绪总耗时` 出现在 `[token] captured` **之前** ⇒ 必卡（18:21 那次 8.4s、2026-11-11 09:09 那次 78.1s 都是这个顺序）。已修：主进程 `harness:ready` 有界等 token 3s；渲染层 400ms 轮询最多 10s，超时给失败态 +「重试」；再用 `bootState().stage` 区分「引擎还没起」（继续走进度条）与「引擎起了但没 token」（报错），否则 `init()` 末尾的 `await loadHarness()` 会在冷启动早期误报失败。未验证：运行时行为要下次重启工作台才看得到（重启会连带杀掉当前引擎会话）。
-- 2026-11-11（程序开发换项目）：加 AI 面板「项目」下拉（`renderers.js` 的 `mountProjectSwitch` + `main.js` 三个 IPC + `preload.js` 三个方法 + `项目切换.js` 数据面）。为什么：以前换项目只能跑 `接入项目.mjs`，它必 `session/create` 且只回写面板，界面上没有入口，切回去还多一条孤儿会话。口径：下拉列「已登记项目 + 当前项目父目录下有 `.git`/`package.json`/`AGENTS.md` 等标志的同级目录」；已接入的复用原会话（cwd + 标题精确匹配，归档的排除），未接入的先跑接入脚本；切换同时回写 Git 面板 `repo`、`code-dev-context.md` 两行、`_场景身份索引.md` 一行；非 git 仓不动 Git 面板、无会话不硬切（都返回 warnings）。**场景 json 用定点替换**（`findObjectRangeById`）而不是整文件 stringify，避免每次切换重排 `pinTarget`。自检：`node 外壳\scripts\项目切换自检.mjs`（40 项，全在临时目录跑）。
-
-## 七、上线记录（只追加）
-
-- 2026-11-10：首次推送到 gitee `hunao-workbench`（main），此后每次改动都只推这里。
-- 2026-11-11：启动页 token 竞态修复推 gitee——`dd09e6e`（主修复：main.js + renderer.js）、`9fb6db5`（renderers.js 一行 + 还原误产生的行尾噪声）。
-
-## 八、待办
-
-- 四个场景（B站 / 命令 / 自我复盘 / 本地电脑）在浅色下逐屏核对正文对比度（写死浅色字的类只补了一批护栏，还没逐屏看）。
-- 2026-11-10（Git 面板）：程序开发场景上排 = Git(1) · 预览(2) · 文件(1)。Git 面板**只读**（分支 / 上游 / ↑↓ / 变更清单 / 最近 8 条提交 / shortstat）；点变更文件 → 主进程 `kun:git:diff` 取「已暂存 + 未暂存」两段差异写成 `%TEMP%\dsh-git-diff-<hash>.txt`，交给文件面板在预览里打开；未跟踪文件直接给前 400 行。不 add/commit/push —— 提交仍按 `doc\提交准则.md` 走。
+## 当前状态（手写，≤3 行）
+- 进行中：记忆能力改造 P1 已落（`memory\` 11 篇 + `工具\记忆.mjs` + 本薄卡）；P3 神经元下钻待做。
+- 下一步：神经元数据修复与命令场景下钻；启动页 92% 修复等重启验证。
+- 未完成验收：四个场景浅色下逐屏核对对比度。
