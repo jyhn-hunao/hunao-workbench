@@ -34,6 +34,9 @@ const dry = argv.includes('--dry');
 const seedIt = !argv.includes('--no-seed');
 
 if (!title) { console.error('用法：node 外壳\\scripts\\建会话.mjs --title "会话名" [--cwd "<本夹>\\工作区"] [--no-seed] [--dry]'); process.exit(2); }
+// cwd 不存在就先建：新机器克隆后 `工作区\` 是空的（根 .gitignore 挡着它不进库），
+// 不建的话引擎会收到一个不存在的 cwd。只读盘/无权限时不拦，让引擎自己报清楚。
+try { fs.mkdirSync(cwd, { recursive: true }); } catch (e) { /* 交给引擎报错 */ }
 const say = (s) => console.log(s);
 const die = (s) => { console.error('✗ ' + s); process.exit(1); };
 

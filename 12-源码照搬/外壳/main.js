@@ -86,6 +86,12 @@ try { fs.mkdirSync(PROFILE_DIR, { recursive: true }); } catch (e) { /* ignore */
 try { app.setPath('userData', PROFILE_DIR); } catch (e) { /* ignore */ }
 try { app.setPath('sessionData', path.join(PROFILE_DIR, 'sessions')); } catch (e) { /* ignore */ }
 
+// ---- 默认工作区：新会话的 cwd（`<本夹>\工作区`）----
+// 为什么要在启动时建：根 .gitignore 挡着 `工作区/`，克隆下来是空的、甚至不存在；
+// cwd 不存在会让建会话/换会话收到一个坏路径。空目录本身是设计状态（见 `说明\默认工作区.md`）。
+const WORKSPACE_DIR = path.join(__dirname, '..', '工作区');
+try { fs.mkdirSync(WORKSPACE_DIR, { recursive: true }); } catch (e) { /* 只读盘就不建，交给引擎报错 */ }
+
 // 启动计时基准：日志里会打印「窗口可见耗时」与「引擎就绪总耗时」，便于日后评估启动速度
 const APP_T0 = Date.now();
 
