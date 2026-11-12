@@ -187,6 +187,22 @@ if (st && !st.stale && st.pct < 50) say('\n（提示：这条才 ' + st.pct + '%
         out = String(e.stdout || '') + String(e.stderr || '');
       }
       if (!ok) {
+        // 2026-11-12：只有「卡指纹过期」这一种是机械问题（定位卡/场景 json 改过、没重盖章），
+        //   stamp 是幂等重生成身份卡+画像，自动补一次再复查——否则按钮永远卡在这条上，
+        //   用户看到的是"换会话失败"，实际只差一次盖章。其它结构问题照旧拦（不静默兜底）。
+        if (/卡指纹过期/.test(out)) {
+          try {
+            execFileSync(process.execPath, [MEM_TOOL, 'stamp', '--场景', sceneDir], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 4 << 20 });
+            say('\n（卡指纹过期 ⇒ 已自动重盖章一次，复查中…）');
+            out = execFileSync(process.execPath, [MEM_TOOL, 'check', '--场景', sceneDir], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 4 << 20 });
+            ok = true;
+          } catch (e2) {
+            ok = false;
+            out = String(e2.stdout || '') + String(e2.stderr || '');
+          }
+        }
+      }
+      if (!ok) {
         const detail = out.split(/\r?\n/).filter((x) => x.includes('✗')).slice(0, 6).join('；');
         problems.push('场景记忆结构闸没过（' + sceneDir + '）：' + (detail || '检查失败') + ' ⇒ 先跑 `node "' + MEM_TOOL + '" 交接 --场景 ' + sceneDir + '`');
       }
