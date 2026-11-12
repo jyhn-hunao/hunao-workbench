@@ -14123,6 +14123,29 @@ renderers.harness = (body, meta, head) => {
     // 长状态文字不再把按钮挤到换行/裁切；小字自身用省略号收尾（CSS .harness-diag）。
     acts.appendChild(reloadBtn);
     acts.appendChild(diag);
+    // 2026-11-12：面板「换会话」——一次操作跑完 建新 → 改绑（json/定位卡/索引）→ 归档旧 → 重载面板。
+    //   脚本成功后会写 data\reload-panels.cmd，壳重载 webview，因此这里不自己刷新页面。
+    if (meta && meta.id && window.app && typeof window.app.harnessRotate === 'function') {
+      const rot = el('button', 'file-refresh', '换会话');
+      rot.title = '把这个面板换成一条新会话：建新 → 改绑场景 json/定位卡/索引 → 归档旧的 → 重载面板。'
+        + '\n不会替你写记忆；要把交接带过去，先让 AI 把 §〇 写好再点。';
+      rot.addEventListener('click', async () => {
+        try { if (!window.confirm('换会话会把当前会话归档（工作台设置页可取消归档），继续？')) return; } catch (e) { /* ignore */ }
+        rot.disabled = true;
+        const oldText = rot.textContent;
+        rot.textContent = '换会话中…';
+        diag.textContent = '换会话：执行中…';
+        try {
+          const r = await window.app.harnessRotate(meta.id);
+          if (r && r.ok) { diag.textContent = '换会话完成，面板即将重载'; }
+          else { diag.textContent = '换会话失败：' + ((r && (r.err || r.out)) || '未知原因'); }
+          diag.title = (r && r.out) || diag.title;
+        } catch (e) { diag.textContent = '换会话失败：' + ((e && e.message) || e); }
+        rot.disabled = false;
+        rot.textContent = oldText;
+      });
+      acts.appendChild(rot);
+    }
     head.appendChild(acts);
     // 程序开发场景：标题栏再加一个「项目」按钮（换项目 = 换会话 + 换 Git 仓库 + 文件面板跟过去）
     if (meta.projectSwitch) switchCleanup = mountProjectSwitch(meta, acts);

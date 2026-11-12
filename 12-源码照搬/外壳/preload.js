@@ -30,6 +30,8 @@ contextBridge.exposeInMainWorld('app', {
   },
   getHarnessUrl: () => ipcRenderer.invoke('harness:url'),
   isHarnessReady: () => ipcRenderer.invoke('harness:ready'),
+  // 面板「换会话」（2026-11-12）：一次跑完 建新 → 改绑 → 归档旧 → 重载面板；只传已登记的 panel id
+  harnessRotate: (panelId) => ipcRenderer.invoke('harness:rotate', panelId),
   // 版本信息（左上角品牌区悬停显示）：GUI / 引擎 / Electron·Chromium·Node
   getVersion: () => ipcRenderer.invoke('app:version'),
   // ---- 壳侧能力位（渲染层据此决定"敢不敢用"某个新策略）----

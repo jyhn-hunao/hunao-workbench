@@ -100,6 +100,21 @@ function log(line) {
   logTail = (logTail + line + '\n').slice(-1200);
 }
 
+// ---- 焦点探针（2026-11-12 用户同意；只记必要几行，不刷屏）----
+// 用途：复现「一个面板跑任务时，另一个面板输入框打不进字」时，看是谁把 webview 焦点抢走。
+// 开关：data\focus-probe.on 存在才写日志；删掉文件即时关闭（每次事件都查一次，不常驻开启）。
+const FOCUS_PROBE_FILE = path.join(__dirname, 'data', 'focus-probe.on');
+try {
+  app.on('web-contents-created', (_ev, wc) => {
+    try {
+      if (wc.getType() !== 'webview') return;
+      const where = () => '[focus-probe] wc=' + wc.id + ' ' + String(wc.getURL() || '').slice(0, 90);
+      wc.on('focus', () => { try { if (fs.existsSync(FOCUS_PROBE_FILE)) log(where() + ' FOCUS'); } catch (e) { /* ignore */ } });
+      wc.on('blur', () => { try { if (fs.existsSync(FOCUS_PROBE_FILE)) log(where() + ' BLUR'); } catch (e) { /* ignore */ } });
+    } catch (e) { /* ignore */ }
+  });
+} catch (e) { /* ignore */ }
+
 // ==================== 多窗口（场景分离） ====================
 // 主窗口照旧（场景 = 标签页）；任意场景可「弹出」成独立窗口，一屏看一个场景。
 // 三条纪律（踩了就出鬼）：
@@ -4573,20 +4588,51 @@ async function guardCheckAfterBoot() {
   } catch (e2) { /* ignore */ }
 }
 
+// ---- 工具清单（2026-11-12 改为实时扫描：新增工具 = 引擎里多一个 dsh-tool-* 包，不再靠人维护 json）----
+// 扫描逻辑在 外壳\工具清单.js（可脱离 Electron 单测：node 外壳\工具清单.js）：
+//   ① 启用名单 = <引擎>\node_modules\@deepseek-ai\dsh-base\cordis.patch.yml 里未 disabled 的 dsh-tool-* 行；
+//   ② 中文名/说明 = 每个工具包自带 locale\zh.json 的 meta.title / meta.description；
+//   ③ 兜底 = 包 package.json 的 description；装了但没在默认 profile 启用的包也列出并标「未启用」。
 ipcMain.handle('tools:catalog', () => {
-  // 1. 清单缺失是**模板常态**：data/ 整目录不入库，全量版才有 工具清单导出.mjs
-  //    ⇒ 给人话、别再抛 ENOENT 让用户以为坏了（2026-11-12 用户报「工具面板空」）
-  // 2. 有文件但解析失败才算真异常：保留 error，由面板原样显示
+  // 1. 有手写清单就用它（需要人工「大白话补充」的场合；路径不变）
+  // 2. 没有就实时扫描 —— 不再报 ENOENT，也不用人补 json（2026-11-12 用户质疑「为什么要维护」）
   const p = path.join(__dirname, 'data', '工具清单.json');
-  if (!fs.existsSync(p)) {
-    return {
-      updated: null, groups: [], missing: true,
-      hint: '本模板未附工具清单（data\\工具清单.json 由全量版的 工具清单导出.mjs 生成，未随公开包分发）。'
-    };
+  if (fs.existsSync(p)) {
+    try { return JSON.parse(fs.readFileSync(p, 'utf8')); }
+    catch (e) { return { updated: null, groups: [], error: String((e && e.message) || e) }; }
   }
+  try { return require('./工具清单').buildCatalog({ harnessDir: HARNESS_DIR }); }
+  catch (e) { return { updated: null, groups: [], error: '扫描引擎工具包失败：' + String((e && e.message) || e) }; }
+});
+
+// ---- 面板「换会话」按钮（2026-11-12）----
+// 一次跑完：建新会话 → 场景 json 三字段 + 定位卡 + 身份索引改绑 → 旧会话真归档 → 写 reload-panels.cmd 让面板重载。
+// 安全：只接受场景 json 里真实登记的 harness 面板 id；命令与参数写死，不拼接用户输入。
+// --force 的含义：不要求交接文件 2 小时内更新（按钮不替 AI 写记忆，按钮 title 里已说明）。
+ipcMain.handle('harness:rotate', async (_e, panelId) => {
+  const id = String(panelId || '').trim();
+  const dir = path.join(__dirname, 'scenarios');
+  const ids = [];
   try {
-    return JSON.parse(fs.readFileSync(p, 'utf8'));
-  } catch (e) { return { updated: null, groups: [], error: String((e && e.message) || e) }; }
+    for (const f of fs.readdirSync(dir)) {
+      if (!f.endsWith('.json') || f.charAt(0) === '_') continue;
+      const sc = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8'));
+      for (const p of (sc.panels || [])) if (p.type === 'harness' && p.id) ids.push(String(p.id));
+    }
+  } catch (e) { return { ok: false, err: '读场景 json 失败：' + ((e && e.message) || e) }; }
+  if (ids.indexOf(id) < 0) return { ok: false, err: '不是已登记的 AI 面板：' + id };
+  const script = path.join(__dirname, 'scripts', '换会话.mjs');
+  if (!fs.existsSync(script)) return { ok: false, err: '缺脚本：' + script };
+  return await new Promise((resolve) => {
+    execFile(process.execPath, [script, id, '--go', '--force'], {
+      cwd: __dirname, env: Object.assign({}, process.env, { DSH_HOME: DSH_HOME }),
+      timeout: 240000, windowsHide: true, maxBuffer: 8 << 20
+    }, (err, stdout, stderr) => {
+      const out = String(stdout || '') + (stderr ? '\n' + String(stderr) : '');
+      log('[harness:rotate] ' + id + ' code=' + (err ? (err.code || 'ERR') : 0));
+      resolve({ ok: !err, code: err ? (err.code || 1) : 0, out: out.slice(-4000) });
+    });
+  });
 });
 ipcMain.handle('topbar:open', (e, p) => {
   const f = path.resolve(String(p || ''));
