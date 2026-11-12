@@ -14138,7 +14138,7 @@ renderers.harness = (body, meta, head) => {
         try {
           const r = await window.app.harnessRotate(meta.id);
           if (r && r.ok) { diag.textContent = '换会话完成，面板即将重载'; }
-          else { diag.textContent = '换会话失败：' + ((r && (r.err || r.out)) || '未知原因'); }
+          else { diag.textContent = '换会话失败：' + ((r && (r.reason || r.err)) || '未知原因'); }
           diag.title = (r && r.out) || diag.title;
         } catch (e) { diag.textContent = '换会话失败：' + ((e && e.message) || e); }
         rot.disabled = false;

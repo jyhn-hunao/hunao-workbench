@@ -4613,14 +4613,26 @@ ipcMain.handle('harness:rotate', async (_e, panelId) => {
   const id = String(panelId || '').trim();
   const dir = path.join(__dirname, 'scenarios');
   const ids = [];
+  let boundId = '';
   try {
     for (const f of fs.readdirSync(dir)) {
       if (!f.endsWith('.json') || f.charAt(0) === '_') continue;
       const sc = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8'));
-      for (const p of (sc.panels || [])) if (p.type === 'harness' && p.id) ids.push(String(p.id));
+      for (const p of (sc.panels || [])) {
+        if (p.type === 'harness' && p.id) ids.push(String(p.id));
+        if (p.type === 'harness' && String(p.id) === id) boundId = String(p.sessionId || '');
+      }
     }
   } catch (e) { return { ok: false, err: '读场景 json 失败：' + ((e && e.message) || e) }; }
   if (ids.indexOf(id) < 0) return { ok: false, err: '不是已登记的 AI 面板：' + id };
+  // 2026-11-12：json 绑的会话已归档 ⇒ 只做提示、不拦（轮换本身能从归档态重建绑定）
+  let archivedNote = '';
+  try {
+    const ws = JSON.parse(fs.readFileSync(path.join(DSH_HOME, 'storages', 'workspace.json'), 'utf8'));
+    if (boundId && ((ws.global || {}).archivedSessionIds || []).indexOf(boundId) >= 0) {
+      archivedNote = '（提示：场景 json 原先绑的会话已归档，本次会重建绑定；不是壳没重启）';
+    }
+  } catch (e) { /* 读不到归档台账就不提示 */ }
   const script = path.join(__dirname, 'scripts', '换会话.mjs');
   if (!fs.existsSync(script)) return { ok: false, err: '缺脚本：' + script };
   return await new Promise((resolve) => {
@@ -4630,7 +4642,10 @@ ipcMain.handle('harness:rotate', async (_e, panelId) => {
     }, (err, stdout, stderr) => {
       const out = String(stdout || '') + (stderr ? '\n' + String(stderr) : '');
       log('[harness:rotate] ' + id + ' code=' + (err ? (err.code || 'ERR') : 0));
-      resolve({ ok: !err, code: err ? (err.code || 1) : 0, out: out.slice(-4000) });
+      // 失败时只挑「真正原因」给按钮显示（原来把整段 stdout 塞进状态小字，被 CSS 省略成一行，
+      //   用户只看到表头「现在这轮…」，看不到 ⚠ 先别急 后面的真因 —— 2026-11-12 用户报）
+      const reason = !err ? '' : (out.split(/\r?\n/).filter((l) => /^\s*[·✗]/.test(l) || /先别急|轮换失败|换不到|结构闸/.test(l)).slice(0, 3).join(' ') || String(stderr || '').trim().split(/\r?\n/).pop() || '脚本退出码 ' + (err.code || '?')).slice(0, 300);
+      resolve({ ok: !err, code: err ? (err.code || 1) : 0, reason: archivedNote + reason, out: archivedNote + out.slice(-4000) });
     });
   });
 });
