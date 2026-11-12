@@ -14,6 +14,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+// 2026-11-12 修：CTX（上下文压力口径）在**模块顶层**就调用 execFileSync，但原来只在轮换块里
+//   局部 `await import`，顶层名字是 undefined ⇒ 第 103 行抛 ReferenceError 被 catch 吞掉
+//   ⇒ CTX 永远是空 Map、所有会话压力恒为 '?'。顶层导入一次，别再依赖块内局部导入。
+import { execFileSync } from 'node:child_process';
 // 2026-11-12：轮换后的开场消息不再固定等 10 秒 —— 用 transcript 判「轮次真的开始了」再取消。
 //   多帧 zstd 的解法只在 工具\派发-公共.mjs 一处，别在这里另抄一份（会漂移）。
 import { unzstdAll } from '../../工具/派发-公共.mjs';
@@ -30,6 +34,24 @@ const USE_DEFAULT_CWD = process.argv.includes('--default-cwd');
 
 function readJson(p) {
   try { return JSON.parse(fs.readFileSync(p, 'utf8')); } catch (e) { return null; }
+}
+
+// 2026-11-12：场景 json 备份只保留最近 N 份/场景文件 —— 实测一天换 5 次就堆 15 份、没有上限。
+//   按 `<原名>.<时间戳>.bak.json` 分组，每组留最新的 keep 份；删不掉（被占用）就等下一轮。
+function pruneScenarioBackups(dir, keep) {
+  try {
+    const groups = new Map();
+    for (const f of fs.readdirSync(dir)) {
+      const m = f.match(/^(.+)\.(\d{10,})\.bak\.json$/);
+      if (!m) continue;
+      if (!groups.has(m[1])) groups.set(m[1], []);
+      groups.get(m[1]).push({ f: f, n: Number(m[2]) });
+    }
+    for (const list of groups.values()) {
+      list.sort((a, b) => b.n - a.n);
+      for (const x of list.slice(keep)) { try { fs.unlinkSync(path.join(dir, x.f)); } catch (e) { /* 占用：下次再删 */ } }
+    }
+  } catch (e) { /* 清理失败不影响轮换 */ }
 }
 
 // 2026-11-12：新会话的 transcript 在哪 + 它的轮次有没有真的开始（seed 取消的判据）。
@@ -267,17 +289,21 @@ process.exit(bad ? 1 : 0);
 //   为什么要它：轮换只回写场景 json，而"我是谁"还要靠索引表 §二·§五、定位卡 §一、技能 §〇 身份行 —— 实测漏改过。
 // ══════════════════════════════════════════════════════════════════════════
 if (rotating && !STRAY) {
-  const { execFileSync } = await import('node:child_process');
   const argv = process.argv.slice(2);
   const dry = argv.includes('--dry');
   const force = argv.includes('--force');
   const seedIt = !argv.includes('--no-seed');   // 默认：建完给新会话塞一条开场消息并立刻打断（空会话不进侧边栏）
+  // 2026-11-12：--defer-archive ⇒ 本次**不**改名/归档旧会话，交给上层（换会话.mjs）在
+  //   「json + 定位卡 + 名册」全部回写成功之后再归档。这是把归档从流程中段挪到最后一步的开关：
+  //   旧顺序（先归档 → 再回写）一旦回写失败，面板就指着一条已归档的会话，打开是空白。
+  const deferArchive = argv.includes('--defer-archive');
   const valOf = (k) => { const i = argv.indexOf(k); return i > -1 ? String(argv[i + 1] || '') : ''; };
   const handoff = valOf('--handoff');
   const scenOverride = valOf('--scenario');
   const adopt = valOf('--adopt');   // 用"工作台自己建的"会话来顶替（绕过 GUI 用 RPC 建的会话会掉进「未分组」）
   const say = (...a) => console.log(...a);
   let failed = false;
+  let warned = false;   // 非致命但要说清的问题（--check 全局红、归档没成等）→ 末尾统一打 WARN 行
   const die = (msg) => { console.error('✗ ' + msg); failed = true; };
 
   // ① 定位面板
@@ -320,10 +346,13 @@ if (rotating && !STRAY) {
 
       const d0 = new Date();
       const stamp = d0.getFullYear() + '-' + ('0' + (d0.getMonth() + 1)).slice(-2) + '-' + ('0' + d0.getDate()).slice(-2);
-      const archTitle = '已归档 · ' + title + ' · ' + stamp;
+      // 2026-11-12：同一天可能换好几次（实测一天 5 次）⇒ 只写日期会出现多条同名「已归档」，设置页分不清。
+      const hhmm = ('0' + d0.getHours()).slice(-2) + ('0' + d0.getMinutes()).slice(-2);
+      const archTitle = '已归档 · ' + title + ' · ' + stamp + ' ' + hhmm;
       say('\n计划：');
       say('  1) 在 ' + cwd + ' 新建会话，改名为「' + title + '」（与旧会话同名，界面/定位卡/索引都不用改）');
       say('  2) 旧会话 ' + oldId + ' 改名为「' + archTitle + '」（= 归档，数据零删除）');
+      if (deferArchive) say('  2b) --defer-archive：本步本次**不做**；上层（换会话.mjs）在 json/定位卡/名册都写成功后，才单独调 归档会话.mjs');
       say('  3) 回写 ' + path.relative(root, hit.sc.__path) + ' 里面板 ' + hit.p.id + ' 的 sessionId');
       say('  4) 自动跑 --check 验收' + (scenOverride ? '（用了 --scenario，跳过）' : ''));
 
@@ -384,6 +413,11 @@ if (rotating && !STRAY) {
             say('  ' + (rn.status === 200 ? '✓' : '✗') + ' 新会话命名为「' + title + '」（HTTP ' + rn.status + '）');
             if (rn.status !== 200) die('新会话改名失败 ⇒ 别回写 json（否则面板会指到一条没名字的会话）');
             else {
+              if (deferArchive) {
+                // 延后归档：让「面板已经指向新会话」先落地；旧会话只在全部回写成功后由上层归档。
+                // 这样任何回写/校验失败都不会把面板留在一个「旧会话已被归档」的死状态里。
+                say('  · 归档延后（--defer-archive）：json / 定位卡 / 名册回写成功后再归档「' + archTitle + '」');
+              } else {
               const ra = await rpc('session/rename', { request: { sessionId: oldId, title: archTitle } });
               say('  ' + (ra.status === 200 ? '✓' : '✗') + ' 旧会话已归档为「' + archTitle + '」（HTTP ' + ra.status + '，数据零删除）');
               // ★ 真归档：workspace/archiveSession 才会把它从侧边栏隐藏掉（只改名的话它照样列在那里，2026-09-21 用户实测）
@@ -398,6 +432,7 @@ if (rotating && !STRAY) {
               say('  ' + (archOk ? '✓' : '⚠ HTTP ' + arc.status) + (archOk
                 ? ' 旧会话已真归档（侧边栏里不再显示；工作台设置页「取消归档」可恢复）'
                 : ' 归档没成 ⇒ 旧会话还会留在侧边栏里；补一次：node scripts\\归档会话.mjs ' + oldId + ' --go'));
+              }
               // ④ 塞一条开场消息再打断：空会话不会出现在侧边栏（2026-09-21 用户实测），有内容才会。
               //   2026-11-12：开场消息明确写出**场景与面板**（用户报「切换后不告知所处场景」）；
               //   不再固定等 10 秒，改成轮询 transcript 看到 user/message / turn/start 就取消（最多 3 秒）。
@@ -406,9 +441,23 @@ if (rotating && !STRAY) {
                 const sceneName = String((hit.sc && (hit.sc.name || hit.sc.id)) || '');
                 const panelName = String(hit.p.title || hit.p.id || '');
                 const projName = Array.isArray(hit.p.pinTarget) ? String(hit.p.pinTarget[0] || '') : '';
+                // 记忆联动（2026-11-12）：换会话是"记忆接力"，开场就把接力点列清；但这一轮明令别读，
+                //   只给绝对路径（各面板 cwd 不同，相对路径解析不到），需要上下文时再按顺序读。
+                const memDir = path.join(DSH_HOME, '场景记忆', sceneName || '');
+                const memLines = [
+                  '场景 §〇（当前交接 / 下一步 · 卡点）`' + path.join(memDir, '场景私有记忆.md') + '`',
+                  '本面板交接（最近几轮摘要）`' + path.join(memDir, '面板交接', String(hit.p.id || '') + '.md') + '`',
+                  '身份卡（我是谁 / 会话是哪条 / 能碰什么）`' + path.join(memDir, '身份卡.md') + '`',
+                ];
+                if (projName) {
+                  const pc = path.join(memDir, '项目记忆', projName + '.md');
+                  if (fs.existsSync(pc)) memLines.push('项目薄卡 `' + projName + '` `' + pc + '`');
+                }
+                const sharedReg = path.join(DSH_HOME, '场景记忆', '_共享记忆', '项目.json');
+                if (fs.existsSync(sharedReg)) memLines.push('共享项目注册表 `' + sharedReg + '`');
                 const seedTxt = '【场景：' + (sceneName || '?') + (panelName ? ' · 面板：' + panelName : '') + (projName ? ' · 项目：' + projName : '') + '】这是本会话的开场信息。'
-                  + '交接已写好：' + (handoff || '该场景的项目信息') + ' 的 §〇（进度/下一步/卡点）。'
-                  + '现在只回一句话「已读交接」即可 —— 不要读任何文件、不要调用任何工具、不要开始干活，等我下一条指令。';
+                  + '交接已写好，记忆接力点（本机绝对路径）：' + memLines.join('；') + '。'
+                  + '现在只回一句话「已读交接」即可 —— 这一轮不要读任何文件、不要调用任何工具、不要开始干活，等我下一条指令（需要上下文时按上面顺序读，长期记忆只追加不覆盖）。';
                 const pr = await rpc('session/prompt', { request: {
                   requestId: (globalThis.crypto && crypto.randomUUID ? crypto.randomUUID() : String(Date.now())),
                   sessionId: newId, mode: 'queue', content: [{ type: 'text', text: seedTxt }],
@@ -429,6 +478,7 @@ if (rotating && !STRAY) {
               fs.mkdirSync(bdir, { recursive: true });
               const bfile = path.join(bdir, path.basename(hit.sc.__path) + '.' + Date.now() + '.bak.json');
               fs.copyFileSync(hit.sc.__path, bfile);
+              pruneScenarioBackups(bdir, 10);   // 2026-11-12：只留最近 10 份，别让 backup 目录无限长
               const obj = readJson(hit.sc.__path);
               let patched = 0;
               for (const p of (obj.panels || [])) {
@@ -485,6 +535,9 @@ if (rotating && !STRAY) {
                   }
                 }
                 if (ok) {
+                  // 机器可读行：上层（换会话.mjs）据此回写定位卡 + 最后归档旧会话，别靠人去读中文输出。
+                  console.log('NEWID: ' + newId);
+                  console.log('OLDID: ' + oldId);
                   say('\n✓ 轮换完成。在 GUI 里刷新该面板（或点 ⟳）即接上新会话。');
                   // ⑦ 轮换后的同步点自检（2026-09-21 实测踩到：只回写 json ⇒ 索引/定位卡/技能里还写着旧 sessionId，
                   //    下次会话认身份就被带偏）。这些文件里有"历史沿革"是正常的，所以只提示、不改写、不算失败。
@@ -512,9 +565,13 @@ if (rotating && !STRAY) {
                   } catch (e) { say('\n（同步点自检跳过：' + e.message + '）'); }
                 }
                 else {
-                  say('\n✗ 重试 6 次仍未通过 —— 先手工看一眼再决定：node scripts\\sessions.mjs --check');
-                  say('   确认真错才回滚：copy "' + bfile + '" "' + hit.sc.__path + '"');
-                  failed = true;
+                  // 2026-11-12：--check 是**全局**校验（六个面板一起看），红不一定红在本面板。
+                  //   所以不再把整次轮换判成失败（那会让按钮显示"换会话失败"，而面板其实已经接上新会话）。
+                  //   改成 WARN：绑定已生效，另外明确给出回退命令，别让人以为没换成。
+                  say('\n⚠ --check 重试 6 次仍未通过：绑定已写进 json，但全局校验还有红项。');
+                  say('   先看：node scripts\\sessions.mjs --check');
+                  say('   要回退这一次：copy "' + bfile + '" "' + hit.sc.__path + '"');
+                  warned = true;
                 }
               }
             }
@@ -523,6 +580,7 @@ if (rotating && !STRAY) {
       }
     }
   }
+  if (warned) console.log('WARN: --check 未通过（绑定已生效；明细见上方 ✗）');
   process.exitCode = failed ? 1 : 0;
 }
 

@@ -121,10 +121,12 @@ async function listSessions() {
     const d = new Date();
     const p = (n) => String(n).padStart(2, '0');
     const day = d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+    // 2026-11-12：与 sessions.mjs 轮换归档同一口径 —— 同一天多次归档要能区分，加 HHmm。
+    const hhmm = p(d.getHours()) + p(d.getMinutes());
     const rawBase = String(hit.title || '').trim();
     // 2026-11-12 防再犯：标题若已经是路径（历史 bug 留下的），别把路径再写进归档名，退回用会话 id
     const base = (!rawBase || /^[A-Za-z]:[\\/]/.test(rawBase)) ? used : rawBase;
-    const archTitle = '已归档 · ' + base + ' · ' + day;
+    const archTitle = '已归档 · ' + base + ' · ' + day + ' ' + hhmm;
     try {
       const rn = await rpc('session/rename', { request: { sessionId: used, title: archTitle } });
       if (rn.status === 200) say('  ✓ 已改名：' + archTitle + '（归档状态不受影响）');

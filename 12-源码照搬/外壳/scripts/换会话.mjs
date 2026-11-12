@@ -1,4 +1,4 @@
-// 「换会话」一键入口（2026-09-21 第 9 轮）——用户要的"一个固定命令，不用思考"。
+// 「换会话」一键入口（2026-11-12 第四次改版：全自动编排，人不用再补任何一步）
 //
 // 用途：把某个场景面板的常驻会话**归档 + 新建一条同名的新会话顶上来**（= sessions.mjs --rotate 的傻瓜包装）。
 //
@@ -6,23 +6,30 @@
 //   node "<工作台>\外壳\scripts\换会话.mjs" site-ai     空跑：打印计划，不动任何东西
 //   node "<工作台>\外壳\scripts\换会话.mjs" site-ai --go   真换（用户只要记到这一条）
 //   可加 --force：交接文件超过 2 小时也照换（会有警告，仍要求文件存在）
-//   可加 --no-seed：不给新会话写开场消息（默认写；sessions.mjs 看到轮次真的开始就取消，最多 3 秒）
+//   可加 --no-seed：不给新会话写开场消息（默认写；看到轮次真的开始就取消，最多 3 秒）
 //
-// 零散会话（没有场景/面板的那些 · 2026-09-23 加）—— 走同一入口，加 --stray：
-//   node "…\scripts\换会话.mjs" --stray                     列出所有零散会话（压力 + 交接文档有没有）
+//   零散会话（没有场景/面板的那些）—— 走同一入口，加 --stray：
+//   node "…\scripts\换会话.mjs" --stray                     列出所有零散会话
 //   node "…\scripts\换会话.mjs" --stray 华为电脑管家升级        空跑：打印计划
 //   node "…\scripts\换会话.mjs" --stray 华为电脑管家升级 --go    真换
-//   可加 --adopt <会话id>：认领一条已经建好的会话顶替（不新建）；--handoff <文件> 指定交接文档。
-//   零散会话的交接文档 = `<工作台>\引擎数据\.dsh\场景记忆\其他会话临时项目信息交接文档\<会话名>-<YYYYMMDD-HHMM>.md`，
-//   不给 --handoff 时按标题自动匹配；真换做全四步：建/认领新会话 → 旧会话改名+**真归档** → 给新会话写开场消息
-//   （空会话不进侧边栏）→ 把交接文档里的旧会话 id 换成新的。真逻辑同样转交 sessions.mjs（--rotate … --stray）。
 //
-// 它替用户想好的事（所以不用思考）：
-//   ① 自动找到这个面板的**项目信息文件**（= 交接文件），不用写路径；
-//   ② 交接**没写或太旧**的时候**不硬来**：打印"要么去写 §〇，要么加 --force"一句话；
-//   ③ 没到线（<80%）时只提醒"现在换是浪费"，除非加 --force；
-//   ④ 干完把 sessions.mjs 的完整报告原样透出来（含轮换后的「同步点自检」）。
-// 真逻辑一行都没重写：全部转交 `sessions.mjs --rotate <面板id> --handoff <文件>`。
+// ---- 第四次改版（2026-11-12，用户要求「完全自动化」）----
+// 一次 --go 现在按**事务顺序**跑完，且每一步失败都不会把面板留在坏状态：
+//   ① 预检：引擎在跑 / 交接文件在 / 场景记忆闸过得去（卡指纹过期自动重盖章）
+//   ② 建新会话 + 改名 + 原子回写场景 json（先备份，写完当场复核；复核失败自动还原）
+//   ③ 回写**定位卡**（按面板 id 找那一行换会话 id —— 以前只提示、不改，实测已经漂移）
+//   ④ 回写名册（sessions.mjs 内做：只改同一行既有旧 id 又有面板 id 的那行）
+//   ⑤ **最后**才归档旧会话（sessions.mjs --defer-archive 把归档挪到这一步；
+//      旧顺序「先归档再回写」一旦回写失败，面板就指着一条已归档的会话，打开是空白）
+//   ⑥ 记忆联动：会话 id 变了 ⇒ 重跑 `场景记忆.mjs stamp`，把身份卡 / 场景画像里的「AI 会话」与新绑定对齐
+//      （不重盖章的话，check 立刻报"卡指纹过期"，下一轮 AI 会以为记忆坏了）
+//   ⑦ 自证：读 §〇 里本面板那行指针，验证它指的文件真的存在（相对路径曾在这里死过链）
+//   ⑧ 机器可读输出 NEWID / OLDID；GUI 模式下由渲染层自己 reload 本面板（不再广播 all）
+//
+// 交接文件路径不再靠硬编码表：默认按场景 json 的 `name` 解析
+//   `<引擎数据>\.dsh\场景记忆\<场景名>\场景私有记忆.md`，表里登记过的优先（用于非标路径）。
+//   新场景加进来不用改代码，这是「完全自动化」的前一半；后一半是 交接并换会话.mjs
+//   把交接落到「面板级」文件，两个 AI 面板不再抢同一段 §〇。
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -33,16 +40,15 @@ const GUI = path.resolve(here, '..');                            // …\工作�
 const DSH_HOME = process.env.DSH_HOME || path.resolve(GUI, '..', '引擎数据', '.dsh');
 const MEM_TOOL = path.resolve(GUI, '..', '工具', '场景记忆.mjs');   // 场景记忆结构闸用的工具
 const SESSIONS = path.join(here, 'sessions.mjs');
+const ARCHIVE = path.join(here, '归档会话.mjs');
+const BASE = process.env.DSH_GUI_BASE || process.env.DSH_WEB_URL || ('http://127.0.0.1:' + (process.env.DSH_PORT || '3083'));
 
-// 面板 → 该场景的长期记忆（= 交接文件）。只有这些面板能自动交接。
+// 面板 → 交接文件的**非标路径覆盖表**。标准路径由 handoffOf() 按场景名现算，新场景无需登记。
+// 2026-11-12：补上「AI·工作区」（cd-ai-home）——同一个场景记忆文件（程序开发）。
 const HANDOFF = {
-  // 2026-11-11：公开模板只有这 5 个 AI 面板；路径一律按 DSH_HOME 解析
-  //   （记忆的家是 <工作台>\引擎数据\.dsh\场景记忆\，不是 引擎\场景记忆\）
   'cmd-chat': path.join(DSH_HOME, '场景记忆', '命令', '场景私有记忆.md'),
   'bv-ai': path.join(DSH_HOME, '场景记忆', 'B站', '场景私有记忆.md'),
   'cd-ai': path.join(DSH_HOME, '场景记忆', '程序开发', '场景私有记忆.md'),
-  // 2026-11-12：补上「AI·工作区」（cd-ai-home）——同一个场景记忆文件（程序开发），
-  //   以前没登记 ⇒ 工作区会话换不了一键换。
   'cd-ai-home': path.join(DSH_HOME, '场景记忆', '程序开发', '场景私有记忆.md'),
   'pc-ai': path.join(DSH_HOME, '场景记忆', '本地电脑', '场景私有记忆.md'),
   'sr-ai': path.join(DSH_HOME, '场景记忆', '自我复盘', '场景私有记忆.md'),
@@ -57,15 +63,22 @@ const say = (...a) => console.log(...a);
 function panels() {
   const dir = path.join(GUI, 'scenarios');
   const out = [];
-  for (const f of fs.readdirSync(dir).filter((x) => x.endsWith('.json'))) {
+  for (const f of fs.readdirSync(dir).filter((x) => x.endsWith('.json') && x[0] !== '_')) {
     let j; try { j = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')) } catch { continue }
-    for (const p of (j.panels || [])) if (p.type === 'harness') out.push({ file: f, scen: j.id || f, p });
+    for (const p of (j.panels || [])) if (p.type === 'harness') out.push({ file: f, scen: j.id || f, scene: j, p });
   }
   return out;
 }
-/** 面板当前的压力：读引擎 projcache。
- *  ⚠ 数字是**引擎上次落盘时**的：正在被使用的会话，这个文件可能落后好几分钟
- *  ⇒ 超过 10 分钟的一律标 stale，只显示"多旧"，不拿来当判据（判据只认 ctx.mjs 当场那一行）。 */
+
+/** 面板的交接文件：显式覆盖表优先，否则按场景 `name` 现算（新场景不用登记）。 */
+function handoffOf(scene, panelId) {
+  if (HANDOFF[panelId]) return HANDOFF[panelId];
+  const name = String((scene && (scene.name || scene.id)) || '').trim();
+  if (!name) return '';
+  return path.join(DSH_HOME, '场景记忆', name, '场景私有记忆.md');
+}
+
+/** 面板当前的压力：读引擎 projcache（数字是引擎上次落盘的，活跃会话可能落后几分钟）。 */
 function pressures() {
   const map = {};
   const base = path.join(DSH_HOME, 'storages');
@@ -97,16 +110,53 @@ function ago(ms) {
   const m = Math.round((Date.now() - ms) / 60000);
   return m < 60 ? m + ' 分钟前' : (m < 2880 ? Math.round(m / 60) + ' 小时前' : Math.round(m / 1440) + ' 天前');
 }
+function runNode(script, argsArr, opts) {
+  return execFileSync(process.execPath, [script, ...argsArr], Object.assign({
+    encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 16 << 20,
+    env: Object.assign({}, process.env, { DSH_HOME }),
+  }, opts || {}));
+}
+
+/** 引擎在不在：连不上就别白跑 180 秒（cookie 反正在 server.log 里也要现取）。 */
+async function engineAlive() {
+  try {
+    const r = await fetch(BASE + '/', { redirect: 'manual', signal: AbortSignal.timeout(4000) });
+    return r.status < 500;
+  } catch (e) { return false; }
+}
+
+/**
+ * 定位卡回写（2026-11-12 新增）：每个面板在定位卡里占一行，形如
+ *   | 工作区会话 | `程序开发·工作区` / `session-xxxx`（面板 `cd-ai-home`，cwd = …） |
+ * 只改"含本面板 id 的那一行"里的会话 id，其它行（含历史记录里的旧 id）一律不动。
+ * 以前这一步只打印"还有旧 id 残留"，实测 cd-ai-home 的定位卡因此停在三代前。
+ */
+function patchCardByPanel(sceneId, panelId, newId) {
+  const card = path.join(GUI, 'scenarios', String(sceneId) + '-context.md');
+  if (!fs.existsSync(card)) return { changed: false, note: '定位卡不存在：' + card };
+  const text = fs.readFileSync(card, 'utf8');
+  const nl = text.includes('\r\n') ? '\r\n' : '\n';
+  const anchor = '`' + panelId + '`';
+  let n = 0;
+  const out = text.split(/\r?\n/).map((line) => {
+    if (line.indexOf(anchor) < 0 || line.indexOf('session-') < 0) return line;
+    n++;
+    return line.replace(/session-[0-9a-fA-F-]{8,}/g, newId);
+  });
+  if (!n) return { changed: false, note: '定位卡里没有面板 ' + panelId + ' 的会话行（可能还没登记）' };
+  fs.writeFileSync(card, out.join(nl), 'utf8');
+  return { changed: true, note: '定位卡已回写 ' + n + ' 行（面板 ' + panelId + '）' };
+}
 
 // ── 无参数：总览 ────────────────────────────────────────────────────────────
 if (!args.length) {
   const P = pressures();
   say('' + panels().length + ' 个面板现状（压力数字后面带 "(旧)" = 引擎好几分钟没落盘，仅供参考）\n');
   say('  面板       会话        压力        交接文件（改于）');
-  for (const { p } of panels()) {
+  for (const { p, scene } of panels()) {
     const st = P[p.sessionId] || null;
     const pct = st ? (st.stale ? st.pct + '%(旧)' : st.pct + '%') : '?';
-    const h = HANDOFF[p.id] ? ago(fresh(HANDOFF[p.id])) : '（无交接文件）';
+    const h = handoffOf(scene, p.id) ? ago(fresh(handoffOf(scene, p.id))) : '（无交接文件）';
     say('  ' + String(p.id).padEnd(10) + String((p.sessionId || '').replace(/^session-/, '').slice(0, 8)).padEnd(11) +
       String(pct).padStart(11) + '        ' + h + (st && st.turns != null ? '   第' + st.turns + '轮' : ''));
   }
@@ -115,9 +165,7 @@ if (!args.length) {
   process.exit(0);
 }
 
-// ── 零散会话（--stray，2026-09-23 加）：没有面板可查 ⇒ 直接转交 sessions.mjs 的零散轮换 ────────
-// 零散会话没有场景 json、没有交接文件登记表：交接文档由 sessions.mjs 按标题去
-// `其他会话临时项目信息交接文档\` 里自动匹配（也可自己给 --handoff）。
+// ── 零散会话（--stray）：没有面板可查 ⇒ 直接转交 sessions.mjs ────────────────
 if (flags.has('--stray')) {
   const q = args[0] || '';
   const pass = q ? ['--rotate', q, '--stray'] : ['--stray'];
@@ -142,14 +190,16 @@ if (flags.has('--stray')) {
   process.exit(0);
 }
 
-// ── 带面板 id：检查 → 转交 sessions.mjs ─────────────────────────────────────
+// ── 带面板 id：检查 → 真执行 ─────────────────────────────────────────────────
 const id = args[0];
 const hit = panels().find((x) => x.p.id === id) || null;
 if (!hit) {
   say('✗ 没有这个面板：' + id + '（写面板 id，如 site-ai；不带参数可看全部）');
   process.exit(2);
 }
-const handoff = HANDOFF[id] || '';
+const handoff = handoffOf(hit.scene, id);
+// 场景目录名（记忆联动要用：换完会话要重盖章、要自检 §〇 指针能否解析）
+const handoffSceneDir = (String(handoff).match(/场景记忆[\\/]([^\\/]+)[\\/]场景私有记忆\.md$/) || [])[1] || '';
 const P = pressures();
 const st = P[hit.p.sessionId] || null;
 
@@ -160,42 +210,39 @@ say('  体积参考：' + (st
     ? '引擎上次落盘是 ' + ago(st.mtime) + '（' + st.pct + '%(旧)）—— 这条会话可能刚活动过，数字没刷新，**不当判据**'
     : st.pct + '% · 第' + st.turns + '轮')
   : '读不到'));
-say('  交接文件：' + (handoff || '（这个面板没登记交接文件，先去写它的项目信息 §〇）'));
+say('  交接文件：' + (handoff || '（场景 json 没有 name，算不出交接路径）'));
 if (handoff) say('  改于    ：' + ago(fresh(handoff)));
 
 const problems = [];
-if (!handoff) problems.push('这个面板没有登记"项目信息文件" —— 先写它的 §〇，或告诉我该用哪个文件');
+if (!handoff) problems.push('场景 json 没有 name ⇒ 算不出交接文件路径；给它补一个 name，或改用 --handoff 显式指定');
 else if (!fresh(handoff)) problems.push('交接文件不存在：' + handoff);
-else if (Date.now() - fresh(handoff) > FRESH_MS && !flags.has('--force')) problems.push('交接文件超过 2 小时没更新 ⇒ 先把 §〇（进度/下一步/卡点）写好；确实不想写就加 --force');
-// 刻意**不**拿压力当闸门：① 用户明确说要换就是要换；② projcache 的数字对活跃会话是滞后的，拿它拦人是误拦。
+else if (Date.now() - fresh(handoff) > FRESH_MS && !flags.has('--force')) problems.push('交接文件超过 2 小时没更新 ⇒ 先把 §〇 写好；确实不想写就加 --force');
+// 刻意**不**拿压力当闸门：用户明确说要换就是要换；projcache 数字对活跃会话是滞后的，拿它拦人是误拦。
 if (st && !st.stale && st.pct < 50) say('\n（提示：这条才 ' + st.pct + '%，换了会丢掉现在这段上下文 —— 你说了算）');
 
-// ★ 强制闸（2026-10-27 核心机制）：换会话前必须过场景记忆结构/绑定检查
-//   —— 不交接（§〇 四小节/三文档/指纹/归档）就不许换；--force 只免"太旧"，不免这道。
+// ★ 强制闸：换会话前必须过场景记忆结构/绑定检查（--force 只免"太旧"，不免这道）
 {
   const m = String(handoff).match(/场景记忆[\\/]([^\\/]+)[\\/]场景私有记忆\.md$/);
   if (m) {
     const sceneDir = m[1];
     if (!fs.existsSync(MEM_TOOL)) {
-      // 工具不在就**明说跳过**，不假装检查过
       say('\n⚠ 场景记忆结构闸跳过：没找到 ' + MEM_TOOL);
     } else {
       let ok = true, out = '';
       try {
-        out = execFileSync(process.execPath, [MEM_TOOL, 'check', '--场景', sceneDir], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 4 << 20 });
+        out = runNode(MEM_TOOL, ['check', '--场景', sceneDir]);
       } catch (e) {
         ok = false;
         out = String(e.stdout || '') + String(e.stderr || '');
       }
       if (!ok) {
-        // 2026-11-12：只有「卡指纹过期」这一种是机械问题（定位卡/场景 json 改过、没重盖章），
-        //   stamp 是幂等重生成身份卡+画像，自动补一次再复查——否则按钮永远卡在这条上，
-        //   用户看到的是"换会话失败"，实际只差一次盖章。其它结构问题照旧拦（不静默兜底）。
+        // 卡指纹过期是机械问题（定位卡/场景 json 改过、没重盖章）⇒ 自动补一次再复查，
+        // 否则按钮永远卡在这条上，用户看到"换会话失败"，实际只差一次盖章。
         if (/卡指纹过期/.test(out)) {
           try {
-            execFileSync(process.execPath, [MEM_TOOL, 'stamp', '--场景', sceneDir], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 4 << 20 });
+            runNode(MEM_TOOL, ['stamp', '--场景', sceneDir]);
             say('\n（卡指纹过期 ⇒ 已自动重盖章一次，复查中…）');
-            out = execFileSync(process.execPath, [MEM_TOOL, 'check', '--场景', sceneDir], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 4 << 20 });
+            out = runNode(MEM_TOOL, ['check', '--场景', sceneDir]);
             ok = true;
           } catch (e2) {
             ok = false;
@@ -217,34 +264,120 @@ if (problems.length) {
   process.exit(3);
 }
 
-const cmd = ['"' + SESSIONS + '"', '--rotate', id, '--handoff', '"' + handoff + '"', ...(flags.has('--force') ? ['--force'] : []), ...(flags.has('--no-seed') ? ['--no-seed'] : [])];
+const cmd = ['"' + SESSIONS + '"', '--rotate', id, '--handoff', '"' + handoff + '"', '--defer-archive', ...(flags.has('--force') ? ['--force'] : []), ...(flags.has('--no-seed') ? ['--no-seed'] : [])];
 say('\n' + (flags.has('--go') ? '▶ 开始换会话（真执行）' : '▶ 空跑计划（去掉 --go 之外什么都没发生；真要换加 --go）') + '\n');
-const line = 'node ' + cmd.join(' ');
-say('  内部执行：' + line + '\n');
-try {
-  // 2026-11-12：--no-seed 仍要透传给 sessions.mjs（手工指定时不写开场消息）；
-  //   默认 seed 已从“固定等 10 秒”改成“看到轮次真的开始就取消（最多 3 秒）”。
-  const out = execFileSync(process.execPath, [SESSIONS, '--rotate', id, '--handoff', handoff,
-    ...(flags.has('--force') ? ['--force'] : []), ...(flags.has('--no-seed') ? ['--no-seed'] : []),
-    ...(flags.has('--go') ? [] : ['--dry'])],
-    { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 8 << 20 });
-  say(out);
-} catch (e) {
-  if (e.stdout) say(String(e.stdout));
-  if (e.stderr) console.error(String(e.stderr));
-  say('✗ 轮换失败（上面是原样输出）' + (e.status != null ? '，退出码 ' + e.status : ''));
-  process.exit(1);
-}
-// 2026-11-12：真换完让壳把面板重载一次 —— 否则 json 已经改绑、界面还停在旧会话
-//   （用户实报「命令执行了但当前会话没换掉」）。壳每 500ms 读 data\reload-panels.cmd（main.js:4958），
-//   写 all = 重载所有 AI 面板的 webview；不写这一行，用户必须手动点 ⟳。
-if (flags.has('--go')) {
+say('  内部执行（--defer-archive：旧会话先不动，等 json/定位卡都写成功后才归档）：node ' + cmd.join(' ') + '\n');
+
+if (!flags.has('--go')) {
+  // 空跑：把 sessions.mjs 的计划原样透出来
   try {
-    const cmdFile = path.join(GUI, 'data', 'reload-panels.cmd');
-    fs.mkdirSync(path.dirname(cmdFile), { recursive: true });
-    fs.writeFileSync(cmdFile, 'all', 'utf8');
-    say('\n✅ 已换。面板会自动重载（壳轮询 data\\reload-panels.cmd）；没动静就把焦点切回工作台窗口。');
+    say(runNode(SESSIONS, ['--rotate', id, '--handoff', handoff, '--defer-archive', '--dry', ...(flags.has('--force') ? ['--force'] : []), ...(flags.has('--no-seed') ? ['--no-seed'] : [])]));
   } catch (e) {
-    say('\n✅ 已换。自动重载没写成（' + ((e && e.message) || e) + '）⇒ 手动点一次面板标题栏 ⟳。');
+    if (e.stdout) say(String(e.stdout));
+    if (e.stderr) console.error(String(e.stderr));
+    process.exit(e.status || 1);
   }
+  process.exit(0);
 }
+
+// ① 预检：引擎连不上就先说清楚（比跑 180 秒再报"换不到 cookie"强）
+(async () => {
+  if (!await engineAlive()) {
+    say('✗ 引擎没在跑（' + BASE + '）⇒ 先启动工作台，再来换会话。什么都没动。');
+    process.exit(3);
+  }
+
+  // ② 轮换本体：--defer-archive ⇒ 归档旧会话挪到最后一步（见 sessions.mjs）
+  let out = '';
+  try {
+    out = runNode(SESSIONS, ['--rotate', id, '--handoff', handoff, '--defer-archive',
+      ...(flags.has('--force') ? ['--force'] : []), ...(flags.has('--no-seed') ? ['--no-seed'] : [])]);
+    say(out);
+  } catch (e) {
+    if (e.stdout) say(String(e.stdout));
+    if (e.stderr) console.error(String(e.stderr));
+    say('✗ 轮换失败（上面是原样输出）' + (e.status != null ? '，退出码 ' + e.status : '') + ' ⇒ 绑定没动，旧会话还在');
+    process.exit(e.status || 1);
+  }
+
+  const newId = ((out.match(/^NEWID:\s*(session-[0-9a-fA-F-]{8,})\s*$/m) || [])[1]
+    || (out.match(/新会话已建[：:]\s*(session-[0-9a-fA-F-]{8,})/) || [])[1] || '').trim();
+  const oldId = ((out.match(/^OLDID:\s*(session-[0-9a-fA-F-]{8,})\s*$/m) || [])[1]
+    || String(hit.p.sessionId || '')).trim();
+  if (!newId) {
+    say('✗ 没从输出里认出新会话 id ⇒ 不敢继续（定位卡/归档都不动，避免改错）');
+    process.exit(1);
+  }
+  say('NEWID: ' + newId);
+
+  // ③ 定位卡回写（以前只提示不改，实测已经漂移）
+  const card = patchCardByPanel(hit.scen, id, newId);
+  say('  ' + (card.changed ? '✓ ' : '⚠ ') + card.note);
+
+  // ④ 最后才归档旧会话：此时 json / 定位卡 / 名册都已经指向新会话，失败也只多一条可见的旧会话。
+  let archNote = '（没有旧会话 id，跳过归档）';
+  if (oldId) {
+    try {
+      const aout = runNode(ARCHIVE, [oldId, '--go']);
+      const okLine = aout.split(/\r?\n/).find((l) => l.includes('已真归档'));
+      archNote = okLine || '归档输出见上';
+      say('  ✓ 旧会话归档：' + String(archNote).trim().slice(0, 200));
+    } catch (e) {
+      archNote = '归档失败（' + (e.status != null ? '退出码 ' + e.status : (e.message || '未知')) + '）';
+      say('  ⚠ 旧会话归档没成：' + archNote);
+      say('    补一次：node "…\\scripts\\归档会话.mjs" ' + oldId + ' --go');
+      // 不判整次失败：面板已经指向新会话，旧会话只是还留在侧边栏（可重试、可手工取消归档）
+      console.log('WARN: 旧会话归档没成（面板已切到新会话）');
+    }
+  }
+
+  // ⑤ 记忆联动：会话 id 变了 ⇒ 身份卡 / 场景画像里写的「AI 会话」必须重盖章，
+  //    否则 场景记忆.mjs check 立刻报"卡指纹过期"（这是换会话最隐蔽的记忆断点）。
+  //    必须在归档之后：此时场景 json 已经是新 id，盖章才盖出正确的绑定。
+  if (handoffSceneDir && fs.existsSync(MEM_TOOL)) {
+    try {
+      const sout = runNode(MEM_TOOL, ['stamp', '--场景', handoffSceneDir]);
+      const okLine = sout.split(/\r?\n/).find((l) => l.includes('身份卡')) || '身份卡已重生成';
+      say('  ✓ 记忆联动：' + String(okLine).replace(/^[·✓\s]+/, '').trim().slice(0, 160));
+    } catch (e) {
+      // 不判整次失败：会话已换好、绑定已生效，卡过期只是机械问题（下次 check 会自动补盖章）
+      say('  ⚠ 记忆联动：重盖章失败（' + ((e && e.message) || '未知') + '）—— 跑一次 `node 工具\\场景记忆.mjs stamp --场景 ' + handoffSceneDir + '`');
+      console.log('WARN: 身份卡未重盖章（面板已切到新会话）');
+    }
+
+    // ⑥ 自证：§〇 里本面板那条指针指向的文件真的存在吗（相对路径曾在这里死过链）
+    try {
+      const body = fs.readFileSync(handoff, 'utf8');
+      const cut = body.indexOf('## 核心职责');
+      const sec0 = cut > 0 ? body.slice(0, cut) : body;
+      const line = sec0.split(/\r?\n/).find((l) => l.indexOf('面板 `' + id + '`') >= 0 && l.indexOf('`') >= 0);
+      if (!line) say('  ⚠ §〇 指针：没找到本面板的指针行（新会话将读不到本面板交接）');
+      else {
+        const ptr = ((line.match(/交接见 `([^`]+)`/) || line.match(/`([^`]+\.md)`/) || [])[1] || '').trim();
+        const full = path.isAbsolute(ptr) ? ptr : path.resolve(GUI, '..', ptr);
+        if (ptr && fs.existsSync(full)) say('  ✓ §〇 指针可达：' + ptr);
+        else if (ptr) { say('  ⚠ §〇 指针指向的文件不存在：' + ptr + '（按旧写法落盘的话，重跑一次交接即可修成绝对路径）'); console.log('WARN: §〇 指针不可达'); }
+        else say('  ⚠ §〇 指针没写路径（只有文字）');
+      }
+    } catch (e) { /* 自检失败不影响换会话结果 */ }
+  }
+
+  // ⑦ 重载：GUI 模式由渲染层自己 reload 本面板（只动这一块）；
+  //    命令行模式没有渲染层，才写 reload-panels.cmd 让壳帮忙（此时才用 all）。
+  if (process.env.DSH_ROTATE_SELF_RELOAD === '0') {
+    say('\n✅ 已换。新会话 ' + newId + '（GUI 会自己重载本面板）');
+  } else {
+    try {
+      const cmdFile = path.join(GUI, 'data', 'reload-panels.cmd');
+      fs.mkdirSync(path.dirname(cmdFile), { recursive: true });
+      fs.writeFileSync(cmdFile, 'all', 'utf8');
+      say('\n✅ 已换。面板会自动重载（壳轮询 data\\reload-panels.cmd）；没动静就把焦点切回工作台窗口。');
+    } catch (e) {
+      say('\n✅ 已换。自动重载没写成（' + ((e && e.message) || e) + '）⇒ 手动点一次面板标题栏 ⟳。');
+    }
+  }
+  process.exit(0);
+})().catch((e) => {
+  console.error('✗ 未处理的异常：' + ((e && e.stack) || e));
+  process.exit(1);
+});
