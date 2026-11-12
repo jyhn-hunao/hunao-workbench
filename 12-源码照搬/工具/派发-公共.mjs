@@ -76,11 +76,40 @@ export function transcriptOf(sessionId) {
   return null;
 }
 
-// 4. 解 transcript：zstd 单帧，尾部半行会坏 ⇒ 坏行跳过；解压失败返回 null（写入中会这样，调用方重试）
+// 4. 解 transcript：引擎按「一次写入一帧」往同一个文件追加，**zstd 多帧拼接**。
+//    2026-11-12 实测坑：Electron 43 内置 Node 24.18 的 zstdDecompressSync 只解第一帧
+//    （2 MB 的 transcript 只出 217 B、0 个 turn），系统 Node 24.22 才解全部帧
+//    ⇒ 换会话脚本在壳里永远等不到 turn/end（用户报「一直没反应」）。按 magic 切帧逐帧解，两种运行时都对。
+//    帧尾写了一半 ⇒ 最后一帧解不开：丢掉尾帧、保留前面已解出的；全解不开才返回 null（调用方重试）。
+const ZSTD_MAGIC = Buffer.from([0x28, 0xb5, 0x2f, 0xfd]);
+export function unzstdAll(buf) {
+  const starts = [];
+  let i = 0;
+  while ((i = buf.indexOf(ZSTD_MAGIC, i)) >= 0) { starts.push(i); i += ZSTD_MAGIC.length; }
+  if (!starts.length) return zlib.zstdDecompressSync(buf);
+  const parts = [];
+  let pending = null;
+  for (let k = 0; k < starts.length; k++) {
+    const seg = buf.subarray(starts[k], k + 1 < starts.length ? starts[k + 1] : buf.length);
+    const t = pending ? Buffer.concat([pending, seg]) : seg;
+    try {
+      parts.push(zlib.zstdDecompressSync(t));
+      pending = null;
+    } catch (e) {
+      // 压缩数据里恰好出现 magic ⇒ 并进下一段重试；最后一帧写了一半 ⇒ 丢掉尾帧
+      if (k === starts.length - 1 && parts.length) { pending = null; break; }
+      pending = t;
+    }
+  }
+  if (pending) parts.push(zlib.zstdDecompressSync(pending));
+  return Buffer.concat(parts);
+}
+
+// 4.1 解 transcript：坏行跳过，解压失败返回 null
 export function readEvents(file) {
   if (!file || !fs.existsSync(file)) return null;
   let txt;
-  try { txt = zlib.zstdDecompressSync(fs.readFileSync(file)).toString('utf8'); } catch { return null; }
+  try { txt = unzstdAll(fs.readFileSync(file)).toString('utf8'); } catch { return null; }
   const out = [];
   for (const line of txt.split('\n')) {
     if (!line.trim()) continue;
