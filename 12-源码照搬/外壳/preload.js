@@ -35,6 +35,19 @@ contextBridge.exposeInMainWorld('app', {
   // 面板「换会话」（2026-11-12）：一次跑完 写交接 → 建新 → 改绑 → 归档旧 → 重载面板；只传已登记的 panel id
   //   结果反馈统一走顶栏 toast（window.__tbsToast），不再从主进程推面板状态字。
   harnessRotate: (panelId, opts) => ipcRenderer.invoke('harness:rotate', panelId, opts),
+  // 换会话阶段进度（主进程推，2026-11-12 自动化改造）：stage = 1/3 交接 · 2/3 建会话 · 3/3 换绑
+  //   返回取消订阅函数；订阅里抛错不能拖垮通道，所以逐个 try。
+  onRotateProgress: (cb) => {
+    const h = (_e, p) => { try { cb(p); } catch (err) { /* ignore */ } };
+    ipcRenderer.on('harness:rotate-progress', h);
+    return () => { try { ipcRenderer.removeListener('harness:rotate-progress', h); } catch (e) { /* ignore */ } };
+  },
+  // 换会话完成（含「到期自动换」）：渲染层按 panelId 只重载那一个面板，别整页刷新
+  onRotated: (cb) => {
+    const h = (_e, p) => { try { cb(p); } catch (err) { /* ignore */ } };
+    ipcRenderer.on('harness:rotated', h);
+    return () => { try { ipcRenderer.removeListener('harness:rotated', h); } catch (e) { /* ignore */ } };
+  },
   // 版本信息（左上角品牌区悬停显示）：GUI / 引擎 / Electron·Chromium·Node
   getVersion: () => ipcRenderer.invoke('app:version'),
   // ---- 壳侧能力位（渲染层据此决定"敢不敢用"某个新策略）----

@@ -14126,16 +14126,51 @@ renderers.harness = (body, meta, head) => {
     // 长状态文字不再把按钮挤到换行/裁切；小字自身用省略号收尾（CSS .harness-diag）。
     acts.appendChild(reloadBtn);
     acts.appendChild(diag);
-    // 2026-11-12：面板「换会话」——一次操作跑完 建新 → 改绑（json/定位卡/索引）→ 归档旧 → 重载面板。
-    //   脚本成功后会写 data\reload-panels.cmd，壳重载 webview，因此这里不自己刷新页面。
+    // 2026-11-12（自动化改造）：面板「换会话」= 一条链路跑完 写交接 → 建新 → 改绑（json/定位卡/索引）→ 归档旧 → 重载本面板。
+    //   · 按钮标签只显示阶段（换会话 1/3 · 2/3 · 3/3），不放结果文字（结果走顶栏 toast）；
+    //   · 成功由渲染层自己重载本面板（主进程传 DSH_ROTATE_SELF_RELOAD=0，不写 reload-panels.cmd，避免全面板闪）；
+    //   · 主进程按 sceneId 互斥，并发点击会直接收到 busy，而不是两边同时改一份 json。
     if (meta && meta.id && window.app && typeof window.app.harnessRotate === 'function') {
+      // 全局只订阅一次：进度 / 完成都按 panelId 找到对应面板的按钮标签与重载器
+      if (!window.__harnessRotateSubs) {
+        window.__harnessRotateSubs = true;
+        window.__harnessRotateLabel = {};
+        window.__harnessReload = window.__harnessReload || {};
+        try {
+          if (typeof window.app.onRotateProgress === 'function') {
+            window.app.onRotateProgress((p) => {
+              const id = String((p && p.panelId) || '');
+              const fn = window.__harnessRotateLabel[id];
+              if (typeof fn === 'function') { fn(p && p.stage, p && p.text); return; }
+              // 自动触发时没人点按钮：只在 1/3 开场提示一次，别每阶段刷屏
+              if (p && String(p.stage) === '1/3' && String(p.text || '').indexOf('自动换会话') === 0) {
+                try {
+                  if (typeof window.__tbsToast === 'function') {
+                    window.__tbsToast('自动换会话开始：' + String(p.text).replace('自动换会话 · ', '') + '（交接自动写，完成后只重载该面板）', false, 6000);
+                  }
+                } catch (e) { /* ignore */ }
+              }
+            });
+          }
+        } catch (e) { /* 老壳没有进度通道，最终结果仍然能回来 */ }
+        try {
+          if (typeof window.app.onRotated === 'function') {
+            window.app.onRotated((p) => {
+              const fn = window.__harnessReload[String((p && p.panelId) || '')];
+              if (typeof fn === 'function') fn(p);
+            });
+          }
+        } catch (e) { /* 老壳没有自动换，也就不会推完成事件 */ }
+      }
       const rot = el('button', 'file-refresh', '换会话');
-      rot.title = '把这个面板换成一条新会话：脚本先把最近几轮摘录进 §〇（秒级，不等模型）→ 建新 → 改绑场景 json/定位卡/索引 → 归档旧的 → 重载面板。';
+      rot.title = '把这个面板换成一条新会话：写面板交接 → 建新 → 改绑（场景 json / 定位卡 / 身份索引）→ 归档旧 → 重载本面板。压力到阈值且空闲时会自动做同样的事。';
+      // 本面板的重载器：自动换会话完成后按 panelId 调它，只重载这一块，别整页刷
+      window.__harnessReload = window.__harnessReload || {};
+      window.__harnessReload[meta.id] = () => { try { if (wv && wv.reload) wv.reload(); } catch (e) { /* ignore */ } };
       rot.addEventListener('click', async () => {
-        // 2026-11-12（宿主硬要求）：面板上不再做会消失的状态字 —— 成功/失败一律走顶栏通知 toast；
-        //   每一步写 外壳\data\换会话日志.txt（main.js 落盘），按钮只保留“换会话中…”这个自身标签。
+        // 面板上不放会消失的状态字：进度只体现在按钮标签上，结果一律顶栏 toast。
         let go = true;
-        try { go = window.confirm('换会话？\n\n旧会话会被归档；脚本把最近几轮摘录进 §〇 后立即开新会话（约 7 秒）。'); } catch (e) { /* ignore */ }
+        try { go = window.confirm('换会话？\n\n旧会话会被归档；交接自动写（不需人工），随后开新会话并只重载本面板。'); } catch (e) { /* ignore */ }
         if (!go) return;
         const notify = (msg, bad, ms) => {
           try {
@@ -14145,22 +14180,28 @@ renderers.harness = (body, meta, head) => {
         };
         rot.disabled = true;
         const oldText = rot.textContent;
-        rot.textContent = '换会话中…';
+        rot.textContent = '换会话 1/3';
+        window.__harnessRotateLabel[meta.id] = (stage) => { if (stage) rot.textContent = '换会话 ' + stage; };
         try {
           const r = await window.app.harnessRotate(meta.id, { mode: 'handover' });
           if (r && r.ok) {
             notify('换会话完成 · 新会话 ' + (r.newId || '(未返回 id)')
               + (r.elapsed ? ' · ' + r.elapsed + ' 秒' : '') + (r.warn ? ' · ' + r.warn : ''), false, 6000);
+            // 只重载本面板：新会话 id 已写进场景 json，重载后这块 webview 就绑到新会话
+            setTimeout(() => { try { if (wv && wv.reload) wv.reload(); } catch (e) { /* ignore */ } }, 400);
+          } else if (r && r.code === 'busy') {
+            notify('换会话没开始：' + ((r && r.err) || '这个场景正在换') + '（等它跑完再点）', true, 8000);
           } else {
-            notify('换会话失败：' + ((r && (r.reason || r.err)) || '未知原因')
-              + '（详情：外壳\\data\\换会话日志.txt）', true, 10000);
+            notify('换会话失败（卡在 ' + ((r && r.stage) || '未知阶段') + '）：' + ((r && (r.reason || r.err)) || '未知原因')
+              + '。已回滚、可直接再点重试（详情：外壳\\data\\换会话日志.jsonl）', true, 12000);
           }
           diag.title = (r && r.out) || diag.title;
         } catch (e) {
-          notify('换会话失败：' + ((e && e.message) || e) + '（详情：外壳\\data\\换会话日志.txt）', true, 10000);
+          notify('换会话失败：' + ((e && e.message) || e) + '（详情：外壳\\data\\换会话日志.jsonl）', true, 12000);
         } finally {
           rot.disabled = false;
           rot.textContent = oldText;
+          delete window.__harnessRotateLabel[meta.id];
         }
       });
       acts.appendChild(rot);
