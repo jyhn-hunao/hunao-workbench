@@ -78,9 +78,11 @@ function buildCatalog(opts) {
     box.sections[0].items.push(item);
   }
   const total = groups.reduce((a, g) => a + g.sections[0].items.length, 0);
+  // 「启用」按真正列出的条目标记算（patch 里可能有包不存在，别把 14 当成已启用数）
+  const enabledCount = groups.reduce((a, g) => a + g.sections[0].items.filter((it) => it.tag.indexOf('未启用') < 0).length, 0);
   return {
     updated: null, scanned: true, groups,
-    note: '实时扫描：' + total + ' 个工具包（启用 ' + enabled.length + ' 个）· 新增 dsh-tool-* 包即出现，无需维护清单'
+    note: '实时扫描：' + total + ' 个工具包（启用 ' + enabledCount + ' 个）· 新增 dsh-tool-* 包即出现，无需维护清单'
   };
 }
 
