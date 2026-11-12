@@ -3,7 +3,9 @@
 // 命令：init / index / recall / card / check / migrate
 //   node 工具\记忆.mjs init    --project <项目根> [--dry] [--track]
 //   node 工具\记忆.mjs index   --project <项目根>
-//   node 工具\记忆.mjs recall  --project <项目根> "关键词" [--limit 8] [--json]
+//   node 工具\记忆.mjs recall  --project <项目根> "关键词" [--limit 8] [--min 2] [--json] [--no-log]
+//   recall 默认按分数阈值（--min，默认 2）滤掉低分噪声，并把每次调用写进 memory\_召回.log；
+//   `--no-log` 关流水，`--min 0` 关阈值。
 //   node 工具\记忆.mjs card    --project <项目根> [--name mlw] [--force]
 //   node 工具\记忆.mjs check   --project <项目根> [--strict]
 //   node 工具\记忆.mjs migrate --from <.mnemon> [--dry] [--json]
@@ -32,7 +34,7 @@ function parseArgs(argv) {
   const pos = []
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]
-    if (a === '--dry' || a === '--json' || a === '--force' || a === '--track' || a === '--strict') { flags[a.slice(2)] = true; continue }
+    if (a === '--dry' || a === '--json' || a === '--force' || a === '--track' || a === '--strict' || a === '--no-log') { flags[a.slice(2)] = true; continue }
     if (a.startsWith('--')) {
       const k = a.slice(2)
       const v = argv[i + 1]
@@ -258,6 +260,18 @@ function scoreDoc(doc, tokens) {
   return { score, hit, reason: best.field }
 }
 
+/** 召回流水：一行一条，用来事后证明「召回到底有没有被调用」（memory\ 已 ignore，日志不进库） */
+function logRecall(root, q, total, hit, filtered, top) {
+  const d = new Date()
+  const p = (n) => String(n).padStart(2, '0')
+  const at = d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds())
+  const one = (s) => String(s || '').replace(/[\r\n|]/g, ' ').slice(0, 80)
+  const line = [at, path.basename(root), 'q="' + one(q) + '"',
+    'hit=' + hit + '/' + total, 'filtered=' + filtered,
+    'top=' + (top.slice(0, 3).map(t => t.path.replace(/^memory\//, '')).join(',') || '-')].join(' | ')
+  try { fs.appendFileSync(path.join(memoryRoot(root), '_召回.log'), line + '\n', 'utf8') } catch { /* 日志失败不影响召回 */ }
+}
+
 function cmdRecall(root, q, flags) {
   const mem = memoryRoot(root)
   if (!fs.existsSync(mem)) throw new Error('未初始化：缺少 ' + mem + '（先跑 init）')
@@ -271,8 +285,13 @@ function cmdRecall(root, q, flags) {
     if (s) hits.push({ doc, ...s })
   }
   hits.sort((a, b) => b.score - a.score || String(b.doc.date).localeCompare(String(a.doc.date)))
+  // 1. 过滤低分命中（2026-11-12 加）：bigram 词法很容易因一个通用二字词就命中，
+  //    没有阈值时 top8 里会混进 0.8 分的噪声；默认 2.0 ≈「至少两个词同现」或「一个词进了标题/标签」
+  const MIN = flags.min === undefined ? 2 : Math.max(0, Number(flags.min) || 0)
+  const kept = hits.filter(h => h.score >= MIN)
+  const filtered = hits.length - kept.length
   const limit = Math.max(1, Number(flags.limit || 8))
-  const top = hits.slice(0, limit).map(h => ({
+  const top = kept.slice(0, limit).map(h => ({
     path: 'memory/' + h.doc.path,
     category: h.doc.category,
     title: h.doc.title,
@@ -281,13 +300,16 @@ function cmdRecall(root, q, flags) {
     score: Number(h.score.toFixed(2)),
     snippet: snippetOf(h.doc.body, tokens)
   }))
+  // 2. 记账（2026-11-12 加）：召回不写日志 = 「有没有被调用」永远只能猜；memory\ 已被 ignore，日志不进库
+  if (!flags['no-log']) logRecall(root, q, docs.length, kept.length, filtered, top)
   if (flags.json) {
-    console.log(JSON.stringify({ recall: 'lexical', project: path.basename(root), query: q, total: docs.length, hits: top }, null, 2))
+    console.log(JSON.stringify({ recall: 'lexical', project: path.basename(root), query: q, total: docs.length, threshold: MIN, filtered, hits: top }, null, 2))
     return 0
   }
-  const head = '[lexical] project=' + path.basename(root) + ' q="' + q + '" 命中 ' + hits.length + '/' + docs.length
+  const head = '[lexical] project=' + path.basename(root) + ' q="' + q + '" 命中 ' + kept.length + '/' + docs.length
+    + (filtered ? '（阈值 ' + MIN + ' 滤掉 ' + filtered + ' 条低分）' : '')
   if (!top.length) {
-    console.log(head + ' — 没有命中，直接读代码（记忆不是阻塞项）')
+    console.log(head + ' — 没有够格的命中，直接读代码（记忆不是阻塞项）')
     return 0
   }
   const lines = [head]
@@ -535,9 +557,15 @@ function cmdCheck(root, flags) {
     warns.push('薄卡不存在：' + cardPath + '（跑 card）')
   }
 
-  // 默认不入库：被跟踪只告警
+  // 默认不入库：memory\ 被跟踪才告警；AGENTS.md 只在「.gitignore 说忽略、却又被跟踪」时才告警
+  //   2026-11-12：本仓 .gitignore 已明确「AGENTS.md 是模板规则、属例外」，旧判据仍按 ls-files 报警 ⇒ 永久假告警
   const tracked = trackedFiles(root, ['memory', 'AGENTS.md'])
-  if (tracked.length) warns.push('已被 git 跟踪（默认应忽略，确认是否例外）：' + tracked.slice(0, 5).join('、'))
+  const gi = readText(path.join(root, '.gitignore')).split(/\r?\n/).map(s => s.trim())
+  const bad = tracked.filter((f) => {
+    const base = f.split(/[\\/]/)[0]
+    return base === 'AGENTS.md' ? gi.includes('AGENTS.md') : (gi.includes('memory/') || gi.includes('memory'))
+  })
+  if (bad.length) warns.push('已被 git 跟踪（默认应忽略，确认是否例外）：' + bad.slice(0, 5).join('、'))
 
   if (warns.length) warns.forEach(w => console.log('⚠ ' + w))
   if (errors.length) { errors.forEach(e => console.log('✗ ' + e)); return 1 }

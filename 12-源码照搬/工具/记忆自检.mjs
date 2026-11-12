@@ -77,6 +77,21 @@ ok('recall 输出 ≤2 KB', Buffer.byteLength(r.out, 'utf8') <= 2048, String(Buf
 r = run(['recall', '--project', root, '不存在的词'])
 ok('空命中不报错且提示读代码', r.code === 0 && r.out.includes('0/2') && r.out.includes('直接读代码'), r.out)
 
+// 2b. 召回流水 + 低分阈值（2026-11-12 加）
+const logFile = path.join(mem, '_召回.log')
+ok('recall 写召回流水', fs.existsSync(logFile) && read(logFile).includes('窗口等级'), '缺 memory/_召回.log')
+const logCount = () => read(logFile).trim().split(/\r?\n/).filter(Boolean).length
+ok('流水一行一条且带命中数', logCount() >= 1 && read(logFile).includes('hit='))
+const n1 = logCount()
+r = run(['recall', '--project', root, '窗口等级', '--no-log'])
+ok('--no-log 不追加流水', logCount() === n1, String(n1) + '→' + String(logCount()))
+r = run(['recall', '--project', root, '窗口等级', '--json'])
+ok('--json 带阈值与滤掉数', (() => { try { const j = JSON.parse(r.out); return j.threshold === 2 && typeof j.filtered === 'number' } catch { return false } })(), r.out)
+write(path.join(mem, 'runbooks', '2026-11-12-低分样本.md'), doc('低分样本', '只用于阈值测试。', '偶发一词。'))
+r = run(['index', '--project', root])
+r = run(['recall', '--project', root, '偶发'])
+ok('低分命中被阈值滤掉', r.code === 0 && (r.out.includes('滤掉') || r.out.includes('没有够格的命中')), r.out)
+
 // 3. card：生成、限长、保留手写区
 r = run(['card', '--project', root, '--card', cardPath])
 ok('card 生成', r.code === 0 && fs.existsSync(cardPath), r.out)
