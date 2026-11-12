@@ -526,21 +526,39 @@ function cmdCheck(name) {
       else ok.push('核心职责 ' + n + ' 条')
     }
   }
-  for (const s of ['### 1) 上次交接', '### 2) 当前项目', '### 3) 私有记忆变更', '### 4) 下一步 / 卡点', '### 5) 全貌']) {
-    if (!main.includes(s)) problems.push('§〇 缺小节 ' + s)
+  // 2026-11-12（用户报「四小节都在却判不过」）：结构闸改为**按内容**认小节，不再要求固定编号/空格；
+  //   缺哪节就直说缺哪节、期望什么格式。四小节（上次交接 / 当前项目 / 私有记忆变更 / 下一步·卡点）必须，
+  //   「全貌」缺了只告警（工具会自动补）。
+  const m0 = main.match(/^## (?:§〇|〇、|§0)[^\n]*$/m)
+  const sec0Start = m0 ? m0.index : -1
+  const sec0Stop = (() => { if (sec0Start < 0) return -1; const n = main.indexOf('\n## ', sec0Start + 4); return n < 0 ? main.length : n })()
+  const sec0Text = sec0Start >= 0 ? main.slice(sec0Start, sec0Stop) : ''
+  if (sec0Text) {
+    const SEC_REQ = [
+      ['上次交接', /^###[^\n]*上次交接/m],
+      ['当前项目', /^###[^\n]*当前项目/m],
+      ['私有记忆变更', /^###[^\n]*私有记忆变更/m],
+      ['下一步 / 卡点', /^###[^\n]*(?:下一步|卡点)/m],
+    ]
+    for (const [label, re] of SEC_REQ) {
+      if (re.test(sec0Text)) continue
+      problems.push('§〇 缺「' + label + '」小节：期望 §〇 里有任意一行 `###` 标题含「' + label + '」（如 `### 1) ' + label + '`）')
+    }
+    if (!/^###[^\n]*全貌/m.test(sec0Text)) warns.push('§〇 没有「全貌」小节（工具会自动补，不阻断）')
   }
   // 内容告警：项目表不能空、下一步/卡点不能空（卡08 决定：只告警不阻断）
   {
-    const seg = (head) => {
-      const i = main.indexOf(head)
-      if (i < 0) return ''
-      const e = main.indexOf('\n### ', i + head.length)
-      return main.slice(i, e > i ? e : main.length)
+    const segBy = (re) => {
+      const m = sec0Text.match(re)
+      if (!m) return ''
+      const i2 = m.index
+      const e2 = sec0Text.indexOf('\n### ', i2 + m[0].length)
+      return sec0Text.slice(i2, e2 > i2 ? e2 : sec0Text.length)
     }
-    const seg2 = seg('### 2) 当前项目')
+    const seg2 = segBy(/^###[^\n]*当前项目/m)
     const rows = seg2.split(/\r?\n/).filter((l) => l.trim().startsWith('|') && !/^\|\s*-/.test(l.trim()))
     if (rows.length <= 1) warns.push('当前项目表是空的（没项目要写“无”）')
-    const seg4 = seg('### 4) 下一步 / 卡点')
+    const seg4 = segBy(/^###[^\n]*(?:下一步|卡点)/m)
     const body4 = seg4.split(/\r?\n/).filter((l) => /^-\s*\S/.test(l.trim()))
     if (!body4.length) warns.push('第 4 节 下一步/卡点 为空')
   }

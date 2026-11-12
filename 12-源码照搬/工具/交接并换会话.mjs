@@ -157,12 +157,21 @@ function writeTranscriptHandoff() {
     // 旧会话是空的/只有开场消息：沿用现有 §〇，只刷新时间戳让 2 小时闸放行（别用噪声覆盖真交接）
     const now = new Date();
     try { fs.utimesSync(HANDOFF, now, now); } catch (e) { /* 时间戳刷不动就交给后面的闸门报错 */ }
+    // 2026-11-12：定位卡/场景 json 可能刚被换会话或项目切换改过 ⇒ 卡指纹必过期。
+    //   换会话流程**无条件先 stamp 再校验**，别把「卡过期」当失败抛给用户。
+    const st = runMem('stamp');
+    if (st.stdout) say(String(st.stdout).trimEnd());
+    if (st.status !== 0) {
+      if (st.stderr) console.error(String(st.stderr).trimEnd());
+      fail(5, '盖章（stamp）失败（退出码 ' + st.status + '）⇒ 未换会话');
+    }
     const chk = runMem('check');
     if (chk.status !== 0) {
+      const first = String(chk.stdout || '').split(/\r?\n/).filter((l) => l.includes('✗')).slice(0, 4).join('；');
       if (chk.stdout) console.error(String(chk.stdout).trimEnd());
-      fail(5, '现有 §〇 结构校验没过 ⇒ 未换会话；请先手工修 §〇');
+      fail(5, '交接校验没过：' + (first || '见上方输出') + ' ⇒ 未换会话');
     }
-    step('1/3', '交接', '旧会话没有新的业务轮次 ⇒ 沿用现有 §〇（已刷新时间戳）');
+    step('1/3', '交接', '旧会话没有新的业务轮次 ⇒ 沿用现有 §〇（已刷新时间戳 + stamp）');
     return { turns: 0 };
   }
   const turns = useful;
@@ -205,13 +214,22 @@ function writeTranscriptHandoff() {
   fs.writeFileSync(HANDOFF, body1, 'utf8');
   step('1/3', '交接', '已摘录最近 ' + blocks.length + ' 轮 → §〇（' + Buffer.byteLength(sec) + ' B）');
 
-  // 5.4 结构闸：不过就回滚 §〇，绝不带着坏记忆去轮换
+  // 5.4 无条件 stamp 再校验：定位卡可能刚被项目切换/上次换会话改过，卡指纹就会过期；
+  //     这属于机械问题，不该把“卡过期”抛给用户。校验不过才回滚 §〇。
+  const st = runMem('stamp');
+  if (st.stdout) say(String(st.stdout).trimEnd());
+  if (st.status !== 0) {
+    fs.writeFileSync(HANDOFF, body0, 'utf8');
+    if (st.stderr) console.error(String(st.stderr).trimEnd());
+    fail(5, '盖章（stamp）失败（退出码 ' + st.status + '，已回滚 §〇）⇒ 未换会话');
+  }
   const chk = runMem('check');
   if (chk.status !== 0) {
     fs.writeFileSync(HANDOFF, body0, 'utf8');
+    const first = String(chk.stdout || '').split(/\r?\n/).filter((l) => l.includes('✗')).slice(0, 4).join('；');
     if (chk.stdout) console.error(String(chk.stdout).trimEnd());
     if (chk.stderr) console.error(String(chk.stderr).trimEnd());
-    fail(5, '交接后 §〇 结构校验没过（已回滚 §〇）⇒ 未换会话');
+    fail(5, '交接校验没过：' + (first || '见上方输出') + '（已回滚 §〇）⇒ 未换会话');
   }
   say('✓ 交接完成：§〇 已更新并通过结构校验（' + Buffer.byteLength(sec) + ' B）');
   return { turns: blocks.length };
@@ -269,6 +287,16 @@ async function waitPromptHandoff() {
     fail(5, '旧会话这一轮没写 §〇（内容没变化）⇒ 未换会话；请改用默认 --mode transcript，或手工写好 §〇 再换');
   }
   step('1/3', '交接', '旧会话已写完（' + Math.round((Date.now() - t0) / 1000) + ' 秒，共 ' + turnsNow + ' 轮）');
+  // 同样：stamp 无条件先跑，再校验（卡指纹过期属于机械问题，不该当失败抛给用户）
+  const st = runMem('stamp');
+  if (st.stdout) say(String(st.stdout).trimEnd());
+  if (st.status !== 0) fail(5, '盖章（stamp）失败（退出码 ' + st.status + '）⇒ 未换会话');
+  const chk = runMem('check');
+  if (chk.status !== 0) {
+    const first = String(chk.stdout || '').split(/\r?\n/).filter((l) => l.includes('✗')).slice(0, 4).join('；');
+    if (chk.stdout) console.error(String(chk.stdout).trimEnd());
+    fail(5, '交接校验没过：' + (first || '见上方输出') + ' ⇒ 未换会话');
+  }
 }
 
 // 7. 轮换：流式转发 换会话.mjs 的输出，抽新会话 id 与关键步骤
