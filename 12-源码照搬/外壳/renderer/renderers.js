@@ -14130,13 +14130,19 @@ renderers.harness = (body, meta, head) => {
       rot.title = '把这个面板换成一条新会话：建新 → 改绑场景 json/定位卡/索引 → 归档旧的 → 重载面板。'
         + '\n不会替你写记忆；要把交接带过去，先让 AI 把 §〇 写好再点。';
       rot.addEventListener('click', async () => {
-        try { if (!window.confirm('换会话会把当前会话归档（工作台设置页可取消归档），继续？')) return; } catch (e) { /* ignore */ }
+        // 2026-11-12（用户拍板）：两档 —— 先写交接再换（推荐）/ 直接换
+        let mode = 'direct';
+        try {
+          const writeFirst = window.confirm('换会话：先把本轮结论写进 §〇 再换吗？\\n\\n确定 = 先写交接再换（推荐）\\n取消 = 直接换（不写交接）');
+          if (!window.confirm('确认换会话？当前会话会被归档（工作台设置页可取消归档）。')) return;
+          mode = writeFirst ? 'handover' : 'direct';
+        } catch (e) { /* ignore */ }
         rot.disabled = true;
         const oldText = rot.textContent;
         rot.textContent = '换会话中…';
         diag.textContent = '换会话：执行中…';
         try {
-          const r = await window.app.harnessRotate(meta.id);
+          const r = await window.app.harnessRotate(meta.id, { mode: mode });
           if (r && r.ok) { diag.textContent = '换会话完成，面板即将重载'; }
           else { diag.textContent = '换会话失败：' + ((r && (r.reason || r.err)) || '未知原因'); }
           diag.title = (r && r.out) || diag.title;
@@ -14470,6 +14476,8 @@ renderers.harness = (body, meta, head) => {
         sessionTitle: SESSION_TITLE,
         sessionId: SESSION_ID,
         stored: (() => { const s = readSel(); return (s && s.sessionId) ? String(s.sessionId) : ''; })(),
+        // 2026-11-12：guest 写对了键但没法自己重载（侧栏隐藏、点不到行）⇒ 留信号让宿主重载
+        needReloadAt: (window.__pinNeedHostReloadAt || 0),
         reloads: readReloads(),
         reloadMax: RELOAD_MAX,
         claim: (() => {
@@ -14647,9 +14655,13 @@ renderers.harness = (body, meta, head) => {
           bumpReloads();
           markReloadAt();
           if (writeSel(SESSION_ID)) {
+            // 2026-11-12（P0：面板永远不切到 json 绑的会话）：侧栏在本面板是隐藏的（宽 0、无会话行），
+            //   "按标题点行"这条路根本走不通；写对键后必须让**壳**帮本 webview 重载一次。
+            //   这里只留信号，重载由宿主做（guest 里不再加第二处 location.reload，避免触发 check-injected 判据）。
+            try { window.__pinNeedHostReloadAt = Date.now(); } catch (e) { /* ignore */ }
             refreshDiag(null);
             showPinNeedRefresh();
-            return;                                  // reload 后脚本会重跑：那时键已是目标，应用直接进会话
+            return;
           }
         }
       }
@@ -14843,9 +14855,18 @@ renderers.harness = (body, meta, head) => {
     } catch (e) { /* ignore */ }
     // 钉会话诊断：HARNESS_PIN_JS 每次注入都会刷新 window.__pinDiag，这里读回来显示在面板标题行
     let pinTxt = '钉会话: 检测中…';
+    let lastPinReloadAt = 0;
     try {
       const d = await wv.executeJavaScript('window.__pinDiag || null');
       if (d && d.targets) {
+        // 1. 2026-11-12（P0：面板永远不切到 json 绑的会话）：guest 侧已把「该显示哪条会话」写进分区键，
+        //    但它自己没有可靠的切法（侧栏在本面板被隐藏，宽 0、无会话行）⇒ 由宿主重载本 webview 一次。
+        //    每个 needReloadAt 只重载一次（时间戳去重），不会变成循环刷新。
+        if (d.needReloadAt && d.needReloadAt !== lastPinReloadAt) {
+          lastPinReloadAt = d.needReloadAt;
+          try { if (window.app && window.app.diagLog) window.app.diagLog('[pin] reload panel; expected=' + (d.sessionId || '') + ' stored=' + (d.stored || '')); } catch (e) { /* ignore */ }
+          try { wv.reload(); } catch (e) { /* ignore */ }
+        }
         const want = [String(d.sessionTitle || '')].filter(Boolean).concat(d.targets || []).join(' / ');
         const nz = (s) => String(s == null ? '' : s).toLowerCase().replace(/\s+/g, ' ').trim();   // ⚠ 保留空格：别把 'DSH 改造' 和 'DSH改造' 混成一个（同名孪生会话）
         // 面板当前显示的会话名（取自侧栏高亮行标题，权威）作为最终判据
@@ -14855,6 +14876,11 @@ renderers.harness = (body, meta, head) => {
           (d.targets || []).some(t => { const tn = nz(t); return tn && liveN.indexOf(tn) >= 0; });
         const boundOk = !!(d.bound && d.bound.title && liveN === nz(d.bound.title));
         const ok = boundOk || okName;
+        // 2026-11-12（P0 自检）：期望 sessionId 与面板实际用的（分区存储）不一致就明说，别静默显示别的会话
+        const idOk = !d.sessionId || String(d.stored || '') === String(d.sessionId);
+        if (!idOk && d.sessionId) {
+          try { if (window.app && window.app.diagLog) window.app.diagLog('[pin] mismatch expected=' + d.sessionId + ' stored=' + (d.stored || '')); } catch (e) { /* ignore */ }
+        }
         const unbound = !d.sessionId && !d.sessionTitle && !(d.targets || []).length && !(d.bound && d.bound.title);
         pinTxt = unbound ? '○ 未绑定 · 面板自由选会话'
           : (boundOk ? '✓ 已钉绑定' : (ok ? '✓ 已钉' : ('未切到 · ' + (live || '读不到当前会话'))));
@@ -14864,6 +14890,7 @@ renderers.harness = (body, meta, head) => {
         else diag.title = '该面板应对应的会话：' + want +
           '\n指定会话 id：' + (d.sessionId || '（未指定 · 靠标题匹配）') +
           '\n应用存储里的当前会话：' + (d.stored || '（空）') + (String(d.stored) === String(d.sessionId) && d.sessionId ? ' ✓ 一致' : '') +
+          (d.sessionId ? ('\n会话自检：' + (idOk ? '期望 id 与存储一致 ✓' : ('不一致 ✗（期望 ' + d.sessionId + ' / 实际 ' + (d.stored || '空') + '）'))) : '') +
           (d.reloads ? ('\n直达通道残留计数 ' + d.reloads + ' 次（该通道已停用）') : '') +
           '\n面板当前显示的会话：' + (live || '（读不到）') + (d.titleSrc ? ('（来源：' + d.titleSrc + '）') : '') +
           (d.bound && d.bound.title ? ('\n已记住的会话标题：' + d.bound.title) : '\n已记住的会话标题：（无 · 首次按名字找）') +

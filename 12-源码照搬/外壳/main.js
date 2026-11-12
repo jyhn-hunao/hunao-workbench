@@ -115,6 +115,10 @@ try {
   });
 } catch (e) { /* ignore */ }
 
+// 渲染层诊断进 server.log（2026-11-12 P0：面板切会话的「期望/实际」要留证据，别只写在界面小字里）
+ipcMain.on('diag:log', (_e, m) => {
+  try { log('[renderer] ' + String(m == null ? '' : m).slice(0, 400)); } catch (e) { /* ignore */ }
+});
 // ==================== 多窗口（场景分离） ====================
 // 主窗口照旧（场景 = 标签页）；任意场景可「弹出」成独立窗口，一屏看一个场景。
 // 三条纪律（踩了就出鬼）：
@@ -4609,7 +4613,7 @@ ipcMain.handle('tools:catalog', () => {
 // 一次跑完：建新会话 → 场景 json 三字段 + 定位卡 + 身份索引改绑 → 旧会话真归档 → 写 reload-panels.cmd 让面板重载。
 // 安全：只接受场景 json 里真实登记的 harness 面板 id；命令与参数写死，不拼接用户输入。
 // --force 的含义：不要求交接文件 2 小时内更新（按钮不替 AI 写记忆，按钮 title 里已说明）。
-ipcMain.handle('harness:rotate', async (_e, panelId) => {
+ipcMain.handle('harness:rotate', async (_e, panelId, opts) => {
   const id = String(panelId || '').trim();
   const dir = path.join(__dirname, 'scenarios');
   const ids = [];
@@ -4633,10 +4637,16 @@ ipcMain.handle('harness:rotate', async (_e, panelId) => {
       archivedNote = '（提示：场景 json 原先绑的会话已归档，本次会重建绑定；不是壳没重启）';
     }
   } catch (e) { /* 读不到归档台账就不提示 */ }
-  const script = path.join(__dirname, 'scripts', '换会话.mjs');
+  // 2026-11-12（用户拍板）：mode=handover 时先让旧会话写交接再换（工具\交接并换会话.mjs）；
+  //   否则直接换（--force 跳过 2 小时闸）。两条路都走同一个面板白名单校验。
+  const handover = String((opts && opts.mode) || '') === 'handover';
+  const script = handover
+    ? path.join(__dirname, '..', '工具', '交接并换会话.mjs')
+    : path.join(__dirname, 'scripts', '换会话.mjs');
+  const scriptArgs = handover ? [script, '--panel', id, '--timeout', '120'] : [script, id, '--go', '--force'];
   if (!fs.existsSync(script)) return { ok: false, err: '缺脚本：' + script };
   return await new Promise((resolve) => {
-    execFile(process.execPath, [script, id, '--go', '--force'], {
+    execFile(process.execPath, scriptArgs, {
       cwd: __dirname, env: Object.assign({}, process.env, { DSH_HOME: DSH_HOME }),
       timeout: 240000, windowsHide: true, maxBuffer: 8 << 20
     }, (err, stdout, stderr) => {
