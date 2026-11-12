@@ -157,7 +157,57 @@ r = run(['migrate', '--from', mn])
 ok('migrate 出清单', r.code === 0 && r.out.includes('迁移建议') && r.out.includes('decisions'), r.out)
 ok('migrate 不落盘', !fs.existsSync(path.join(root, 'memory', 'archive', 'a.md')))
 
-// 7. 清理
+// 7. 写 / 体检 / 备份：一次写完就该是「索引新 + 自检过」，且证据可复核
+const draft = path.join(root, 'draft.md')
+write(draft, '# 草稿\n\n## 现象\n按钮点了没反应。\n')
+r = run(['写', '--project', root, '--类', 'pitfalls', '--标题', '写回冒烟', '--正文', draft, '--证据', 'draft.md::按钮点了没反应'])
+ok('写 成功并落盘', r.code === 0 && r.out.includes('memory/pitfalls/'), r.out)
+const wrote = fs.readdirSync(path.join(mem, 'pitfalls')).filter(f => f.endsWith('写回冒烟.md'))
+ok('写 文件名是「日期-标题」', wrote.length === 1 && /^\d{4}-\d{2}-\d{2}-/.test(wrote[0]), wrote.join('、'))
+ok('写 的 frontmatter 带 evidence', read(path.join(mem, 'pitfalls', wrote[0])).includes('evidence:'))
+r = run(['check', '--project', root, '--card', cardPath])
+ok('写 后 check 直接通过（不用再手动 index）', r.code === 0, r.out)
+
+r = run(['写', '--project', root, '--类', 'pitfalls', '--标题', '写回冒烟', '--要点', '重复'])
+ok('同名标题被拒', r.code === 1 && r.out.includes('同名记忆已存在'), r.out)
+r = run(['写', '--project', root, '--类', '瞎写', '--标题', 'x', '--要点', 'y'])
+ok('非法类目被拒', r.code === 1 && r.out.includes('必须是'), r.out)
+
+write(path.join(mem, '_词表.json'), JSON.stringify({ 换会话: ['交接'] }))
+r = run(['体检', '--project', root, '--noscene'])
+ok('体检 通过', r.code === 0 && r.out.includes('结论：✓'), r.out)
+ok('体检 提示没备份', r.out.includes('从未备份'), r.out)
+
+// 证据失效 → 体检必须失败（这是「记忆漂移」的唯一自动发现手段）
+const badDoc = path.join(mem, 'pitfalls', '坏证据.md')
+write(badDoc, '---\ntitle: 坏证据\ndescription: 指向不存在的片段\nevidence:\n  - draft.md::根本没有这句话\n---\n\n# 坏证据\n\n正文\n')
+run(['index', '--project', root])
+r = run(['体检', '--project', root, '--noscene'])
+ok('证据失效 → 体检失败', r.code === 1 && r.out.includes('证据失效'), r.out)
+fs.rmSync(badDoc)
+run(['index', '--project', root])
+
+// 空词表 → check 与体检都要报（这是 2026-11-12 前的真实故障）
+write(path.join(mem, '_词表.json'), '{}')
+r = run(['check', '--project', root, '--card', cardPath])
+ok('空词表 → check 告警', r.out.includes('词表.json 为空'), r.out)
+r = run(['体检', '--project', root, '--noscene'])
+ok('空词表 → 体检失败', r.code === 1 && r.out.includes('词表'), r.out)
+write(path.join(mem, '_词表.json'), JSON.stringify({ 换会话: ['交接'] }))
+run(['index', '--project', root])
+
+// 备份：目录生成 + 自动写 ignore + 只留最近 N 份
+r = run(['备份', '--project', root, '--keep', '2'])
+const bkRoot = path.join(root, '.memory-backup')
+const newestBk = fs.readdirSync(bkRoot).filter(x => /^memory-\d{8}-\d{6}$/.test(x)).sort().pop() || ''
+ok('备份 退出 0 且生成目录', r.code === 0 && !!newestBk, r.out)
+ok('备份 含正文副本', fs.existsSync(path.join(bkRoot, newestBk, 'memory', 'pitfalls')), fs.readdirSync(path.join(bkRoot, newestBk)).join('、'))
+ok('备份 自动补 .gitignore', read(path.join(root, '.gitignore')).includes('.memory-backup/'))
+for (const t of ['memory-20260101-000000', 'memory-20260102-000000', 'memory-20260103-000000']) fs.mkdirSync(path.join(bkRoot, t), { recursive: true })
+r = run(['备份', '--project', root, '--keep', '2'])
+ok('备份 只留最近 2 份', fs.readdirSync(bkRoot).filter(x => /^memory-\d{8}-\d{6}$/.test(x)).length === 2, r.out)
+
+// 8. 清理
 fs.rmSync(root, { recursive: true, force: true })
 fs.rmSync(dryRoot, { recursive: true, force: true })
 fs.rmSync(trackRoot, { recursive: true, force: true })
