@@ -106,6 +106,10 @@ function sceneOf(dirName) {
 // 2026-10-27（命令台 cmd-chat 报）：例外场景没有 `引擎\场景记忆\<场景>\` ⇒ 以前 check 直接 ENOENT 抛错，
 // 收工闸形同虚设。现在例外清单**只有一份**：工具同目录的 `场景记忆-例外.json`（别在代码里散落）。
 const TOOL_DIR = path.dirname(path.resolve(process.argv[1] || '<工作台>\\工具\\场景记忆.mjs'))
+// 2026-11-12 修：`记忆库.mjs` 是私有版才有的组件，公开版模板里没有；
+// 以前交接末尾直接引用未定义的 __MEMLIB_OK ⇒ 每次交接都抛 ReferenceError，被 catch 成「记忆库入库异常」。
+const MEMLIB_FILE = path.join(TOOL_DIR, '记忆库.mjs')
+const __MEMLIB_OK = fs.existsSync(MEMLIB_FILE)
 const EXCEPTION_FILE = path.join(TOOL_DIR, '场景记忆-例外.json')
 let _exceptions = null
 function readExceptions() {
@@ -395,8 +399,13 @@ function cmdHandover(arg) {
   audit('handover', name, { archive: file })
   cmdStamp(name)
   // 2026-10-28（宿主定）：「写入即索引」——交接完顺手把各场景 §〇 灌进记忆库（记了就能搜；失败不影响交接）
+  // 2026-11-12：公开版没有 记忆库.mjs，直接跳过并说清楚，别再假装「已入库」
+  if (!__MEMLIB_OK) {
+    console.log('· 记忆库未安装（公开版模板）：跳过入库，交接本身已完成')
+    return 0
+  }
   try {
-    const r = __MEMLIB_OK ? spawnSync(process.execPath, [path.join(TOOL_DIR, '记忆库.mjs'), '--import'], { encoding: 'utf8', windowsHide: true, timeout: 180000 }) : { status: 0, stdout: '(公开版无记忆库，跳过)' }
+    const r = spawnSync(process.execPath, [MEMLIB_FILE, '--import'], { encoding: 'utf8', windowsHide: true, timeout: 180000 })
     const last = String(r.stdout || '').split(/\r?\n/).map((x) => x.trim()).filter(Boolean).slice(-1)[0] || ''
     console.log(r.status === 0 ? `✓ 记忆库已入库（写入即索引）：${last}` : `⚠ 记忆库入库失败（不影响交接，exit=${r.status}）`)
   } catch (e) {
@@ -471,7 +480,9 @@ function cmdCheck(name) {
   const problems = []
   const warns = []
   const ok = []
-  const SESS = path.join(MEMROOT, '..', '.dsh', 'sessions')
+  // 会话库与场景记忆同级：MEMROOT = <dshHome>\场景记忆 ⇒ 会话在 <dshHome>\sessions
+  //（2026-11-12 修：原来多拼了一层 '.dsh'，拼成 <dshHome>\.dsh\.dsh\sessions，5 个场景全报「会话文件不在库」假告警）
+  const SESS = path.join(MEMROOT, '..', 'sessions')
   for (const f of ['场景私有记忆.md', '身份卡.md', '场景画像.md', '_文件索引.md']) {
     if (fs.existsSync(path.join(dir, f))) ok.push(f); else problems.push('缺文件 ' + f)
   }
