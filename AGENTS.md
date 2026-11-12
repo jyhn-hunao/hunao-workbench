@@ -41,6 +41,9 @@
 | 建会话 | `node 12-源码照搬\外壳\scripts\建会话.mjs --title "场景名"` | `12-源码照搬/外壳/scripts/建会话.mjs:13` |
 | 换会话（建新 + 归档旧 + 回写绑定） | `node 12-源码照搬\外壳\scripts\换会话.mjs <面板id> --go` | `12-源码照搬/外壳/scripts/换会话.mjs:7` |
 | 场景记忆自检 | `node 12-源码照搬\工具\场景记忆.mjs check --场景 <目录名>` | `12-源码照搬/工具/场景记忆.mjs:608` |
+| 派活给另一个会话（自动等回执） | `node 12-源码照搬\工具\派发.mjs --to "<会话标题>" "<任务>"` | `12-源码照搬/工具/派发.mjs:1` |
+| 干完回执给派发方 | `node 12-源码照搬\工具\回执.mjs --ticket <派发单id> --summary "<结论>"` | `12-源码照搬/工具/回执.mjs:1` |
+| 查派发/回执台账 | `12-源码照搬\引擎数据\.dsh\派发\回执日志.md` + 同目录 `*.json` 单子 | `12-源码照搬/工具/派发-公共.mjs:1` |
 | 发布前检查 | `node 12-源码照搬\工具\发布前检查.mjs` | `12-源码照搬/工具/发布前检查.mjs:4` |
 | 规则落地复核 | `powershell -File ~/.dsh/standards/install/verify.ps1 -Segment project,drift -Project D:\codeData\myself\luanyujia-workbench` | `~/.dsh/standards/install/verify.ps1` |
 
