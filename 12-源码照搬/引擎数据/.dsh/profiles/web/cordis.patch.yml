@@ -6,3 +6,14 @@
   name: "@deepseek-ai/dsh-client-ui-settings-general"
   config:
     welcomeNoticeVersion: 2026-09-28.1
+
+# ---- 2026-11-12 用户拍板启用（评估：doc\工具启用价值评估.md §3）----
+# 只加这三个；其余 6 个按报告保持关闭。删掉对应行即关闭。
+- id: tool-ask-user
+  name: "@deepseek-ai/dsh-tool-ask-user"
+
+- id: tool-present
+  name: "@deepseek-ai/dsh-tool-present"
+
+- id: tool-schedule
+  name: "@deepseek-ai/dsh-tool-schedule"
