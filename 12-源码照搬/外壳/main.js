@@ -5359,7 +5359,8 @@ ipcMain.handle('kun:git:checkout', async (_e, repo, rev, opts) => {
 
 // ---- git commit / commit and push（IDEA Local Changes 的提交区）----
 //   只提交勾选的路径：先 git add -A -- <paths>，再 git commit -F <msg> -- <paths>，
-//   这样不会把别人已暂存的内容带进来。消息按提交准则校验 type(scope): 中文摘要。
+//   这样不会把别人已暂存的内容带进来。
+//   消息不校验格式：面板是给人手写的，写什么就提交什么；type(scope) 只约束 AI 代办的提交。
 ipcMain.handle('kun:git:commit', async (_e, repo, files, message, opts) => {
   const dir = String(repo || '').trim();
   const o = opts || {};
@@ -5369,9 +5370,6 @@ ipcMain.handle('kun:git:commit', async (_e, repo, files, message, opts) => {
   if (!fs.existsSync(dir)) return { ok: false, err: '仓库目录不存在：' + dir };
   if (!paths.length) return { ok: false, err: '没有勾选要提交的文件' };
   if (!msg && !o.amend) return { ok: false, err: '提交信息不能为空' };
-  if (msg && !/^(feat|fix|docs|style|refactor|perf|test|build|chore|revert)(\([^)]+\))?: \S/.test(msg)) {
-    return { ok: false, err: '提交信息要写成 type(scope): 中文摘要；type 取 feat/fix/docs/style/refactor/perf/test/build/chore/revert' };
-  }
   const run = (args) => new Promise((resolve) => {
     execFile('git', ['-c', 'core.quotepath=false', '--no-optional-locks', '-C', dir, ...args],
       { windowsHide: true, maxBuffer: 16 << 20, timeout: 120000 },
