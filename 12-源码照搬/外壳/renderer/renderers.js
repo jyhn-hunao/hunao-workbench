@@ -18809,11 +18809,91 @@ renderers.git = function (body, meta) {
   }
 
   /* ---------- 变更 ---------- */
+  // 视觉分层（2026-11-12 宿主：「纯文本的内容太多了，没法区分」）：
+  //   ① 顶部一行状态计数胶囊 + 代码增删（main.js 已经给了 diff --shortstat）；
+  //   ② 按 已暂存 / 未暂存 / 未跟踪 分组，组头带彩点与条数，空组不画（顺序照 IDEA）；
+  //   ③ 每行 = 彩色状态块 + 类型徽标 + 暗目录 + 亮文件名，行左侧一条状态色带。
+  //   颜色一律走设计令牌（--warn/--ok/--err/--accent），浅色主题自动跟随。
+  function stageGroup(code) {
+    var raw = String(code == null ? '' : code);
+    if (raw.indexOf('?') >= 0) return 'untracked';        // "??"：新文件，还没 add
+    if (raw.charAt(0) && raw.charAt(0) !== ' ') return 'staged';   // X 位有字 = 暂存区有变化
+    return 'unstaged';
+  }
+  // 路径拆两截：目录暗、文件名亮 —— 一长串路径全同色正是「看不出结构」的主因
+  function pathBits(p) {
+    var s = String(p == null ? '' : p).replace(/\\/g, '/');
+    var i = s.lastIndexOf('/');
+    return i < 0 ? { dir: '', name: s } : { dir: s.slice(0, i + 1), name: s.slice(i + 1) };
+  }
+  function changeSummary(ch) {
+    var sum = el('div', 'g-sum');
+    var cnt = {};
+    ch.forEach(function (c) { var k = stLetter(c.code); cnt[k] = (cnt[k] || 0) + 1; });
+    [['M', 'is-mod', '修改'], ['A', 'is-new', '新增'], ['U', 'is-new', '未跟踪'],
+      ['D', 'is-del', '删除'], ['R', 'is-ren', '重命名'], ['C', 'is-ren', '复制']].forEach(function (x) {
+      if (!cnt[x[0]]) return;
+      sum.appendChild(el('span', 'g-chip ' + x[1], x[2] + ' ' + cnt[x[0]]));
+    });
+    var ds = String((data && data.diffStat) || '');
+    var ins = Number((ds.match(/(\d+) insertion/) || [null, 0])[1]);
+    var del = Number((ds.match(/(\d+) deletion/) || [null, 0])[1]);
+    if (ins || del) {
+      sum.appendChild(el('span', 'g-chip is-add', '+' + ins));
+      sum.appendChild(el('span', 'g-chip is-rm', '−' + del));
+    }
+    return sum;
+  }
+  // 勾选变了就地更新「已勾选 n / m」，不整块重绘（重绘会把刚点的复选框焦点弹掉）
+  function updatePickedCount() {
+    var elN = paneChanges.querySelector('.g-cbox-n');
+    if (!elN || !data || !data.changes) return;
+    elN.textContent = '已勾选 ' + data.changes.filter(function (c) { return picked[c.path] !== false; }).length + ' / ' + data.changes.length;
+  }
+  function changeRow(c) {
+    var row = el('div', 'g-file ' + codeCls(c.code));
+    var ck = document.createElement('input');
+    ck.type = 'checkbox';
+    ck.className = 'g-ck';
+    ck.checked = picked[c.path] !== false;
+    ck.addEventListener('click', function (e) { e.stopPropagation(); });
+    ck.addEventListener('change', function () { picked[c.path] = ck.checked; updatePickedCount(); });
+    row.appendChild(ck);
+    var st = el('span', 'g-st ' + codeCls(c.code), stLetter(c.code));
+    st.title = stWord(c.code);
+    row.appendChild(st);
+    row.appendChild(extBadge(c.path));
+    var pw = el('div', 'g-pathwrap');
+    var bits = pathBits(c.path);
+    if (bits.dir) pw.appendChild(el('span', 'g-dir', bits.dir));
+    pw.appendChild(el('span', 'g-fname', bits.name));
+    row.appendChild(pw);
+    row.title = c.path + '（点行在预览里看 diff；勾选框决定是否提交）';
+    row.addEventListener('click', function () { openDiff(c.path, row); });
+    return row;
+  }
+  function changeGroup(g, rows) {
+    var box = el('div', 'g-grp');
+    var gh = el('div', 'g-grph');
+    gh.appendChild(el('span', 'g-grp-dot ' + g.cls));
+    gh.appendChild(el('span', 'g-grp-t', g.t));
+    gh.appendChild(el('span', 'g-grp-n', String(rows.length)));
+    gh.title = g.hint;
+    box.appendChild(gh);
+    var list = el('div', 'g-list');
+    rows.forEach(function (c) { list.appendChild(changeRow(c)); });
+    box.appendChild(list);
+    return box;
+  }
   function renderChanges() {
     paneChanges.innerHTML = '';
     var ch = (data && data.changes) || [];
     if (!ch.length) { paneChanges.appendChild(el('div', 'g-empty', '工作区干净 —— 没有未提交的改动')); return; }
 
+    // 1) 摘要：一眼看出这次改动的规模（改几处 / 增删多少行）
+    paneChanges.appendChild(changeSummary(ch));
+
+    // 2) 全选
     var head = el('div', 'g-chead');
     var ckAll = document.createElement('input');
     ckAll.type = 'checkbox';
@@ -18824,28 +18904,22 @@ renderers.git = function (body, meta) {
     head.appendChild(el('span', 'g-chead-t', '全选 · ' + ch.length + ' 个文件'));
     paneChanges.appendChild(head);
 
-    var list = el('div', 'g-list');
-    ch.forEach(function (c) {
-      var row = el('div', 'g-file');
-      var ck = document.createElement('input');
-      ck.type = 'checkbox';
-      ck.className = 'g-ck';
-      ck.checked = picked[c.path] !== false;
-      ck.addEventListener('click', function (e) { e.stopPropagation(); });
-      ck.addEventListener('change', function () { picked[c.path] = ck.checked; });
-      row.appendChild(ck);
-      var st = el('span', 'g-st ' + codeCls(c.code), stLetter(c.code));
-      st.title = stWord(c.code);
-      row.appendChild(st);
-      row.appendChild(extBadge(c.path));
-      row.appendChild(el('span', 'g-path', c.path));
-      row.title = c.path + '（点行在预览里看 diff；勾选框决定是否提交）';
-      row.addEventListener('click', function () { openDiff(c.path, row); });
-      list.appendChild(row);
+    // 3) 分组：已暂存 → 未暂存 → 未跟踪
+    var buckets = { staged: [], unstaged: [], untracked: [] };
+    ch.forEach(function (c) { buckets[stageGroup(c.code)].push(c); });
+    [['staged', '已暂存', 'is-mod', '已 git add：这部分会原样进这次提交'],
+      ['unstaged', '未暂存', 'is-warn', '还没 git add（提交时面板会按勾选的路径补 add）'],
+      ['untracked', '未跟踪', 'is-new', '新文件，还没进版本库']].forEach(function (x) {
+      if (!buckets[x[0]].length) return;
+      paneChanges.appendChild(changeGroup({ cls: x[2], t: x[1], hint: x[3] }, buckets[x[0]]));
     });
-    paneChanges.appendChild(list);
 
+    // 4) 提交区
     var box = el('div', 'g-commitbox');
+    var cbh = el('div', 'g-cbox-h');
+    cbh.appendChild(el('span', 'g-cbox-t', '提交'));
+    cbh.appendChild(el('span', 'g-cbox-n', '已勾选 ' + ch.filter(function (c) { return picked[c.path] !== false; }).length + ' / ' + ch.length));
+    box.appendChild(cbh);
     var ta = document.createElement('textarea');
     ta.className = 'g-msginput';
     ta.placeholder = '提交信息（格式自由，不校验）';
@@ -18963,7 +19037,11 @@ renderers.git = function (body, meta) {
         st.title = stWord(f.code);
         row.appendChild(st);
         row.appendChild(extBadge(f.path));
-        row.appendChild(el('span', 'g-path', f.path));
+        var pw = el('div', 'g-pathwrap');
+        var bits = pathBits(f.path);
+        if (bits.dir) pw.appendChild(el('span', 'g-dir', bits.dir));
+        pw.appendChild(el('span', 'g-fname', bits.name));
+        row.appendChild(pw);
         row.title = f.path + '\n（点击在预览里看这次提交里的改动）';
         row.addEventListener('click', function () { openCommitFile(c.hash, f.path, row); });
         files.appendChild(row);

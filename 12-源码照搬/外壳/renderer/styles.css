@@ -5959,139 +5959,193 @@ html[data-theme="dark"] .kneu-dot { box-shadow: 0 0 5px rgba(255, 255, 255, .22)
 /* ---- git 面板（程序开发场景）：只读看板 ---- */
 .git-wrap { height: 100%; display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; overflow: hidden; font-size: 12px; }
 .git-bar { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.git-btn { flex: none; border: 1px solid var(--line, rgba(128,128,128,.35)); background: transparent; color: inherit; border-radius: 6px; padding: 1px 7px; cursor: pointer; font-size: 12px; line-height: 1.5; }
-.git-btn:hover { background: var(--hover, rgba(128,128,128,.12)); }
-.git-repo { color: var(--text-dim, #888); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.git-btn { flex: none; border: 1px solid var(--line-1); background: transparent; color: inherit; border-radius: 6px; padding: 1px 7px; cursor: pointer; font-size: 12px; line-height: 1.5; }
+.git-btn:hover { background: var(--bg-panel-hover); }
+.git-repo { color: var(--text-dim); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .git-list { flex: 1 1 auto; overflow: auto; display: flex; flex-direction: column; gap: 4px; min-height: 0; }
 .git-branch { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
 .git-badge { font-weight: 600; font-size: 12.5px; }
-.git-ahead, .git-behind, .git-stat { font-size: 11px; color: var(--text-dim, #888); }
-.git-sec { margin-top: 6px; font-size: 11px; color: var(--text-dim, #888); border-bottom: 1px solid var(--line, rgba(128,128,128,.25)); padding-bottom: 2px; }
+.git-ahead, .git-behind, .git-stat { font-size: 11px; color: var(--text-dim); }
+.git-sec { margin-top: 6px; font-size: 11px; color: var(--text-dim); border-bottom: 1px solid var(--line-1); padding-bottom: 2px; }
 .git-row { display: flex; gap: 6px; align-items: baseline; min-width: 0; }
-.git-code { flex: none; width: 1.5em; text-align: center; font-weight: 600; color: var(--text-dim, #888); font-family: ui-monospace, Consolas, monospace; }
-.git-code.is-mod { color: #b7791f; }
-.git-code.is-new { color: #2f855a; }
-.git-code.is-del { color: #c53030; }
+.git-code { flex: none; width: 1.5em; text-align: center; font-weight: 600; color: var(--text-dim); font-family: ui-monospace, Consolas, monospace; }
+.git-code.is-mod { color: var(--warn); }
+.git-code.is-new { color: var(--ok); }
+.git-code.is-del { color: var(--err); }
 .git-path, .git-subj { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-.git-hash { flex: none; color: var(--text-dim, #888); font-family: ui-monospace, Consolas, monospace; font-size: 11px; }
-.git-empty { color: var(--text-dim, #888); font-size: 11px; line-height: 1.7; padding: 4px 0; white-space: pre-wrap; }
+.git-hash { flex: none; color: var(--text-dim); font-family: ui-monospace, Consolas, monospace; font-size: 11px; }
+.git-empty { color: var(--text-dim); font-size: 11px; line-height: 1.7; padding: 4px 0; white-space: pre-wrap; }
 .git-row.clickable { cursor: pointer; border-radius: 4px; padding: 1px 4px; margin-left: -4px; }
-.git-row.clickable:hover { background: var(--hover, rgba(128,128,128,.14)); }
+.git-row.clickable:hover { background: var(--bg-panel-hover); }
 .git-row-busy { opacity: .55; }
 
 .git-br-btn { max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.git-pop { position: absolute; z-index: 30; top: 34px; left: 8px; right: 8px; max-height: 70%; overflow: auto; background: var(--bg-elev, #fff); border: 1px solid var(--line, rgba(128,128,128,.35)); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.18); padding: 6px; font-size: 12px; }
+.git-pop { position: absolute; z-index: 30; top: 34px; left: 8px; right: 8px; max-height: 70%; overflow: auto; background: var(--bg-panel); border: 1px solid var(--line-1); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.18); padding: 6px; font-size: 12px; }
 .git-wrap { position: relative; }
-.git-pop-sec { font-size: 11px; color: var(--text-dim, #888); padding: 4px 6px; }
+.git-pop-sec { font-size: 11px; color: var(--text-dim); padding: 4px 6px; }
 .git-pop-row { display: flex; gap: 6px; align-items: baseline; padding: 3px 6px; border-radius: 6px; cursor: pointer; }
-.git-pop-row:hover { background: var(--hover, rgba(128,128,128,.14)); }
+.git-pop-row:hover { background: var(--bg-panel-hover); }
 .git-pop-row.is-cur { font-weight: 600; }
 .git-pop-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.git-pop-meta { margin-left: auto; color: var(--text-dim, #888); font-size: 11px; flex: none; }
-.git-pop-ask { border-top: 1px solid var(--line, rgba(128,128,128,.25)); margin-top: 6px; padding: 6px; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
-.git-pop-ask button { border: 1px solid var(--line, rgba(128,128,128,.35)); background: transparent; border-radius: 6px; padding: 1px 8px; cursor: pointer; font-size: 11.5px; color: inherit; }
-.git-note { font-size: 11px; color: var(--text-dim, #888); padding: 2px 0; }
+.git-pop-meta { margin-left: auto; color: var(--text-dim); font-size: 11px; flex: none; }
+.git-pop-ask { border-top: 1px solid var(--line-1); margin-top: 6px; padding: 6px; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.git-pop-ask button { border: 1px solid var(--line-1); background: transparent; border-radius: 6px; padding: 1px 8px; cursor: pointer; font-size: 11.5px; color: inherit; }
+.git-note { font-size: 11px; color: var(--text-dim); padding: 2px 0; }
 
 /* git 面板：左分支树 + 右（变更/历史），照 GitUI 的信息布局 */
 .git-body { display: flex; gap: 8px; flex: 1 1 auto; min-height: 0; }
-.git-tree { flex: 0 0 38%; max-width: 38%; overflow: auto; border-right: 1px solid var(--line, rgba(128,128,128,.25)); padding-right: 6px; }
+.git-tree { flex: 0 0 38%; max-width: 38%; overflow: auto; border-right: 1px solid var(--line-1); padding-right: 6px; }
 .git-main { flex: 1 1 0; overflow: auto; min-width: 0; }
-.git-tree-head { font-size: 10.5px; color: var(--text-dim, #888); margin: 6px 0 2px; text-transform: none; }
-.git-tree-group { font-size: 10.5px; color: var(--text-dim, #888); padding: 2px 4px 0; }
+.git-tree-head { font-size: 10.5px; color: var(--text-dim); margin: 6px 0 2px; text-transform: none; }
+.git-tree-group { font-size: 10.5px; color: var(--text-dim); padding: 2px 4px 0; }
 .git-node { display: flex; gap: 6px; align-items: baseline; padding: 2px 4px; border-radius: 5px; cursor: pointer; min-width: 0; }
-.git-node:hover { background: var(--hover, rgba(128,128,128,.14)); }
+.git-node:hover { background: var(--bg-panel-hover); }
 .git-node.is-cur { font-weight: 600; }
 .git-node.is-remote .git-node-name { opacity: .9; }
-.git-node-dot { flex: none; width: .9em; color: var(--accent, #2f6feb); font-size: 10px; }
+.git-node-dot { flex: none; width: .9em; color: var(--accent); font-size: 10px; }
 .git-node-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.git-node-when { margin-left: auto; font-size: 10.5px; color: var(--text-dim, #888); flex: none; }
-.git-badge-up { font-size: 10.5px; color: #2f855a; flex: none; }
-.git-badge-dn { font-size: 10.5px; color: #c53030; flex: none; }
+.git-node-when { margin-left: auto; font-size: 10.5px; color: var(--text-dim); flex: none; }
+.git-badge-up { font-size: 10.5px; color: var(--ok); flex: none; }
+.git-badge-dn { font-size: 10.5px; color: var(--err); flex: none; }
 .git-sec-first { margin-top: 0; }
 .git-commit { flex-direction: column; align-items: flex-start; gap: 1px; padding: 3px 4px; }
-.git-meta { display: flex; gap: 8px; font-size: 10.5px; color: var(--text-dim, #888); min-width: 0; }
+.git-meta { display: flex; gap: 8px; font-size: 10.5px; color: var(--text-dim); min-width: 0; }
 .git-meta .git-hash { flex: none; }
 .git-meta .git-author, .git-meta .git-when { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ---- git 面板：IDEA Git 工具窗风格（工具栏 + 选项卡 + 列表/详情）---- */
 .g-wrap { position: relative; display: flex; flex-direction: column; height: 100%; min-height: 0; font-size: 12px; }
-.g-tb { display: flex; align-items: center; gap: 4px; padding: 6px 8px; border-bottom: 1px solid var(--line, rgba(128,128,128,.22)); }
+.g-tb { display: flex; align-items: center; gap: 4px; padding: 6px 8px; border-bottom: 1px solid var(--line-1); }
 .g-ico { width: 24px; height: 22px; border: 1px solid transparent; border-radius: 5px; background: transparent; color: inherit; cursor: pointer; font-size: 13px; line-height: 1; }
-.g-ico:hover { background: var(--hover, rgba(128,128,128,.16)); border-color: var(--line, rgba(128,128,128,.25)); }
+.g-ico:hover { background: var(--bg-panel-hover); border-color: var(--line-1); }
 .g-busy { opacity: .5; }
-.g-branch { max-width: 42%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border: 1px solid var(--line, rgba(128,128,128,.3)); background: transparent; color: inherit; border-radius: 5px; height: 22px; padding: 0 8px; font-size: 12px; cursor: pointer; }
-.g-branch:hover { background: var(--hover, rgba(128,128,128,.14)); }
-.g-filter { flex: 1 1 auto; min-width: 60px; height: 22px; border: 1px solid var(--line, rgba(128,128,128,.3)); border-radius: 5px; background: transparent; color: inherit; padding: 0 8px; font-size: 12px; outline: none; }
-.g-filter:focus { border-color: var(--accent, #2f6feb); }
-.g-tabs { display: flex; gap: 2px; padding: 0 8px; border-bottom: 1px solid var(--line, rgba(128,128,128,.22)); }
-.g-tab { border: 0; background: transparent; color: var(--text-dim, #888); font-size: 12px; padding: 6px 8px 5px; cursor: pointer; border-bottom: 2px solid transparent; }
-.g-tab.is-on { color: inherit; border-bottom-color: var(--accent, #2f6feb); font-weight: 600; }
+.g-branch { max-width: 42%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border: 1px solid var(--line-1); background: transparent; color: inherit; border-radius: 5px; height: 22px; padding: 0 8px; font-size: 12px; cursor: pointer; }
+.g-branch:hover { background: var(--bg-panel-hover); }
+.g-filter { flex: 1 1 auto; min-width: 60px; height: 22px; border: 1px solid var(--line-1); border-radius: 5px; background: transparent; color: inherit; padding: 0 8px; font-size: 12px; outline: none; }
+.g-filter:focus { border-color: var(--accent); }
+.g-tabs { display: flex; gap: 2px; padding: 0 8px; border-bottom: 1px solid var(--line-1); }
+.g-tab { border: 0; background: transparent; color: var(--text-dim); font-size: 12px; padding: 6px 8px 5px; cursor: pointer; border-bottom: 2px solid transparent; }
+.g-tab.is-on { color: inherit; border-bottom-color: var(--accent); font-weight: 600; }
 .g-pane { flex: 1 1 auto; min-height: 0; overflow: auto; }
-.g-list { padding: 4px 0; }
-.g-file { display: flex; gap: 8px; align-items: center; height: 24px; padding: 0 10px; cursor: pointer; }
-.g-file:hover { background: var(--hover, rgba(128,128,128,.12)); }
-.g-st { flex: none; width: 14px; text-align: center; font-weight: 700; font-size: 11px; color: var(--text-dim, #888); }
-.g-st.is-mod { color: #b7791f; }
-.g-st.is-new { color: #2f855a; }
-.g-st.is-del { color: #c53030; }
-.g-st.is-ren { color: #6b46c1; }
+.g-list { padding: 2px 0 4px; }
+/* 状态统计胶囊：一眼看出这次改动的规模（原来这个位置只有「全选 · N 个文件」一句灰字） */
+.g-sum { display: flex; align-items: center; flex-wrap: wrap; gap: 5px; padding: 8px 10px 7px; border-bottom: 1px solid var(--line-2); }
+.g-chip { display: inline-flex; align-items: center; height: 17px; padding: 0 7px; border-radius: 9px;
+  font-size: 10.5px; font-weight: 600; letter-spacing: .2px; color: var(--text-dim);
+  background: color-mix(in srgb, var(--text-dim) 12%, transparent); }
+.g-chip.is-mod { color: var(--warn); background: color-mix(in srgb, var(--warn) 16%, transparent); }
+.g-chip.is-new, .g-chip.is-add { color: var(--ok); background: color-mix(in srgb, var(--ok) 16%, transparent); }
+.g-chip.is-del, .g-chip.is-rm { color: var(--err); background: color-mix(in srgb, var(--err) 14%, transparent); }
+.g-chip.is-ren { color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+/* 分组头：彩点 + 名字 + 条数（组与组之间靠分隔线拉开层次） */
+.g-grp { padding-bottom: 2px; }
+.g-grp + .g-grp { border-top: 1px solid var(--line-1); margin-top: 4px; padding-top: 2px; }
+.g-grph { display: flex; align-items: center; gap: 6px; padding: 7px 10px 3px; }
+.g-grp-dot { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--text-dim); }
+.g-grp-dot.is-mod { background: var(--warn); }
+.g-grp-dot.is-new { background: var(--ok); }
+.g-grp-t { font-size: 11px; font-weight: 600; color: var(--text); }
+.g-grp-n { min-width: 16px; height: 15px; line-height: 15px; padding: 0 5px; border-radius: 8px; text-align: center;
+  font-size: 10px; color: var(--text-dim); background: color-mix(in srgb, var(--text) 9%, transparent); }
+.g-file { display: flex; gap: 7px; align-items: center; height: 27px; padding: 0 10px 0 7px; cursor: pointer;
+  border-left: 2px solid transparent; }
+.g-file:hover { background: var(--bg-panel-hover); }
+/* 行左侧状态色带：扫一眼就知道这行是改 / 增 / 删 / 重命名（比只看一个字母快） */
+.g-file.is-mod { border-left-color: color-mix(in srgb, var(--warn) 55%, transparent); }
+.g-file.is-new { border-left-color: color-mix(in srgb, var(--ok) 55%, transparent); }
+.g-file.is-del { border-left-color: color-mix(in srgb, var(--err) 55%, transparent); }
+.g-file.is-ren { border-left-color: color-mix(in srgb, var(--accent) 55%, transparent); }
+/* 状态字母做成彩色小块（原来是一个 14px 的裸字符，混在正文里几乎分不出来） */
+.g-st { flex: none; width: 16px; height: 16px; display: flex; align-items: center; justify-content: center;
+  border-radius: 3px; font-weight: 700; font-size: 10px; color: var(--text-dim);
+  background: color-mix(in srgb, var(--text-dim) 13%, transparent); }
+.g-st.is-mod { color: var(--warn); background: color-mix(in srgb, var(--warn) 18%, transparent); }
+.g-st.is-new { color: var(--ok); background: color-mix(in srgb, var(--ok) 18%, transparent); }
+.g-st.is-del { color: var(--err); background: color-mix(in srgb, var(--err) 16%, transparent); }
+.g-st.is-ren { color: var(--accent); background: color-mix(in srgb, var(--accent) 16%, transparent); }
+/* 文件类型徽标（2026-11-12 宿主：「git 面板不支持 js / vue / python 的图标」）：
+   用「短标签 + 设计令牌色」，不用彩色 emoji（不同机器字形不一致、深浅两套主题里都会花）。
+   颜色只做辅助，识别靠 JS / VUE / PY 这几个字本身，色觉障碍也读得出。 */
+.g-ext {
+  flex: none; min-width: 26px; height: 16px; line-height: 16px; padding: 0 4px; border-radius: 4px;
+  text-align: center; font-family: var(--mono); font-size: 9px; font-weight: 700; letter-spacing: .2px;
+  color: var(--text-dim); background: color-mix(in srgb, var(--text-dim) 14%, transparent);
+}
+.g-ext.is-js { color: var(--warn); background: color-mix(in srgb, var(--warn) 16%, transparent); }
+.g-ext.is-vue { color: var(--ok); background: color-mix(in srgb, var(--ok) 16%, transparent); }
+.g-ext.is-py { color: var(--accent); background: color-mix(in srgb, var(--accent) 16%, transparent); }
+.g-ext.is-red { color: var(--err); background: color-mix(in srgb, var(--err) 14%, transparent); }
 .g-path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.g-foot { padding: 6px 10px; color: var(--text-dim, #888); font-size: 11px; border-top: 1px solid var(--line, rgba(128,128,128,.18)); }
-.g-empty { padding: 14px 12px; color: var(--text-dim, #888); font-size: 11.5px; line-height: 1.7; }
+/* 路径拆两截：目录暗、文件名亮 —— 一长串路径全同色时，眼睛找不到文件名 */
+.g-pathwrap { flex: 1 1 auto; min-width: 0; display: flex; align-items: baseline; overflow: hidden; }
+.g-dir { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--text-dim); font-size: 10.5px; }
+.g-fname { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--text); font-weight: 600; }
+.g-foot { padding: 6px 10px; color: var(--text-dim); font-size: 11px; border-top: 1px solid var(--line-1); }
+.g-empty { padding: 14px 12px; color: var(--text-dim); font-size: 11.5px; line-height: 1.7; }
 .g-split { display: flex; height: 100%; min-height: 0; }
-.g-loglist { flex: 0 0 52%; max-width: 52%; overflow: auto; border-right: 1px solid var(--line, rgba(128,128,128,.22)); }
+.g-loglist { flex: 0 0 52%; max-width: 52%; overflow: auto; border-right: 1px solid var(--line-1); }
 .g-detail { flex: 1 1 0; overflow: auto; min-width: 0; }
-.g-loghead { padding: 6px 10px 2px; font-size: 10.5px; color: var(--text-dim, #888); }
+.g-loghead { padding: 6px 10px 2px; font-size: 10.5px; color: var(--text-dim); }
 .g-commit { display: flex; gap: 6px; align-items: stretch; padding: 5px 10px 5px 0; cursor: pointer; border-left: 2px solid transparent; }
-.g-commit:hover { background: var(--hover, rgba(128,128,128,.12)); }
-.g-commit.is-sel { background: rgba(47,111,235,.14); border-left-color: var(--accent, #2f6feb); }
+.g-commit:hover { background: var(--bg-panel-hover); }
+.g-commit.is-sel { background: var(--accent-soft); border-left-color: var(--accent); }
 .g-graph { flex: none; width: 18px; display: flex; justify-content: center; align-items: flex-start; padding-top: 4px; }
-.g-dot { display: block; width: 7px; height: 7px; border-radius: 50%; background: var(--accent, #2f6feb); }
-.g-dot.is-merge { background: #6b46c1; }
+.g-dot { display: block; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+.g-dot.is-merge { background: var(--warn); }
 .g-cinfo { min-width: 0; flex: 1 1 auto; }
-.g-subj { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.g-cmeta { display: flex; gap: 6px; font-size: 10.5px; color: var(--text-dim, #888); margin-top: 1px; overflow: hidden; }
+.g-subj { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; color: var(--text); }
+.g-cmeta { display: flex; gap: 6px; font-size: 10.5px; color: var(--text-dim); margin-top: 2px; overflow: hidden; }
 .g-cmeta span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.g-hash { font-family: ui-monospace, Consolas, monospace; flex: none; }
-.g-dhead { padding: 10px 12px 8px; border-bottom: 1px solid var(--line, rgba(128,128,128,.18)); }
+/* hash 做成小胶囊：混在作者/时间里的一串 hex 原来完全看不出边界 */
+.g-hash { font-family: var(--mono); font-size: 10px; flex: none; color: var(--text-dim);
+  background: color-mix(in srgb, var(--text) 7%, transparent); border-radius: 3px; padding: 0 4px; }
+.g-dhead { padding: 10px 12px 9px; border-bottom: 1px solid var(--line-2);
+  background: color-mix(in srgb, var(--text) 2.5%, transparent); }
 .g-dsubj { font-weight: 600; line-height: 1.45; }
-.g-dmeta { display: flex; gap: 8px; margin-top: 4px; font-size: 10.5px; color: var(--text-dim, #888); }
+.g-dmeta { display: flex; gap: 8px; margin-top: 4px; font-size: 10.5px; color: var(--text-dim); }
 .g-dfiles { padding: 2px 0; }
-.g-ask { position: absolute; left: 8px; right: 8px; bottom: 8px; z-index: 30; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 8px 10px; border: 1px solid var(--line, rgba(128,128,128,.35)); border-radius: 8px; background: var(--bg-elev, #fff); box-shadow: 0 6px 20px rgba(0,0,0,.18); }
+.g-ask { position: absolute; left: 8px; right: 8px; bottom: 8px; z-index: 30; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 8px 10px; border: 1px solid var(--line-1); border-radius: 8px; background: var(--bg-panel); box-shadow: 0 6px 20px rgba(0,0,0,.18); }
 .g-ask-t { font-size: 11.5px; }
-.g-btn { border: 1px solid var(--line, rgba(128,128,128,.35)); background: transparent; color: inherit; border-radius: 5px; padding: 2px 10px; font-size: 11.5px; cursor: pointer; }
-.g-msg { position: absolute; left: 8px; right: 8px; bottom: 8px; z-index: 25; padding: 6px 10px; border-radius: 6px; font-size: 11.5px; background: var(--bg-elev, #fff); border: 1px solid var(--line, rgba(128,128,128,.3)); box-shadow: 0 4px 14px rgba(0,0,0,.15); }
-.g-pop { position: absolute; z-index: 40; top: 34px; left: 8px; width: 320px; max-width: calc(100% - 16px); max-height: 70%; overflow: auto; background: var(--bg-elev, #fff); border: 1px solid var(--line, rgba(128,128,128,.35)); border-radius: 8px; box-shadow: 0 10px 28px rgba(0,0,0,.22); padding: 6px; }
+.g-btn { border: 1px solid var(--line-1); background: transparent; color: inherit; border-radius: 5px; padding: 2px 10px; font-size: 11.5px; cursor: pointer; }
+.g-msg { position: absolute; left: 8px; right: 8px; bottom: 8px; z-index: 25; padding: 6px 10px; border-radius: 6px; font-size: 11.5px; background: var(--bg-panel); border: 1px solid var(--line-1); box-shadow: 0 4px 14px rgba(0,0,0,.15); }
+.g-pop { position: absolute; z-index: 40; top: 34px; left: 8px; width: 320px; max-width: calc(100% - 16px); max-height: 70%; overflow: auto; background: var(--bg-panel); border: 1px solid var(--line-1); border-radius: 8px; box-shadow: 0 10px 28px rgba(0,0,0,.22); padding: 6px; }
 .g-pop-search { width: 100%; margin-bottom: 4px; }
-.g-pop-head { font-size: 10.5px; color: var(--text-dim, #888); padding: 6px 6px 2px; }
+.g-pop-head { font-size: 10.5px; color: var(--text-dim); padding: 6px 6px 2px; }
 .g-pop-row { display: flex; gap: 6px; align-items: center; height: 24px; padding: 0 6px; border-radius: 5px; cursor: pointer; }
-.g-pop-row:hover { background: var(--hover, rgba(128,128,128,.14)); }
+.g-pop-row:hover { background: var(--bg-panel-hover); }
 .g-pop-row.is-cur { font-weight: 600; cursor: default; }
-.g-pop-check { width: 12px; flex: none; color: var(--accent, #2f6feb); font-size: 11px; }
+.g-pop-check { width: 12px; flex: none; color: var(--accent); font-size: 11px; }
 .g-pop-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.g-pop-when { margin-left: auto; font-size: 10.5px; color: var(--text-dim, #888); flex: none; }
-.g-up { color: #2f855a; font-size: 10.5px; flex: none; }
-.g-down { color: #c53030; font-size: 10.5px; flex: none; }
+.g-pop-when { margin-left: auto; font-size: 10.5px; color: var(--text-dim); flex: none; }
+.g-up { color: var(--ok); font-size: 10.5px; flex: none; }
+.g-down { color: var(--err); font-size: 10.5px; flex: none; }
 
-.g-menu { position: fixed; z-index: 60; min-width: 190px; padding: 4px; background: var(--bg-elev, #fff); border: 1px solid var(--line, rgba(128,128,128,.35)); border-radius: 8px; box-shadow: 0 12px 30px rgba(0,0,0,.24); font-size: 12px; }
+.g-menu { position: fixed; z-index: 60; min-width: 190px; padding: 4px; background: var(--bg-panel); border: 1px solid var(--line-1); border-radius: 8px; box-shadow: 0 12px 30px rgba(0,0,0,.24); font-size: 12px; }
 .g-menu-item { height: 26px; display: flex; align-items: center; padding: 0 10px; border-radius: 5px; cursor: pointer; white-space: nowrap; }
-.g-menu-item:hover { background: var(--hover, rgba(128,128,128,.16)); }
+.g-menu-item:hover { background: var(--bg-panel-hover); }
 .g-menu-item.is-off { opacity: .42; cursor: default; }
 .g-menu-item.is-off:hover { background: transparent; }
-.g-menu-sep { height: 1px; margin: 4px 6px; background: var(--line, rgba(128,128,128,.25)); }
+.g-menu-sep { height: 1px; margin: 4px 6px; background: var(--line-1); }
 
-.g-chead { display: flex; align-items: center; gap: 8px; height: 26px; padding: 0 10px; border-bottom: 1px solid var(--line, rgba(128,128,128,.18)); color: var(--text-dim, #888); font-size: 11px; }
-.g-ck { width: 13px; height: 13px; margin: 0; flex: none; cursor: pointer; accent-color: #2f6feb; }
-.g-commitbox { border-top: 1px solid var(--line, rgba(128,128,128,.22)); padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; }
-.g-msginput { width: 100%; box-sizing: border-box; resize: vertical; min-height: 52px; max-height: 140px; border: 1px solid var(--line, rgba(128,128,128,.3)); border-radius: 6px; background: transparent; color: inherit; font: inherit; font-size: 12px; line-height: 1.5; padding: 6px 8px; outline: none; }
-.g-msginput:focus { border-color: var(--accent, #2f6feb); }
+.g-chead { display: flex; align-items: center; gap: 8px; height: 26px; padding: 0 10px; border-bottom: 1px solid var(--line-1); color: var(--text-dim); font-size: 11px; }
+.g-ck { width: 13px; height: 13px; margin: 0; flex: none; cursor: pointer; accent-color: var(--accent); }
+/* 提交区：轻微托底 + 加重分隔线，让「上半截是清单、下半截是操作」一眼分开 */
+.g-commitbox { border-top: 1px solid var(--line-2); padding: 8px 10px 10px; display: flex; flex-direction: column; gap: 6px;
+  background: color-mix(in srgb, var(--text) 2.5%, transparent); }
+.g-cbox-h { display: flex; align-items: baseline; gap: 8px; }
+.g-cbox-t { font-size: 11.5px; font-weight: 600; color: var(--text); }
+.g-cbox-n { margin-left: auto; font-size: 10.5px; color: var(--text-dim); }
+.g-msginput { width: 100%; box-sizing: border-box; resize: vertical; min-height: 52px; max-height: 140px; border: 1px solid var(--line-1); border-radius: 6px; background: transparent; color: inherit; font: inherit; font-size: 12px; line-height: 1.5; padding: 6px 8px; outline: none; }
+.g-msginput:focus { border-color: var(--accent); }
 .g-acts { display: flex; align-items: center; gap: 6px; }
-.g-acts-l { display: flex; align-items: center; gap: 5px; margin-right: auto; color: var(--text-dim, #888); font-size: 11.5px; }
+.g-acts-l { display: flex; align-items: center; gap: 5px; margin-right: auto; color: var(--text-dim); font-size: 11.5px; }
 .g-acts-t { user-select: none; }
-.g-primary { border-color: var(--accent, #2f6feb); background: rgba(47,111,235,.14); font-weight: 600; }
+.g-primary { border-color: var(--accent); background: var(--accent-soft); font-weight: 600; }
 
-.g-pop-hint { padding: 2px 6px 6px; font-size: 10.5px; color: var(--text-dim, #888); border-top: 1px solid var(--line, rgba(128,128,128,.2)); margin-top: 4px; }
-.g-pop-row.is-sel { background: rgba(47,111,235,.14); }
+.g-pop-hint { padding: 2px 6px 6px; font-size: 10.5px; color: var(--text-dim); border-top: 1px solid var(--line-1); margin-top: 4px; }
+.g-pop-row.is-sel { background: var(--accent-soft); }
 
 /* ---------- 顶栏「省 token」用量面板（2026-11-11 按用户截图反馈重做）----------
    之前每个元素都用内联 style 写死深色（文字 #e6edf3 / 次要 #8b949e），浅色主题下变成
