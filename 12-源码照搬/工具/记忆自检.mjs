@@ -165,6 +165,8 @@ ok('写 成功并落盘', r.code === 0 && r.out.includes('memory/pitfalls/'), r.
 const wrote = fs.readdirSync(path.join(mem, 'pitfalls')).filter(f => f.endsWith('写回冒烟.md'))
 ok('写 文件名是「日期-标题」', wrote.length === 1 && /^\d{4}-\d{2}-\d{2}-/.test(wrote[0]), wrote.join('、'))
 ok('写 的 frontmatter 带 evidence', read(path.join(mem, 'pitfalls', wrote[0])).includes('evidence:'))
+const wroteRaw = fs.readFileSync(path.join(mem, 'pitfalls', wrote[0]), 'utf8')
+ok('写 的输出统一 CRLF（草稿是 LF 也不混）', !/[^\r]\n/.test(wroteRaw))
 r = run(['check', '--project', root, '--card', cardPath])
 ok('写 后 check 直接通过（不用再手动 index）', r.code === 0, r.out)
 

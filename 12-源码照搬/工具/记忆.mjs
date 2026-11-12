@@ -666,6 +666,8 @@ function cmdWrite(root, flags) {
     inner = '## 要点\r\n' + pts.map(s => '- ' + s).join('\r\n')
   } else throw new Error('缺少 --正文 <md文件> 或 --要点 "a|b|c"')
   inner = inner.replace(/^\s*#\s+[^\r\n]*\r?\n/, '').trim()
+  // 本仓文本约定是 CRLF，草稿可能是 LF：这里统一，别把混合换行写进正文
+  inner = inner.replace(/\r?\n/g, '\r\n')
 
   // 3. 补 frontmatter：描述取正文第一行；evidence 是「三个月后还能自证」的唯一凭据
   const desc = String(flags.desc || flags['描述'] || '').trim()
