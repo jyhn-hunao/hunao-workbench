@@ -3684,15 +3684,20 @@ function fetchBalanceViaPlugin() {
   });
 }
 
-// 解析 DeepSeek 密钥：优先 .dsh/.credentials.yaml 的 refs.DEEPSEEK_API_KEY，其次环境变量
+// 解析 DeepSeek 密钥：按「引擎真正的 home」顺序找 .credentials.yaml 的 refs.DEEPSEEK_API_KEY，最后看环境变量
+// 2026-11-12 修（用户报「右上角余额显示不出来，只显示 ¥ --」）：
+//   启动.vbs 用 DSH_CUSTOMER_HOME 把 home 指到「引擎数据\.dsh」，而这里从前只读 DSH_DATA_DIR（引擎\.dsh）——
+//   那个目录在本机根本不存在 ⇒ 取不到密钥 ⇒ 余额一直停在「未配置 DEEPSEEK_API_KEY」的失败态。
+const CRED_FILES = [path.join(DSH_HOME, '.credentials.yaml'), path.join(DSH_DATA_DIR, '.credentials.yaml')];
 function readDeepseekKey() {
-  try {
-    const cred = path.join(DSH_DATA_DIR, '.credentials.yaml');
-    if (fs.existsSync(cred)) {
+  for (const cred of CRED_FILES) {
+    try {
+      if (!fs.existsSync(cred)) continue;
       const m = fs.readFileSync(cred, 'utf8').match(/DEEPSEEK_API_KEY:\s*(\S+)/);
-      if (m && m[1]) return m[1].replace(/^["']|["']$/g, '');
-    }
-  } catch (e) { /* ignore */ }
+      const k = m && m[1] ? m[1].replace(/^["']|["']$/g, '') : '';
+      if (k) return k;
+    } catch (e) { /* 这个候选读不了就试下一个 */ }
+  }
   return process.env.DEEPSEEK_API_KEY || '';
 }
 
@@ -3705,7 +3710,7 @@ async function fetchDeepseekBalance() {
   balanceVia = 'direct';
 
   const key = readDeepseekKey();
-  if (!key) return { ok: false, err: '未配置 DEEPSEEK_API_KEY', ts: Date.now() };
+  if (!key) return { ok: false, err: '未配置 DEEPSEEK_API_KEY（已查 ' + CRED_FILES.join(' / ') + ' 与环境变量）', ts: Date.now() };
   const ctl = new AbortController();
   const to = setTimeout(() => { try { ctl.abort(); } catch (e) { /* ignore */ } }, 15000);
   try {
@@ -4884,7 +4889,7 @@ if (!gotLock) {
       });
     } catch (err) { log('[win] 恢复场景窗口异常: ' + ((err && err.message) || err)); }
     try {
-      startSiteServer();   // 个人站场景：官网静态服务（独立于 Harness）
+      startSiteServer();   // 保命入口服务（/chat + Blender 实时画面）；个人站官网预览已于 2026-11-12 删除
     } catch (err) { reportFatal('启动本地静态服务失败', err); }
     try {
       startBalancePoll();  // 余额实时显示：每 10s 拉取 DeepSeek 平台余额
@@ -5246,8 +5251,10 @@ ipcMain.handle('kun:git:panel', async (_e, repo) => {
   const ahead = Number((first.match(/ahead (\d+)/) || [null, 0])[1]);
   const behind = Number((first.match(/behind (\d+)/) || [null, 0])[1]);
   // 2) 变更清单：XY 路径（最多 60 条，面板不再往下拉）
+  //    X = 暂存区、Y = 工作区，两位原样交给面板 —— 面板靠它分「已暂存 / 未暂存」；
+  //    trim 掉会把 " M" 和 "M " 抹成一样，就分不出暂存没暂存了（显示时面板自己归一成一位）。
   const items = String(changes.out).split(/\r?\n/).filter(Boolean).slice(0, 60)
-    .map((l) => ({ code: (l.slice(0, 2).trim() || '?'), path: l.slice(3) }));
+    .map((l) => ({ code: l.slice(0, 2) || '?', path: l.slice(3) }));
   // 3) 最近 8 条提交：hash|date|subject
   const commits = String(log.out).split(/\r?\n/).filter(Boolean).map((l) => {
     const p = l.split('|');
