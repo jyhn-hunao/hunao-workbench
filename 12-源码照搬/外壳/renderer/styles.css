@@ -3587,6 +3587,17 @@ html[data-theme="light"] .rd-flash { background: rgba(15,23,42,.03); }
 .tbs-btn:hover { background: var(--bg-panel-hover); }
 .tbs-btn.danger { color: #ffb3b5; border-color: rgba(229,72,77,.5); }
 .tbs-btn.danger:hover { background: rgba(229,72,77,.16); }
+
+/* 环境适配（⋯ 更多 → 环境适配）：整台工作台的体检 / 自愈，不是某个场景的配置 */
+.tbs-env-row { display: flex; gap: 8px; align-items: flex-start; padding: 4px 8px; }
+.tbs-env-dot { flex: 0 0 14px; font-size: 12px; line-height: 1.5; text-align: center; }
+.tbs-env-dot.ok { color: var(--ok); }
+.tbs-env-dot.warn { color: var(--warn); }
+.tbs-env-dot.bad { color: var(--err); }
+.tbs-env-mid { flex: 1 1 auto; min-width: 0; }
+.tbs-env-t { font-size: 12px; color: var(--text); }
+.tbs-env-s { font-size: 11px; color: var(--text-dim); line-height: 1.5; word-break: break-all; }
+.tbs-env-foot { display: flex; gap: 6px; align-items: center; padding: 6px 8px 2px; flex-wrap: wrap; }
 .tbs-toasts { position: fixed; right: 14px; bottom: 14px; z-index: 99999; display: flex; flex-direction: column; gap: 8px; }
 .tbs-toast {
   background: #12161f; border: 1px solid var(--border); border-left: 3px solid #3fb950; border-radius: 8px;

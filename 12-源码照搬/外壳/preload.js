@@ -373,6 +373,9 @@ contextBridge.exposeInMainWorld('app', {
     // 2026-10-24：引擎回退也留 5 代、可挑任意一代回（工具侧 --list / --restore-gen）
     engineGens: () => ipcRenderer.invoke('topbar:engine-gens'),
     engineRestoreGen: (gen) => ipcRenderer.invoke('topbar:engine-restore-gen', gen),
+    // 2026-11-12：环境适配（整台工作台的属性：本机路径 / 私有插件落位 / 会话 / 端口）
+    envCheck: () => ipcRenderer.invoke('topbar:env-check'),
+    envApply: () => ipcRenderer.invoke('topbar:env-apply'),
     // 主进程主动推的提示（升级/崩溃保险自动回退后用它告诉用户）
     onToast: (cb) => { ipcRenderer.on('topbar:toast', (e, v) => cb(v)); },
     open: (p) => ipcRenderer.invoke('topbar:open', p),

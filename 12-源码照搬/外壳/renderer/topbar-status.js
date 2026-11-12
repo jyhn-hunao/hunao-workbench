@@ -1124,6 +1124,70 @@
   }
 
   // ============================================================ ④ ⋯ 更多
+  // ⑤ 环境适配（2026-11-12）：整台工作台的属性 —— 换机器 / 换盘符后的本机路径、私有插件落位、会话与端口。
+  //    不归任何场景：它查的是「这台机器能不能把工作台跑起来」，不是某个面板的业务。
+  var ENV = { state: 'idle', rows: [], at: 0, err: '' };
+
+  function envHead() {
+    if (ENV.state === 'loading') return '体检中…';
+    if (ENV.state === 'error') return '读不到：' + (ENV.err || '脚本没回话');
+    if (!ENV.rows.length) return '换机器 / 换盘符后先体检一次';
+    var bad = ENV.rows.filter(function (r) { return r.level === 'fail'; }).length;
+    var warn = ENV.rows.filter(function (r) { return r.level === 'warn'; }).length;
+    return bad ? (bad + ' 项要修（点开可一键自愈）') : (warn ? ('通过；' + warn + ' 项需知情') : '全部通过');
+  }
+
+  function envGot(v) {
+    ENV.rows = (v && v.rows) || [];
+    ENV.err = (v && v.error) || '';
+    ENV.at = (v && v.at) || Date.now();
+    ENV.state = (!ENV.rows.length && ENV.err) ? 'error' : 'ok';
+    repaint('more', buildMore);
+  }
+
+  function refreshEnv(run) {
+    if (!TB || typeof TB.envCheck !== 'function') return;
+    ENV.state = 'loading';
+    repaint('more', buildMore);
+    run().then(envGot).catch(function (e) {
+      ENV.state = 'error';
+      ENV.err = String((e && e.message) || e);
+      repaint('more', buildMore);
+    });
+  }
+
+  function buildEnv(box) {
+    if (ENV.state === 'loading') box.appendChild(el('div', 'tbs-pop-hint', '正在跑（约 1–3 秒）…'));
+    else if (ENV.state === 'error') box.appendChild(el('div', 'tbs-pop-hint', '跑不起来：' + ENV.err));
+    else if (!ENV.rows.length) box.appendChild(el('div', 'tbs-pop-hint', '还没体检过，点下面「开始体检」。'));
+    else {
+      ENV.rows.forEach(function (r) {
+        var lvl = r.level === 'fail' ? 'bad' : (r.level === 'warn' ? 'warn' : 'ok');
+        var line = el('div', 'tbs-env-row');
+        line.appendChild(el('span', 'tbs-env-dot ' + lvl, r.level === 'fail' ? '✗' : (r.level === 'warn' ? '△' : '·')));
+        var mid = el('div', 'tbs-env-mid');
+        mid.appendChild(el('div', 'tbs-env-t', r.name || ''));
+        if (r.detail) mid.appendChild(el('div', 'tbs-env-s', r.detail));
+        line.appendChild(mid);
+        box.appendChild(line);
+      });
+    }
+    var foot = el('div', 'tbs-env-foot');
+    var a = el('button', 'tbs-btn', ENV.state === 'loading' ? '跑着…' : '开始体检');
+    a.type = 'button';
+    a.addEventListener('click', function () { refreshEnv(function () { return TB.envCheck(); }); });
+    foot.appendChild(a);
+    var b = el('button', 'tbs-btn', '一键自愈');
+    b.type = 'button';
+    b.title = '重算场景与项目登记里的本机路径、把私有插件重新落位、写 机器配置.json；不动会话（会话要重建得在命令行加 --rotate）';
+    b.addEventListener('click', function () { refreshEnv(function () { return TB.envApply(); }); });
+    foot.appendChild(b);
+    foot.appendChild(el('span', 'tbs-pop-hint', ENV.at ? ('上次 ' + new Date(ENV.at).toLocaleTimeString('zh-CN', { hour12: false })) : ''));
+    box.appendChild(foot);
+    if (ENV.rows.length) box.appendChild(el('div', 'tbs-pop-hint', '新机器上的会话必须重建：命令行 node 外壳\\scripts\\环境适配.mjs --rotate（会归档旧会话，所以界面不给这个按钮）。'));
+  }
+
+
   var MORE = { open: '' };
   var mPill = el('button', 'tbs-pill');
   mPill.type = 'button';
@@ -1182,6 +1246,11 @@
     }
     accHead(box, 'helpers', '🧑‍🤝‍🧑', '助手', '各场景派出去干重活的帮手（带「在工作」灯）', loadHelpers);
     if (MORE.open === 'helpers') { var hw2 = el('div', 'tbs-acc'); buildHelpers(hw2); box.appendChild(hw2); }
+    // 2026-11-12：环境适配（整台工作台的属性，不属于任何场景）
+    if (TB && typeof TB.envCheck === 'function') {
+      accHead(box, 'env', '🧭', '环境适配', envHead(), function () { refreshEnv(function () { return TB.envCheck(); }); });
+      if (MORE.open === 'env') { var ew = el('div', 'tbs-acc'); buildEnv(ew); box.appendChild(ew); }
+    }
 
 
 
