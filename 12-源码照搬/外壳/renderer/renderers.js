@@ -14130,29 +14130,54 @@ renderers.harness = (body, meta, head) => {
     //   脚本成功后会写 data\reload-panels.cmd，壳重载 webview，因此这里不自己刷新页面。
     if (meta && meta.id && window.app && typeof window.app.harnessRotate === 'function') {
       const rot = el('button', 'file-refresh', '换会话');
-      rot.title = '把这个面板换成一条新会话：建新 → 改绑场景 json/定位卡/索引 → 归档旧的 → 重载面板。'
-        + '\n不会替你写记忆；要把交接带过去，先让 AI 把 §〇 写好再点。';
+      rot.title = '把这个面板换成一条新会话：脚本先把最近几轮摘录进 §〇（秒级，不等模型）→ 建新 → 改绑场景 json/定位卡/索引 → 归档旧的 → 重载面板。';
       rot.addEventListener('click', async () => {
-        // 2026-11-12（用户拍板）：两档 —— 先写交接再换（推荐）/ 直接换
-        let mode = 'direct';
-        try {
-          const writeFirst = window.confirm('换会话：先把本轮结论写进 §〇 再换吗？\\n\\n确定 = 先写交接再换（推荐）\\n取消 = 直接换（不写交接）');
-          if (!window.confirm('确认换会话？当前会话会被归档（工作台设置页可取消归档）。')) return;
-          mode = writeFirst ? 'handover' : 'direct';
-        } catch (e) { /* ignore */ }
+        // 2026-11-12 二次改版：默认「脚本摘录交接 + 轮换」，不再让旧会话跑一整轮；只留一道确认。
+        // 进度走 IPC 事件 onHarnessRotateProgress（脚本每步一行 P|），小字临时显示 3 行。
+        let go = true;
+        try { go = window.confirm('换会话？\n\n旧会话会被归档；脚本把最近几轮摘录进 §〇 后立即开新会话（约 3 秒）。'); } catch (e) { /* ignore */ }
+        if (!go) return;
         rot.disabled = true;
         const oldText = rot.textContent;
         rot.textContent = '换会话中…';
-        diag.textContent = '换会话：执行中…';
+        const lines = ['换会话：准备…'];
+        const paint = () => { diag.textContent = lines.join('\n'); };
+        diag.classList.add('rotate-steps');
+        paint();
+        const off = (window.app && typeof window.app.onHarnessRotateProgress === 'function')
+          ? window.app.onHarnessRotateProgress((d) => {
+              if (!d || d.panelId !== meta.id) return;
+              lines.push(String(d.line || ''));
+              while (lines.length > 3) lines.shift();
+              paint();
+            })
+          : null;
         try {
-          const r = await window.app.harnessRotate(meta.id, { mode: mode });
-          // 2026-11-12：换成功但交接没落 ⇒ 显示警告，别只说「完成」让用户以为 §〇 写好了
-          if (r && r.ok) { diag.textContent = r.warn ? '换会话完成，但' + r.warn : '换会话完成，面板即将重载'; }
-          else { diag.textContent = '换会话失败：' + ((r && (r.reason || r.err)) || '未知原因'); }
+          const r = await window.app.harnessRotate(meta.id, { mode: 'handover' });
+          if (r && r.ok) {
+            // 成功：三步先留在小字里（含新会话 id），6 秒后收成一行
+            if (r.newId) lines.push('完成 · 新会话 ' + r.newId);
+            while (lines.length > 3) lines.shift();
+            paint();
+            const shortId = r.newId ? ' · 新会话 ' + r.newId.slice(0, 20) + '…' : '';
+            const warn = r.warn ? ' · ' + r.warn : '';
+            setTimeout(() => {
+              diag.classList.remove('rotate-steps');
+              diag.textContent = '换会话完成' + shortId + warn + (r.elapsed ? ' · ' + r.elapsed + 's' : '');
+            }, 6000);
+          } else {
+            diag.classList.remove('rotate-steps');
+            diag.textContent = '换会话失败：' + ((r && (r.reason || r.err)) || '未知原因');
+          }
           diag.title = (r && r.out) || diag.title;
-        } catch (e) { diag.textContent = '换会话失败：' + ((e && e.message) || e); }
-        rot.disabled = false;
-        rot.textContent = oldText;
+        } catch (e) {
+          diag.classList.remove('rotate-steps');
+          diag.textContent = '换会话失败：' + ((e && e.message) || e);
+        } finally {
+          if (off) off();
+          rot.disabled = false;
+          rot.textContent = oldText;
+        }
       });
       acts.appendChild(rot);
     }

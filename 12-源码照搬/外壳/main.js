@@ -4610,10 +4610,26 @@ ipcMain.handle('tools:catalog', () => {
 });
 
 // ---- 面板「换会话」按钮（2026-11-12）----
-// 一次跑完：建新会话 → 场景 json 三字段 + 定位卡 + 身份索引改绑 → 旧会话真归档 → 写 reload-panels.cmd 让面板重载。
+// 一次跑完：写交接（默认从 transcript 摘录，秒级）→ 建新会话 → 场景 json 三字段 + 定位卡 + 身份索引改绑
+//   → 旧会话真归档 → 写 reload-panels.cmd 让面板重载。
 // 安全：只接受场景 json 里真实登记的 harness 面板 id；命令与参数写死，不拼接用户输入。
-// --force 的含义：不要求交接文件 2 小时内更新（按钮不替 AI 写记忆，按钮 title 里已说明）。
-ipcMain.handle('harness:rotate', async (_e, panelId, opts) => {
+// 2026-11-12 二次改版（用户报「点了十几秒没反应」）：默认不再让旧会话跑一整轮 LLM，改由脚本摘录；
+//   进度用 `P|` 行实时推给渲染层（三行状态：交接 / 建会话 / 换绑）。
+
+// 工具脚本必须用**系统 Node**，不能用 process.execPath（= electron.exe）：
+//   Electron 43 内置 Node 24.18 的 zstd 只解 transcript 第一帧（实测 2 MB 只出 217 B、0 个 turn），
+//   换会话脚本会永远等不到 turn/end（2026-11-12 一次 10 秒的交接被拖满 600 秒的根因）。
+function toolNode() {
+  if (process.env.DSH_NODE && fs.existsSync(process.env.DSH_NODE)) return process.env.DSH_NODE;
+  const cands = [];
+  if (process.env.NVM_SYMLINK) cands.push(path.join(process.env.NVM_SYMLINK, 'node.exe'));
+  if (process.env.ProgramFiles) cands.push(path.join(process.env.ProgramFiles, 'nodejs', 'node.exe'));
+  if (process.env['ProgramFiles(x86)']) cands.push(path.join(process.env['ProgramFiles(x86)'], 'nodejs', 'node.exe'));
+  for (const p of cands) { try { if (fs.existsSync(p)) return p; } catch (e) { /* ignore */ } }
+  return 'node';   // 交给 PATH；找不到时 spawn 会报 ENOENT，界面会显示原因
+}
+
+ipcMain.handle('harness:rotate', async (event, panelId, opts) => {
   const id = String(panelId || '').trim();
   const dir = path.join(__dirname, 'scenarios');
   const ids = [];
@@ -4637,29 +4653,63 @@ ipcMain.handle('harness:rotate', async (_e, panelId, opts) => {
       archivedNote = '（提示：场景 json 原先绑的会话已归档，本次会重建绑定；不是壳没重启）';
     }
   } catch (e) { /* 读不到归档台账就不提示 */ }
-  // 2026-11-12（用户拍板）：mode=handover 时先让旧会话写交接再换（工具\交接并换会话.mjs）；
-  //   否则直接换（--force 跳过 2 小时闸）。两条路都走同一个面板白名单校验。
+  // mode=handover：脚本写交接 + 轮换（默认 transcript 摘录）；否则直接换（--force 跳过 2 小时闸）
   const handover = String((opts && opts.mode) || '') === 'handover';
   const script = handover
     ? path.join(__dirname, '..', '工具', '交接并换会话.mjs')
     : path.join(__dirname, 'scripts', '换会话.mjs');
-  // 2026-11-12 用户报「先写交接再换」120 秒就失败（实际 15:39 才写完）：--timeout 是**无进展等待**，
-  //   脚本在旧会话还有新 turn/step 时会自己续期；这里给 600 秒起步，execFile 的总超时也要够。
-  const scriptArgs = handover ? [script, '--panel', id, '--timeout', '600'] : [script, id, '--go', '--force'];
+  const scriptArgs = handover
+    ? [script, '--panel', id, '--mode', 'transcript']
+    : [script, id, '--go', '--force'];
   if (!fs.existsSync(script)) return { ok: false, err: '缺脚本：' + script };
   return await new Promise((resolve) => {
-    execFile(process.execPath, scriptArgs, {
-      cwd: __dirname, env: Object.assign({}, process.env, { DSH_HOME: DSH_HOME }),
-      timeout: 720000, windowsHide: true, maxBuffer: 8 << 20
-    }, (err, stdout, stderr) => {
-      const out = String(stdout || '') + (stderr ? '\n' + String(stderr) : '');
-      log('[harness:rotate] ' + id + ' code=' + (err ? (err.code || 'ERR') : 0));
-      // 失败时只挑「真正原因」给按钮显示（原来把整段 stdout 塞进状态小字，被 CSS 省略成一行，
-      //   用户只看到表头「现在这轮…」，看不到 ⚠ 先别急 后面的真因 —— 2026-11-12 用户报）
-      const reason = !err ? '' : (out.split(/\r?\n/).filter((l) => /^\s*[·✗]/.test(l) || /先别急|轮换失败|换不到|结构闸/.test(l)).slice(0, 3).join(' ') || String(stderr || '').trim().split(/\r?\n/).pop() || '脚本退出码 ' + (err.code || '?')).slice(0, 300);
-      // 2026-11-12：换成功了但交接没落 ⇒ 脚本打 `WARN:`，按钮照样显示完成，只是把小字换成警告（别误报失败）
-      const warn = !err ? (((out.match(/^WARN:\s*(.+)$/m) || [])[1]) || '').trim() : '';
-      resolve({ ok: !err, code: err ? (err.code || 1) : 0, reason: archivedNote + reason, out: archivedNote + out.slice(-4000), warn: warn });
+    const t0 = Date.now();
+    let child;
+    try {
+      child = spawn(toolNode(), scriptArgs, {
+        cwd: __dirname, env: Object.assign({}, process.env, { DSH_HOME: DSH_HOME }), windowsHide: true
+      });
+    } catch (e) {
+      return resolve({ ok: false, code: 1, err: '启动脚本失败：' + ((e && e.message) || e), out: '', warn: '' });
+    }
+    let out = '', errOut = '', buf = '', done = false, timedOut = false;
+    const finish = (code, errMsg) => {
+      if (done) return;
+      done = true;
+      clearTimeout(killTimer);
+      const all = out + (errOut ? '\n' + errOut : '');
+      const ok = code === 0;
+      log('[harness:rotate] ' + id + ' code=' + (code == null ? 'ERR' : code) + ' ' + ((Date.now() - t0) / 1000).toFixed(1) + 's');
+      // 失败时只挑「真正原因」给按钮显示（整段 stdout 会被 CSS 省略成一行，用户看不到真因）
+      const reason = ok ? '' : (all.split(/\r?\n/).filter((l) => /^\s*[·✗]/.test(l) || /先别急|轮换失败|换不到|结构闸|超时|失败/.test(l)).slice(0, 3).join(' ') || errMsg || ('脚本退出码 ' + code)).slice(0, 300);
+      const warn = ok ? (((all.match(/^WARN:\s*(.+)$/m) || [])[1]) || '').trim() : '';
+      const newId = ((all.match(/^NEWID:\s*(session-[0-9a-f-]{8,})\s*$/m) || [])[1]
+        || (all.match(/新会话已建[：:]\s*(session-[0-9a-f-]{8,})/) || [])[1] || '').trim();
+      const elapsed = ((all.match(/^ELAPSED:\s*([\d.]+)\s*$/m) || [])[1] || ((Date.now() - t0) / 1000).toFixed(1)).trim();
+      resolve({ ok, code: ok ? 0 : (code || 1), reason: archivedNote + reason, out: archivedNote + all.slice(-6000), warn, newId, elapsed });
+    };
+    const killTimer = setTimeout(() => {
+      timedOut = true;
+      try { child.kill(); } catch (e) { /* ignore */ }
+    }, 180000);
+    const onLine = (line) => {
+      if (!line.startsWith('P|')) return;
+      try { if (!event.sender.isDestroyed()) event.sender.send('harness:rotate:progress', { panelId: id, line: line.slice(2) }); } catch (e) { /* 渲染层没了就算了 */ }
+    };
+    child.stdout.setEncoding('utf8');
+    child.stderr.setEncoding('utf8');
+    child.stdout.on('data', (d) => {
+      out += d;
+      buf += d;
+      let i;
+      while ((i = buf.indexOf('\n')) >= 0) { onLine(buf.slice(0, i).replace(/\r$/, '')); buf = buf.slice(i + 1); }
+    });
+    child.stderr.on('data', (d) => { errOut += d; });
+    child.on('error', (e) => { finish(null, '脚本启动失败：' + ((e && e.message) || e)); });
+    child.on('close', (code) => {
+      if (buf.trim()) onLine(buf.trim());
+      if (timedOut) errOut += '\n✗ 超时（180 秒）已中止';
+      finish(timedOut ? null : code, timedOut ? '超时（180 秒）已中止' : '');
     });
   });
 });

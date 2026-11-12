@@ -1423,6 +1423,11 @@ html[data-theme="light"] .grid-backdrop {
   font-size: 10px; color: var(--text-dim); opacity: .9;
   min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;   /* 窄面板下省略号收尾 */
 }
+/* 换会话进行中：最多 3 行步骤（交接 / 建会话 / 换绑），不能只留一行省略号 */
+.harness-diag.rotate-steps {
+  white-space: pre-line; text-overflow: clip; overflow: visible;
+  line-height: 1.5; max-width: 46ch;
+}
 
 /* 程序开发 · 项目下拉（2026-11-11）：自绘菜单 —— 原生 select 的弹窗会被旁边的 webview 抢焦点顶掉 */
 .ai-project-btn {
