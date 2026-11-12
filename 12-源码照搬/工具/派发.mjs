@@ -7,17 +7,20 @@
 //
 // 用法：
 //   node 工具\派发.mjs --to "luanyujia-workbench" "排查技能面板为什么是空的"
+//   node 工具\派发.mjs --project "工作台本体" "排查技能面板为什么是空的"   # 项目名/别称（查 项目.json）
 //   node 工具\派发.mjs --to session-cd20... "任务" --no-watch --timeout 1800
 //   node 工具\派发.mjs --to "mlw" "任务" --dry        # 只核对会话与派发单，不投递
 //
-// 约定：--from 不写就是当前会话（DSH_SESSION_ID）；目标会话按标题逐字相等或 session id 认。
+// 约定：--from 不写就是当前会话（DSH_SESSION_ID）；--to 按会话标题逐字相等或 session id 认；
+//   --project 按 `_共享记忆\项目.json` 的 name / aliases 认项目，再按 cwd 找该项目当前会话
+//   （认不出就列候选并退出，不静默猜）。
 
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import {
-  ROOT, loadSessions, resolveSession, transcriptOf, readEvents, turnStats,
+  ROOT, DSH_HOME, loadSessions, resolveSession, transcriptOf, readEvents, turnStats,
   newTicket, getCookie, promptSession
 } from './派发-公共.mjs';
 
@@ -27,26 +30,43 @@ const has = (k) => argv.includes(k);
 const val = (k, d) => { const i = argv.indexOf(k); return i >= 0 ? (argv[i + 1] || d) : d; };
 
 const toWant = val('--to', '');
+const projectWant = val('--project', '');
 const fromId = val('--from', process.env.DSH_SESSION_ID || '');
 const taskFile = val('--file', '');
 // 任务正文：--file 读文件（长任务别在命令行里拼引号），否则取位置参数
 const task = taskFile
   ? (fs.existsSync(taskFile) ? fs.readFileSync(taskFile, 'utf8').trim() : '')
   : argv.filter((a, i) => !a.startsWith('--') && argv[i - 1] !== '--to' && argv[i - 1] !== '--from'
-    && argv[i - 1] !== '--timeout' && argv[i - 1] !== '--file').join(' ').trim();
+    && argv[i - 1] !== '--timeout' && argv[i - 1] !== '--file' && argv[i - 1] !== '--project').join(' ').trim();
 
-if (!toWant || !task) {
-  console.error('用法：node 工具\\派发.mjs --to "<会话标题或 id>" "<任务>" [--file 任务.md] [--from <派发方会话id>] [--no-watch] [--timeout 秒] [--dry]');
+if ((!toWant && !projectWant) || !task) {
+  console.error('用法：node 工具\\派发.mjs （--to "<会话标题或 id>" | --project "<项目名/别称>"） "<任务>" [--file 任务.md] [--from <派发方会话id>] [--no-watch] [--timeout 秒] [--dry]');
   process.exit(2);
 }
 if (!fromId) { console.error('✗ 拿不到派发方会话：设 DSH_SESSION_ID 或显式 --from'); process.exit(2); }
 
-// 1. 认会话：标题逐字相等 / 直接给 id
+// 1. 认会话：标题逐字相等 / 直接给 id / --project 先查项目台账
 const sessions = loadSessions();
 const from = sessions.get(fromId) || { id: fromId, title: '(未知会话)' };
-const to = resolveSession(sessions, toWant);
+let to = null;
+if (projectWant) {
+  // 1a. 工作区会话只拿得到「项目名/别称」⇒ 先查登记表，再按 cwd 找该项目当前会话
+  const r = resolveProjectSession(sessions, projectWant, fromId);
+  if (!r.ok) {
+    console.error('✗ ' + r.err);
+    if (r.candidates && r.candidates.length) {
+      console.error('候选（请挑一个再派，别猜）：');
+      for (const c of r.candidates) console.error('   - ' + c);
+    }
+    process.exit(1);
+  }
+  to = r.session;
+  console.log('项目  ：' + r.project + ' → 会话「' + (to.title || to.id) + '」');
+} else {
+  to = resolveSession(sessions, toWant);
+}
 if (!to) {
-  console.error('✗ 找不到会话「' + toWant + '」。现有会话：');
+  console.error('✗ 找不到会话「' + (toWant || projectWant) + '」。现有会话：');
   for (const s of [...sessions.values()].sort((a, b) => b.at - a.at).slice(0, 15)) {
     console.error('   - ' + (s.title || '(无标题)') + '  ' + s.id + '  ' + s.cwd);
   }
@@ -97,4 +117,56 @@ if (!has('--no-watch')) {
   child.unref();
   console.log('✓ 已在后台等回执（最多 ' + timeout + ' 秒）；回执会以一条消息出现在本会话');
   console.log('  查单：' + file);
+}
+
+/* 项目名/别称 → 该项目当前的会话（工作区会话只路由，不猜）
+ * 1. 只认 `_共享记忆\项目.json` 的 name / aliases；查不到就返回候选，让调用方问用户
+ * 2. 会话按 cwd 落在该项目 paths 之下认（排除派发方自己），多条取最近活跃
+ * 3. 登记了项目但会话不在线 ⇒ 明说「先切到该项目」，不退回按名字硬找 */
+function resolveProjectSession(sessions, want, fromId) {
+  const reg = path.join(DSH_HOME, '场景记忆', '_共享记忆', '项目.json');
+  let list = [];
+  try { list = (JSON.parse(fs.readFileSync(reg, 'utf8')).projects || []); } catch (e) {
+    return { ok: false, err: '读不到项目登记表：' + reg + '（' + ((e && e.message) || e) + '）', candidates: [] };
+  }
+  const q = String(want || '').trim().toLowerCase();
+  const hit = list.filter((p) => {
+    const names = [p.name, ...(p.aliases || [])].map((x) => String(x || '').trim().toLowerCase()).filter(Boolean);
+    return names.some((n) => n === q || n.includes(q) || q.includes(n));
+  });
+  if (!hit.length) {
+    return {
+      ok: false, err: '项目登记表里没有「' + want + '」',
+      candidates: list.map((p) => p.name + ((p.aliases || []).length ? '（' + p.aliases.join('/') + '）' : '') + ' → ' + (p.paths || []).join(' , '))
+    };
+  }
+  if (hit.length > 1) {
+    return { ok: false, err: '「' + want + '」命中了多个项目', candidates: hit.map((p) => p.name + ' → ' + (p.paths || []).join(' , ')) };
+  }
+  const proj = hit[0];
+  const norm = (s) => String(s || '').replace(/[\\/]+$/, '').toLowerCase();
+  const roots = (proj.paths || []).map(norm).filter(Boolean);
+  const names = [proj.name, ...(proj.aliases || [])].map((x) => String(x || '').trim().toLowerCase()).filter(Boolean);
+  // 2. 先只认「有标题」的会话：空标题的新会话认不出是谁，派过去也没人看
+  const pool = [...sessions.values()].filter((s) => String(s.title || '').trim());
+  const inProj = pool.filter((s) => {
+    const c = norm(s.cwd);
+    return roots.some((r) => c === r || c.startsWith(r + '\\') || c.startsWith(r + '/'));
+  });
+  // 2a. 该项目唯一的会话就是派发方自己 ⇒ 明说，别让人以为项目没会话
+  if (inProj.length === 1 && inProj[0].id === fromId) {
+    return { ok: false, err: '项目「' + proj.name + '」当前的会话就是派发方自己（' + fromId + '）', candidates: ['换一种派法：--to <另一个场景的会话标题>'] };
+  }
+  const cands = inProj.filter((s) => s.id !== fromId)
+    .map((s) => ({ s, exact: names.includes(String(s.title || '').trim().toLowerCase()) }))
+    .sort((a, b) => (Number(b.exact) - Number(a.exact)) || ((b.s.at || 0) - (a.s.at || 0)))
+    .map((x) => x.s);
+  if (!cands.length) {
+    return {
+      ok: false,
+      err: '项目「' + proj.name + '」已登记，但它的会话不在线（' + (proj.paths || []).join(' , ') + '）',
+      candidates: ['先在工作台把「程序开发」面板切到该项目，或改用 --to <会话标题>']
+    };
+  }
+  return { ok: true, project: proj.name, session: cands[0] };
 }
