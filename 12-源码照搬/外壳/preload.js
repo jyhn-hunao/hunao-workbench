@@ -117,8 +117,8 @@ contextBridge.exposeInMainWorld('app', {
       disks: () => ipcRenderer.invoke('kun:sys:disks'),
       load: () => ipcRenderer.invoke('kun:sys:load')
     },
-    // ---- git 面板（程序开发场景，只读）：分支 / 工作区变更 / 最近提交 ----
-    // 只读能力：不 add / commit / push；提交仍由会话按项目的 doc\提交准则.md 走。
+    // ---- git 面板（程序开发场景）：分支 / 工作区变更 / 提交历史 / 提交 / 推拉 ----
+    // 读：panel / diff / show / log；写：commit / switch / checkout / fetch / push / pull。
     // 缺这个命名空间 = 主进程/预加载还是旧的 ⇒ 面板显示「重启一次工作台」，不会白屏。
     git: {
       panel: (repo) => ipcRenderer.invoke('kun:git:panel', repo),
@@ -130,7 +130,10 @@ contextBridge.exposeInMainWorld('app', {
       log: (repo, rev) => ipcRenderer.invoke('kun:git:log', repo, rev),
       // 切分支 / 拉远程：写操作（只动工作区）。工作区脏时主进程默认拒绝，传 {force:true} 才继续。
       switch: (repo, name, opts) => ipcRenderer.invoke('kun:git:switch', repo, name, opts),
-      fetch: (repo) => ipcRenderer.invoke('kun:git:fetch', repo)
+      fetch: (repo) => ipcRenderer.invoke('kun:git:fetch', repo),
+      // 右键菜单的 Push / Update：push 有 upstream 就直推、没有就建跟踪；pull 先 fetch 再按 mode 合并
+      push: (repo) => ipcRenderer.invoke('kun:git:push', repo),
+      pull: (repo, opts) => ipcRenderer.invoke('kun:git:pull', repo, opts)
     },
     // ---- 本地抠图（2026-10-20 宿主：「智能抠图做成本地工具」）----
     // 引擎 = <工作台>\工具\抠图\venv 里的 rembg（离线，图片不出本机）；status 看引擎/模型在不在。

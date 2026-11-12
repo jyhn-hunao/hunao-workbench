@@ -18696,7 +18696,72 @@ renderers.git = function (body, meta) {
   var viewRev = '', logData = null;
   function api() { return (window.app && window.app.git) || null; }
   function msg(t) { var d = el('div', 'g-msg', t); wrap.appendChild(d); setTimeout(function () { if (d.parentNode) d.remove(); }, 6000); }
-  function codeCls(c) { return c === 'M' ? 'is-mod' : ((c === 'A' || c === '?' || c === 'U') ? 'is-new' : (c === 'D' ? 'is-del' : (c === 'R' ? 'is-ren' : ''))); }
+  // git 的 porcelain 状态码是两位（X = 暂存区，Y = 工作区），未跟踪是 "??"、忽略是 "!!"；
+  // 面板一行只放得下一个字母，先归一，否则 14px 的窄格里会挤成 "??"（宿主：前面的问号是什么）。
+  function stLetter(c) {
+    var s = String(c == null ? '' : c).replace(/\s+/g, '');
+    if (!s) return '·';
+    if (s === '??') return 'U';
+    if (s === '!!') return '!';
+    return s.charAt(0);
+  }
+  function codeCls(c) {
+    var s = stLetter(c);
+    if (s === 'M') return 'is-mod';
+    if (s === 'A' || s === 'U' || s === '?') return 'is-new';
+    if (s === 'D') return 'is-del';
+    if (s === 'R' || s === 'C') return 'is-ren';
+    return '';
+  }
+  // 状态字母的中文语义：鼠标停在小格子上给一句人话，并把 git 的原始 XY 码一并写进去
+  function stWord(c) {
+    var s = stLetter(c);
+    var raw = String(c == null ? '' : c).replace(/\s+/g, '');
+    var w = s === 'M' ? '已修改（未提交）'
+      : s === 'A' ? '新增（已暂存）'
+        : s === 'D' ? '已删除'
+          : s === 'R' ? '重命名'
+            : s === 'C' ? '复制'
+              : s === 'U' ? '未跟踪（新文件，还没 git add）'
+                : s === '!' ? '被 git 忽略'
+                  : 'git 状态未知';
+    return w + (raw && raw !== s ? '（git 原码 ' + raw + '）' : '');
+  }
+  // 文件类型徽标：给变更 / 历史详情的行首加一个短扩展名标签（JS / VUE / PY …）。
+  //   为什么不用 emoji 图标：不同机器字形不一致，深浅两套皮肤里还会花；标签文字本身最可靠，
+  //   颜色只做辅助（色觉障碍也读得出是哪种文件）。颜色仍只走设计令牌，见 styles.css 的 .g-ext。
+  var EXT_BADGE = {
+    js: ['JS', 'is-js'], jsx: ['JSX', 'is-js'], mjs: ['JS', 'is-js'], cjs: ['JS', 'is-js'],
+    ts: ['TS', 'is-py'], tsx: ['TSX', 'is-py'], mts: ['TS', 'is-py'], cts: ['TS', 'is-py'],
+    vue: ['VUE', 'is-vue'], svelte: ['SVEL', 'is-vue'], astro: ['ASTRO', 'is-vue'],
+    py: ['PY', 'is-py'], pyw: ['PY', 'is-py'], ipynb: ['NB', 'is-py'],
+    java: ['JAVA', 'is-red'], kt: ['KT', 'is-red'], kts: ['KT', 'is-red'], scala: ['SCALA', 'is-red'],
+    go: ['GO', 'is-vue'], rs: ['RS', 'is-red'], rb: ['RB', 'is-red'], php: ['PHP', 'is-py'],
+    cs: ['CS', 'is-py'], c: ['C', 'is-py'], h: ['H', 'is-py'], cpp: ['C++', 'is-py'], cc: ['C++', 'is-py'], hpp: ['H++', 'is-py'],
+    css: ['CSS', 'is-py'], scss: ['SCSS', 'is-py'], less: ['LESS', 'is-py'], sass: ['SASS', 'is-py'],
+    html: ['HTML', 'is-red'], htm: ['HTML', 'is-red'], wxml: ['WXML', 'is-vue'], xhtml: ['HTML', 'is-red'],
+    json: ['JSON', 'is-dim'], jsonc: ['JSON', 'is-dim'], json5: ['JSON', 'is-dim'],
+    yml: ['YML', 'is-dim'], yaml: ['YML', 'is-dim'], toml: ['TOML', 'is-dim'],
+    xml: ['XML', 'is-dim'], ini: ['INI', 'is-dim'], cfg: ['CFG', 'is-dim'], conf: ['CONF', 'is-dim'],
+    md: ['MD', 'is-dim'], markdown: ['MD', 'is-dim'], txt: ['TXT', 'is-dim'], log: ['LOG', 'is-dim'],
+    sql: ['SQL', 'is-vue'], sh: ['SH', 'is-dim'], bash: ['SH', 'is-dim'], bat: ['BAT', 'is-dim'],
+    cmd: ['CMD', 'is-dim'], ps1: ['PS1', 'is-dim'], vbs: ['VBS', 'is-dim'],
+    svg: ['SVG', 'is-red'], png: ['IMG', 'is-dim'], jpg: ['IMG', 'is-dim'], jpeg: ['IMG', 'is-dim'],
+    gif: ['IMG', 'is-dim'], webp: ['IMG', 'is-dim'], bmp: ['IMG', 'is-dim'], ico: ['ICO', 'is-dim'],
+    mp4: ['VID', 'is-dim'], mp3: ['AUD', 'is-dim'], wav: ['AUD', 'is-dim'], pdf: ['PDF', 'is-red'],
+    doc: ['DOC', 'is-dim'], docx: ['DOC', 'is-dim'], xls: ['XLS', 'is-dim'], xlsx: ['XLS', 'is-dim'],
+    ppt: ['PPT', 'is-dim'], pptx: ['PPT', 'is-dim'], zip: ['ZIP', 'is-dim'], gitignore: ['GIT', 'is-dim'],
+    gitattributes: ['GIT', 'is-dim'], env: ['ENV', 'is-dim'], lock: ['LOCK', 'is-dim']
+  };
+  function extBadge(path) {
+    var m = /\.([A-Za-z0-9_]+)$/.exec(String(path || ''));
+    var ext = m ? m[1].toLowerCase() : '';
+    var hit = EXT_BADGE[ext];
+    var label = hit ? hit[0] : (ext ? ext.slice(0, 5).toUpperCase() : '·');
+    var b = el('span', 'g-ext ' + (hit ? hit[1] : 'is-dim'), label);
+    b.title = ext ? ('文件类型：.' + ext) : '没有扩展名';
+    return b;
+  }
 
   /* ---------- 变更 ---------- */
   function renderChanges() {
@@ -18724,7 +18789,10 @@ renderers.git = function (body, meta) {
       ck.addEventListener('click', function (e) { e.stopPropagation(); });
       ck.addEventListener('change', function () { picked[c.path] = ck.checked; });
       row.appendChild(ck);
-      row.appendChild(el('span', 'g-st ' + codeCls(c.code), c.code === '?' ? 'U' : c.code));
+      var st = el('span', 'g-st ' + codeCls(c.code), stLetter(c.code));
+      st.title = stWord(c.code);
+      row.appendChild(st);
+      row.appendChild(extBadge(c.path));
       row.appendChild(el('span', 'g-path', c.path));
       row.title = c.path + '（点行在预览里看 diff；勾选框决定是否提交）';
       row.addEventListener('click', function () { openDiff(c.path, row); });
@@ -18821,7 +18889,7 @@ renderers.git = function (body, meta) {
       info.appendChild(meta);
       row.appendChild(info);
       row.addEventListener('click', function () { sel = c.hash; renderLog(); loadDetail(c.hash); });
-      row.addEventListener('contextmenu', function (e) { e.preventDefault(); openMenu(c, e.clientX, e.clientY); });
+      row.addEventListener('contextmenu', function (e) { e.preventDefault(); e.stopPropagation(); openMenu(c, e.clientX, e.clientY); });
       left.appendChild(row);
     });
     renderDetail(right);
@@ -18846,7 +18914,10 @@ renderers.git = function (body, meta) {
     else {
       detail.files.forEach(function (f) {
         var row = el('div', 'g-file g-dfile');
-        row.appendChild(el('span', 'g-st ' + codeCls(f.code), f.code));
+        var st = el('span', 'g-st ' + codeCls(f.code), stLetter(f.code));
+        st.title = stWord(f.code);
+        row.appendChild(st);
+        row.appendChild(extBadge(f.path));
         row.appendChild(el('span', 'g-path', f.path));
         row.title = f.path + '\n（点击在预览里看这次提交里的改动）';
         row.addEventListener('click', function () { openCommitFile(c.hash, f.path, row); });
@@ -18869,6 +18940,17 @@ renderers.git = function (body, meta) {
   }
 
   /* ---------- 动作 ---------- */
+  // diff 该送哪儿：预览面板（renderers.view 注册在 window.__kunViews[面板id]），**不是文件面板**。
+  //   以前送的是 window.__kunFiles['cd-files'].open()，可 diff 是 %TEMP% 里的临时 .txt，
+  //   文件面板只认自己树里的路径 ⇒ 一定弹「找不到路径」。预览面板按路径取内容，临时文件照样能看。
+  //   优先用场景 json 的 viewPanel，没配就取第一个注册的预览面板（与 file 面板同一套 flowFindView）。
+  function previewTo(path, title) {
+    var VP = null;
+    try { VP = (typeof flowFindView === 'function') ? flowFindView(meta && meta.viewPanel) : null; } catch (e) { VP = null; }
+    if (VP && typeof VP.show === 'function') { VP.show({ path: path, title: String(title || ''), kind: 'diff', noRemember: true }); return true; }
+    return false;
+  }
+
   async function openDiff(rel, row) {
     var a = api();
     if (!a || !a.diff) { msg('这次启动的界面还没有 diff 能力 ⇒ 重启一次工作台'); return; }
@@ -18877,9 +18959,7 @@ renderers.git = function (body, meta) {
     try { d = await a.diff(repo, rel); } catch (e) { d = { ok: false, err: String((e && e.message) || e) }; }
     row.classList.remove('g-busy');
     if (!d || !d.ok) { msg('✗ ' + ((d && d.err) || '取 diff 失败')); return; }
-    var files = window.__kunFiles && window.__kunFiles['cd-files'];
-    if (files && typeof files.open === 'function') files.open(d.path);
-    else msg('diff 已生成：' + d.path);
+    if (!previewTo(d.path, rel + '（工作区改动）')) msg('diff 已生成，但这块场景没有预览面板可显示：' + d.path);
   }
   async function openCommitFile(hash, rel, row) {
     var a = api();
@@ -18889,16 +18969,21 @@ renderers.git = function (body, meta) {
     try { d = await a.diff(repo, rel, hash); } catch (e) { d = { ok: false, err: String((e && e.message) || e) }; }
     row.classList.remove('g-busy');
     if (!d || !d.ok) { msg('✗ ' + ((d && d.err) || '取 diff 失败')); return; }
-    var files = window.__kunFiles && window.__kunFiles['cd-files'];
-    if (files && typeof files.open === 'function') files.open(d.path);
-    else msg('diff 已生成：' + d.path);
+    if (!previewTo(d.path, rel + ' @ ' + String(hash || '').slice(0, 7))) msg('diff 已生成，但这块场景没有预览面板可显示：' + d.path);
   }
 
   /* ---------- 右键菜单：Copy Hash / Copy Subject / Checkout Revision ---------- */
   var menu = el('div', 'g-menu');
   menu.style.display = 'none';
   wrap.appendChild(menu);
-  function closeMenu() { menu.style.display = 'none'; menu.innerHTML = ''; }
+  // 用状态位记“开着没”，别只信 style.display —— 别的面板/皮肤脚本也可能碰到它的样式
+  var menuOpen = false;
+  function closeMenu() {
+    if (!menuOpen) return;                 // 幂等：重复调用不打 DOM，避免和下面的监听互相触发
+    menuOpen = false;
+    menu.style.display = 'none';
+    menu.innerHTML = '';
+  }
   function copyText(t) {
     try {
       var ta = document.createElement('textarea');
@@ -18917,6 +19002,8 @@ renderers.git = function (body, meta) {
       var it = el('div', 'g-menu-item' + (disabled ? ' is-off' : ''), label);
       if (title) it.title = title;
       if (!disabled && fn) it.addEventListener('click', function () { closeMenu(); fn(); });
+      // 灰条也得能点掉：以前点灰条毫无反应，菜单就一直挂在面板上
+      else it.addEventListener('click', closeMenu);
       menu.appendChild(it);
     }
     item('Copy Hash', function () { copyText(c.full || c.hash); });
@@ -18926,6 +19013,7 @@ renderers.git = function (body, meta) {
     item('Cherry-Pick…', null, true, '未开放：会产生冲突，需要交互解决');
     item('Revert Commit…', null, true, '未开放：会改写工作区，冲突得人工处理');
     item('Reset Current Branch…', null, true, '未开放：会丢提交');
+    menuOpen = true;
     menu.style.display = 'block';
     var w = menu.offsetWidth || 190, h = menu.offsetHeight || 150;
     menu.style.left = Math.min(x, window.innerWidth - w - 8) + "px";
@@ -18961,6 +19049,96 @@ renderers.git = function (body, meta) {
     wrap.appendChild(box);
   }
 
+  /* ---------- 远程：Push / Update（对着 IDEA 的 Push / Update Project）---------- */
+  //   1. 有 upstream 直推、没有就 -u origin <当前分支>（面板不动工作区）
+  //   2. Update = fetch + 快进；快进不了让用户选合并或变基，不擅自留冲突提交
+  async function doPush() {
+    var a = api();
+    if (!a || !a.push) { msg('这次启动的界面还没有推送能力 ⇒ 重启一次工作台'); return; }
+    if (busy) { msg('上一件事还没干完，等它结束'); return; }
+    busy = true;
+    msg('推送中（可能几十秒）…');
+    var r = null;
+    try { r = await a.push(repo); } catch (e) { r = { ok: false, err: String((e && e.message) || e) }; }
+    busy = false;
+    await load();
+    if (r && r.ok) msg('已推送 ' + r.branch + ' → ' + r.upstream + (r.newUpstream ? '（新建跟踪）' : ''));
+    else if (r && r.code === 'behind') msg('✗ 远程有本地没有的提交，先右键 Update 再推：' + r.err);
+    else msg('✗ ' + ((r && r.err) || '推送失败'));
+  }
+
+  async function doPull(mode, force) {
+    var a = api();
+    if (!a || !a.pull) { msg('这次启动的界面还没有拉取能力 ⇒ 重启一次工作台'); return; }
+    if (busy) { msg('上一件事还没干完，等它结束'); return; }
+    busy = true;
+    msg(mode === 'ff' ? 'Update 中（fetch + 快进）…' : ('更新中（' + (mode === 'merge' ? '合并' : '变基') + '）…'));
+    var r = null;
+    try { r = await a.pull(repo, { mode: mode, force: !!force }); } catch (e) { r = { ok: false, err: String((e && e.message) || e) }; }
+    busy = false;
+    if (r && r.code === 'dirty') { askPullDirty(r.dirty, mode); return; }
+    if (r && r.code === 'diverged') { askDiverged(r); return; }
+    await load();
+    if (r && r.ok) {
+      msg(r.behind
+        ? ('已更新：落后 ' + r.behind + ' 条已' + (r.mode === 'merge' ? '合并' : (r.mode === 'rebase' ? '变基' : '快进')) + '，本地未推送 ' + r.ahead + ' 条')
+        : '已经是最新（远程没有新提交）');
+    } else msg('✗ ' + ((r && r.err) || '更新失败'));
+  }
+
+  function askPullDirty(n, mode) {
+    var box = el('div', 'g-ask');
+    box.appendChild(el('span', 'g-ask-t', '工作区有 ' + n + ' 处未提交改动，仍要拉取？'));
+    var yes = el('button', 'g-btn', '仍然拉取');
+    var no = el('button', 'g-btn', '取消');
+    yes.addEventListener('click', function () { box.remove(); doPull(mode, true); });
+    no.addEventListener('click', function () { box.remove(); });
+    box.appendChild(yes); box.appendChild(no);
+    wrap.appendChild(box);
+  }
+
+  // 分叉（本地 ahead + 远程 behind）：让用户当场选合并还是变基，别自己替他决定
+  function askDiverged(r) {
+    var box = el('div', 'g-ask');
+    box.appendChild(el('span', 'g-ask-t', '快进不了：远程有 ' + r.behind + ' 条新提交，本地有 ' + r.ahead + ' 条未推送。怎么合？'));
+    var bMerge = el('button', 'g-btn g-primary', '合并（merge）');
+    var bRebase = el('button', 'g-btn', '变基（rebase）');
+    var bNo = el('button', 'g-btn', '取消');
+    bMerge.addEventListener('click', function () { box.remove(); doPull('merge', true); });
+    bRebase.addEventListener('click', function () { box.remove(); doPull('rebase', true); });
+    bNo.addEventListener('click', function () { box.remove(); });
+    box.appendChild(bMerge); box.appendChild(bRebase); box.appendChild(bNo);
+    wrap.appendChild(box);
+  }
+
+  /* ---------- 右键菜单（空白处 / 变更列表）：Update · Push · Fetch ---------- */
+  //   为什么要这一层：提交行、分支行各有自己的菜单，但「把本地提交推上去」「把远程更新拉下来」
+  //   跟具体某一行无关，得有个不挑目标位置的入口。
+  function openRepoMenu(x, y) {
+    menu.innerHTML = '';
+    function item(label, fn, disabled, title) {
+      var it = el('div', 'g-menu-item' + (disabled ? ' is-off' : ''), label);
+      if (title) it.title = title;
+      if (!disabled && fn) it.addEventListener('click', function () { closeMenu(); fn(); });
+      menu.appendChild(it);
+    }
+    var ahead = (data && data.ahead) || 0;
+    var behind = (data && data.behind) || 0;
+    var up = (data && data.upstream) || '@{u}';
+    item('Update（拉取）…', function () { doPull('ff'); }, false,
+      'fetch + 快进到 ' + up + (behind ? '（落后 ' + behind + ' 条）' : '（已是最新）'));
+    item('Push（推送）…', function () { doPush(); }, false,
+      '推到 ' + up + (ahead ? '（领先 ' + ahead + ' 条）' : '（没有未推送提交）'));
+    item('Fetch（只取远程引用）', function () { doFetch(); }, false, '不改工作区，只更新远程分支引用');
+    menu.appendChild(el('div', 'g-menu-sep'));
+    item('Refresh（刷新面板）', function () { load(); }, false);
+    menuOpen = true;
+    menu.style.display = 'block';
+    var w = menu.offsetWidth || 200, h = menu.offsetHeight || 160;
+    menu.style.left = Math.min(x, window.innerWidth - w - 8) + 'px';
+    menu.style.top = Math.min(y, window.innerHeight - h - 8) + 'px';
+  }
+
   /* ---------- 分支选择（IDEA 的 branch 下拉） ---------- */
   function closePop() { pop.style.display = 'none'; pop.innerHTML = ''; picker = false; }
   function currentCommits() {
@@ -18993,17 +19171,23 @@ renderers.git = function (body, meta) {
       var it = el('div', 'g-menu-item' + (disabled ? ' is-off' : ''), label);
       if (title) it.title = title;
       if (!disabled && fn) it.addEventListener('click', function () { closeMenu(); fn(); });
+      else if (disabled) it.addEventListener('click', closeMenu);   // 灰条也能点掉，别让菜单赖着
       menu.appendChild(it);
     }
     if (isRemote) {
       item('Checkout as New Local Branch…', function () { switchTo(b.name, true); });
     } else {
       var cur = (data && (data.current || data.branch)) || '';
-      item('Checkout', function () { switchTo(b.name, false); }, b.name === cur, b.name === cur ? '已经是当前分支' : '');
+      var isCur = b.name === cur;
+      item('Checkout', function () { switchTo(b.name, false); }, isCur, isCur ? '已经是当前分支' : '');
+      // 推拉只对当前分支有意义（其它分支得先 Checkout），所以非当前分支置灰并写清原因
+      item('Update（拉取）…', function () { doPull('ff'); }, !isCur, isCur ? '拉 ' + (b.upstream || '@{u}') + ' 的快进更新' : '只能更新当前分支：先 Checkout 它');
+      item('Push（推送）…', function () { doPush(); }, !isCur, isCur ? '推到 ' + (b.upstream || 'origin/' + b.name) : '只能推当前分支：先 Checkout 它');
     }
     item('Show History', function () { viewBranch(b.name); });
     menu.appendChild(el('div', 'g-menu-sep'));
     item('Copy Branch Name', function () { copyText(b.name); });
+    menuOpen = true;
     menu.style.display = 'block';
     var w = menu.offsetWidth || 200, h = menu.offsetHeight || 120;
     menu.style.left = Math.min(x, window.innerWidth - w - 8) + 'px';
@@ -19014,7 +19198,7 @@ renderers.git = function (body, meta) {
     if (picker) { closePop(); return; }
     if (!data || !data.ok) { msg('还没读到分支信息，先 ⟳'); return; }
     picker = true;
-    pop.innerHTML = '';
+    closeMenu();
     var search = document.createElement('input');
     search.className = 'g-filter g-pop-search';
     search.placeholder = '搜索分支';
@@ -19022,7 +19206,7 @@ renderers.git = function (body, meta) {
     pop.appendChild(search);
     var body = el('div', 'g-pop-body');
     pop.appendChild(body);
-    var hint = el('div', 'g-pop-hint', '双击看该分支历史 · 右键切换 / 复制');
+    var hint = el('div', 'g-pop-hint', '双击看该分支历史 · 右键切换 / 推拉 / 复制');
     pop.appendChild(hint);
 
     function mark(row) {
@@ -19056,10 +19240,10 @@ renderers.git = function (body, meta) {
         if (b.ahead) row.appendChild(el('span', 'g-up', '↑' + b.ahead));
         if (b.behind) row.appendChild(el('span', 'g-down', '↓' + b.behind));
         if (b.when) row.appendChild(el('span', 'g-pop-when', b.when));
-        row.title = (b.upstream ? 'upstream: ' + b.upstream + '\n' : '') + (b.subject || '') + '\n双击：看历史　右键：切换';
+        row.title = (b.upstream ? 'upstream: ' + b.upstream + '\n' : '') + (b.subject || '') + '\n双击：看历史　右键：切换 / 推拉';
         row.addEventListener('click', function () { mark(row); });
         row.addEventListener('dblclick', function () { viewBranch(b.name); });
-        row.addEventListener('contextmenu', function (e) { e.preventDefault(); openBranchMenu(b, false, e.clientX, e.clientY); });
+        row.addEventListener('contextmenu', function (e) { e.preventDefault(); e.stopPropagation(); openBranchMenu(b, false, e.clientX, e.clientY); });
         body.appendChild(row);
       });
 
@@ -19074,7 +19258,7 @@ renderers.git = function (body, meta) {
         row.title = b.name + '\n双击：看历史　右键：检出新本地分支';
         row.addEventListener('click', function () { mark(row); });
         row.addEventListener('dblclick', function () { viewBranch(b.name); });
-        row.addEventListener('contextmenu', function (e) { e.preventDefault(); openBranchMenu(b, true, e.clientX, e.clientY); });
+        row.addEventListener('contextmenu', function (e) { e.preventDefault(); e.stopPropagation(); openBranchMenu(b, true, e.clientX, e.clientY); });
         body.appendChild(row);
       });
     }
@@ -19125,6 +19309,7 @@ renderers.git = function (body, meta) {
   /* ---------- 主流程 ---------- */
   async function load() {
     if (dead) return;
+    closeMenu();               // 重载后旧菜单锚点已经过时，先关掉
     var a = api();
     paneChanges.innerHTML = '';
     paneLog.innerHTML = '';
@@ -19152,6 +19337,7 @@ renderers.git = function (body, meta) {
 
   function setTab(t) {
     tab = t;
+    closeMenu();
     tabChanges.classList.toggle('is-on', t === 'changes');
     tabLog.classList.toggle('is-on', t === 'log');
     paneChanges.style.display = t === 'changes' ? 'block' : 'none';
@@ -19169,6 +19355,62 @@ renderers.git = function (body, meta) {
   var onDocDown = function (e) { if (picker && !pop.contains(e.target) && e.target !== btnBranch) closePop(); };
   document.addEventListener('mousedown', onDocDown);
 
+  // 右键菜单的关闭：一律挂 document 的**捕获阶段** —— 面板里任何控件（按钮、滚动条、文本框）
+  // 都没法用 stopPropagation 把事件拦在前面；以前只靠“点菜单项才关”，所以菜单会一直挂在那儿。
+  //   1. 菜单外按下（左键或右键）就关
+  //   2. 菜单外右键先关、再由目标行开自己的菜单（不然两个位置各挂一个）
+  //   3. Esc / 滚轮 / 滚动 / 窗口失焦 / 窗口尺寸变化 ⇒ 关（fixed 定位的菜单锚点一动就没意义了）
+  var menuOut = function (e) {
+    if (menuOpen && !menu.contains(e.target)) closeMenu();
+  };
+  var menuKey = function (e) {
+    if (e.key === 'Escape' || e.keyCode === 27) closeMenu();
+  };
+  document.addEventListener('mousedown', menuOut, true);
+  document.addEventListener('contextmenu', menuOut, true);
+  document.addEventListener('wheel', menuOut, { capture: true, passive: true });
+  document.addEventListener('scroll', menuOut, true);
+  document.addEventListener('keydown', menuKey, true);
+  window.addEventListener('blur', closeMenu);
+  window.addEventListener('resize', closeMenu);
+  // 预览/AI 面板是 <webview>，点它们时 mouse 事件到不了本文档 ⇒ 上面几条都收不到。
+  // 补一条：鼠标离开整个 Git 面板（菜单本身是它的子节点，停在菜单上不算离开）就收起。
+  var leaveTimer = 0;
+  var onWrapLeave = function () {
+    if (!menuOpen) return;
+    if (leaveTimer) clearTimeout(leaveTimer);
+    leaveTimer = setTimeout(function () { leaveTimer = 0; closeMenu(); }, 220);
+  };
+  var onWrapEnter = function () { if (leaveTimer) { clearTimeout(leaveTimer); leaveTimer = 0; } };
+  wrap.addEventListener('mouseleave', onWrapLeave);
+  wrap.addEventListener('mouseenter', onWrapEnter);
+
+  // 空白处 / 变更列表 / 工具栏右键 = 仓库级菜单（提交行、分支行各自 e.stopPropagation 拦在前面）
+  var onRepoMenu = function (e) {
+    var tag = (e.target && e.target.tagName) || '';
+    // 输入框/文本域保留系统自己的右键编辑菜单，别拿面板菜单盖掉粘贴
+    if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+    if (e.defaultPrevented || menu.contains(e.target) || pop.contains(e.target)) return;
+    e.preventDefault();
+    openRepoMenu(e.clientX, e.clientY);
+  };
+  wrap.addEventListener('contextmenu', onRepoMenu);
+
   load();
-  return function () { dead = true; };
+  return function () {
+    dead = true;
+    closeMenu();
+    document.removeEventListener('mousedown', onDocDown);
+    document.removeEventListener('mousedown', menuOut, true);
+    document.removeEventListener('contextmenu', menuOut, true);
+    document.removeEventListener('wheel', menuOut, { capture: true });
+    document.removeEventListener('scroll', menuOut, true);
+    document.removeEventListener('keydown', menuKey, true);
+    window.removeEventListener('blur', closeMenu);
+    window.removeEventListener('resize', closeMenu);
+    wrap.removeEventListener('mouseleave', onWrapLeave);
+    wrap.removeEventListener('mouseenter', onWrapEnter);
+    if (leaveTimer) clearTimeout(leaveTimer);
+    wrap.removeEventListener('contextmenu', onRepoMenu);
+  };
 };

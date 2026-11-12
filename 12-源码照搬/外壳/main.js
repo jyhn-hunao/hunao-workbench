@@ -5350,6 +5350,85 @@ ipcMain.handle('kun:git:fetch', async (_e, repo) => {
   return { ok: true, out: String(out.out || '').trim() };
 });
 
+// ---- git push / pull（右键菜单的 Push / Update）----
+//   为什么单开两条：提交区的「Commit and Push」只覆盖“先提交再推”；从别的分支切过来、
+//   或本地早有提交只想推上去 / 只想把远程更新拉下来时，需要一个不碰工作区的独立入口。
+//   push：有 upstream 直接 push，没 upstream 就 -u origin <当前分支>；detached HEAD 拒绝（推不出去，也不知道推哪条）。
+//   pull（Update）：先 fetch，再按 mode 处理：
+//     ff（默认）= merge --ff-only —— 能快进才动；快进不了（本地有未推送提交）回 code=diverged，交给界面问用户；
+//     merge = merge --no-edit；rebase = rebase <upstream>。
+//     后两种都可能冲突 ⇒ 一律 --abort 回滚，仓库留在干净状态，错误原样回界面（不静默兜底）。
+ipcMain.handle('kun:git:push', async (_e, repo) => {
+  const dir = String(repo || '').trim();
+  if (!dir) return { ok: false, err: '缺少仓库路径' };
+  if (!fs.existsSync(dir)) return { ok: false, err: '仓库目录不存在：' + dir };
+  const run = (args) => new Promise((resolve) => {
+    execFile('git', ['-c', 'core.quotepath=false', '--no-optional-locks', '-C', dir, ...args],
+      { windowsHide: true, maxBuffer: 16 << 20, timeout: 120000 },
+      (err, stdout, stderr) => resolve({ ok: !err, out: String(stdout || ''), err: String(stderr || (err && err.message) || '') }));
+  });
+  const br = await run(['rev-parse', '--abbrev-ref', 'HEAD']);
+  const branch = String(br.out || '').trim();
+  if (!branch || branch === 'HEAD') return { ok: false, code: 'detached', err: '当前是 detached HEAD，先切到分支再推' };
+  const up = await run(['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}']);
+  const upstream = String(up.out || '').trim();
+  const hasUp = up.ok && !!upstream;
+  const p = hasUp ? await run(['push']) : await run(['push', '-u', 'origin', branch]);
+  if (!p.ok) {
+    const err = String(p.err || '').trim() || 'git push 失败（网络或凭据？）';
+    // 非快进 = 远程有本地没有的提交，界面提示先 Update，不替用户强制推
+    const code = /non-fast-forward|fetch first|rejected|behind/i.test(err) ? 'behind' : 'err';
+    return { ok: false, code, err };
+  }
+  return { ok: true, branch, upstream: hasUp ? upstream : ('origin/' + branch), newUpstream: !hasUp, out: String(p.out || '').trim() };
+});
+
+ipcMain.handle('kun:git:pull', async (_e, repo, opts) => {
+  const dir = String(repo || '').trim();
+  const o = opts || {};
+  const mode = (o.mode === 'merge' || o.mode === 'rebase') ? o.mode : 'ff';
+  const force = !!o.force;
+  if (!dir) return { ok: false, err: '缺少仓库路径' };
+  if (!fs.existsSync(dir)) return { ok: false, err: '仓库目录不存在：' + dir };
+  const run = (args) => new Promise((resolve) => {
+    execFile('git', ['-c', 'core.quotepath=false', '--no-optional-locks', '-C', dir, ...args],
+      { windowsHide: true, maxBuffer: 16 << 20, timeout: 120000 },
+      (err, stdout, stderr) => resolve({ ok: !err, out: String(stdout || ''), err: String(stderr || (err && err.message) || '') }));
+  });
+  // 1) 前提：必须在分支上，且有跟踪的 upstream
+  const br = await run(['rev-parse', '--abbrev-ref', 'HEAD']);
+  const branch = String(br.out || '').trim();
+  if (!branch || branch === 'HEAD') return { ok: false, code: 'detached', err: '当前是 detached HEAD，先切到分支再拉' };
+  const up = await run(['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}']);
+  const upstream = String(up.out || '').trim();
+  if (!up.ok || !upstream) return { ok: false, code: 'no-upstream', err: '当前分支没有 upstream；先 Push 一次建立跟踪' };
+  // 2) 工作区脏：拉取会碰工作区，先问（force 才继续）
+  const st = await run(['status', '--porcelain=v1']);
+  const dirty = String(st.out || '').split(/\r?\n/).filter(Boolean).length;
+  if (dirty && !force) return { ok: false, code: 'dirty', dirty, err: '工作区有 ' + dirty + ' 处未提交改动' };
+  // 3) 先 fetch，再算落后/领先（用引用算，diff 与工作区无关）
+  const f = await run(['fetch', '--prune']);
+  if (!f.ok) return { ok: false, err: String(f.err || '').trim() || 'fetch 失败（网络或凭据？）' };
+  const cnt = await run(['rev-list', '--left-right', '--count', upstream + '...HEAD']);
+  const nums = String(cnt.out || '').trim().split(/\s+/);
+  const behind = Number(nums[0] || 0);
+  const ahead = Number(nums[1] || 0);
+  if (!behind) return { ok: true, branch, upstream, behind: 0, ahead, mode, out: '已是最新' };
+  // 4) 按 mode 走
+  const args = mode === 'merge' ? ['merge', '--no-edit', upstream]
+    : (mode === 'rebase' ? ['rebase', upstream] : ['merge', '--ff-only', upstream]);
+  const m = await run(args);
+  if (!m.ok) {
+    const err = String(m.err || '').trim() || '更新失败';
+    if (mode === 'merge') await run(['merge', '--abort']);      // 冲突不留在仓库里，人下次还得收，别加负担
+    if (mode === 'rebase') await run(['rebase', '--abort']);
+    const code = (mode === 'ff' && /not possible to fast-forward/i.test(err)) ? 'diverged'
+      : (mode === 'ff' ? 'err' : 'conflict');
+    return { ok: false, code, err, behind, ahead };
+  }
+  return { ok: true, branch, upstream, behind, ahead, mode, out: String(m.out || '').trim() };
+});
+
 // ---- git 单次提交的文件清单（历史详情用）：git show --name-status ----
 ipcMain.handle('kun:git:show', async (_e, repo, hash) => {
   const dir = String(repo || '').trim();
