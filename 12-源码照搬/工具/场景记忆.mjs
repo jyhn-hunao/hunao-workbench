@@ -14,6 +14,7 @@
  *   node 场景记忆.mjs init    --场景 刷抖音       # 建目录骨架 + 三文档（已存在不覆盖）
  *   node 场景记忆.mjs stamp   --场景 刷抖音       # 重生成 身份卡 + 场景画像
  *   node 场景记忆.mjs 交接    --场景 刷抖音       # 归档旧版 + 补 §〇 四小节 + stamp + 登记索引
+ *   node 场景记忆.mjs 读      --场景 刷抖音 [--节 §〇]  # 只打印某一节（默认 §〇，约 2-4 KB，别整读 25 KB）
  *   node 场景记忆.mjs check   --场景 刷抖音       # 结构/指纹/§〇/项目/归档 全检（--all 全场景）
  *
  * --场景 可传目录名（刷抖音）或场景 id（douyin）。
@@ -256,6 +257,9 @@ function ensureSkeleton(dir, name) {
   fs.mkdirSync(arch, { recursive: true })
   // 收敛内容源（最新修改者为准）；多个名字内容不同 ⇒ 副本进 归档\冲突副本-*，⛔ 绝不直接删正文
   const sizeOf = (p) => { try { return fs.statSync(p).size } catch { return 0 } }
+  // 2026-11-12（修「每次交接多一份 24 KB 冲突副本」）：判断兼容副本先看 inode——同一 inode 就是真硬链接，
+  //   内容必然跟随正本；只有「独立文件且内容不同」才值得归档，否则重复副本会一直堆进 归档\。
+  const inoOf = (p) => { try { return fs.statSync(p).ino } catch { return 0 } }
   const cand = [main, legacyPlain, legacyPrefixed].filter((p) => { try { return fs.statSync(p).isFile() } catch { return false } })
   // ★ 安全收敛（2026-10-27 事故后加固）：
   //   1) 正本存在且 >200B ⇒ 绝不被别的名字覆盖（哪怕它 mtime 更新、哪怕是 0 字节）
@@ -268,6 +272,7 @@ function ensureSkeleton(dir, name) {
   for (const p of cand) {
     if (p === main) continue
     try {
+      if (inoOf(p) === inoOf(main)) continue   // 同一 inode = 真硬链接，不归档（否则每轮多一份 24 KB 副本）
       if (sizeOf(p) > 200 && sha(p) !== sha(main)) {
         const tag = path.basename(p).replace(/\.md$/, '')
         const bak = path.join(arch, `冲突副本-${tag}-${NOW().toISOString().replace(/[:.]/g, '-').slice(0, 19)}.md`)
@@ -277,10 +282,14 @@ function ensureSkeleton(dir, name) {
   }
   // ★ 2026-10-27：`项目信息.md` 已淘汰 —— 正文并入 main 后删除，**不再重建**（旧前缀名暂留兼容）
   try { if (fs.existsSync(legacyPlain)) fs.rmSync(legacyPlain, { force: true }) } catch {}
-  // 旧前缀名留硬链接（各场景技能/文档还引用它）
+  // 旧前缀名只做兼容硬链接（各场景技能/文档还引用它）：断了就重链，不再另存一份正文
+  //   2026-11-12：以前「内容不同就删、缺了才链」，独立副本会先被当冲突副本归档，再被判不同反复删链 ⇒ 垃圾循环。
   try {
-    if (fs.existsSync(legacyPrefixed) && sha(legacyPrefixed) !== sha(main)) fs.rmSync(legacyPrefixed, { force: true })
-    if (!fs.existsSync(legacyPrefixed) && fs.existsSync(main)) fs.linkSync(main, legacyPrefixed)
+    const linked = fs.existsSync(legacyPrefixed) && inoOf(legacyPrefixed) === inoOf(main)
+    if (!linked && fs.existsSync(main)) {
+      if (fs.existsSync(legacyPrefixed)) fs.rmSync(legacyPrefixed, { force: true })
+      fs.linkSync(main, legacyPrefixed)
+    }
   } catch {}
   if (!fs.existsSync(main)) {
     fs.writeFileSync(main, `# ${name} · 场景私有记忆
@@ -513,6 +522,13 @@ function cmdCheck(name) {
   const mainPath = path.join(dir, '场景私有记忆.md')
   if (!fs.existsSync(mainPath)) { console.log('\n' + name + '：✗ 缺 场景私有记忆.md（跑 init）'); return 1 }
   const main = fs.readFileSync(mainPath, 'utf8')
+  // 兼容副本必须是硬链接（2026-11-12 加）：独立副本会被当「冲突副本」反复归档，也会读到过期内容
+  {
+    const legacy = path.join(dir, name + '场景私有记忆.md')
+    if (fs.existsSync(legacy) && fs.statSync(legacy).ino !== fs.statSync(mainPath).ino) {
+      problems.push('兼容副本 ' + name + '场景私有记忆.md 不是硬链接（是独立副本，会重复产冲突副本）：跑 init 收敛')
+    }
+  }
   // 核心职责块（2026-10-27 宿主定：私有记忆必须包含核心职责）
   {
     const i = main.search(/^## 核心职责/m)
@@ -604,9 +620,15 @@ function cmdCheck(name) {
     }
     if (pmFiles.length) ok.push('项目记忆 ' + pmFiles.length + ' 份（含业务区）')
     const names = pmFiles.map((f) => f.replace(/\.md$/, '')).filter(Boolean)
-    const shared = main
-      .replace(/## §〇[\s\S]*?(?=\n## )/, '')
-      .replace(/## 八、项目索引[\s\S]*$/, '')
+    // 2026-11-12（改判据）：只查「本来就不该出现项目名」的小节——核心职责 / §一 职责边界 / §二 现状接口。
+    //   §五 决策与坑是只追加的历史（不许改），§八 项目索引本来就该列项目——扫它们只会留下永远消不掉的告警，
+    //   告警一多就没人看，等于把真泄漏也一起忽略了。
+    const SKIP_SEC = /(?:§〇|当前交接|五|坑|决策|项目索引|通知)/
+    let skipSec = false
+    const shared = main.split(/\r?\n/).map((l) => {
+      if (/^## /.test(l)) skipSec = SKIP_SEC.test(l)
+      return skipSec ? '' : l
+    }).join('\n')
     const leaked = names.filter((n) => shared.includes(n))
     if (leaked.length) warns.push('场景私有记忆里出现项目名（' + leaked.join('、') + '）：业务知识应写 项目记忆\\<项目>.md，这里只放跨项目规矩')
   }
@@ -617,6 +639,43 @@ function cmdCheck(name) {
   problems.forEach((p) => console.log('   ✗ ' + p))
   warns.forEach((p) => console.log('   ⚠ ' + p))
   return problems.length ? 1 : 0
+}
+
+/* --------------------------------------------------- 读一节（省上下文） */
+
+/**
+ * 只打印某一节（默认 §〇），避免为了拿 4 KB 交接去整读 25 KB 主文件。
+ *   node 场景记忆.mjs 读 --场景 程序开发 [--节 §〇|§一|§五]
+ * 返回：0 正常；1 该节超 4 KB；2 场景/文件不存在；3 没有这一节（会列出可用小节）
+ */
+function cmdRead(arg, flags) {
+  // 1. 定位主文件
+  const name = findSceneDir(arg) || arg
+  const file = path.join(MEMROOT, name, '场景私有记忆.md')
+  if (!fs.existsSync(file)) { console.error('✗ 找不到 ' + file + '（先跑 init）'); return 2 }
+  const text = fs.readFileSync(file, 'utf8')
+  // 2. 按二级标题切段：命中行起，到下一个 `## ` 前一行止（`### ` 子标题不断段）
+  const lines = text.split(/\r?\n/)
+  const heads = []
+  lines.forEach((l, i) => { if (/^## /.test(l)) heads.push(i) })
+  const key = String(flags.sec || '§〇')
+  // 老场景的交接头是 `## 〇、当前交接`，按 §〇 也要能取到
+  const ALT = key === '§〇' ? /(?:§〇|§0|〇、当前交接)/ : null
+  let start = heads.find((i) => lines[i].includes(key))
+  if (start === undefined && ALT) start = heads.find((i) => ALT.test(lines[i]))
+  if (start === undefined) {
+    const avail = heads.map((i) => lines[i].replace(/^## /, ''))
+    console.error('✗ 没有小节「' + key + '」；可用：' + (avail.join(' / ') || '（主文件没有二级标题）'))
+    return 3
+  }
+  const nextHead = heads.find((i) => i > start)
+  const sec = lines.slice(start, nextHead === undefined ? lines.length : nextHead).join('\n').replace(/\s+$/, '')
+  // 3. 打印：先一行元信息（体积/来源），正文紧跟，方便贴进上下文
+  const bytes = Buffer.byteLength(sec)
+  console.log('[' + key + '] ' + name + ' · ' + bytes + ' B · 源 ' + file)
+  console.log(sec)
+  if (bytes > 4096) { console.error('⚠ 这一节 ' + bytes + ' B 超 4 KB 红线：搬旧内容进 归档\ 并留指针'); return 1 }
+  return 0
 }
 
 /* ------------------------------------------------------------------ 入口 */
@@ -662,10 +721,11 @@ if (cmd === 'check' && argv.includes('--all')) {
   process.exit(n ? 1 : 0)
 }
 
-if (!arg) { console.error('用法：node 场景记忆.mjs <init|stamp|交接|check|list> --场景 <目录名>'); process.exit(2) }
+if (!arg) { console.error('用法：node 场景记忆.mjs <init|stamp|交接|check|list|读> --场景 <目录名>'); process.exit(2) }
 
 if (cmd === 'list') process.exit(0)
 if (cmd === 'init') process.exit(cmdInit(arg))
+if (cmd === '读' || cmd === 'read') process.exit(cmdRead(arg, { sec: val('--节') || val('--sec') }))
 if (cmd === 'stamp') process.exit(cmdStamp(findSceneDir(arg) || arg))
 if (cmd === '交接' || cmd === 'handover') process.exit(cmdHandover(arg))
 if (cmd === 'check') {
