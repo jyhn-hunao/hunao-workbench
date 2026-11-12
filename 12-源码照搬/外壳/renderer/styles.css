@@ -5586,8 +5586,7 @@ html[data-theme] .modal-body::-webkit-scrollbar-thumb {
 html[data-theme] .theme-menu,
 html[data-theme] .tbs-pop,
 html[data-theme] .flow-ctxmenu,
-html[data-theme] .flow-nodemenu,
-html[data-theme] .tbs-toasts {
+html[data-theme] .flow-nodemenu {
   background: var(--bg-panel);
   border: 0;
   border-radius: var(--r-md);
@@ -5606,6 +5605,78 @@ html[data-theme] .theme-item.on {
   font-weight: 500;
 }
 html[data-theme] .theme-item-ico { filter: grayscale(1); opacity: .8; }
+/* ---------- ⑦-2 右下角通知（toast）：极简无边框 + 状态点 + 寿命条（2026-11-12 宿主点名补皮肤）----------
+   原来容器 .tbs-toasts 自己吃了 --sh-3 的白底与阴影 ⇒ 一堆深色通知条被"套在一块白板"里；
+   现在容器只负责定位与堆叠，浮层效果落到每一条上。⛔ 颜色只走令牌，状态只留一个圆点。 */
+html[data-theme] .tbs-toasts {
+  right: 18px;
+  bottom: 18px;
+  gap: 10px;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  pointer-events: none;              /* 空容器与条间空隙不吃点击，只有单条 toast 吃 */
+}
+html[data-theme] .tbs-toast {
+  pointer-events: auto;
+  position: relative;
+  overflow: hidden;
+  display: block;
+  max-width: min(420px, calc(100vw - 36px));   /* 窄窗口下也不越出屏幕 */
+  padding: 10px 14px 11px 27px;      /* 左 27px = 12px 缩进 + 6px 圆点 + 9px 间距 */
+  background: var(--bg-panel);
+  color: var(--text);
+  border: 0;
+  border-radius: var(--r-md);
+  box-shadow: var(--sh-3);
+  font-size: var(--fs-sm);
+  line-height: 1.55;
+  letter-spacing: -.004em;
+  transition: opacity .2s ease, transform .2s ease;
+  animation: tbsToastIn .2s cubic-bezier(.2, .8, .3, 1);   /* ⛔ 不能写 both：填充值会压住 .out 的淡出 */
+}
+/* 状态只留一个 6px 圆点（成功 --ok / 失败 --err）：3px 实心彩条压在阴影环上会显脏。
+   圆点用绝对定位而不是 flex：长 id / 长路径要按 block 正常换行，flex 的最小宽度会把它顶出卡片。 */
+html[data-theme] .tbs-toast::before {
+  content: '';
+  position: absolute;
+  left: 12px;
+  top: 16px;                         /* 12.5px × 1.55 行高的首行中心再减半径 */
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ok);
+  transition: transform var(--dur, 150ms) ease;
+}
+html[data-theme] .tbs-toast.bad::before { background: var(--err); }
+html[data-theme] .tbs-toast:hover::before { transform: scale(1.3); }
+/* 底部寿命条：按 --tbs-stay 收缩；鼠标停上去暂停（JS 同步停表，见 topbar-status.js 的 toast） */
+html[data-theme] .tbs-toast::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 100%;
+  height: 2px;
+  background: currentColor;
+  opacity: .22;
+  transform-origin: left center;
+  animation: tbsLife var(--tbs-stay, 0s) linear forwards;
+}
+html[data-theme] .tbs-toast:hover::after { animation-play-state: paused; }
+html[data-theme] .tbs-toast.out { opacity: 0; transform: translateY(6px) scale(.99); }
+@keyframes tbsToastIn {
+  from { opacity: 0; transform: translateY(10px) scale(.985); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes tbsLife {
+  from { transform: scaleX(1); }
+  to   { transform: scaleX(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  html[data-theme] .tbs-toast { animation: none; }
+  html[data-theme] .tbs-toast::after { animation: none; opacity: 0; }
+}
 
 /* ---------- ⑧ 面板内部常见块 ---------- */
 /* 内容区顶部工具条：不要整条实线，改成发丝内阴影 */

@@ -150,19 +150,30 @@
   function toast(msg, bad, ms) {
     if (!toastBox) { toastBox = el('div', 'tbs-toasts'); document.body.appendChild(toastBox); }
     // 2026-11-12（宿主）：错误至少停 8 秒；所有 toast 点一下就能关（长文案要能读完）
+    // 2026-11-12（皮肤）：停留时长同时写进 --tbs-stay，让底部寿命条与真实停留一致；
+    //   鼠标停在通知上停表，离开按剩余时间继续 —— 长 id / 长路径才来得及看完。
     var stay = bad ? Math.max(8000, ms || 0) : (ms || 3600);
     var t = el('div', 'tbs-toast' + (bad ? ' bad' : ''), msg);
     t.title = '点一下关闭';
+    t.style.setProperty('--tbs-stay', stay + 'ms');
     toastBox.appendChild(t);
-    var removed = false;
+    var removed = false, timer = null, left = stay, at = Date.now();
     function hide() {
       if (removed) return;
       removed = true;
+      clearTimeout(timer);
       t.classList.add('out');
       setTimeout(function () { t.remove(); }, 300);
     }
-    var timer = setTimeout(hide, stay);
-    t.addEventListener('click', function () { clearTimeout(timer); hide(); });
+    function arm() { at = Date.now(); timer = setTimeout(hide, left); }
+    arm();
+    t.addEventListener('mouseenter', function () {
+      if (removed) return;
+      clearTimeout(timer);
+      left = Math.max(1200, left - (Date.now() - at));   // 至少留 1.2 秒再走，别一移开就没了
+    });
+    t.addEventListener('mouseleave', function () { if (!removed) arm(); });
+    t.addEventListener('click', hide);
   }
   // 面板脚本（换会话按钮等）也要用同一个通知组件；⛔ 别再往面板标题行里塞会消失的状态字
   try { window.__tbsToast = toast; } catch (e) { /* ignore */ }

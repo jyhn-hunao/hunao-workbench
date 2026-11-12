@@ -7027,11 +7027,15 @@ function startBiliProbe(wv, meta) {
 
   function toast(msg, bad) {
     try {
+      // 2026-11-12（皮肤）：优先走顶栏通知组件 —— 全站只留一份 toast 实现，
+      //   底部寿命条 / 悬停停表 / 错误 ≥8 秒才对得上；下面这段只在老壳里兜底。
+      if (typeof window.__tbsToast === 'function') { window.__tbsToast(msg, bad); return; }
       var box = document.querySelector('.tbs-toasts');
       if (!box) { box = document.createElement('div'); box.className = 'tbs-toasts'; document.body.appendChild(box); }
       var t = document.createElement('div');
       t.className = 'tbs-toast' + (bad ? ' bad' : '');
       t.textContent = msg;
+      t.style.setProperty('--tbs-stay', '4600ms');   // 底部寿命条按这个时长走，与下面的 4600 同步
       box.appendChild(t);
       setTimeout(function () { t.classList.add('out'); setTimeout(function () { t.remove(); }, 320); }, 4600);
     } catch (e) { /* ignore */ }
@@ -17112,11 +17116,15 @@ renderers['review-doc'] = function (body, meta, head) {
 
   function toast(msg, bad) {
     try {
+      // 2026-11-12（皮肤）：优先走顶栏通知组件 —— 全站只留一份 toast 实现，
+      //   底部寿命条 / 悬停停表 / 错误 ≥8 秒才对得上；下面这段只在老壳里兜底。
+      if (typeof window.__tbsToast === 'function') { window.__tbsToast(msg, bad); return; }
       var box = document.querySelector('.tbs-toasts');
       if (!box) { box = document.createElement('div'); box.className = 'tbs-toasts'; document.body.appendChild(box); }
       var t = document.createElement('div');
       t.className = 'tbs-toast' + (bad ? ' bad' : '');
       t.textContent = msg;
+      t.style.setProperty('--tbs-stay', '3600ms');   // 底部寿命条按这个时长走，与下面的 3600 同步
       box.appendChild(t);
       setTimeout(function () { t.classList.add('out'); setTimeout(function () { t.remove(); }, 320); }, 3600);
     } catch (e) { /* ignore */ }
