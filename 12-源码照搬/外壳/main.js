@@ -4629,7 +4629,22 @@ function toolNode() {
   return 'node';   // 交给 PATH；找不到时 spawn 会报 ENOENT，界面会显示原因
 }
 
-ipcMain.handle('harness:rotate', async (event, panelId, opts) => {
+// 2026-11-12（宿主）：面板上的操作反馈一律走 toast，这里只留痕迹 —— 每次换会话逐步写一行，
+//   事后能查「交接 / 建会话 / 换绑 / 重载 / 耗时」到底卡在哪一步。
+function rotateLogStamp() {
+  const d = new Date();
+  const p = (n) => String(n).padStart(2, '0');
+  return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
+}
+function rotateLog(msg) {
+  try {
+    const f = path.join(__dirname, 'data', '换会话日志.txt');
+    fs.mkdirSync(path.dirname(f), { recursive: true });
+    fs.appendFileSync(f, '[' + rotateLogStamp() + '] ' + msg + '\r\n', 'utf8');
+  } catch (e) { /* 日志写不进去不影响按钮 */ }
+}
+
+ipcMain.handle('harness:rotate', async (_event, panelId, opts) => {
   const id = String(panelId || '').trim();
   const dir = path.join(__dirname, 'scenarios');
   const ids = [];
@@ -4662,6 +4677,7 @@ ipcMain.handle('harness:rotate', async (event, panelId, opts) => {
     ? [script, '--panel', id, '--mode', 'transcript']
     : [script, id, '--go', '--force'];
   if (!fs.existsSync(script)) return { ok: false, err: '缺脚本：' + script };
+  rotateLog('开始 · 面板 ' + id + ' · 模式 ' + (handover ? 'transcript 交接' : 'direct 直接换'));
   return await new Promise((resolve) => {
     const t0 = Date.now();
     let child;
@@ -4670,6 +4686,7 @@ ipcMain.handle('harness:rotate', async (event, panelId, opts) => {
         cwd: __dirname, env: Object.assign({}, process.env, { DSH_HOME: DSH_HOME }), windowsHide: true
       });
     } catch (e) {
+      rotateLog('启动失败 · ' + ((e && e.message) || e));
       return resolve({ ok: false, code: 1, err: '启动脚本失败：' + ((e && e.message) || e), out: '', warn: '' });
     }
     let out = '', errOut = '', buf = '', done = false, timedOut = false;
@@ -4686,15 +4703,17 @@ ipcMain.handle('harness:rotate', async (event, panelId, opts) => {
       const newId = ((all.match(/^NEWID:\s*(session-[0-9a-f-]{8,})\s*$/m) || [])[1]
         || (all.match(/新会话已建[：:]\s*(session-[0-9a-f-]{8,})/) || [])[1] || '').trim();
       const elapsed = ((all.match(/^ELAPSED:\s*([\d.]+)\s*$/m) || [])[1] || ((Date.now() - t0) / 1000).toFixed(1)).trim();
+      rotateLog((ok ? '完成' : '失败') + ' · 面板 ' + id + ' · 新会话 ' + (newId || '—') + ' · 耗时 ' + elapsed + 's'
+        + (ok ? '' : ' · 原因：' + reason));
       resolve({ ok, code: ok ? 0 : (code || 1), reason: archivedNote + reason, out: archivedNote + all.slice(-6000), warn, newId, elapsed });
     };
     const killTimer = setTimeout(() => {
       timedOut = true;
       try { child.kill(); } catch (e) { /* ignore */ }
     }, 180000);
+    // 脚本用 P| 行报告步骤（交接 / 建会话 / 换绑+重载）；界面走 toast，这里只落日志
     const onLine = (line) => {
-      if (!line.startsWith('P|')) return;
-      try { if (!event.sender.isDestroyed()) event.sender.send('harness:rotate:progress', { panelId: id, line: line.slice(2) }); } catch (e) { /* 渲染层没了就算了 */ }
+      if (line.startsWith('P|')) rotateLog('· ' + line.slice(2));
     };
     child.stdout.setEncoding('utf8');
     child.stderr.setEncoding('utf8');

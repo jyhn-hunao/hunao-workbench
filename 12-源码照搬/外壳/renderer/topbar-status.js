@@ -149,10 +149,23 @@
   var toastBox = null;
   function toast(msg, bad, ms) {
     if (!toastBox) { toastBox = el('div', 'tbs-toasts'); document.body.appendChild(toastBox); }
+    // 2026-11-12（宿主）：错误至少停 8 秒；所有 toast 点一下就能关（长文案要能读完）
+    var stay = bad ? Math.max(8000, ms || 0) : (ms || 3600);
     var t = el('div', 'tbs-toast' + (bad ? ' bad' : ''), msg);
+    t.title = '点一下关闭';
     toastBox.appendChild(t);
-    setTimeout(function () { t.classList.add('out'); setTimeout(function () { t.remove(); }, 300); }, ms || 3600);
+    var removed = false;
+    function hide() {
+      if (removed) return;
+      removed = true;
+      t.classList.add('out');
+      setTimeout(function () { t.remove(); }, 300);
+    }
+    var timer = setTimeout(hide, stay);
+    t.addEventListener('click', function () { clearTimeout(timer); hide(); });
   }
+  // 面板脚本（换会话按钮等）也要用同一个通知组件；⛔ 别再往面板标题行里塞会消失的状态字
+  try { window.__tbsToast = toast; } catch (e) { /* ignore */ }
 
   // ============================================================ 挂载（最右边）
   var wrap = el('div', 'tbs-wrap');

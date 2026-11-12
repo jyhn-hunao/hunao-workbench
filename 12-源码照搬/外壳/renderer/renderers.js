@@ -14132,49 +14132,33 @@ renderers.harness = (body, meta, head) => {
       const rot = el('button', 'file-refresh', '换会话');
       rot.title = '把这个面板换成一条新会话：脚本先把最近几轮摘录进 §〇（秒级，不等模型）→ 建新 → 改绑场景 json/定位卡/索引 → 归档旧的 → 重载面板。';
       rot.addEventListener('click', async () => {
-        // 2026-11-12 二次改版：默认「脚本摘录交接 + 轮换」，不再让旧会话跑一整轮；只留一道确认。
-        // 进度走 IPC 事件 onHarnessRotateProgress（脚本每步一行 P|），小字临时显示 3 行。
+        // 2026-11-12（宿主硬要求）：面板上不再做会消失的状态字 —— 成功/失败一律走顶栏通知 toast；
+        //   每一步写 外壳\data\换会话日志.txt（main.js 落盘），按钮只保留“换会话中…”这个自身标签。
         let go = true;
-        try { go = window.confirm('换会话？\n\n旧会话会被归档；脚本把最近几轮摘录进 §〇 后立即开新会话（约 3 秒）。'); } catch (e) { /* ignore */ }
+        try { go = window.confirm('换会话？\n\n旧会话会被归档；脚本把最近几轮摘录进 §〇 后立即开新会话（约 7 秒）。'); } catch (e) { /* ignore */ }
         if (!go) return;
+        const notify = (msg, bad, ms) => {
+          try {
+            if (typeof window.__tbsToast === 'function') { window.__tbsToast(msg, bad, ms); return; }
+          } catch (e) { /* ignore */ }
+          diag.textContent = msg;   // 顶栏通知还没就绪（老壳）才退到面板，别静默
+        };
         rot.disabled = true;
         const oldText = rot.textContent;
         rot.textContent = '换会话中…';
-        const lines = ['换会话：准备…'];
-        const paint = () => { diag.textContent = lines.join('\n'); };
-        diag.classList.add('rotate-steps');
-        paint();
-        const off = (window.app && typeof window.app.onHarnessRotateProgress === 'function')
-          ? window.app.onHarnessRotateProgress((d) => {
-              if (!d || d.panelId !== meta.id) return;
-              lines.push(String(d.line || ''));
-              while (lines.length > 3) lines.shift();
-              paint();
-            })
-          : null;
         try {
           const r = await window.app.harnessRotate(meta.id, { mode: 'handover' });
           if (r && r.ok) {
-            // 成功：三步先留在小字里（含新会话 id），6 秒后收成一行
-            if (r.newId) lines.push('完成 · 新会话 ' + r.newId);
-            while (lines.length > 3) lines.shift();
-            paint();
-            const shortId = r.newId ? ' · 新会话 ' + r.newId.slice(0, 20) + '…' : '';
-            const warn = r.warn ? ' · ' + r.warn : '';
-            setTimeout(() => {
-              diag.classList.remove('rotate-steps');
-              diag.textContent = '换会话完成' + shortId + warn + (r.elapsed ? ' · ' + r.elapsed + 's' : '');
-            }, 6000);
+            notify('换会话完成 · 新会话 ' + (r.newId || '(未返回 id)')
+              + (r.elapsed ? ' · ' + r.elapsed + ' 秒' : '') + (r.warn ? ' · ' + r.warn : ''), false, 6000);
           } else {
-            diag.classList.remove('rotate-steps');
-            diag.textContent = '换会话失败：' + ((r && (r.reason || r.err)) || '未知原因');
+            notify('换会话失败：' + ((r && (r.reason || r.err)) || '未知原因')
+              + '（详情：外壳\\data\\换会话日志.txt）', true, 10000);
           }
           diag.title = (r && r.out) || diag.title;
         } catch (e) {
-          diag.classList.remove('rotate-steps');
-          diag.textContent = '换会话失败：' + ((e && e.message) || e);
+          notify('换会话失败：' + ((e && e.message) || e) + '（详情：外壳\\data\\换会话日志.txt）', true, 10000);
         } finally {
-          if (off) off();
           rot.disabled = false;
           rot.textContent = oldText;
         }

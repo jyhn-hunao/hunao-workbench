@@ -33,13 +33,8 @@ contextBridge.exposeInMainWorld('app', {
   diagLog: (m) => ipcRenderer.send('diag:log', m),
   isHarnessReady: () => ipcRenderer.invoke('harness:ready'),
   // 面板「换会话」（2026-11-12）：一次跑完 写交接 → 建新 → 改绑 → 归档旧 → 重载面板；只传已登记的 panel id
+  //   结果反馈统一走顶栏 toast（window.__tbsToast），不再从主进程推面板状态字。
   harnessRotate: (panelId, opts) => ipcRenderer.invoke('harness:rotate', panelId, opts),
-  // 换会话的实时进度（脚本每步一行 P|，主进程转成 {panelId,line}）；返回退订函数
-  onHarnessRotateProgress: (cb) => {
-    const h = (_e, d) => { try { cb(d); } catch (e) { /* 渲染层异常不影响主进程 */ } };
-    ipcRenderer.on('harness:rotate:progress', h);
-    return () => ipcRenderer.removeListener('harness:rotate:progress', h);
-  },
   // 版本信息（左上角品牌区悬停显示）：GUI / 引擎 / Electron·Chromium·Node
   getVersion: () => ipcRenderer.invoke('app:version'),
   // ---- 壳侧能力位（渲染层据此决定"敢不敢用"某个新策略）----

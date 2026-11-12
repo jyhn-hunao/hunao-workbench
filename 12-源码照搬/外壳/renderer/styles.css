@@ -1423,11 +1423,6 @@ html[data-theme="light"] .grid-backdrop {
   font-size: 10px; color: var(--text-dim); opacity: .9;
   min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;   /* 窄面板下省略号收尾 */
 }
-/* 换会话进行中：最多 3 行步骤（交接 / 建会话 / 换绑），不能只留一行省略号 */
-.harness-diag.rotate-steps {
-  white-space: pre-line; text-overflow: clip; overflow: visible;
-  line-height: 1.5; max-width: 46ch;
-}
 
 /* 程序开发 · 项目下拉（2026-11-11）：自绘菜单 —— 原生 select 的弹窗会被旁边的 webview 抢焦点顶掉 */
 .ai-project-btn {
@@ -3597,6 +3592,7 @@ html[data-theme="light"] .rd-flash { background: rgba(15,23,42,.03); }
   background: #12161f; border: 1px solid var(--border); border-left: 3px solid #3fb950; border-radius: 8px;
   padding: 8px 12px; font-size: 12px; color: var(--text); box-shadow: 0 10px 26px rgba(0,0,0,.45);
   max-width: 460px; transition: opacity .25s, transform .25s;
+  cursor: pointer; white-space: normal; word-break: break-word;   /* 点一下关闭；长 id/路径换行不截断 */
 }
 .tbs-toast.bad { border-left-color: #e5484d; }
 .tbs-toast.out { opacity: 0; transform: translateX(8px); }
