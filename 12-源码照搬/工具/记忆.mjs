@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // 记忆.mjs — 工作台项目记忆工具（零依赖，Node 内置模块）
-// 命令：init / index / recall / card / check / migrate
+// 命令：init / index / recall / card / check / 写 / 体检 / 备份 / migrate
 //   node 工具\记忆.mjs init    --project <项目根> [--dry] [--track]
 //   node 工具\记忆.mjs index   --project <项目根>
 //   node 工具\记忆.mjs recall  --project <项目根> "关键词" [--limit 8] [--min 2] [--json] [--no-log]
@@ -8,16 +8,21 @@
 //   `--no-log` 关流水，`--min 0` 关阈值。
 //   node 工具\记忆.mjs card    --project <项目根> [--name mlw] [--force]
 //   node 工具\记忆.mjs check   --project <项目根> [--strict]
+//   node 工具\记忆.mjs 写      --project <根> --类 <类目> --标题 <标题> [--正文 <md>|--要点 "a|b|c"]
+//                              [--描述 <一句话>] [--标签 a,b] [--证据 "<路径>::<片段>"] [--dry]
+//   node 工具\记忆.mjs 体检    --project <项目根> [--noscene]     ← 收工/换会话前的总闸门，exit 0 才算健康
+//   node 工具\记忆.mjs 备份    --project <根> [--to <目录>] [--keep 10]
 //   node 工具\记忆.mjs migrate --from <.mnemon> [--dry] [--json]
 //
 // 约定：
 //   - 记忆正文只住 <项目根>\memory\**\*.md；本工具不复制正文。
 //   - `_索引.json` 是可再生产物；`archive/` 不进索引、不参与召回。
-//   - 默认把 memory/ 与 AGENTS.md 写进目标仓 .gitignore（--track 关闭）。
+//   - 默认把 memory/、AGENTS.md、.memory-backup/ 写进目标仓 .gitignore（--track 关闭）。
+//   - 每条记忆的 frontmatter 可带 evidence（`路径::文件里的片段`），体检时逐条复核，用来发现「记忆还在说，代码已经变了」。
 
 import fs from 'node:fs'
 import path from 'node:path'
-import { execFileSync } from 'node:child_process'
+import { execFileSync, spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 
 const TOOL_DIR = path.dirname(fileURLToPath(import.meta.url))
@@ -34,7 +39,7 @@ function parseArgs(argv) {
   const pos = []
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]
-    if (a === '--dry' || a === '--json' || a === '--force' || a === '--track' || a === '--strict' || a === '--no-log') { flags[a.slice(2)] = true; continue }
+    if (a === '--dry' || a === '--json' || a === '--force' || a === '--track' || a === '--strict' || a === '--no-log' || a === '--noscene') { flags[a.slice(2)] = true; continue }
     if (a.startsWith('--')) {
       const k = a.slice(2)
       const v = argv[i + 1]
@@ -147,6 +152,8 @@ function parseDoc(file, mem) {
     desc = m ? m[1] : ''
   }
   const tags = Array.isArray(fm.tags) ? fm.tags : (fm.tags ? String(fm.tags).split(/[,，]/).map(s => s.trim()).filter(Boolean) : [])
+  // evidence：这条记忆靠什么成立（`路径::文件里的片段`），体检时逐条复核；没有它就只能靠人记得「当时是这样」
+  const evidence = Array.isArray(fm.evidence) ? fm.evidence.map(String) : (fm.evidence ? [String(fm.evidence)] : [])
   const headings = [...body.matchAll(/^##+\s+(.+)$/gm)].map(m => stripMd(m[1]))
   const stat = fs.statSync(file)
   const dateMatch = String(fm.date || '').match(/^\d{4}-\d{2}-\d{2}/)
@@ -158,6 +165,7 @@ function parseDoc(file, mem) {
     title,
     description: stripMd(desc).slice(0, 240),
     tags,
+    evidence,
     headings,
     date,
     size: stat.size,
@@ -344,7 +352,7 @@ function replaceAuto(text, block) {
   return text.slice(0, i + begin.length) + '\r\n' + block + '\r\n' + text.slice(j)
 }
 
-function cmdIndex(root) {
+function cmdIndex(root, quiet) {
   const mem = memoryRoot(root)
   if (!fs.existsSync(mem)) throw new Error('未初始化：缺少 ' + mem + '（先跑 init）')
   const docs = scanDocs(root)
@@ -359,7 +367,7 @@ function cmdIndex(root) {
     const next = replaceAuto(text, indexRows(docs.filter(d => d.category === cat)))
     if (next && next !== text) { writeAtomic(readme, toCRLF(next)); synced++ }
   }
-  console.log('索引完成：' + payload.project + ' · 文档 ' + docs.length + ' · README 自动区同步 ' + synced)
+  if (!quiet) console.log('索引完成：' + payload.project + ' · 文档 ' + docs.length + ' · README 自动区同步 ' + synced)
   return 0
 }
 
@@ -383,7 +391,7 @@ function copyTreeIfMissing(src, dst) {
 
 function ensureGitignore(root, dry) {
   const file = path.join(root, '.gitignore')
-  const need = ['memory/', 'AGENTS.md']
+  const need = ['memory/', 'AGENTS.md', '.memory-backup/']
   const cur = readText(file)
   const lines = cur.split(/\r?\n/).map(s => s.trim())
   const missing = need.filter(n => !lines.includes(n))
@@ -505,6 +513,8 @@ function cmdCheck(root, flags) {
   if (!idx) errors.push('缺少或无法解析 memory\\_索引.json（先跑 index）')
 
   const docs = scanDocs(root)
+  // 词表空转（2026-11-12 加）：_词表.json 存在但为 {} 时同义词扩展静默失效，只告警不阻断
+  if (docs.length && !Object.keys(loadLexicon(root)).length) warns.push('_词表.json 为空：同义词/别称扩展未生效（填几组常用别称即可）')
   const titles = {}
   docs.forEach(d => { titles[d.title] = (titles[d.title] || 0) + 1 })
   Object.entries(titles).filter(([, n]) => n > 1).forEach(([t]) => errors.push('重复标题：' + t))
@@ -622,6 +632,237 @@ function cmdMigrate(flags) {
   return 0
 }
 
+// ---------- 写回 ----------
+
+const SLUG_BAD = /[\\/:*?"<>|\s]+/g
+
+/**
+ * 写回一条记忆（2026-11-12 加）：把「结构对 + 索引新 + 自检过」三件事合成一步，
+ * 免得人只写了正文、忘了 index，下次 check 才炸。
+ *   node 记忆.mjs 写 --project <根> --类 <类目> --标题 <标题> [--正文 <md>|--要点 "a|b|c"]
+ *                 [--描述 <一句话>] [--标签 a,b] [--证据 "<相对路径>::<片段>"] [--dry]
+ */
+function cmdWrite(root, flags) {
+  // 1. 校验入参（类目白名单、标题唯一、未初始化直接报；中英参数名都认）
+  const cat = String(flags.cat || flags['类'] || '')
+  const title = String(flags.title || flags['标题'] || '').trim()
+  if (!CATEGORIES.includes(cat)) throw new Error('--类 必须是：' + CATEGORIES.join(' / '))
+  if (!title) throw new Error('缺少 --标题')
+  const mem = memoryRoot(root)
+  if (!fs.existsSync(mem)) throw new Error('未初始化：缺少 ' + mem + '（先跑 init）')
+  const dup = scanDocs(root).find(d => d.title === title)
+  if (dup) throw new Error('同名记忆已存在：memory/' + dup.path + '（改标题，或直接编辑那一篇）')
+
+  // 2. 组正文（--正文 优先；否则按 --要点 的 `a|b|c` 生成要点行）
+  let inner = ''
+  const bodyFile = String(flags.body || flags['正文'] || '')
+  if (bodyFile) {
+    const f = path.resolve(bodyFile)
+    if (!fs.existsSync(f)) throw new Error('正文文件不存在：' + f)
+    inner = parseFrontmatter(readText(f)).body
+  } else if (flags.points || flags['要点']) {
+    const pts = String(flags.points || flags['要点']).split('|').map(s => s.trim()).filter(Boolean)
+    if (!pts.length) throw new Error('--要点 里没有内容')
+    inner = '## 要点\r\n' + pts.map(s => '- ' + s).join('\r\n')
+  } else throw new Error('缺少 --正文 <md文件> 或 --要点 "a|b|c"')
+  inner = inner.replace(/^\s*#\s+[^\r\n]*\r?\n/, '').trim()
+
+  // 3. 补 frontmatter：描述取正文第一行；evidence 是「三个月后还能自证」的唯一凭据
+  const desc = String(flags.desc || flags['描述'] || '').trim()
+    || (inner.split(/\r?\n/).find(l => l.trim() && !l.startsWith('#')) || '').replace(/^-\s*/, '').trim().slice(0, 200)
+  const tags = String(flags.tags || flags['标签'] || '').split(/[,，]/).map(s => s.trim()).filter(Boolean)
+  const ev = String(flags.evidence || flags['证据'] || '').split(/[;；]/).map(s => s.trim()).filter(Boolean)
+  const d = new Date()
+  const p = (n) => String(n).padStart(2, '0')
+  const date = d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate())
+  const fm = ['---', 'title: ' + title, 'description: ' + desc, 'tags: [' + tags.join(', ') + ']', 'date: ' + date]
+  if (ev.length) fm.push('evidence:', ...ev.map(e => '  - ' + e))
+  fm.push('---')
+
+  // 4. 落盘：<类目>/<日期>-<标题>.md（标题直接进文件名，中文可读）
+  const slug = title.replace(SLUG_BAD, '-').replace(/-+/g, '-').replace(/^-\s*/, '').slice(0, 40)
+  const file = path.join(mem, cat, date + '-' + slug + '.md')
+  const rel = 'memory/' + relPosix(mem, file)
+  if (fs.existsSync(file) && !flags.force) throw new Error('目标已存在：' + rel + '（--force 覆盖，或改标题）')
+  const text = fm.join('\r\n') + '\r\n\r\n# ' + title + '\r\n\r\n' + inner + '\r\n'
+  if (flags.dry) { console.log('[dry] 将写：' + rel + '（' + Buffer.byteLength(text) + ' B）'); return 0 }
+  writeAtomic(file, text)
+
+  // 5. 同轮收尾：索引 + 自检；自检不过就说「已写入但没完成」，不说「已记录」
+  console.log('✓ 已写入：' + rel + '（' + Buffer.byteLength(text) + ' B）')
+  if (Buffer.byteLength(text) > 2048) console.log('⚠ 超 2 KB：写的是过程不是结论？压到 ≤10 行更有人读')
+  if (!ev.length) console.log('⚠ 没有 --证据：这篇以后没法自动判「还成不成立」')
+  cmdIndex(root, true)
+  if (cmdCheck(root, {}) !== 0) { console.error('✗ 已写入但自检未过 → 按上面的条目修完才算完成'); return 1 }
+  return 0
+}
+
+// ---------- 体检（一层的总闸门） ----------
+
+/** 证据复核：`路径::片段` 里的文件要在、片段要对得上；只给路径就只查存在 */
+function verifyEvidence(root, ref) {
+  const i = String(ref).indexOf('::')
+  const relPath = i < 0 ? String(ref) : String(ref).slice(0, i)
+  const needle = i < 0 ? '' : String(ref).slice(i + 2)
+  const abs = path.isAbsolute(relPath) ? relPath : path.join(root, relPath)
+  if (!fs.existsSync(abs)) return { ok: false, why: '文件不存在：' + relPath }
+  if (needle && !readText(abs).includes(needle)) return { ok: false, why: '文件里找不到「' + needle + '」' }
+  return { ok: true }
+}
+
+function daysSince(dateStr) {
+  const t = new Date(String(dateStr) + 'T00:00:00').getTime()
+  if (!t) return -1
+  return Math.floor((Date.now() - t) / 86400000)
+}
+
+/**
+ * 体检：把「结构 / 词表 / 证据 / 召回活性 / 备份 / 体量 / 场景层」一次跑完，一个退出码。
+ * 收工、换会话前都跑它；exit 0 才算记忆是健康的。
+ */
+function cmdDoctor(root, flags) {
+  const mem = memoryRoot(root)
+  if (!fs.existsSync(mem)) throw new Error('未初始化：缺少 ' + mem + '（先跑 init）')
+  const problems = []
+  const warns = []
+  const lines = []
+  const self = fileURLToPath(import.meta.url)
+
+  // 1. 结构：直接复用 check，只取结论（不再写第二套判据）
+  const chk = spawnSync(process.execPath, [self, 'check', '--project', root], { encoding: 'utf8' })
+  const chkBad = String(chk.stdout || '').split(/\r?\n/).filter(l => l.trim().startsWith('✗'))
+  if (chk.status === 0) lines.push('结构：✓ 通过')
+  else { lines.push('结构：✗ ' + chkBad.length + ' 项'); problems.push(...chkBad.slice(0, 3)) }
+
+  // 2. 词表：空词表 = 同义词扩展静默失效（2026-11-12 前就是这样空转了两个月）
+  const nLex = Object.keys(loadLexicon(root)).length
+  if (!nLex) { lines.push('词表：✗ 空'); problems.push('memory\\_词表.json 是空的：同义词/别称扩展未生效') }
+  else lines.push('词表：✓ ' + nLex + ' 组')
+
+  // 3. 证据：记忆说的东西还能不能在文件里指到
+  const docs = scanDocs(root)
+  const withEv = docs.filter(d => (d.evidence || []).length)
+  const broken = []
+  for (const d of withEv) for (const ref of d.evidence) {
+    const r = verifyEvidence(root, ref)
+    if (!r.ok) broken.push(d.path + ' → ' + ref + '（' + r.why + '）')
+  }
+  if (broken.length) problems.push('证据失效 ' + broken.length + ' 条：' + broken.slice(0, 3).join('；'))
+  lines.push('证据：' + (withEv.length ? withEv.length + '/' + docs.length + ' 篇有声明' : '0 篇声明')
+    + (broken.length ? ' · ✗ ' + broken.length + ' 条失效' : ' ✓'))
+  if (!withEv.length && docs.length) warns.push('没有任何记忆写 evidence：内容漂移发现不了（新记录请带 --证据）')
+
+  // 4. 召回活性：流水在不在、是不是早就没人读了
+  const logFile = path.join(mem, '_召回.log')
+  if (!fs.existsSync(logFile)) warns.push('召回从未被调用（没有 _召回.log）')
+  else {
+    const last = readText(logFile).trim().split(/\r?\n/).filter(Boolean).pop() || ''
+    const day = (last.match(/^(\d{4}-\d{2}-\d{2})/) || [])[1]
+    const age = day ? daysSince(day) : -1
+    lines.push('召回：' + (age >= 0 ? '最近 ' + age + ' 天前' : '有流水但读不出日期'))
+    if (age > 30) warns.push('召回 ' + age + ' 天没用过：记忆可能已经没人读')
+  }
+
+  // 5. 备份：记忆不进库，就只能靠自己备份
+  const bkRoot = path.join(root, '.memory-backup')
+  const bks = fs.existsSync(bkRoot) ? fs.readdirSync(bkRoot).filter(x => /^memory-\d{8}-\d{6}$/.test(x)).sort() : []
+  if (!bks.length) warns.push('从未备份过 memory\\（跑 备份）')
+  else {
+    const newest = bks[bks.length - 1]
+    const age = daysSince(newest.slice(14, 18) + '-' + newest.slice(18, 20) + '-' + newest.slice(20, 22))
+    lines.push('备份：' + newest + '（共 ' + bks.length + ' 份' + (age >= 0 ? '，最近 ' + age + ' 天前' : '') + '）')
+    if (age > 30) warns.push('最近备份已 ' + age + ' 天：先跑 备份')
+  }
+
+  // 6. 体量：单篇超 12 KB 基本没人读
+  const big = docs.filter(d => d.size > 12288)
+  const total = docs.reduce((s, d) => s + d.size, 0)
+  lines.push('体量：' + docs.length + ' 篇 · ' + (total / 1024).toFixed(1) + ' KB')
+  if (big.length) warns.push(big.length + ' 篇超 12 KB：' + big.slice(0, 2).map(d => d.path).join('、'))
+
+  // 7. 场景层：另一份记忆（§〇 交接）也一起验，别只报一半
+  if (!flags.noscene) {
+    const tool = path.join(TOOL_DIR, '场景记忆.mjs')
+    if (fs.existsSync(tool)) {
+      const r = spawnSync(process.execPath, [tool, 'check', '--all'], { encoding: 'utf8', cwd: WORKBENCH })
+      const bad = String((r.stdout || '') + (r.stderr || '')).split(/\r?\n/).filter(l => l.includes('✗'))
+      if (r.status === 0) lines.push('场景记忆：✓ 全通过')
+      else { lines.push('场景记忆：✗ ' + bad.length + ' 项'); problems.push(...bad.slice(0, 3).map(s => s.trim())) }
+    } else warns.push('找不到 场景记忆.mjs：场景层未体检')
+  }
+
+  // 8. 结论：问题数决定退出码，提醒不影响
+  console.log('[体检] ' + path.basename(root) + ' · ' + new Date().toLocaleString('zh-CN', { hour12: false }))
+  lines.forEach(l => console.log('· ' + l))
+  problems.forEach(p => console.log('✗ ' + p))
+  warns.forEach(w => console.log('⚠ ' + w))
+  if (problems.length) { console.log('结论：✗ ' + problems.length + ' 个问题（修完再收工）'); return 1 }
+  console.log('结论：✓ 健康' + (warns.length ? '（' + warns.length + ' 条提醒）' : ''))
+  return 0
+}
+
+// ---------- 备份 ----------
+
+function ensureIgnoreLine(root, lines) {
+  const file = path.join(root, '.gitignore')
+  const cur = readText(file)
+  const have = cur.split(/\r?\n/).map(s => s.trim())
+  const miss = lines.filter(l => !have.includes(l))
+  if (!miss.length) return []
+  writeAtomic(file, (cur && !cur.endsWith('\n') ? cur + '\n' : cur) + miss.join('\n') + '\n')
+  return miss
+}
+
+function countFiles(dir) {
+  let n = 0; let b = 0
+  const walk2 = (d) => {
+    for (const it of fs.readdirSync(d, { withFileTypes: true })) {
+      const full = path.join(d, it.name)
+      if (it.isDirectory()) walk2(full)
+      else { n++; b += fs.statSync(full).size }
+    }
+  }
+  walk2(dir)
+  return { n, b }
+}
+
+/**
+ * 备份：memory\ 不在 git 里（公开仓不能带本机路径），所以必须有独立的本地副本。
+ *   node 记忆.mjs 备份 --project <根> [--to <目录>] [--keep 10]
+ */
+function cmdBackup(root, flags) {
+  // 1. 目标目录：默认 <根>\.memory-backup\memory-YYYYMMDD-HHmmss（已在 .gitignore）
+  const d = new Date()
+  const p = (n) => String(n).padStart(2, '0')
+  const stamp = d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate()) + '-' + p(d.getHours()) + p(d.getMinutes()) + p(d.getSeconds())
+  const bkRoot = path.join(root, '.memory-backup')
+  const to = flags.to ? path.resolve(flags.to) : path.join(bkRoot, 'memory-' + stamp)
+  const mem = memoryRoot(root)
+  if (!fs.existsSync(mem)) throw new Error('未初始化：缺少 ' + mem + '（先跑 init）')
+
+  // 2. 两份一起备：项目 memory\ + 场景记忆\（后者已入库，仍备一份方便整机迁移；
+  //    只在本工作台仓内顺带备，别把别人的场景记忆塞进无关项目）
+  fs.mkdirSync(to, { recursive: true })
+  fs.cpSync(mem, path.join(to, 'memory'), { recursive: true })
+  const scene = path.join(WORKBENCH, '引擎数据', '.dsh', '场景记忆')
+  const withScene = root.toLowerCase().startsWith(WORKBENCH.toLowerCase()) && fs.existsSync(scene)
+  if (withScene) fs.cpSync(scene, path.join(to, '场景记忆'), { recursive: true })
+  const added = flags.to ? [] : ensureIgnoreLine(root, ['.memory-backup/'])
+
+  // 3. 只留最近 N 份（默认 10），删前先把名字打出来
+  const keep = Math.max(1, Number(flags.keep || 10))
+  const olds = fs.existsSync(bkRoot) ? fs.readdirSync(bkRoot).filter(x => /^memory-\d{8}-\d{6}$/.test(x)).sort() : []
+  const drop = olds.slice(0, Math.max(0, olds.length - keep))
+  for (const x of drop) { fs.rmSync(path.join(bkRoot, x), { recursive: true, force: true }); console.log('· 清理旧备份：' + x) }
+
+  // 4. 报数
+  const c = countFiles(to)
+  console.log('✓ 已备份：' + to + '（' + c.n + ' 个文件 · ' + (c.b / 1024).toFixed(1) + ' KB'
+    + (withScene ? ' · 含场景记忆' : '') + '）')
+  if (added.length) console.log('· .gitignore 补 ' + added.join('、'))
+  return 0
+}
+
 // ---------- 主流程 ----------
 
 function main() {
@@ -636,8 +877,11 @@ function main() {
     case 'card': return cmdCard(requireProject(flags), flags)
     case 'check': return cmdCheck(requireProject(flags), flags)
     case 'migrate': return cmdMigrate(flags)
+    case '写': case 'write': return cmdWrite(requireProject(flags), flags)
+    case '体检': case 'doctor': return cmdDoctor(requireProject(flags), flags)
+    case '备份': case 'backup': return cmdBackup(requireProject(flags), flags)
     default:
-      console.error('用法：node 工具\\记忆.mjs <init|index|recall|card|check|migrate> --project <根> [参数]')
+      console.error('用法：node 工具\\记忆.mjs <init|index|recall|card|check|写|体检|备份|migrate> --project <根> [参数]')
       return 2
   }
 }
