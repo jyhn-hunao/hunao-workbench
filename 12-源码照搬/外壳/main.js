@@ -4601,7 +4601,7 @@ ipcMain.handle('tools:catalog', () => {
     try { return JSON.parse(fs.readFileSync(p, 'utf8')); }
     catch (e) { return { updated: null, groups: [], error: String((e && e.message) || e) }; }
   }
-  try { return require('./工具清单').buildCatalog({ harnessDir: HARNESS_DIR }); }
+  try { return require('./工具清单').buildCatalog({ harnessDir: HARNESS_DIR, extraPatches: [path.join(DSH_HOME, 'profiles', 'web', 'cordis.patch.yml')] }); }
   catch (e) { return { updated: null, groups: [], error: '扫描引擎工具包失败：' + String((e && e.message) || e) }; }
 });
 

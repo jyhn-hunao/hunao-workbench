@@ -29,7 +29,7 @@ function enabledToolPackages(patchFile) {
     const m = line.match(/^\s*-\s+id:\s*(\S+)/);
     if (m) { if (cur && cur.name && !cur.disabled) out.push(cur.name); cur = { id: m[1], name: '', disabled: false }; continue; }
     if (!cur) continue;
-    const n = line.match(/^\s*name:\s*'?([^'\s]+)'?/);
+    const n = line.match(/^\s*name:\s*['"]?([^'"\s]+)['"]?/);
     if (n) cur.name = n[1];
     if (/^\s*disabled:\s*true\b/.test(line)) cur.disabled = true;
   }
@@ -58,8 +58,12 @@ function buildCatalog(opts) {
   const harnessDir = (opts && opts.harnessDir) || path.resolve(__dirname, '..', '引擎');
   const nmDir = path.join(harnessDir, 'node_modules', '@deepseek-ai');
   const patchFile = path.join(nmDir, 'dsh-base', 'cordis.patch.yml');
+  // 启用名单 = 基础 bundle + 用户 profile 的 patch（profile 里新加的行也算启用，2026-11-12）
+  // 默认也读本机 profile 的 patch（CLI 自测要反映真实启用状态）
+  const patchFiles = [patchFile].concat((opts && opts.extraPatches) || [path.resolve(__dirname, '..', '引擎数据', '.dsh', 'profiles', 'web', 'cordis.patch.yml')]);
   let enabled = [];
-  try { enabled = [...new Set(enabledToolPackages(patchFile))]; } catch (e) { enabled = []; }
+  for (const pf of patchFiles) { try { enabled = enabled.concat(enabledToolPackages(pf)); } catch (e) { /* 缺哪层就跳过哪层 */ } }
+  enabled = [...new Set(enabled)];
   // 已安装 = 目录里真的有的 dsh-tool-* 包；启用 = patch 里列了且没 disabled
   const installed = fs.existsSync(nmDir) ? fs.readdirSync(nmDir).filter((n) => /^dsh-tool-[\w-]+$/.test(n)) : [];
   // 1. 先列启用的（按 patch 顺序），再列「装了但默认 profile 没启用」的，免得面板漏报工具
