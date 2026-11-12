@@ -4614,7 +4614,7 @@ ipcMain.handle('tools:catalog', () => {
 //   → 旧会话真归档 → 写 reload-panels.cmd 让面板重载。
 // 安全：只接受场景 json 里真实登记的 harness 面板 id；命令与参数写死，不拼接用户输入。
 // 2026-11-12 二次改版（用户报「点了十几秒没反应」）：默认不再让旧会话跑一整轮 LLM，改由脚本摘录；
-//   进度用 `P|` 行实时推给渲染层（三行状态：交接 / 建会话 / 换绑）。
+// 2026-11-12 三次改版（宿主硬要求）：P| 步骤只落 外壳\data\换会话日志.txt，界面结果统一走顶栏 toast。
 
 // 工具脚本必须用**系统 Node**，不能用 process.execPath（= electron.exe）：
 //   Electron 43 内置 Node 24.18 的 zstd 只解 transcript 第一帧（实测 2 MB 只出 217 B、0 个 turn），
