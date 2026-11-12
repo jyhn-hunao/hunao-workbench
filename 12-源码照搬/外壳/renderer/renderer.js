@@ -164,12 +164,22 @@ async function showSkills() {
       left.appendChild(dir);
       bar.appendChild(left);
       const acts = mkEl('div', 'sk-bar-acts');
+      // 2026-11-12：skills.open() 返回 {ok:false} 以前被丢掉 ⇒ 路径不存在时「点了没反应」；
+      //   现在把失败直接写在按钮上（2.4 秒后复原），失败原因进 title
+      const openSkill = async (btn, label, target) => {
+        const res = await window.app.skills.open(target);
+        if (res && res.ok === false) {
+          btn.textContent = '⚠ 打不开：目录不存在';
+          btn.title = res.err || ('路径不存在：' + target);
+          setTimeout(() => { btn.textContent = label; }, 2400);
+        }
+      };
       const openBtn = mkEl('button', 'sk-btn primary', '📂 打开目录');
       openBtn.title = '在资源管理器打开技能目录';
-      openBtn.addEventListener('click', () => window.app.skills.open(r.skillsDir));
+      openBtn.addEventListener('click', () => openSkill(openBtn, '📂 打开目录', r.skillsDir));
       const docBtn = mkEl('button', 'sk-btn', '📖 存放说明');
       docBtn.title = '技能格式 / 字段 / 安装步骤';
-      docBtn.addEventListener('click', () => window.app.skills.open(r.skillsDir + '\\_说明'));
+      docBtn.addEventListener('click', () => openSkill(docBtn, '📖 存放说明', r.skillsDir + '\\_说明'));
       acts.appendChild(openBtn); acts.appendChild(docBtn);
       bar.appendChild(acts);
       body.appendChild(bar);
@@ -243,7 +253,9 @@ async function showTools() {
       const total = groups.reduce((a, g) => a + countOf(g), 0);
       const bar = mkEl('div', 'sk-bar');
       const left = mkEl('div', 'sk-bar-left');
-      left.appendChild(mkEl('span', 'sk-count', total + ' 个工具'));
+      // 2026-11-12：未附清单是常态（模板不带 data\工具清单.json）⇒ 计数显示「未附清单」给人话；
+      //   有文件却解析失败才是真异常，保留 error 原样显示
+      left.appendChild(mkEl('span', 'sk-count', (r && r.missing) ? '未附清单' : (total + ' 个工具')));
       left.appendChild(mkEl('span', 'sk-dir', '清单：外壳\\data\\工具清单.json' + (r.updated ? ' · ' + r.updated : '') + ' · 一行四个 · 可折叠'));
       bar.appendChild(left);
       const acts = mkEl('div', 'sk-bar-acts');
@@ -252,7 +264,8 @@ async function showTools() {
       acts.appendChild(foldAll);
       bar.appendChild(acts);
       body.appendChild(bar);
-      if (r && r.error) body.appendChild(mkEl('div', 'stat-sub', '读取失败：' + r.error));
+      if (r && r.missing) body.appendChild(mkEl('div', 'stat-sub', r.hint || '本模板未附工具清单'));
+      else if (r && r.error) body.appendChild(mkEl('div', 'stat-sub', '读取失败：' + r.error));
 
       const contents = [];
       groups.forEach((g) => {

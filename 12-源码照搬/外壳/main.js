@@ -3654,7 +3654,10 @@ ipcMain.handle('plugins:list', () => {
 //   自定义 settings.yaml 的 customSkillDirs
 // 技能格式（只在根目录顶层被发现）：<名字>/SKILL.md 目录包，或 <名字>.md 单文件；
 // SKILL.md 顶部 YAML frontmatter 必需 name + description，可选 whenToUse 等。
-const SKILLS_DIR = path.join(DSH_DATA_DIR, 'skills');
+// 2026-11-12 修（用户报「技能面板空」）：技能根必须跟**引擎 home**。
+//   原来用 DSH_DATA_DIR = <外壳同级>\引擎\.dsh，而启动.vbs 用 DSH_CUSTOMER_HOME 把 home 指到 引擎数据\.dsh
+//   ⇒ 扫的是不存在的目录，面板恒 0 个；DSH_HOME 已经是「env 优先」的那个值。
+const SKILLS_DIR = path.join(DSH_HOME, 'skills');
 
 // 极简 frontmatter 解析：只取 --- 块里的 name / description / whenToUse（其余字段忽略）
 function parseSkillFrontmatter(text) {
@@ -4571,8 +4574,18 @@ async function guardCheckAfterBoot() {
 }
 
 ipcMain.handle('tools:catalog', () => {
+  // 1. 清单缺失是**模板常态**：data/ 整目录不入库，全量版才有 工具清单导出.mjs
+  //    ⇒ 给人话、别再抛 ENOENT 让用户以为坏了（2026-11-12 用户报「工具面板空」）
+  // 2. 有文件但解析失败才算真异常：保留 error，由面板原样显示
+  const p = path.join(__dirname, 'data', '工具清单.json');
+  if (!fs.existsSync(p)) {
+    return {
+      updated: null, groups: [], missing: true,
+      hint: '本模板未附工具清单（data\\工具清单.json 由全量版的 工具清单导出.mjs 生成，未随公开包分发）。'
+    };
+  }
   try {
-    return JSON.parse(fs.readFileSync(path.join(__dirname, 'data', '工具清单.json'), 'utf8'));
+    return JSON.parse(fs.readFileSync(p, 'utf8'));
   } catch (e) { return { updated: null, groups: [], error: String((e && e.message) || e) }; }
 });
 ipcMain.handle('topbar:open', (e, p) => {
