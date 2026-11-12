@@ -299,7 +299,7 @@ if (rotating && !STRAY) {
       else {
         // ③ token → cookie
         const LOG = process.env.DSH_LOG || path.join(root, 'server.log');
-        const BASE = process.env.DSH_GUI_BASE || 'http://127.0.0.1:3080';
+        const BASE = process.env.DSH_GUI_BASE || process.env.DSH_WEB_URL || ('http://127.0.0.1:' + (process.env.DSH_PORT || '3083'));
         // token 正则跟随 BASE 的端口（原来写死 3080：引擎默认跑 3083 时取不到 token）
         const PORT = (() => { try { return new URL(BASE).port || '80'; } catch (e) { return ''; } })();
         const toks = fs.existsSync(LOG)
@@ -613,7 +613,7 @@ if (rotating && STRAY) {
       if (dry) say('\n--dry：以上都没执行。去掉 --dry 即真做。');
       else {
         const LOG = path.join(root, 'server.log');
-        const BASE = process.env.DSH_GUI_BASE || 'http://127.0.0.1:3080';
+        const BASE = process.env.DSH_GUI_BASE || process.env.DSH_WEB_URL || ('http://127.0.0.1:' + (process.env.DSH_PORT || '3083'));
         // token 正则跟随 BASE 的端口（原来写死 3080：引擎默认跑 3083 时取不到 token）
         const PORT = (() => { try { return new URL(BASE).port || '80'; } catch (e) { return ''; } })();
         const toks = fs.existsSync(LOG)

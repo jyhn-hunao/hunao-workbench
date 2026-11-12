@@ -29,7 +29,7 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));       // 外壳\scrip
 const SHELL = path.resolve(HERE, '..');                          // 外壳
 const PROJECT = path.resolve(SHELL, '..');                       // 12-源码照搬
 const DSH_HOME = process.env.DSH_HOME || path.join(PROJECT, '引擎数据', '.dsh');
-const BASE = process.env.DSH_GUI_BASE || ('http://127.0.0.1:' + (process.env.DSH_PORT || '3080'));
+const BASE = process.env.DSH_GUI_BASE || process.env.DSH_WEB_URL || ('http://127.0.0.1:' + (process.env.DSH_PORT || '3083'));
 const PORT = (() => { try { return new URL(BASE).port || '80'; } catch (e) { return ''; } })();
 const LOG = process.env.DSH_LOG || path.join(SHELL, 'server.log');
 

@@ -24,7 +24,7 @@ const root = shellDir;                                        // 外壳
 const PROJECT = path.resolve(shellDir, '..');                  // 12-源码照搬
 const HARNESS_DIR = process.env.DSH_HARNESS_DIR || path.join(PROJECT, '引擎');
 const DSH_HOME = process.env.DSH_HOME || path.join(HARNESS_DIR, '.dsh');
-const BASE = process.env.DSH_GUI_BASE || 'http://127.0.0.1:3080';   // 不在 3080 时用 --base 或 DSH_GUI_BASE
+const BASE = process.env.DSH_GUI_BASE || process.env.DSH_WEB_URL || ('http://127.0.0.1:' + (process.env.DSH_PORT || '3083'));   // 不在 3080 时用 --base 或 DSH_GUI_BASE
 
 const argv = process.argv.slice(2);
 const val = (k, d) => { const i = argv.indexOf(k); return i >= 0 && argv[i + 1] ? argv[i + 1] : d; };
