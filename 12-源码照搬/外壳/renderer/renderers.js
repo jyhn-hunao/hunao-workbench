@@ -14146,7 +14146,8 @@ renderers.harness = (body, meta, head) => {
         diag.textContent = '换会话：执行中…';
         try {
           const r = await window.app.harnessRotate(meta.id, { mode: mode });
-          if (r && r.ok) { diag.textContent = '换会话完成，面板即将重载'; }
+          // 2026-11-12：换成功但交接没落 ⇒ 显示警告，别只说「完成」让用户以为 §〇 写好了
+          if (r && r.ok) { diag.textContent = r.warn ? '换会话完成，但' + r.warn : '换会话完成，面板即将重载'; }
           else { diag.textContent = '换会话失败：' + ((r && (r.reason || r.err)) || '未知原因'); }
           diag.title = (r && r.out) || diag.title;
         } catch (e) { diag.textContent = '换会话失败：' + ((e && e.message) || e); }

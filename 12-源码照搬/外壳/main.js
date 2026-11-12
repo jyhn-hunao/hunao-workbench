@@ -4643,19 +4643,23 @@ ipcMain.handle('harness:rotate', async (_e, panelId, opts) => {
   const script = handover
     ? path.join(__dirname, '..', '工具', '交接并换会话.mjs')
     : path.join(__dirname, 'scripts', '换会话.mjs');
-  const scriptArgs = handover ? [script, '--panel', id, '--timeout', '120'] : [script, id, '--go', '--force'];
+  // 2026-11-12 用户报「先写交接再换」120 秒就失败（实际 15:39 才写完）：--timeout 是**无进展等待**，
+  //   脚本在旧会话还有新 turn/step 时会自己续期；这里给 600 秒起步，execFile 的总超时也要够。
+  const scriptArgs = handover ? [script, '--panel', id, '--timeout', '600'] : [script, id, '--go', '--force'];
   if (!fs.existsSync(script)) return { ok: false, err: '缺脚本：' + script };
   return await new Promise((resolve) => {
     execFile(process.execPath, scriptArgs, {
       cwd: __dirname, env: Object.assign({}, process.env, { DSH_HOME: DSH_HOME }),
-      timeout: 240000, windowsHide: true, maxBuffer: 8 << 20
+      timeout: 720000, windowsHide: true, maxBuffer: 8 << 20
     }, (err, stdout, stderr) => {
       const out = String(stdout || '') + (stderr ? '\n' + String(stderr) : '');
       log('[harness:rotate] ' + id + ' code=' + (err ? (err.code || 'ERR') : 0));
       // 失败时只挑「真正原因」给按钮显示（原来把整段 stdout 塞进状态小字，被 CSS 省略成一行，
       //   用户只看到表头「现在这轮…」，看不到 ⚠ 先别急 后面的真因 —— 2026-11-12 用户报）
       const reason = !err ? '' : (out.split(/\r?\n/).filter((l) => /^\s*[·✗]/.test(l) || /先别急|轮换失败|换不到|结构闸/.test(l)).slice(0, 3).join(' ') || String(stderr || '').trim().split(/\r?\n/).pop() || '脚本退出码 ' + (err.code || '?')).slice(0, 300);
-      resolve({ ok: !err, code: err ? (err.code || 1) : 0, reason: archivedNote + reason, out: archivedNote + out.slice(-4000) });
+      // 2026-11-12：换成功了但交接没落 ⇒ 脚本打 `WARN:`，按钮照样显示完成，只是把小字换成警告（别误报失败）
+      const warn = !err ? (((out.match(/^WARN:\s*(.+)$/m) || [])[1]) || '').trim() : '';
+      resolve({ ok: !err, code: err ? (err.code || 1) : 0, reason: archivedNote + reason, out: archivedNote + out.slice(-4000), warn: warn });
     });
   });
 });
