@@ -25,6 +25,7 @@ model/
 
 # 日志与数据库
 *.log
+*.log.prev
 logs/
 *.db
 *.sqlite
@@ -62,3 +63,4 @@ memory/
 
 # 场景记忆的兼容硬链接副本（场景记忆.mjs 为老引用保留的 <场景>场景私有记忆.md，内容与正本同一 inode）
 12-源码照搬/引擎数据/.dsh/场景记忆/**/*场景私有记忆.md
+.memory-backup/
