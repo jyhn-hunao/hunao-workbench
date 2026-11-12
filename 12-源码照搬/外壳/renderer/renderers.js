@@ -13112,7 +13112,10 @@ function panelPartition(meta) {
     if (meta && meta.sessionId && key) {
       // ① 带 sessionId（scenarios/*.json 里所有 AI 面板都必须带，见 scripts\sessions.mjs --check）：
       //    一板一分区；分离窗口再带上场景名，避免"同场景开两个窗口"时两个窗口共用一个分区。
-      return solo ? ('persist:harness-panel-' + (sid || 'x') + '-' + key) : ('persist:harness-panel-' + key);
+      // 2026-11-12（P0：两块 AI 面板显示同一条会话）：分区名带上**绑定的 sessionId 后 8 位** ——
+      //   即便面板 id 撞了/为空，也保证「一个面板一个分区」；换绑会话时分区随之换新，不会沿用旧面板状态。
+      const sid8 = String(meta.sessionId).replace(/[^a-zA-Z0-9]/g, '').slice(-8);
+      return (solo ? ('persist:harness-solo-' + (sid || 'x') + '-') : 'persist:harness-panel-') + key + '-' + sid8;
     }
     // ② 没带 sessionId：主窗口共用 persist:harness；分离窗口退回一窗一分区。
     return soloHarnessPartition();
@@ -14478,6 +14481,8 @@ renderers.harness = (body, meta, head) => {
         stored: (() => { const s = readSel(); return (s && s.sessionId) ? String(s.sessionId) : ''; })(),
         // 2026-11-12：guest 写对了键但没法自己重载（侧栏隐藏、点不到行）⇒ 留信号让宿主重载
         needReloadAt: (window.__pinNeedHostReloadAt || 0),
+        // 2026-11-12（P0）：引擎到底把「当前会话」存哪个键 —— 不一致时把这几个键名记进 server.log
+        lsKeys: (() => { try { return Object.keys(localStorage).filter(function (k) { return /session|current|active/i.test(k); }).slice(0, 12); } catch (e) { return []; } })(),
         reloads: readReloads(),
         reloadMax: RELOAD_MAX,
         claim: (() => {
@@ -14879,7 +14884,7 @@ renderers.harness = (body, meta, head) => {
         // 2026-11-12（P0 自检）：期望 sessionId 与面板实际用的（分区存储）不一致就明说，别静默显示别的会话
         const idOk = !d.sessionId || String(d.stored || '') === String(d.sessionId);
         if (!idOk && d.sessionId) {
-          try { if (window.app && window.app.diagLog) window.app.diagLog('[pin] mismatch expected=' + d.sessionId + ' stored=' + (d.stored || '')); } catch (e) { /* ignore */ }
+          try { if (window.app && window.app.diagLog) window.app.diagLog('[pin] mismatch expected=' + d.sessionId + ' stored=' + (d.stored || '') + ' partition=' + (wv.getAttribute('partition') || '') + ' lsKeys=' + ((d.lsKeys || []).join(','))); } catch (e) { /* ignore */ }
         }
         const unbound = !d.sessionId && !d.sessionTitle && !(d.targets || []).length && !(d.bound && d.bound.title);
         pinTxt = unbound ? '○ 未绑定 · 面板自由选会话'
