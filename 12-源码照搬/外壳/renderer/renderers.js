@@ -14555,6 +14555,11 @@ renderers.harness = (body, meta, head) => {
     };
     let tries = 0;
     const clickItem = () => {
+      // 1. 用户正在本面板输入时不碰侧栏：下面的 doClick 是合成 pointerdown/mousedown/click
+      //    （14486-14490），会把焦点从输入框挪走 —— 表现就是「打着字突然断」。2026-11-12 加。
+      const ae = document.activeElement;
+      if (ae && (ae.isContentEditable || /^(INPUT|TEXTAREA)$/.test(ae.tagName || '')
+        || (ae.closest && ae.closest('[data-composer]')))) { refreshDiag(null); return; }
       // 解绑状态（场景里没给 id / 标题 / 候选名，也没有记住的绑定）→ 什么都不做：
       // 不点侧栏、不展开分组、不强制显隐，面板就停在当前会话，由用户自己选。
       if (!SESSION_ID && !SESSION_TITLE && !(TARGETS && TARGETS.length)) {
