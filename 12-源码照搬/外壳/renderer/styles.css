@@ -1034,8 +1034,8 @@ html[data-theme="light"] .grid-backdrop {
 .sec-ico { font-size: 26px; line-height: 1; }
 .sec-title { font-size: 16px; font-weight: 800; }
 .sec-avg { font-family: var(--mono); font-size: 15px; font-weight: 700; }
-.sec-avg.up { color: #e5484d; }
-.sec-avg.down { color: #2ebd85; }
+.sec-avg.up { color: var(--up); }
+.sec-avg.down { color: var(--down); }
 .sec-avg.na { color: var(--text-dim); }
 .sec-desc { color: var(--text); font-size: 12px; line-height: 1.6; border-left: 3px solid var(--accent); padding-left: 8px; flex: 0 0 auto; }
 .sec-hist-title { color: var(--text-dim); font-size: 11px; font-weight: 600; margin-top: 4px; flex: 0 0 auto; }
@@ -1345,12 +1345,12 @@ html[data-theme="light"] .grid-backdrop {
 /* AI 工具活动（读取/写入/同步） */
 .chat-tool {
   align-self: flex-start; max-width: 85%;
-  font-size: 11px; color: var(--text-dim); background: rgba(0,0,0,.28);
+  font-size: 11px; color: var(--text-dim); background: var(--bg-panel-hover);
   border: 1px dashed var(--border); border-radius: 8px; padding: 6px 10px;
   font-family: var(--mono); white-space: pre-wrap; word-break: break-all;
 }
-.chat-tool.write { border-color: rgba(255,186,73,.4); color: #ffd79a; }
-.chat-tool.sync { border-color: rgba(46,189,133,.4); color: #9be8cd; }
+.chat-tool.write { border-color: var(--warn-line); color: var(--warn); }
+.chat-tool.sync { border-color: var(--ok-line); color: var(--ok); }
 .tool-confirm {
   align-self: stretch; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
   background: rgba(255,186,73,.08); border: 1px solid rgba(255,186,73,.4);
@@ -1514,8 +1514,8 @@ html[data-theme="light"] .grid-backdrop {
 }
 .mkt-row:hover .mkt-del { opacity: 1; }
 .mkt-del:hover { color: var(--err); background: rgba(239,93,109,.12); }
-.up { color: #e5484d; }
-.down { color: #2ebd85; }
+.up { color: var(--up); }
+.down { color: var(--down); }
 
 /* 同花顺式 K线图表 */
 .chart-info { color: var(--text-dim); font-size: 12px; margin-bottom: 8px; }
@@ -1593,12 +1593,12 @@ html[data-theme="light"] .grid-backdrop {
 }
 .lv-tag { color: var(--text-dim); font-size: 10px; }
 .lv-px { font-family: var(--mono); text-align: right; }
-.lv-ask .lv-px { color: var(--down); }
-.lv-bid .lv-px { color: var(--up); }
-.lv-bar-wrap { height: 12px; background: rgba(255,255,255,0.03); border-radius: 3px; overflow: hidden; }
-.lv-bar { height: 100%; background: rgba(46,189,133,0.35); }
-.lv-ask .lv-bar { background: rgba(46,189,133,0.4); }
-.lv-bid .lv-bar { background: rgba(229,72,77,0.4); }
+.lv-ask .lv-px { color: var(--ok); }
+.lv-bid .lv-px { color: var(--err); }
+.lv-bar-wrap { height: 12px; background: var(--line-1); border-radius: 3px; overflow: hidden; }
+.lv-bar { height: 100%; background: var(--down-line); }
+.lv-ask .lv-bar { background: var(--down-line); }
+.lv-bid .lv-bar { background: var(--up-line); }
 .lv-qty { font-family: var(--mono); text-align: right; color: var(--text-dim); }
 .lv-mid {
   border-top: 1px dashed var(--border); border-bottom: 1px dashed var(--border);
@@ -1678,8 +1678,8 @@ html[data-theme="light"] .grid-backdrop {
 .bd-card:hover { border-color: var(--accent); background: var(--bg-panel-hover); transform: translateY(-1px); }
 /* 板块涨跌方向色条（红涨绿跌灰无数据）：卡片底部一根 3px 色条，一眼看出板块强弱 */
 .bd-bar { width: 60%; height: 3px; border-radius: 2px; margin-top: 1px; flex-shrink: 0; }
-.bd-bar.up { background: linear-gradient(90deg, #e5484d, rgba(229,72,77,.25)); }
-.bd-bar.down { background: linear-gradient(90deg, #2ebd85, rgba(46,189,133,.25)); }
+.bd-bar.up { background: linear-gradient(90deg, var(--up), rgba(229,72,77,.25)); }
+.bd-bar.down { background: linear-gradient(90deg, var(--down), rgba(46,189,133,.25)); }
 .bd-bar.na { background: rgba(139,147,167,.25); }
 .bd-ico-box {
   width: 40px; height: 40px; border-radius: 11px; margin-bottom: 3px;
@@ -1691,8 +1691,8 @@ html[data-theme="light"] .grid-backdrop {
 .bd-ico { font-size: 22px; line-height: 1; }
 .bd-name { font-weight: 600; font-size: 11.5px; line-height: 1.35; max-width: 100%; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; word-break: normal; }
 .bd-avg { font-family: var(--mono); font-weight: 700; font-size: 13px; }
-.bd-avg.up { color: #e5484d; }
-.bd-avg.down { color: #2ebd85; }
+.bd-avg.up { color: var(--up); }
+.bd-avg.down { color: var(--down); }
 .bd-avg.na { color: var(--text-dim); }
 .bd-cnt { color: var(--text-dim); font-size: 10px; }
 .bd-desc { color: var(--text); font-size: 12px; margin-top: 6px; line-height: 1.5; }
@@ -1804,8 +1804,8 @@ html[data-theme="light"] .grid-backdrop {
   border: 1px solid var(--border); color: var(--text-dim); cursor: help; min-width: 30px; text-align: center;
 }
 .scr-score.hi { color: #35b8e0; border-color: rgba(53,184,224,.45); background: rgba(53,184,224,.1); }
-.scr-score.mid { color: #22c07c; border-color: rgba(34,192,124,.45); background: rgba(34,192,124,.1); }
-.scr-score.lo { color: #f0b429; border-color: rgba(240,180,41,.45); background: rgba(240,180,41,.1); }
+.scr-score.mid { color: var(--ok); border-color: rgba(34,192,124,.45); background: rgba(34,192,124,.1); }
+.scr-score.lo { color: var(--warn); border-color: rgba(240,180,41,.45); background: rgba(240,180,41,.1); }
 .scr-score.bad { color: #f0495b; border-color: rgba(240,73,91,.45); background: rgba(240,73,91,.1); }
 .scr-row-meta { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .scr-meta-item { font-size: 11px; color: var(--text-dim); font-family: var(--mono); }
@@ -2000,7 +2000,7 @@ html[data-theme="light"] .modal-body::-webkit-scrollbar-thumb:hover { background
 .flow-viewport {
   position: relative; flex: 1; min-height: 0; overflow: hidden; outline: none;
   background-color: var(--bg);
-  background-image: radial-gradient(circle, rgba(139, 147, 167, .20) 1px, transparent 1px);
+  background-image: radial-gradient(circle, var(--wire) 1px, transparent 1px);
   background-size: 20px 20px;
 }
 .flow-world { position: absolute; left: 0; top: 0; width: 0; height: 0; transform-origin: 0 0; }
@@ -2008,10 +2008,10 @@ html[data-theme="light"] .modal-body::-webkit-scrollbar-thumb:hover { background
   position: absolute; left: 0; top: 0; width: 190px; box-sizing: border-box;
   padding: 7px 10px 8px; border-radius: 8px; cursor: move;
   background: var(--bg-panel); border: 1px solid var(--border); border-left: 3px solid var(--border);
-  box-shadow: 0 2px 10px rgba(0, 0, 0, .38);
+  box-shadow: var(--sh-1);
 }
-.flow-node:hover { border-color: #39435d; }
-.flow-node.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent-soft), 0 4px 16px rgba(0, 0, 0, .5); }
+.flow-node:hover { border-color: var(--line-2); }
+.flow-node.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent-soft), 0 4px 16px rgba(0, 0, 0, .18); }
 .flow-node-head { display: flex; align-items: center; gap: 6px; }
 .flow-node-icon { font-size: 12px; line-height: 1; flex-shrink: 0; }
 .flow-node-title {
@@ -2040,7 +2040,7 @@ html[data-theme="light"] .modal-body::-webkit-scrollbar-thumb:hover { background
 /* 工具节点的这个点是个 ● 实心圆（比文件类的 ·/✓/⚠ 显眼），而且稍微放大一点 */
 .flow-node-dot.live { font-size: 12px; line-height: 1; }
 .flow-node-file {
-  color: #9fb0d6; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .flow-node-file.none { color: var(--text-dim); opacity: .6; font-family: var(--sans); font-style: italic; }
 .flow-node [contenteditable="true"] {
@@ -2073,15 +2073,15 @@ html[data-theme="light"] .modal-body::-webkit-scrollbar-thumb:hover { background
 .flow-port-b { top: auto; bottom: -6px; left: 50%; margin-top: 0; margin-left: -5.5px; }
 /* 入/出只管配色（位置见上、光标见 .flow-port 基础规则） */
 .flow-port-in { border-color: var(--text-dim); }
-.flow-port-out { border-color: #4f8cff; }
+.flow-port-out { border-color: var(--accent); }
 /* 悬停高亮：四个面都能当连线起点，谁都能亮 */
 .flow-port-l:hover, .flow-port-r:hover, .flow-port-t:hover, .flow-port-b:hover { background: var(--accent); border-color: var(--accent); }
 .flow-port.hot { background: var(--ok); border-color: var(--ok); }
 .flow-wires { position: absolute; left: 0; top: 0; width: 100%; height: 100%; pointer-events: none; }
-.flow-wire { fill: none; stroke: #46506a; stroke-width: 1.6; pointer-events: stroke; cursor: pointer; }
-.flow-wire:hover { stroke: #7183ab; }
+.flow-wire { fill: none; stroke: var(--wire); stroke-width: 1.6; pointer-events: stroke; cursor: pointer; }
+.flow-wire:hover { stroke: var(--accent); }
 .flow-wire.on { stroke: var(--accent); stroke-width: 2.2; }
-.flow-wire-dot { fill: #46506a; pointer-events: none; }
+.flow-wire-dot { fill: var(--wire); pointer-events: none; }
 .flow-wire-dot.on { fill: var(--accent); }
 .flow-wire-temp { fill: none; stroke: var(--accent); stroke-width: 1.8; stroke-dasharray: 5 4; pointer-events: none; }
 .flow-bar {
@@ -2113,7 +2113,7 @@ html[data-theme="light"] .modal-body::-webkit-scrollbar-thumb:hover { background
 .flow-dlg-box {
   width: 100%; max-width: 470px; max-height: 100%; overflow: auto; box-sizing: border-box;
   background: var(--bg-panel); border: 1px solid var(--accent); border-radius: 10px;
-  padding: 9px 11px 10px; box-shadow: 0 16px 40px rgba(0, 0, 0, .66);
+  padding: 9px 11px 10px; box-shadow: var(--sh-3);
   display: flex; flex-direction: column; gap: 6px;
 }
 .flow-dlg-title { font-size: 12.5px; font-weight: 700; color: var(--text); }
@@ -2143,7 +2143,7 @@ html[data-theme="light"] .modal-body::-webkit-scrollbar-thumb:hover { background
   position: absolute; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 6;
   padding: 4px 12px; border-radius: 999px; font-size: 11.5px; white-space: nowrap;
   background: var(--bg-panel); border: 1px solid var(--accent); color: var(--text);
-  box-shadow: 0 4px 14px rgba(0, 0, 0, .5);
+  box-shadow: var(--sh-2);
   opacity: 0; transition: opacity .18s ease; pointer-events: none;
 }
 .flow-toast.on { opacity: 1; }
@@ -2378,8 +2378,8 @@ html[data-theme="light"] .embed-wv { background: #ffffff; }
 /* 拖出文件（原生拖动）时高亮条目，给出"已抓起"的反馈 */
 .site-folder .file-row[draggable="true"] { cursor: grab; }
 .site-folder .file-row.dragging-out {
-  background: rgba(6,231,233,.12); border-color: rgba(6,231,233,.55);
-  box-shadow: 0 0 0 1px rgba(6,231,233,.35) inset;
+  background: var(--site-accent-soft); border-color: var(--site-accent-line);
+  box-shadow: 0 0 0 1px var(--site-accent-line) inset;
 }
 
 /* 我的网址：一条一条的列表条目 */
@@ -2388,13 +2388,13 @@ html[data-theme="light"] .embed-wv { background: #ffffff; }
   background: var(--bg); border: 1px solid var(--border); border-radius: 10px;
   cursor: pointer; transition: all .15s; min-width: 0;
 }
-.site-url-row:hover { border-color: rgba(6,231,233,.55); background: var(--bg-panel-hover); }
-.site-url-row.pinned { border-color: rgba(255,213,79,.45); background: rgba(255,213,79,.04); }
-.site-url-row.pinned:hover { border-color: rgba(255,213,79,.75); }
+.site-url-row:hover { border-color: var(--site-accent-line); background: var(--bg-panel-hover); }
+.site-url-row.pinned { border-color: var(--warn-line); background: var(--warn-soft); }
+.site-url-row.pinned:hover { border-color: var(--warn-line); }
 .site-url-icon {
   width: 40px; height: 40px; border-radius: 8px; object-fit: cover;
-  image-rendering: pixelated; border: 1px solid rgba(6,231,233,.35);
-  box-shadow: 0 0 6px rgba(6,231,233,.15); flex-shrink: 0;
+  image-rendering: pixelated; border: 1px solid var(--site-accent-line);
+  box-shadow: 0 0 6px var(--site-accent-soft); flex-shrink: 0;
 }
 .site-url-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
 .site-url-name-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
@@ -2402,18 +2402,18 @@ html[data-theme="light"] .embed-wv { background: #ffffff; }
 /* 置顶徽标（个人站） */
 .site-url-pin {
   font-size: 9.5px; padding: 1px 6px; border-radius: 20px; color: #ffd54f;
-  border: 1px solid rgba(255,213,79,.45); background: rgba(255,213,79,.08);
+  border: 1px solid var(--warn-line); background: rgba(255,213,79,.08);
 }
 /* 横栏：分隔置顶网站与其余相关链接 */
 .site-url-bar {
   display: flex; align-items: center; gap: 8px; width: 100%;
   margin: 2px 0 1px; color: var(--text-dim); font-size: 10px;
 }
-.site-url-bar-l { white-space: nowrap; font-weight: 700; color: #06e7e9; }
+.site-url-bar-l { white-space: nowrap; font-weight: 700; color: var(--site-accent); }
 .site-url-bar-r { white-space: nowrap; opacity: .75; }
 .site-url-bar::after {
   content: ''; flex: 1; height: 1px;
-  background: linear-gradient(90deg, rgba(6,231,233,.45), transparent);
+  background: linear-gradient(90deg, var(--site-accent-line), transparent);
 }
 /* 标题栏：探测说明小字 */
 .site-probe-note { font-size: 10px; color: var(--text-dim); white-space: nowrap; opacity: .85; }
@@ -2422,8 +2422,8 @@ html[data-theme="light"] .embed-wv { background: #ffffff; }
   margin-left: auto; flex-shrink: 0; font-size: 10px; font-weight: 700; white-space: nowrap;
   padding: 2px 7px; border-radius: 20px; align-self: flex-start;
 }
-.site-url-status.on   { color: var(--ok); border: 1px solid rgba(52,201,143,.4); background: rgba(52,201,143,.08); }
-.site-url-status.off  { color: #e5484d; border: 1px solid rgba(229,72,77,.4); background: rgba(229,72,77,.08); }
+.site-url-status.on   { color: var(--ok); border: 1px solid var(--ok-line); background: var(--ok-soft); }
+.site-url-status.off  { color: var(--err); border: 1px solid var(--err-line); background: var(--err-soft); }
 .site-url-status.pending { color: var(--text-dim); border: 1px solid var(--border); background: var(--bg-panel); }
 /* 网址标签条（一条可多个，带标注） */
 .site-url-links { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 3px; }
@@ -2434,8 +2434,8 @@ html[data-theme="light"] .embed-wv { background: #ffffff; }
   color: var(--text-dim); transition: all .15s; text-decoration: none;
   max-width: 100%; min-width: 0;
 }
-.site-url-chip:hover { border-color: rgba(6,231,233,.55); color: var(--accent); background: var(--bg-panel-hover); }
-.site-url-chip-label { color: #06e7e9; font-weight: 700; flex-shrink: 0; }
+.site-url-chip:hover { border-color: var(--site-accent-line); color: var(--accent); background: var(--bg-panel-hover); }
+.site-url-chip-label { color: var(--site-accent); font-weight: 700; flex-shrink: 0; }
 .site-url-chip-url { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* 关于我 */
@@ -2447,19 +2447,19 @@ html[data-theme="light"] .embed-wv { background: #ffffff; }
 .site-avatar {
   width: 84px; height: 84px; border-radius: 12px; object-fit: cover;
   border: 2px solid rgba(6,231,233,.5); image-rendering: pixelated;
-  box-shadow: 0 0 0 3px rgba(6,231,233,.12);
+  box-shadow: 0 0 0 3px var(--site-accent-soft);
 }
 .site-name { font-size: 17px; font-weight: 800; letter-spacing: 2px; }
 .site-slogan { color: var(--accent); font-size: 11.5px; opacity: .9; }
 .site-tags { display: flex; flex-wrap: wrap; gap: 5px; justify-content: center; }
 .site-tag {
-  font-size: 10px; padding: 2px 8px; border-radius: 20px; color: #4fc3f7;
-  border: 1px solid rgba(79,195,247,.4); background: rgba(79,195,247,.08);
+  font-size: 10px; padding: 2px 8px; border-radius: 20px; color: var(--site-accent);
+  border: 1px solid var(--site-accent-line); background: var(--site-accent-soft);
 }
 .site-desc { color: var(--text-dim); font-size: 11px; line-height: 1.6; text-align: center; }
 .site-tl { width: 100%; margin-top: 4px; display: flex; flex-direction: column; gap: 5px; }
 .site-tl-row { display: flex; gap: 8px; align-items: baseline; border-top: 1px dashed var(--border); padding-top: 5px; }
-.site-tl-t { font-size: 10.5px; color: #06e7e9; font-weight: 700; white-space: nowrap; }
+.site-tl-t { font-size: 10.5px; color: var(--site-accent); font-weight: 700; white-space: nowrap; }
 .site-tl-d { font-size: 10.5px; color: var(--text-dim); line-height: 1.5; }
 
 /* 自媒体账号 */
@@ -2490,24 +2490,24 @@ html[data-theme="light"] .embed-wv { background: #ffffff; }
 .site-project-top { display: flex; align-items: center; gap: 9px; min-width: 0; }
 .site-project-icon {
   width: 42px; height: 42px; border-radius: 9px; object-fit: cover; flex-shrink: 0;
-  image-rendering: pixelated; border: 1px solid rgba(6,231,233,.35);
-  box-shadow: 0 0 6px rgba(6,231,233,.15);
+  image-rendering: pixelated; border: 1px solid var(--site-accent-line);
+  box-shadow: 0 0 6px var(--site-accent-soft);
 }
 .site-project-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
 /* 「已上线」很小的字 + 小框框背景，放在名字上方（占高极小，不影响卡片高度） */
 .site-project-status-mini {
   display: inline-block; font-size: 8px; line-height: 1.3; letter-spacing: 1px;
   padding: 1px 6px; border-radius: 6px; align-self: flex-start; white-space: nowrap;
-  color: #4fc3f7; border: 1px solid rgba(79,195,247,.35); background: rgba(79,195,247,.08);
+  color: var(--site-accent); border: 1px solid rgba(79,195,247,.35); background: var(--site-accent-soft);
 }
-.site-project-status-mini.ok { color: var(--ok); border-color: rgba(52,201,143,.35); background: rgba(52,201,143,.08); }
+.site-project-status-mini.ok { color: var(--ok); border-color: var(--ok-line); background: var(--ok-soft); }
 .site-project-name-row { display: flex; align-items: center; gap: 6px; flex-wrap: nowrap; min-width: 0; }
 .site-project-name { font-size: 14px; font-weight: 800; flex-shrink: 0; }
 .site-project-status {
   font-size: 10px; padding: 1px 7px; border-radius: 20px; flex-shrink: 0;
-  color: #4fc3f7; border: 1px solid rgba(79,195,247,.4); background: rgba(79,195,247,.08);
+  color: var(--site-accent); border: 1px solid var(--site-accent-line); background: var(--site-accent-soft);
 }
-.site-project-status.ok { color: var(--ok); border-color: rgba(52,201,143,.4); background: rgba(52,201,143,.08); }
+.site-project-status.ok { color: var(--ok); border-color: var(--ok-line); background: var(--ok-soft); }
 .site-project-desc { font-size: 11px; color: var(--text-dim); }
 /* 描述并入名字行的内联样式（不单独占一行；单行放不下自动省略） */
 .site-project-desc-inline {
@@ -2530,7 +2530,7 @@ html[data-theme="light"] .embed-wv { background: #ffffff; }
   color: var(--text-dim); font-size: 12px; padding: 5px 13px; cursor: pointer;
   transition: all .15s; white-space: nowrap;
 }
-.site-project-open:hover { border-color: rgba(6,231,233,.55); color: #06e7e9; background: var(--bg-panel-hover); }
+.site-project-open:hover { border-color: var(--site-accent-line); color: var(--site-accent); background: var(--bg-panel-hover); }
 
 /* 联系咨询（预留保留样式） */
 .site-contact { display: flex; height: 100%; overflow: auto; padding: 8px; }
@@ -2953,8 +2953,8 @@ html[data-theme="light"] .webai-win { box-shadow: 0 18px 50px rgba(20,30,50,.28)
 }
 .flow-menu::-webkit-scrollbar { width: 7px; }
 .flow-menu::-webkit-scrollbar-track { background: transparent; }
-.flow-menu::-webkit-scrollbar-thumb { background: #39435d; border-radius: 4px; }
-.flow-menu::-webkit-scrollbar-thumb:hover { background: #4a5677; }
+.flow-menu::-webkit-scrollbar-thumb { background: var(--scroll-thumb); border-radius: 4px; }
+.flow-menu::-webkit-scrollbar-thumb:hover { background: var(--scroll-thumb-hover); }
 /* 菜单项从"一行文字"变成"图标 + 名字 + 一句 tip"：flex-wrap 让 tip 自动占满第二行 */
 .flow-menu-item { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .flow-menu-ic { flex: 0 0 auto; display: flex; align-items: center; justify-content: center; width: 14px; }
@@ -2983,18 +2983,18 @@ html[data-theme="light"] .webai-win { box-shadow: 0 18px 50px rgba(20,30,50,.28)
      · 预设的只读小图（.view-preset*）和只读文档（.view-doc*）是新类，样式表里原本没有。
    ============================================================================ */
 /* ---- 1. 节点卡片：类别色变量 --fc（JS 每帧按类别写）+ 悬浮抬起 + 选中同色发光 ---- */
-.flow-node { --fc: #4f8cff; transition: box-shadow .14s ease, border-color .14s ease; }
+.flow-node { --fc: var(--accent); transition: box-shadow .14s ease, border-color .14s ease; }
 /* 悬浮：描边换成**类别色**、影子加大 = "这张卡活了"（内容=蓝 / 方式=紫 / 工具=绿 / 看板=黄） */
-.flow-node.hover { border-color: var(--fc); box-shadow: 0 8px 22px rgba(0, 0, 0, .5); }
+.flow-node.hover { border-color: var(--fc); box-shadow: var(--sh-2); }
 /* 选中：同色发光（比原来那条强调色描边更能看出"选的是哪一类"）。
    ⚠ 这条必须排在 L1880 那条 .flow-node.on 之后才生效 —— 追加段就在文件末尾，位置天然满足 */
-.flow-node.on { border-color: var(--fc); box-shadow: 0 0 0 1px var(--fc), 0 6px 20px rgba(0, 0, 0, .5); }
+.flow-node.on { border-color: var(--fc); box-shadow: 0 0 0 1px var(--fc), var(--sh-2); }
 /* 图标位：12px → 15px、不再压暗（用户要的"图标更大更亮"）。
    官网图标那 5 个是 <img>，尺寸由 .flow-node-img 单独定，跟这里的字号无关 */
 .flow-node-icon { font-size: 15px; opacity: 1; }
 .flow-node-img { width: 15px; height: 15px; }
 /* 副行（"段落 · 5-15s" / "参考图 · 备注" / "默认干什么"）：比描述行再小一号、颜色偏蓝，和路径行区分开 */
-.flow-node-seg { color: #9fb0d6; }
+.flow-node-seg { color: var(--text-dim); }
 /* ---- 2. 三种线型：主线=粗实线 / 方式线=紫实线 / 依据线=灰虚线（颜色·粗细·虚线都由 JS 内联）
    悬停只加亮度：内联的 stroke 会压掉老规则里的 :hover 改色，改 filter 才不会打架 ---- */
 .flow-wire:hover { filter: brightness(1.35); }
@@ -3017,15 +3017,15 @@ html[data-theme="light"] .webai-win { box-shadow: 0 18px 50px rgba(20,30,50,.28)
 .view-preset-step {
   width: 100%; max-width: 430px; box-sizing: border-box;
   display: flex; align-items: center; gap: 8px;
-  background: var(--bg); border: 1px solid var(--border); border-left: 3px solid #a78bfa;
-  border-radius: 7px; padding: 7px 10px; box-shadow: 0 2px 8px rgba(0, 0, 0, .3);
+  background: var(--bg); border: 1px solid var(--border); border-left: 3px solid var(--accent);
+  border-radius: 7px; padding: 7px 10px; box-shadow: var(--sh-1);
 }
 .view-preset-no {
-  flex: 0 0 18px; width: 18px; height: 18px; border-radius: 50%; background: #a78bfa; color: #0b0f18;
+  flex: 0 0 18px; width: 18px; height: 18px; border-radius: 50%; background: var(--accent); color: #ffffff;
   font-size: 10.5px; font-weight: 700; display: flex; align-items: center; justify-content: center;
 }
 .view-preset-txt { font-size: 12px; line-height: 1.5; color: var(--text); word-break: break-word; }
-.view-preset-arrow { color: #a78bfa; font-size: 13px; line-height: 1; opacity: .9; }
+.view-preset-arrow { color: var(--accent); font-size: 13px; line-height: 1; opacity: .9; }
 .view-preset-cap { margin-top: 6px; align-self: center; font-size: 11px; font-weight: 600; color: var(--text-dim); }
 .view-preset-prompt {
   width: 100%; max-width: 560px; box-sizing: border-box; margin: 0; padding: 8px 10px;
@@ -3133,7 +3133,7 @@ html[data-theme="light"] .webai-win { box-shadow: 0 18px 50px rgba(20,30,50,.28)
 .scr-alert-head {
   display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
   padding: 7px 10px; margin-bottom: 8px; border-radius: 7px;
-  background: var(--bg-2, #141922); border: 1px solid var(--line, #232a36);
+  background: var(--bg-panel); border: 1px solid var(--line-1);
   font-size: 11.5px; color: var(--text-dim);
 }
 .scr-alert-dot { font-size: 11.5px; color: var(--text-dim); }
@@ -3154,7 +3154,7 @@ html[data-theme="light"] .webai-win { box-shadow: 0 18px 50px rgba(20,30,50,.28)
 .scr-rule {
   display: flex; align-items: center; gap: 7px; flex-wrap: wrap;
   padding: 4px 8px; border-radius: 5px; font-size: 11.5px;
-  background: var(--bg-2, #141922); border: 1px solid var(--line, #232a36);
+  background: var(--bg-panel); border: 1px solid var(--line-1);
 }
 .scr-rule.off { opacity: .45; }
 .scr-rule-code { font-variant-numeric: tabular-nums; color: var(--text, #dfe4ee); font-weight: 600; }
@@ -3167,14 +3167,14 @@ html[data-theme="light"] .webai-win { box-shadow: 0 18px 50px rgba(20,30,50,.28)
 }
 .scr-rule-btn {
   font-size: 10.5px; padding: 1px 7px; border-radius: 4px; cursor: pointer;
-  background: transparent; border: 1px solid var(--line, #232a36); color: var(--text-dim);
+  background: transparent; border: 1px solid var(--line-1); color: var(--text-dim);
 }
 .scr-rule-btn:hover { color: #7fb2ff; border-color: #7fb2ff; }
 .scr-rule-btn.primary { color: #7fb2ff; border-color: #7fb2ff; }
 .scr-rule-add { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
 .scr-inp {
   font-size: 11px; padding: 2px 6px; height: 22px; border-radius: 4px; min-width: 78px;
-  background: var(--bg-1, #0e131b); border: 1px solid var(--line, #232a36); color: var(--text, #dfe4ee);
+  background: var(--bg); border: 1px solid var(--line-1); color: var(--text, #dfe4ee);
 }
 .scr-inp-wide { flex: 1 1 140px; min-width: 120px; }
 .scr-alert-note { margin-top: 9px; font-size: 10.5px; line-height: 1.5; color: var(--text-dim); }
@@ -3463,7 +3463,7 @@ html[data-theme="light"] .rd-alertbar.opp { background: #eefaf6; }
 html[data-theme="light"] .rd-alertbar.info { background: #fff9e8; }
 .rd-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; opacity: .92; }
 .rd-dot { width: 8px; height: 8px; border-radius: 50%; background: #6b7280; }
-.rd-dot.on { background: #31d0a5; box-shadow: 0 0 7px #31d0a5; }
+.rd-dot.on { background: var(--down); box-shadow: 0 0 7px var(--down); }
 .rd-err { color: #ffb4a2; }
 .rd-flash { border-radius: 10px; padding: 10px 12px; line-height: 1.55; font-size: 13px;
   border: 1px solid rgba(255,255,255,.12); background: rgba(255,255,255,.04); }
@@ -3479,8 +3479,8 @@ html[data-theme="light"] .rd-alertbar.info { background: #fff9e8; }
 .rd-hold .n { font-size: 12px; opacity: .85; }
 .rd-hold .p { font-size: 17px; font-weight: 600; margin-top: 2px; letter-spacing: .3px; }
 .rd-hold .s { font-size: 11px; opacity: .68; margin-top: 2px; }
-.rd-up { color: #ff6b6b; }
-.rd-dn { color: #31d0a5; }
+.rd-up { color: var(--up); }
+.rd-dn { color: var(--down); }
 .rd-sec { font-size: 12px; opacity: .8; margin-top: 4px; }
 .rd-boards { display: flex; flex-direction: column; gap: 3px; }
 .rd-bd { display: flex; gap: 10px; align-items: baseline; font-size: 12px; padding: 4px 7px;
@@ -3497,7 +3497,7 @@ html[data-theme="light"] .rd-alertbar.info { background: #fff9e8; }
 .rd-opp.sel { cursor: pointer; }
 .rd-opp.sel:hover { background: rgba(255,255,255,.07); }
 .rd-opp-tag { border-radius: 4px; padding: 0 5px; font-size: 11px; font-weight: 600; }
-.rd-tA { color: #ff6b6b; border: 1px solid rgba(255,107,107,.45); }
+.rd-tA { color: var(--up); border: 1px solid rgba(255,107,107,.45); }
 .rd-tB { color: #ffa94d; border: 1px solid rgba(255,169,77,.45); }
 .rd-tC { color: #4dabf7; border: 1px solid rgba(77,171,247,.4); }
 .rd-tD { color: #adb5bd; border: 1px solid rgba(173,181,189,.35); }
@@ -3508,15 +3508,15 @@ html[data-theme="light"] .rd-opp-t { background: rgba(15,23,42,.05); }
 .rd-score { border-radius: 4px; padding: 0 5px; font-size: 11px; font-weight: 700; font-family: var(--mono);
   border: 1px solid rgba(255,255,255,.18); color: var(--text-dim); flex: none; }
 .rd-score.hi  { color: #35b8e0; border-color: rgba(53,184,224,.45); background: rgba(53,184,224,.1); }
-.rd-score.mid { color: #22c07c; border-color: rgba(34,192,124,.45); background: rgba(34,192,124,.1); }
-.rd-score.lo  { color: #f0b429; border-color: rgba(240,180,41,.45); background: rgba(240,180,41,.1); }
+.rd-score.mid { color: var(--ok); border-color: rgba(34,192,124,.45); background: rgba(34,192,124,.1); }
+.rd-score.lo  { color: var(--warn); border-color: rgba(240,180,41,.45); background: rgba(240,180,41,.1); }
 .rd-score.bad { color: #f0495b; border-color: rgba(240,73,91,.45); background: rgba(240,73,91,.1); }
 .mk-act { border-radius: 4px; padding: 0 5px; font-size: 11px; font-weight: 600; white-space: nowrap;
   border: 1px solid rgba(255,255,255,.18); color: var(--text-dim); flex: none; }
-.mk-act-seal  { color: #ff6b6b; border-color: rgba(255,107,107,.5); background: rgba(255,107,107,.10); }
+.mk-act-seal  { color: var(--up); border-color: rgba(255,107,107,.5); background: rgba(255,107,107,.10); }
 .mk-act-board { color: #ff922b; border-color: rgba(255,146,43,.5);  background: rgba(255,146,43,.10); }
-.mk-act-chase { color: #f0b429; border-color: rgba(240,180,41,.45); background: rgba(240,180,41,.08); }
-.mk-act-dip   { color: #22c07c; border-color: rgba(34,192,124,.45); background: rgba(34,192,124,.08); }
+.mk-act-chase { color: var(--warn); border-color: rgba(240,180,41,.45); background: rgba(240,180,41,.08); }
+.mk-act-dip   { color: var(--ok); border-color: rgba(34,192,124,.45); background: rgba(34,192,124,.08); }
 .mk-act-watch { color: #8a94a6; }
 .mk-act-avoid { color: #6b7280; border-color: rgba(107,114,128,.45); text-decoration: line-through; }
 /* 池子行改成两行：① 分/档/动作/名/涨幅 ② 一句具体理由（换手→参与方式） */
@@ -3551,7 +3551,7 @@ html[data-theme="light"] .rd-opp-t { background: rgba(15,23,42,.05); }
 .rd-btn { border: 1px solid rgba(255,255,255,.16); background: rgba(255,255,255,.05); color: inherit;
   border-radius: 6px; padding: 3px 8px; font-size: 12px; cursor: pointer; }
 .rd-btn:hover { background: rgba(255,255,255,.1); }
-.rd-btn.on { border-color: rgba(49,208,165,.6); color: #31d0a5; }
+.rd-btn.on { border-color: rgba(49,208,165,.6); color: var(--down); }
 .rd-empty { opacity: .5; font-size: 12px; padding: 5px 0; }
 html[data-theme="light"] .rd-hold,
 html[data-theme="light"] .rd-bd { background: rgba(15,23,42,.03); }
@@ -4516,7 +4516,7 @@ html[data-theme="light"] #boot-overlay[data-anim="terminal"] .boot-card { backgr
 }
 .view-home-h::after {
   content: ''; flex: 1 1 auto; height: 1px;
-  background: linear-gradient(90deg, rgba(255,255,255,.12), rgba(255,255,255,0));
+  background: linear-gradient(90deg, var(--line-2), rgba(255,255,255,0));
 }
 .view-home-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(214px, 1fr)); gap: 10px; }
 .view-home-chip {
@@ -4527,21 +4527,21 @@ html[data-theme="light"] #boot-overlay[data-anim="terminal"] .boot-card { backgr
   transition: border-color .13s, background .13s, transform .13s, box-shadow .13s;
 }
 .view-home-chip:hover {
-  border-color: rgba(79, 140, 255, .55); background: rgba(79, 140, 255, .12);
-  transform: translateY(-1px); box-shadow: 0 6px 18px rgba(0, 0, 0, .28);
+  border-color: var(--accent-line); background: var(--accent-soft);
+  transform: translateY(-1px); box-shadow: var(--sh-2);
 }
 .view-home-chip .ico {
   flex: 0 0 34px; width: 34px; height: 34px; border-radius: 9px; font-size: 17px;
   display: flex; align-items: center; justify-content: center;
-  background: rgba(79, 140, 255, .14); border: 1px solid rgba(79, 140, 255, .22);
+  background: var(--accent-soft); border: 1px solid var(--accent-line);
   transition: background .13s, border-color .13s;
 }
-.view-home-chip:hover .ico { background: rgba(79, 140, 255, .26); border-color: rgba(79, 140, 255, .45); }
+.view-home-chip:hover .ico { background: var(--accent-soft); border-color: var(--accent-line); }
 .view-home-chip .mid { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1 1 auto; }
 .view-home-chip .n { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .view-home-chip .p { font-size: 11px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 html[data-theme="light"] .view-home-chip { background: rgba(15, 23, 42, .04); }
-html[data-theme="light"] .view-home-chip .ico { background: rgba(79, 140, 255, .1); }
+html[data-theme="light"] .view-home-chip .ico { background: var(--accent-soft); }
 
 
 /* ==========================================================================================
@@ -5081,6 +5081,24 @@ html[data-theme="dark"] {
   --dur: 150ms;
   --scroll-thumb: rgba(255, 255, 255, .16);
   --scroll-thumb-hover: rgba(255, 255, 255, .28);
+  /* 场景内部通用（第 ⑮ 节，2026-11-12）：遮罩 / 查看器 / 连线 / 涨跌 / 各语义色的柔光与描线 */
+  --mask: rgba(0, 0, 0, .62);
+  --viewer-bg: #0a0a0a;
+  --wire: rgba(255, 255, 255, .22);
+  --up: #ff6369;            /* A 股：红涨 */
+  --down: #3ecf8e;          /* A 股：绿跌 */
+  --up-line: rgba(255, 99, 105, .35);
+  --down-line: rgba(62, 207, 142, .35);
+  --ok-soft: rgba(62, 207, 142, .10);
+  --ok-line: rgba(62, 207, 142, .32);
+  --warn-soft: rgba(245, 165, 36, .10);
+  --warn-line: rgba(245, 165, 36, .38);
+  --err-soft: rgba(255, 99, 105, .10);
+  --err-line: rgba(255, 99, 105, .32);
+  --accent-line: rgba(122, 162, 255, .40);
+  --site-accent: #06e7e9;
+  --site-accent-soft: rgba(6, 231, 233, .10);
+  --site-accent-line: rgba(6, 231, 233, .35);
   /* 实心主按钮（Vercel 的反相按钮）：浅色=黑底白字，深色=白底黑字 */
   --btn-solid: #ededed;
   --btn-solid-fg: #0a0a0a;
@@ -5108,6 +5126,24 @@ html[data-theme="light"] {
   --ring: rgba(0, 112, 243, .5);
   --scroll-thumb: rgba(0, 0, 0, .16);
   --scroll-thumb-hover: rgba(0, 0, 0, .28);
+  /* 场景内部通用（第 ⑮ 节，2026-11-12） */
+  --mask: rgba(16, 24, 40, .32);
+  --viewer-bg: #171717;
+  --wire: rgba(0, 0, 0, .22);
+  --up: #d1242f;
+  --down: #12805c;
+  --up-line: rgba(209, 36, 47, .28);
+  --down-line: rgba(18, 128, 92, .28);
+  --ok-soft: rgba(18, 128, 92, .10);
+  --ok-line: rgba(18, 128, 92, .28);
+  --warn-soft: rgba(180, 83, 9, .10);
+  --warn-line: rgba(180, 83, 9, .28);
+  --err-soft: rgba(209, 36, 47, .08);
+  --err-line: rgba(209, 36, 47, .28);
+  --accent-line: rgba(0, 112, 243, .28);
+  --site-accent: #0e7490;
+  --site-accent-soft: rgba(14, 116, 144, .10);
+  --site-accent-line: rgba(14, 116, 144, .28);
   --btn-solid: #171717;
   --btn-solid-fg: #ffffff;
   color-scheme: light;
@@ -6181,3 +6217,175 @@ html[data-theme="dark"] .kneu-dot { box-shadow: 0 0 5px rgba(255, 255, 255, .22)
 .upop-btn:hover { background: var(--bg-panel-hover); }
 .upop-btn.is-primary { border-color: transparent; background: var(--accent-soft); color: var(--accent); font-weight: 600; }
 .upop-btn.is-primary:hover { border-color: var(--accent); }
+
+/* ==========================================================================================
+   2026-11-12 · 皮肤收尾 · 第 ⑭ 节（宿主：「看看还有没有别的地方没个性化」）
+   ------------------------------------------------------------------------------------------
+   收的是「皮肤段之前就写好了、但一直没被第 ②~⑫ 节覆盖」的组件，全部带 html[data-theme] 前缀。
+   口径同第 1 节：颜色只走令牌、浮层 = 白面 + --sh-2/3 + 圆角、⛔ 不写死 hex。
+   ========================================================================================== */
+
+/* 1. 客户与交付卡片墙（.wbc-*，2026-10-27 加）：原来是 rgba(16,23,36,.72) 深底 + 继承 --text
+   ⇒ 浅色主题下"深底深字"。左侧分类色条（.wbc-tpl/.wbc-cus/.wbc-plain 的 border-left）是语义色，保留。 */
+html[data-theme] .wbc-card {
+  background: var(--bg-panel);
+  border-radius: var(--r-md);
+  box-shadow: var(--sh-1);
+  color: var(--text);
+  transition: box-shadow var(--dur, 150ms) ease, transform var(--dur, 150ms) ease;
+}
+html[data-theme] .wbc-card:hover { background: var(--bg-panel); box-shadow: var(--sh-2); transform: translateY(-1px); }
+html[data-theme] .wbc-count { background: var(--bg-panel-hover); border: 0; color: var(--text-dim); }
+
+/* 2. 顶栏「本地抠图」弹层（.cut-*）：弹层与下拉菜单原来写死 #11151d、hover 是 rgba(255,255,255,.07)
+   ⇒ 浅色主题下是"深菜单 + 深字"、"白底上悬停看不出来"。 */
+html[data-theme] .cut-modal {
+  background: var(--bg-panel);
+  border: 0;
+  border-radius: var(--r-lg);
+  box-shadow: var(--sh-3);
+}
+html[data-theme] .cut-modelmenu {
+  background: var(--bg-panel);
+  border: 0;
+  border-radius: var(--r-md);
+  box-shadow: var(--sh-3);
+}
+html[data-theme] .cut-mi:hover,
+html[data-theme] .cut-mi.off:hover { background: var(--bg-panel-hover); }
+html[data-theme] .cut-chk input,
+html[data-theme] .cut-range { accent-color: var(--accent); }
+html[data-theme] .cut-x:hover { background: var(--accent-soft); color: var(--err); }
+html[data-theme] .cut-stat.ok { color: var(--ok); }
+html[data-theme] .cut-stat.bad { color: var(--err); }
+html[data-theme] .cut-run { border-color: var(--accent) !important; color: var(--accent) !important; }
+
+/* 3. 顶栏弹层里的输入框（.tbs-input）：原来 rgba(0,0,0,.35) 深底 + 深色字，浅色下糊成一坨 */
+html[data-theme] .tbs-input {
+  background: var(--bg-panel);
+  border: 0;
+  box-shadow: inset 0 0 0 1px var(--line-2);
+  color: var(--text);
+}
+html[data-theme] .tbs-input:focus {
+  outline: none;
+  box-shadow: inset 0 0 0 1px var(--ring), 0 0 0 3px var(--accent-soft);
+}
+
+/* 4. 顶栏弹层内部的状态色：原来还是旧色板（#3fb950 / #e3b341 / #e5484d），且光晕与"去发光"口径冲突。
+   ⚠ 这里**只写状态变体**、不给 .tbs-dot / .tbs-bar-f 写基础色 —— 基础规则同特异性且写在后面，
+   会把 .ok/.warn/.bad 一起盖成同一个颜色（.tbs-bar-f 没有 .ok 类，所以用 :not() 兜）。 */
+html[data-theme] .tbs-dot { box-shadow: none; }
+html[data-theme] .tbs-dot.ok { background: var(--ok); box-shadow: none; }
+html[data-theme] .tbs-dot.warn { background: var(--warn); box-shadow: none; }
+html[data-theme] .tbs-dot.bad { background: var(--err); box-shadow: none; }
+/* 「正在干活」的蓝点：浅色主题下动画被关掉（见 L3638），基础色得在这里补回来，否则会变灰点 */
+html[data-theme] .tbs-dot.tbs-work { background: var(--accent); box-shadow: none; }
+/* ⑮-4 本地文件预览浮层 / 网页容器：前者 97% 深底却继承浅色主题深字（读不出来），
+   后者写死 #fff，深色主题下是一块白板 */
+html[data-theme="light"] .oa-file-preview { background: var(--bg-panel); }
+html[data-theme] .oa-file-preview-x,
+html[data-theme] .oa-img-x { color: var(--err); }
+html[data-theme] .view-web { background: var(--bg-panel); }
+html[data-theme] .tbs-pct.ok { color: var(--ok); }
+html[data-theme] .tbs-pct.warn { color: var(--warn); }
+html[data-theme] .tbs-pct.bad { color: var(--err); }
+html[data-theme] .tbs-bar { background: var(--bg-panel-hover); }
+html[data-theme] .tbs-bar-f:not(.warn):not(.bad) { background: var(--ok); }
+html[data-theme] .tbs-bar-f.warn { background: var(--warn); }
+html[data-theme] .tbs-bar-f.bad { background: var(--err); }
+html[data-theme] .tbs-badge { background: var(--err); }
+html[data-theme] .tbs-btn.danger { color: var(--err); border-color: var(--err); }
+
+/* 5. 程序开发 · Git 面板：底色/边框/状态色已换成令牌（见 L5929 起），这里只把浮层统一成
+   "白面 + 高档阴影 + 圆角、无实描边"，并给行悬停补 6px 圆角（原来是直角块）。 */
+html[data-theme] .git-pop,
+html[data-theme] .g-ask,
+html[data-theme] .g-msg,
+html[data-theme] .g-pop,
+html[data-theme] .g-menu {
+  background: var(--bg-panel);
+  color: var(--text);
+  border: 0;
+  border-radius: var(--r-md);
+  box-shadow: var(--sh-3);
+}
+html[data-theme] .g-menu-item,
+html[data-theme] .git-pop-row,
+html[data-theme] .g-pop-row { border-radius: var(--r-sm); }
+html[data-theme] .g-primary { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+/* 6. 选股建议页（.scr-*，2026-09-29 加）：整块原来靠 var(--bg-1/--bg-2/--line)，这三个变量从没定义过
+   ⇒ 浅色主题下卡片是 #141922 深底、文字却是 --text（近黑）＝ 深底深字。上面已把底色接到真令牌，
+   这里再把浅蓝字压到 --accent（#7fb2ff 在白卡上只有 2.2:1）。 */
+html[data-theme] .scr-alert-head { background: var(--bg-panel); border-color: var(--line-1); }
+html[data-theme] .scr-alert-hit { background: var(--bg-panel); border-left-color: var(--err); }
+html[data-theme] .scr-rule { background: var(--bg-panel); border-color: var(--line-1); }
+html[data-theme] .scr-rule-val,
+html[data-theme] .scr-rule-tag,
+html[data-theme] .scr-rule-btn:hover,
+html[data-theme] .scr-rule-btn.primary { color: var(--accent); }
+html[data-theme] .scr-rule-tag { background: var(--accent-soft); }
+html[data-theme] .scr-rule-btn { border-color: var(--line-1); }
+html[data-theme] .scr-rule-btn.primary { border-color: var(--accent); }
+html[data-theme] .scr-inp { border-color: var(--line-1); background: var(--bg); color: var(--text); }
+html[data-theme] .scr-alert-dot.on,
+html[data-theme] .scr-alert-hit-cur,
+html[data-theme] .scr-mode.hit { color: var(--err); }
+html[data-theme] .scr-mode.hit { border-color: var(--err); }
+
+/* 7. 「本地电脑 / 文件预览」面板的浅色护栏（只动 light）：这些规则原本是照着深色底写的
+   —— 半透明白底 + 近白字 / 浅蓝字 / 浅绿字，浅色主题下等于看不见（最低 1.6:1）。 */
+html[data-theme="light"] .oa-file-pane { border-color: var(--line-1); }
+html[data-theme="light"] .oa-file-pane-hd { background: var(--bg-panel-hover); }
+html[data-theme="light"] .oa-file-quick { border-bottom-color: var(--line-1); }
+html[data-theme="light"] .oa-file-row:hover { background: var(--bg-panel-hover); }
+html[data-theme="light"] .oa-file-up { background: var(--bg-panel-hover); }
+html[data-theme="light"] .oa-file-up:hover { background: rgba(0, 0, 0, .10); }
+html[data-theme="light"] .oa-file-chip,
+html[data-theme="light"] .oa-file-root { background: var(--accent-soft); color: var(--accent); }
+html[data-theme="light"] .oa-file-chip:hover,
+html[data-theme="light"] .oa-file-root:hover { background: rgba(0, 112, 243, .14); }
+html[data-theme="light"] .oa-file-rootcopy,
+html[data-theme="light"] .oa-file-rootpath { background: rgba(18, 128, 92, .10); color: var(--ok); }
+html[data-theme="light"] .oa-file-rootcopy:hover,
+html[data-theme="light"] .oa-file-rootpath:hover { background: rgba(18, 128, 92, .18); }
+html[data-theme="light"] .oa-file-rootpath.deep { background: rgba(18, 128, 92, .16); color: var(--ok); }
+html[data-theme="light"] .oa-file-rootpath.copied { background: var(--ok); color: #fff; }
+html[data-theme="light"] .oa-file-rootpath-ext { color: var(--text); }
+html[data-theme="light"] .oa-file-headup,
+html[data-theme="light"] .oa-file-headbtn { background: var(--bg-panel-hover); color: var(--text); }
+html[data-theme="light"] .oa-file-headup:hover,
+html[data-theme="light"] .oa-file-headbtn:hover { background: rgba(0, 0, 0, .10); }
+html[data-theme="light"] .oa-file-preview-hd { background: var(--bg-panel-hover); }
+html[data-theme="light"] .sr-ro { color: var(--accent); }
+html[data-theme="light"] .sr-tip,
+html[data-theme="light"] .sr-head-tip { color: var(--warn); }
+html[data-theme="light"] .sr-btn-close { color: var(--err); }
+/* ========================================================================
+   第 ⑮ 节 · 2026-11-12 场景内部统一（宿主：「不管我用不用，都要把 UI 个性化做完」）
+   ⑭ 节收的是"读不出来"的 P0；这一节把场景内部的写死色也接到令牌上 ——
+   画布节点/连线、个人站卡片、查看器、对话工具条、行情涨跌、遮罩，两套主题同一套结构。
+   ======================================================================== */
+
+/* ⑮-1 遮罩：四处遮罩各写一个近黑（62%~92%），浅色主题下像盖了一层黑玻璃 */
+html[data-theme] .cut-mask,
+html[data-theme] .flow-dlg,
+html[data-theme] .site-qr-layer { background: var(--mask); }
+html[data-theme] .oa-img-overlay { background: var(--viewer-bg); }
+
+/* ⑮-2 顶栏「正在干活」呼吸灯：原色 #5abeff 在白底上只有 2.1:1，收进 --accent */
+html[data-theme] .tbs-dot.tbs-work { background: var(--accent); box-shadow: none; }
+/* ⑮-4 本地文件预览浮层 / 网页容器：前者 97% 深底却继承浅色主题深字（读不出来），
+   后者写死 #fff，深色主题下是一块白板 */
+html[data-theme="light"] .oa-file-preview { background: var(--bg-panel); }
+html[data-theme] .oa-file-preview-x,
+html[data-theme] .oa-img-x { color: var(--err); }
+html[data-theme] .view-web { background: var(--bg-panel); }
+
+/* ⑮-3 「本地抠图」的遮罩与状态点（弹层本体已在 ⑭ 收过） */
+html[data-theme] .cut-mask { backdrop-filter: none; -webkit-backdrop-filter: none; }
+
+/* ⑮-4 记忆神经元的搜索框/按钮：深色版一套（已有），浅色版颜色已在 kneu 段，
+   这里只把"浅色下写死的白 10% 描边"换成发丝线 */
+html[data-theme="light"] .kneu-search,
+html[data-theme="light"] .kneu-btn { border-color: var(--line-2); }

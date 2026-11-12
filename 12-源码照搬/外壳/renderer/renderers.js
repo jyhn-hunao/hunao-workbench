@@ -17,6 +17,13 @@ function isLightTheme() {
   try { return document.documentElement.dataset.theme === 'light'; } catch (e) { return false; }
 }
 // 画布前景色：深色主题 → 白系；浅色主题 → 深灰蓝系
+// 读主题令牌的真实色（canvas 的 fillStyle/strokeStyle 不吃 var(--x)，必须给具体色）
+function cssVar(name, fallback) {
+  try {
+    const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    return v || fallback || '';
+  } catch (e) { return fallback || ''; }
+}
 function canvasFg(alpha) {
   return isLightTheme() ? 'rgba(15, 23, 42, ' + alpha + ')' : 'rgba(255, 255, 255, ' + alpha + ')';
 }
@@ -59,8 +66,8 @@ function mktColor(v) {
   if (v == null) return '';
   // 兼容 "+0.52%" / "-0.30%" / "-4.23" / 数值等格式
   const n = Number(String(v).replace(/[+%]/g, ''));
-  if (n > 0) return '#e5484d';   // A股红涨
-  if (n < 0) return '#2ebd85';   // A股绿跌
+  if (n > 0) return 'var(--up)';   // A股红涨（走令牌，浅色主题自动换深红）
+  if (n < 0) return 'var(--down)'; // A股绿跌
   return '';
 }
 
@@ -2007,13 +2014,13 @@ var FLOW_KINDS = [];   // v1 遗留（老图里有 kind 字段），新代码不
 //   顺序 = 用户口述的顺序（内容 → 方式 → 工具 → 看板）：工具栏四个入口、统计小字、空白菜单分组**共用这一个顺序**，
 //   免得"菜里一个序、统计里另一个序"（老版本 FLOW_CATS 与 FLOW_ADD_ORDER 故意不同序，本批统一了）。
 var FLOW_CATS = [
-  { id: 'content', name: '内容节点', color: '#4f8cff', hint: '做出来的东西（文案 / 视频 / 图片 / 音频）：双击摊到预览面板里看和改，字段里写清"要什么样"' },
-  { id: 'method', name: '方式节点', color: '#c084fc', hint: '**怎么做**（HTML 模板 / 固定流程预设）：HTML 是"方式"不是产出物；连上谁 = 让谁按这份做法去做' },
-  { id: 'tool', name: '工具节点', color: '#34c98f', hint: '能干活的东西（本机服务 / 软件 / 免费网页版 AI）：内容节点连到它 = 告诉 AI 会话用这个方式来' },
-  { id: 'board', name: '看板节点', color: '#e5b355', hint: '看状态用的：不产出东西，只把某个服务的现状摊出来；以后还有别的看板再往里加' },
+  { id: 'content', name: '内容节点', color: '#4f8cff', colorLight: '#2563eb', hint: '做出来的东西（文案 / 视频 / 图片 / 音频）：双击摊到预览面板里看和改，字段里写清"要什么样"' },
+  { id: 'method', name: '方式节点', color: '#c084fc', colorLight: '#7c3aed', hint: '**怎么做**（HTML 模板 / 固定流程预设）：HTML 是"方式"不是产出物；连上谁 = 让谁按这份做法去做' },
+  { id: 'tool', name: '工具节点', color: '#34c98f', colorLight: '#0f8f5f', hint: '能干活的东西（本机服务 / 软件 / 免费网页版 AI）：内容节点连到它 = 告诉 AI 会话用这个方式来' },
+  { id: 'board', name: '看板节点', color: '#e5b355', colorLight: '#a16207', hint: '看状态用的：不产出东西，只把某个服务的现状摊出来；以后还有别的看板再往里加' },
   // ★2026-09-26★ 用户点名："加一个文件夹节点叫『项目文件夹』，双击打开所在文件夹" —— 归这一类：
   //   一条工作流（素材 → 稿子 → 成片）**全放同一个文件夹**，接着干、查进度都只认它 ⇒ 它是"位置"，不是产出物。
-  { id: 'place', name: '位置节点', color: '#e0b341', hint: '东西放在哪：双击**直接打开那个文件夹**（资源管理器）—— 一条工作流的全部产物都在同一个文件夹里，方便查看与继续' }
+  { id: 'place', name: '位置节点', color: '#e0b341', colorLight: '#92400e', hint: '东西放在哪：双击**直接打开那个文件夹**（资源管理器）—— 一条工作流的全部产物都在同一个文件夹里，方便查看与继续' }
 ];
 // 工具栏那四个「＋ …节点 ▾」入口从左到右的顺序（用户 2026-09-21 点的：内容 / 方式 / 工具 / 看板）。
 // 与 FLOW_CATS 同序（本批统一，见上面那条注释）；以后加分类，两处都要看一眼（漏了这里 = 新分类在工具栏上没有入口）。
@@ -2026,6 +2033,11 @@ function flowCat(id) {
   return FLOW_CATS[0];
 }
 function flowCatOf(t) { return flowCat(t && t.cat); }
+// 类别色按主题取：浅色下用深一档的同色相，否则 2px 色条与描边在白底上发飘
+function flowCatColor(c) {
+  if (!c) return '#4f8cff';
+  return isLightTheme() && c.colorLight ? c.colorLight : c.color;
+}
 // 某一类里现在有哪些类型（顺序 = FLOW_TYPES 里的顺序）：四个添加入口和「用什么方式生成」下拉都靠它
 function flowTypesOfCat(catId) {
   var out = [];
@@ -2055,11 +2067,14 @@ var FLOW_WIRES = [
   { id: 'dep', name: '依据', hint: '供给/依据：文案、分镜表、参考图、BGM 这一路' }
 ];
 var FLOW_WIRE_STYLE = {
-  seq: { w: 3, dash: '', color: '#7d8cb2' },        // 主线：粗实线
-  how: { w: 1.8, dash: '', color: '#c084fc' },       // 方式：实线（换色，不虚线）
-  dep: { w: 1.6, dash: '6 4', color: '#8b93a7' }     // 依据：虚线（中性灰）
+  seq: { w: 3, dash: '', color: '#7d8cb2', colorLight: '#475569' },     // 主线：粗实线
+  how: { w: 1.8, dash: '', color: '#c084fc', colorLight: '#7c3aed' },   // 方式：实线
+  dep: { w: 1.6, dash: '6 4', color: '#8b93a7', colorLight: '#64748b' } // 依据：虚线
 };
-function flowWireStyle(k) { return FLOW_WIRE_STYLE[k] || FLOW_WIRE_STYLE.dep; }
+function flowWireStyle(k) {
+  const s = FLOW_WIRE_STYLE[k] || FLOW_WIRE_STYLE.dep;
+  return { w: s.w, dash: s.dash, color: isLightTheme() && s.colorLight ? s.colorLight : s.color };
+}
 // 线型的名字（人话，用在提示语和右键菜单上）。认不出来的一律按"依据"算（跟 flowWireStyle 的兜底一致）。
 function flowWireName(k) {
   for (var i = 0; i < FLOW_WIRES.length; i++) if (FLOW_WIRES[i].id === k) return FLOW_WIRES[i].name;
@@ -3291,7 +3306,7 @@ renderers.flow = (body, meta, head) => {
     const c = flowCat(cid);
     const b = mkBtn('＋ ' + c.name + ' ▾', '加一个' + c.name + '（只列这一类的类型）\n' + c.name + '：' + c.hint);
     b.dataset.cat = c.id;         // 让探针/自检认得出"哪个按钮是哪一类"
-    b.style.color = c.color;      // 视觉上也用各分类自己的颜色（用户允许"小圆点或文字色即可"）
+    b.style.color = flowCatColor(c);      // 视觉上也用各分类自己的颜色（按主题取色）（用户允许"小圆点或文字色即可"）
     b.addEventListener('click', () => openAddMenu(c, b));
     addBtns[c.id] = b;
     bar.appendChild(b);
@@ -3339,7 +3354,7 @@ renderers.flow = (body, meta, head) => {
     + 'font-size:10.5px;line-height:1.6;color:var(--text-dim);white-space:nowrap;cursor:default;';
   catStat.title = '这张图里四类节点各几个（按角色分，不是按类型）：'
     + FLOW_CATS.map(c => '\n· ' + c.name + '：' + c.hint).join('')
-    + '\n\n卡片左侧那条 2px 色条 = 类别色（' + FLOW_CATS.map(c => c.name + ' ' + c.color).join(' / ') + '）'
+    + '\n\n卡片左侧那条 2px 色条 = 类别色（' + FLOW_CATS.map(c => c.name + ' ' + flowCatColor(c)).join(' / ') + '）'
     + '\n工具栏左边四个按钮就是按这四类分开的（' + FLOW_ADD_ORDER.map(id => '＋ ' + flowCat(id).name).join(' / ') + '），各自只列自己那一类'
     + '\n加新类型只改 FLOW_TYPES 里的 cat 字段。';
   bar.appendChild(catStat);
@@ -3811,9 +3826,9 @@ renderers.flow = (body, meta, head) => {
       //   灯就再也不亮。现在**重绘时也认一次**：图里存着 running 名单（`g.running`，由 _标记运行.mjs 同步写进快照）
       //   ⇒ 任何一次 render 都会把灯带上，跟轮询在不在跑无关。
       if (g && Array.isArray(g.running) && g.running.indexOf(String(n.id)) >= 0) d.classList.add('run');
-      d.style.borderLeftColor = k.color;
+      d.style.borderLeftColor = flowCatColor(k);
       const cat = flowCatOf(k);
-      d.style.setProperty('--fc', cat.color);      // 悬浮描边 / 选中发光都取这个类别色
+      d.style.setProperty('--fc', flowCatColor(cat));      // 悬浮描边 / 选中发光都取这个类别色
       // 图标位：有官网图标（k.img）就放 <img>，没有就放单字；图挂了自动退回单字（见 flowIconInto）
       flowIconInto(d.querySelector('.flow-node-icon'), k);
       d.querySelector('.flow-node-title').textContent = n.name || k.newName;
@@ -3844,7 +3859,7 @@ renderers.flow = (body, meta, head) => {
       pf.textContent = st.text;
       pf.classList.toggle('none', !st.has);
       // 类别标记：色条按 cat 刷；颜色/说明都从 FLOW_CATS 现取（以后加类型不用动这里）
-      d.querySelector('.flow-node-catbar').style.background = cat.color;
+      d.querySelector('.flow-node-catbar').style.background = flowCatColor(cat);
       // 方式链（★从连线现算★，2026-09-26 用户点名改：那个是靠连线得到的）：落在本节点上的**方式线（how）**
       //   来源 = 谁把它做出来（flowHowChain 按 x 从左到右排）。2026-09-27 起不再单独占卡片一行（用户要卡片清爽），
       //   改为进 d.title —— 连线本身在画布上看得见，文字版在这一处 + 导出里那份都还在。
@@ -3857,7 +3872,7 @@ renderers.flow = (body, meta, head) => {
       const nn = seqNo[n.id] || '';
       no.textContent = nn;
       no.style.display = nn ? '' : 'none';
-      no.style.background = cat.color;
+      no.style.background = flowCatColor(cat);
       no.title = nn ? ('主线第 ' + nn + ' 段（按主线的顺序，和「⧉ Markdown」导出里那个号一致）') : '';
       // 悬停看全文（卡片上被"只印第一句 / 只印一行"省掉的东西，全在这儿找回来）：
       //   要求全文（描述/情节/要做什么/指令/默认干什么，一节一行）+ 关键字段一行（段落·秒数·用途·几步）+ 方式链。
@@ -5468,7 +5483,7 @@ renderers.flow = (body, meta, head) => {
   }
   const startBtn = mkBtn('▶ 开始', '把这张画布当工单，**直接发进本场景的 AI 会话** —— 等于对那个会话说"按画布开始跑工作流"');
   startBtn.dataset.act = 'start';
-  startBtn.style.color = '#7ee0a1';
+  startBtn.style.color = 'var(--ok)';
   startBtn.style.fontWeight = '600';
   startBtn.addEventListener('click', () => {
     const text = '按画布开始跑工作流（画布「' + (meta.title || pid) + '」）。下面是这张工单：\n\n' + toMarkdown();
