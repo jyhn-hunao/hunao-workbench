@@ -40,6 +40,9 @@ const HANDOFF = {
   'cmd-chat': path.join(DSH_HOME, '场景记忆', '命令', '场景私有记忆.md'),
   'bv-ai': path.join(DSH_HOME, '场景记忆', 'B站', '场景私有记忆.md'),
   'cd-ai': path.join(DSH_HOME, '场景记忆', '程序开发', '场景私有记忆.md'),
+  // 2026-11-12：补上「AI·工作区」（cd-ai-home）——同一个场景记忆文件（程序开发），
+  //   以前没登记 ⇒ 工作区会话换不了一键换。
+  'cd-ai-home': path.join(DSH_HOME, '场景记忆', '程序开发', '场景私有记忆.md'),
   'pc-ai': path.join(DSH_HOME, '场景记忆', '本地电脑', '场景私有记忆.md'),
   'sr-ai': path.join(DSH_HOME, '场景记忆', '自我复盘', '场景私有记忆.md'),
 };
@@ -212,4 +215,16 @@ try {
   say('✗ 轮换失败（上面是原样输出）' + (e.status != null ? '，退出码 ' + e.status : ''));
   process.exit(1);
 }
-if (flags.has('--go')) say('\n✅ 已换。去那个面板点一次 ⟳（或刷新场景）就接上新会话。');
+// 2026-11-12：真换完让壳把面板重载一次 —— 否则 json 已经改绑、界面还停在旧会话
+//   （用户实报「命令执行了但当前会话没换掉」）。壳每 500ms 读 data\reload-panels.cmd（main.js:4958），
+//   写 all = 重载所有 AI 面板的 webview；不写这一行，用户必须手动点 ⟳。
+if (flags.has('--go')) {
+  try {
+    const cmdFile = path.join(GUI, 'data', 'reload-panels.cmd');
+    fs.mkdirSync(path.dirname(cmdFile), { recursive: true });
+    fs.writeFileSync(cmdFile, 'all', 'utf8');
+    say('\n✅ 已换。面板会自动重载（壳轮询 data\\reload-panels.cmd）；没动静就把焦点切回工作台窗口。');
+  } catch (e) {
+    say('\n✅ 已换。自动重载没写成（' + ((e && e.message) || e) + '）⇒ 手动点一次面板标题栏 ⟳。');
+  }
+}
