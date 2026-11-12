@@ -1231,7 +1231,6 @@ async function init() {
     'harness': 'assets/deepseek-whale.png',
     'oa-ops': 'data:image/svg+xml;utf8,' + encodeURIComponent(SERVER_SVG),  // 服务器图标（原为云朵 ☁️）
     'stock-analysis': 'assets/hithink-icon.png',  // 同花顺官方图标（scripts\fetch-hithink-icon.mjs 从官网抓；原为通用股票图）
-    'personal-site': '🐴',  // <机主>个人站（马头图标）
     'blender': 'assets/blender-icon.png',  // Blender 官方图标（从 blender.exe 提取）
     'video-workflow': 'data:image/svg+xml;utf8,' + encodeURIComponent(FILM_SVG),  // 视频工作流（胶片）
     'self-review': 'data:image/svg+xml;utf8,' + encodeURIComponent(REVIEW_SVG),  // 自我复盘（环形箭头 + 文档）

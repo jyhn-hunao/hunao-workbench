@@ -186,17 +186,10 @@ contextBridge.exposeInMainWorld('app', {
   onBootProgress: (cb) => { ipcRenderer.on('boot:progress', (e, v) => cb(v)); },
   bootState: () => ipcRenderer.invoke('boot:state'),
   bootRetry: () => ipcRenderer.invoke('boot:retry'),
-  // ---- 个人站场景：官网预览 / 结构化信息 / 本地文件夹 / 浏览器打开 ----
+  // ---- 外链与探测（程序开发场景的「网址」面板 code-urls 在用；个人站面板已于 2026-11-12 删除）----
   site: {
-    preview: () => ipcRenderer.invoke('site:preview'),
-    info: () => ipcRenderer.invoke('site:info'),
-    files: (relPath) => ipcRenderer.invoke('site:files:local', relPath),
-    openFile: (relPath) => ipcRenderer.invoke('site:open-file', relPath),
     open: (url) => ipcRenderer.invoke('site:open', url),
-    openFolder: (dir) => ipcRenderer.invoke('site:open-folder', dir),
-    probe: (url) => ipcRenderer.invoke('site:probe', url),
-    // 拖出文件：拖到资源管理器＝复制一份，拖到其他窗口＝把文件交给它（主进程 startDrag）
-    startDrag: (relPath) => ipcRenderer.send('site:drag', relPath)
+    probe: (url) => ipcRenderer.invoke('site:probe', url)
   },
   // ---- 程序开发场景：把项目 H5 用手机尺寸窗口打开（400×830，独立持久会话记住登录）----
   code: {

@@ -70,14 +70,13 @@ const projectSwitchSvc = projectSwitch.createService({
   }
 });
 
-// ---- 个人站场景：官网静态服务（<工作台> → http://127.0.0.1:SITE_PORT）----
-const SITE_DIR = process.env.SITE_DIR || path.resolve(__dirname, '..');   // 公开版：默认 = 本夹根（12-源码照搬）
-// 2026-10-22：第二个预览源——DSH 社区站（本地目录，静态服务用 /__community/ 前缀直出，
-// 不跟官网同根，免得社区站的源码被当成官网页面发布出去）
-const COMMUNITY_DIR = process.env.COMMUNITY_DIR || path.resolve(__dirname, '..');
-// 2026-10-22：个人站场景「本地文件」面板的浏览根 = 项目工程总目录（原来写死成官网目录）
-const SITE_BROWSE_DIR = process.env.SITE_BROWSE_DIR || path.resolve(__dirname, '..');
-const SITE_PORT = 31238;
+// ---- 保命入口服务（127.0.0.1:SITE_PORT）----
+// 2026-11-12：个人站场景（官网静态预览 / 社区站预览 / 本地文件浏览）已整块删除，
+//   这个端口只剩两条**真在跑的**路由：`/chat`（用当前 token 跳引擎对话页）与
+//   `/__blender/live.jpg`（Blender 面板的实时抓帧）。删面板前先确认过：
+//   6 个场景 json 无一引用 personal-site，`code-urls` 只用 app.site.open/probe（不在此服务内）。
+// 2026-11-12 跨机器移植：端口统一可 env 覆盖（与 外壳\scripts\自检.mjs、工具\环境.mjs 同源）
+const SITE_PORT = Number(process.env.SITE_PORT || 31238);
 let siteServer = null;
 
 // ---- 数据盘隔离：所有 Electron 运行时数据（userData/session、webview partition、localStorage 等）
@@ -604,17 +603,8 @@ const BLENDER_EMBED_AGENT = path.join(__dirname, 'scripts', 'blender-embed-agent
 const BLENDER_EMBED_CMD = path.join(__dirname, 'data', 'blender-embed.cmd.json');
 const BLENDER_EMBED_RES = path.join(__dirname, 'data', 'blender-embed.res.json');
 
-const SITE_MIME = {
-  '.html': 'text/html; charset=utf-8', '.png': 'image/png', '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.svg': 'image/svg+xml',
-  '.css': 'text/css; charset=utf-8', '.js': 'application/javascript; charset=utf-8',
-  '.json': 'application/json; charset=utf-8', '.ico': 'image/x-icon', '.webp': 'image/webp'
-};
 function startSiteServer() {
   if (siteServer) return;
-  const SITE_ROOT = path.normalize(SITE_DIR);
-  const hasSite = fs.existsSync(SITE_DIR);
-  if (!hasSite) log('[site] 官网目录不存在（个人站预览不可用）: ' + SITE_DIR);
   siteServer = http.createServer(function (req, res) {
     const u = decodeURIComponent((req.url || '/').split('?')[0]);
     // Blender 场景：实时画面（抓帧进程写盘 → 这里直出，渲染层 img 带时间戳轮询即可）
@@ -646,90 +636,30 @@ function startSiteServer() {
       }
       return;
     }
-    // 2026-10-22：DSH 社区站（第二个预览源）—— 前缀 /__community/ 直出本地目录，
-    // 与官网同端口不同根；目录不存在时给明确 404，不影响官网预览。
-    if (u === '/__community' || u.startsWith('/__community/')) {
-      const cRoot = path.normalize(COMMUNITY_DIR);
-      if (!fs.existsSync(cRoot)) { res.writeHead(404); res.end('no-community-dir'); return; }
-      let rel = u.replace(/^\/__community\/?/, '');
-      if (!rel) rel = 'index.html';
-      let cp = path.normalize(path.join(cRoot, rel));
-      if (!cp.startsWith(cRoot)) { res.writeHead(403); res.end('forbidden'); return; }
-      if (fs.existsSync(cp) && fs.statSync(cp).isDirectory()) cp = path.join(cp, 'index.html');
-      if (!fs.existsSync(cp)) { res.writeHead(404); res.end('not found'); return; }
-      fs.readFile(cp, function (err, data) {
-        if (err) { res.writeHead(404); res.end('not found'); return; }
-        const ext = path.extname(cp).toLowerCase();
-        res.writeHead(200, { 'Content-Type': SITE_MIME[ext] || 'application/octet-stream', 'Cache-Control': 'no-cache' });
-        res.end(data);
-      });
-      return;
-    }
-    if (!hasSite) { res.writeHead(404); res.end('no-site'); return; }
-    let p = path.normalize(path.join(SITE_ROOT, u === '/' ? 'index.html' : u));
-    if (!p.startsWith(SITE_ROOT)) { res.writeHead(403); res.end('forbidden'); return; }
-    if (!fs.existsSync(p) || fs.statSync(p).isDirectory()) p = path.join(SITE_ROOT, 'index.html');
-    fs.readFile(p, function (err, data) {
-      if (err) { res.writeHead(404); res.end('not found'); return; }
-      const ext = path.extname(p).toLowerCase();
-      res.writeHead(200, { 'Content-Type': SITE_MIME[ext] || 'application/octet-stream', 'Cache-Control': 'no-cache' });
-      res.end(data);
-    });
+    // 其它路径一律 404：个人站官网预览与 /__community/ 社区站预览已于 2026-11-12 删除
+    res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' });
+    res.end('not found');
   });
   // ★ 2026-09-26：同一台机上可能同时跑着两个壳（dev 工作台 + 安装版）⇒ 31238 只能被一个占住。
   //   占不到的那个**安静退让**（原来会抛未捕获的 EADDRINUSE 刷日志），保命入口/官网预览由占住的那个提供；
   //   它自己取主界面地址时走 http://127.0.0.1:31238/chat（见下方 harness:url）⇒ 照样能进官方主界面。
+  // ★ 2026-09-26：同一台机上可能同时跑着两个壳（dev 工作台 + 安装版）⇒ 31238 只能被一个占住。
+  //   占不到的那个**安静退让**（原来会抛未捕获的 EADDRINUSE 刷日志），保命入口由占住的那个提供；
+  //   它自己取主界面地址时走 http://127.0.0.1:31238/chat（见下方 harness:url）⇒ 照样能进官方主界面。
   siteServer.on('error', function (e) {
     log('[site] 端口 ' + SITE_PORT + ' 没占上（' + ((e && e.code) || e) + '）⇒ 本实例让给已在跑的那个壳；'
-      + '保命入口/官网预览继续由它提供，主界面仍走 http://127.0.0.1:' + SITE_PORT + '/chat');
+      + '保命入口继续由它提供，主界面仍走 http://127.0.0.1:' + SITE_PORT + '/chat');
     siteServer = null;
   });
   siteServer.listen(SITE_PORT, '127.0.0.1', function () {
-    log('[site] 静态服务已启动: http://127.0.0.1:' + SITE_PORT + '（个人站官网 + Blender 实时画面 + 保命入口 /chat）');
+    log('[site] 保命入口服务已启动: http://127.0.0.1:' + SITE_PORT + '（/chat + Blender 实时画面）');
   });
 }
 
-// 个人站上下文：从官网 index.html 提取关键信息（账号/邮箱/标题），失败回退内置
-function collectSiteContext() {
-  const ctx = {
-    title: '<机主> | <机主> · 个人站',
-    accounts: [
-      { name: '哔哩哔哩', handle: '@<机主>', url: 'https://<你的B站主页>' },
-      { name: '抖音', handle: '@<你的抖音账号>', url: 'https://<你的抖音主页>' },
-      { name: '小红书', handle: '@<机主>', url: 'https://<你的小红书主页>' }
-    ],
-    email: '<邮箱>',
-    siteUrl: 'http://127.0.0.1:' + SITE_PORT + '/index.html'
-  };
-  try {
-    const html = fs.readFileSync(path.join(SITE_DIR, 'index.html'), 'utf8');
-    const t = String(html).match(/<title>([^<]+)<\/title>/);
-    if (t && t[1]) ctx.title = t[1].trim();
-    const mail = String(html).match(/mailto:([^"']+)/);
-    if (mail && mail[1]) ctx.email = mail[1];
-  } catch (e) { /* 用内置兜底 */ }
-  return ctx;
-}
+// （2026-11-12 删除）个人站场景的 collectSiteContext / buildSiteSystem 已随场景一并移除：
+//   两者原先只服务 personal-site 面板（前者给面板填标题/自媒体账号，后者拼个人站 AI 的系统提示），
+//   buildSiteSystem 已无任何调用点，collectSiteContext 只被 site:info 调用；面板与 IPC 均已删除。
 
-function buildSiteSystem(c) {
-  const acct = (c.accounts || []).map(function (a) {
-    return '- ' + a.name + '（' + a.handle + '）: ' + a.url;
-  }).join('\n');
-  return [
-    '你是「<机主>」个人站的 AI 助手（<机主>的个人站），只回答与这个个人站相关的问题，语气友好简洁。',
-    '',
-    '【个人站信息】',
-    '标题：' + (c.title || '<机主> | <机主> · 个人站'),
-    '官网本地预览：' + (c.siteUrl || ''),
-    '自媒体账号：',
-    acct || '（无）',
-    '联系邮箱：' + (c.email || '<邮箱>'),
-    '',
-    '【官网板块】#tools <机主>小工具集合（已上架「上班盯盘助手」，其余空位待填）；#media 自媒体账号；#cooperate 联系咨询；#donate 投喂小鱼干；#about 关于<机主>。',
-    '【风格】像素风 + 下雨背景，深蓝 #0a1628 主色，青色 #06e7e9 点缀；签名：梦想是优雅地淋一场雨。',
-    '无关话题礼貌说明自己只了解<机主>个人站。'
-  ].join('\n');
-}
 
 // 建窗口：opts = { isMain, scene, saved }
 //   isMain=true  → 主窗口（场景标签页齐全，行为与以前完全一致）
@@ -1483,31 +1413,15 @@ ipcMain.handle('kun:net:probe', (e, host, port, timeoutMs) => {
   });
 });
 
-// ---- 个人站场景 IPC：官网预览地址 / 官网结构化信息 ----
-ipcMain.handle('site:preview', () => ({
-  ok: fs.existsSync(SITE_DIR),
-  url: 'http://127.0.0.1:' + SITE_PORT + '/index.html',
-  base: 'http://127.0.0.1:' + SITE_PORT,
-  // 2026-10-22：第二个预览源（DSH 社区站），同一静态服务的 /__community/ 前缀
-  communityUrl: 'http://127.0.0.1:' + SITE_PORT + '/__community/index.html',
-  communityOk: fs.existsSync(COMMUNITY_DIR)
-}));
-ipcMain.handle('site:info', () => collectSiteContext());
+// ---- 通用两个小工具（程序开发场景的「网址」面板 `code-urls` 在用，保留）----
+// 2026-11-12：个人站的 site:preview / site:info / site:open-folder 已随面板删除，
+//   只剩这两条：系统浏览器打开外链、主进程代发 HTTP 探测（绕开渲染器跨域限制）。
 ipcMain.handle('site:open', (e, url) => {
   const u = String(url || '');
   if (/^(https?:|mailto:)/i.test(u)) { try { shell.openExternal(u); } catch (ex) { /* ignore */ } }
   return true;
 });
-// 个人站场景：在资源管理器打开本地文件夹（项目管理用）
-ipcMain.handle('site:open-folder', (e, dir) => {
-  const d = String(dir || '');
-  if (!d) return { ok: false, err: 'empty' };
-  try {
-    shell.openPath(d);
-    return { ok: true };
-  } catch (ex) { return { ok: false, err: String((ex && ex.message) || ex) }; }
-});
-// 个人站场景：网站可用性探测（我的网址状态；主进程发请求，绕开渲染器跨域限制）
+// 网站可用性探测（我的网址状态；主进程发请求，绕开渲染器跨域限制）
 ipcMain.handle('site:probe', (e, url) => {
   const u = String(url || '');
   if (!/^https?:\/\//i.test(u)) return { ok: false, err: 'bad-url' };
@@ -1553,50 +1467,10 @@ ipcMain.handle('code:phone-window', (e, url, title) => {
   }
 });
 
-// ---- 个人站场景：官网本地文件夹浏览（安全限制在 SITE_DIR 内，可进入子目录）----
-ipcMain.handle('site:files:local', (e, relPath) => {
-  const root = path.resolve(SITE_BROWSE_DIR);
-  const rel = String(relPath || '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
-  const full = rel ? path.resolve(root, rel) : root;
-  if (full !== root && !full.startsWith(root + path.sep)) {
-    return { ok: false, err: '越界路径：仅可浏览 ' + SITE_BROWSE_DIR };
-  }
-  let ents = [];
-  try { ents = fs.readdirSync(full, { withFileTypes: true }); }
-  catch (ex) { return { ok: false, err: '无法读取目录：' + full }; }
-  const rows = ents.map(en => {
-    let isDir = en.isDirectory(), size = 0, mtime = 0;
-    try {
-      const st = fs.statSync(path.join(full, en.name));
-      isDir = st.isDirectory(); size = isDir ? 0 : st.size; mtime = Math.floor(st.mtimeMs / 1000);
-    } catch (ex2) { /* ignore */ }
-    return { name: en.name, isDir: isDir, size: size, mtime: mtime };
-  }).sort((a, b) => (b.isDir - a.isDir) || a.name.localeCompare(b.name, 'zh'));
-  return { ok: true, root: root, rel: rel, base: 'http://127.0.0.1:' + SITE_PORT, rows: rows };
-});
+// （2026-11-12 删除）个人站场景的本地文件浏览：site:files:local / site:open-file 两条 IPC 已移除。
+//   它们只服务 personal-site 的「本地文件」面板（浏览根 SITE_BROWSE_DIR、点击交给系统程序），
+//   面板删除后无调用方；同时移除的还有拖出功能 site:drag（见下方 Blender 段之后）。
 
-// 打开文件（2026-10-22）：浏览根已改成 <工作台>
-// 其它项目文件直接交给系统默认程序（shell.openPath），不会 404。
-ipcMain.handle('site:open-file', async (e, relPath) => {
-  try {
-    const root = path.resolve(SITE_BROWSE_DIR);
-    const rel = String(relPath || '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
-    const full = rel ? path.resolve(root, rel) : root;
-    if (full !== root && !full.startsWith(root + path.sep)) return { ok: false, err: '越界' };
-    if (!fs.existsSync(full)) return { ok: false, err: '文件不存在' };
-    if (fs.statSync(full).isDirectory()) return { ok: false, err: '这是目录' };
-    const siteRoot = path.resolve(SITE_DIR);
-    if (full.startsWith(siteRoot + path.sep)) {
-      const r2 = path.relative(siteRoot, full).split(path.sep).join('/');
-      const url = 'http://127.0.0.1:' + SITE_PORT + '/' + r2.split('/').map(encodeURIComponent).join('/');
-      try { shell.openExternal(url); return { ok: true, url: url }; } catch (ex) { /* 落到下面 openPath */ }
-    }
-    const r = await shell.openPath(full);
-    return r ? { ok: false, err: r } : { ok: true };
-  } catch (ex) {
-    return { ok: false, err: String((ex && ex.message) || ex) };
-  }
-});
 
 // ================= 自我复盘场景（独立命名空间 app.review，根＝<工作台>\自我复盘，只读） =================
 // 需求：右上角浏览「自我复盘」镜像目录（主要都是 md），左上角大窗口"单击即预览"该文档。
@@ -2219,35 +2093,8 @@ ipcMain.handle('blender:reveal', (e, relPath) => {
   catch (ex) { return { ok: false, err: String((ex && ex.message) || ex) }; }
 });
 
-// 个人站场景：把文件/文件夹「拖出去」给别的窗口 ——
-// 本地文件面板里按住条目拖到资源管理器＝复制一份，拖到浏览器/编辑器等＝把该文件直接交给它。
-// 必须由主进程调用 webContents.startDrag（渲染层只负责在 dragstart 时把相对路径发过来）。
-let siteDragIcon = null;
-function siteIcon() {
-  if (siteDragIcon && !siteDragIcon.isEmpty()) return siteDragIcon;
-  for (const f of ['icon.png', 'icon.ico']) {
-    try {
-      const img = nativeImage.createFromPath(path.join(__dirname, f));
-      if (img && !img.isEmpty()) { siteDragIcon = img; return img; }
-    } catch (ex) { /* 继续尝试下一个 */ }
-  }
-  return null;
-}
-ipcMain.on('site:drag', (event, relPath) => {
-  try {
-    const root = path.resolve(SITE_BROWSE_DIR);
-    const rel = String(relPath || '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
-    const full = rel ? path.resolve(root, rel) : root;
-    // 安全：只允许拖出项目工程目录内的条目（与 site:files:local 同一守卫）
-    if (full !== root && !full.startsWith(root + path.sep)) { log('[site:drag] 越界：' + full); return; }
-    if (!fs.existsSync(full)) { log('[site:drag] 不存在：' + full); return; }
-    const item = { file: full };
-    const ic = siteIcon();
-    if (ic) item.icon = ic;   // 拖动时跟手的缩略图
-    event.sender.startDrag(item);
-    log('[site:drag] 拖出：' + full);
-  } catch (ex) { log('[site:drag] 失败：' + (ex && ex.message || ex)); }
-});
+// （2026-11-12 删除）个人站的「拖出去」功能：siteIcon / site:drag 已随本地文件面板一并移除。
+
 
 // ---- 股票助手：本地存储（记忆 / 聊天 / 行情缓存）----
 // 场景隔离强化：stock:chat:* / stock:mem:* 的 scenario 参数统一白名单归一化——
@@ -4548,6 +4395,30 @@ ipcMain.handle('topbar:engine-restore-gen', (e, gen) => {
   const r = topbarRun(tool, ['--restore-gen', g, '--yes'], 120000);
   return { ok: r.ok, out: String(r.out || '').slice(0, 600), error: r.ok ? null : String(r.out || '').slice(0, 400) };
 });
+
+// ⑥ 环境适配（2026-11-12）：换机器 / 换盘符后的自检与自愈
+//   跑 外壳\scripts\环境适配.mjs --json，把结构化结果交给顶栏「⋯ 更多 → 环境适配」渲染。
+//   ⛔ 界面不给 --rotate：它会归档现有会话，只能由用户在命令行显式跑。
+function envRun(mode) {
+  const script = path.join(__dirname, 'scripts', '环境适配.mjs');
+  if (!fs.existsSync(script)) return Promise.resolve({ ok: false, rows: [], error: '找不到 外壳\\scripts\\环境适配.mjs' });
+  const args = [(mode === 'apply' ? '--apply' : '--check'), '--json'];
+  return topbarRunAsync(script, args, 180000).then((r) => {
+    // 有 ✗ 时进程退出码为 1，但 stdout 里仍是完整 JSON ⇒ 从第一个 { 起解析
+    const txt = String((r && r.out) || '');
+    const i = txt.indexOf('{');
+    if (i >= 0) {
+      try {
+        const j = JSON.parse(txt.slice(i));
+        return { ok: !!j.ok, rows: Array.isArray(j.rows) ? j.rows : [], at: Date.now(), mode };
+      } catch (e) { /* 解析失败 ⇒ 报原文 */ }
+    }
+    return { ok: false, rows: [], at: Date.now(), mode, error: txt.slice(0, 400) || '脚本没有输出' };
+  });
+}
+ipcMain.handle('topbar:env-check', () => envRun('check'));
+ipcMain.handle('topbar:env-apply', () => envRun('apply'));
+
 
 // ===== 2026-10-24（宿主）：「升级中途不小心关闭 ⇒ 自动回滚到上次正常」 =====
 // 每次启动先落一枚"这次开过、还没正常退出"的哨（clean:false）；正常退出时改写成 clean:true。
