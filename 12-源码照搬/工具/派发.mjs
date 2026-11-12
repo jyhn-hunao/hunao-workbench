@@ -28,11 +28,15 @@ const val = (k, d) => { const i = argv.indexOf(k); return i >= 0 ? (argv[i + 1] 
 
 const toWant = val('--to', '');
 const fromId = val('--from', process.env.DSH_SESSION_ID || '');
-const task = argv.filter((a, i) => !a.startsWith('--') && argv[i - 1] !== '--to' && argv[i - 1] !== '--from'
-  && argv[i - 1] !== '--timeout').join(' ').trim();
+const taskFile = val('--file', '');
+// 任务正文：--file 读文件（长任务别在命令行里拼引号），否则取位置参数
+const task = taskFile
+  ? (fs.existsSync(taskFile) ? fs.readFileSync(taskFile, 'utf8').trim() : '')
+  : argv.filter((a, i) => !a.startsWith('--') && argv[i - 1] !== '--to' && argv[i - 1] !== '--from'
+    && argv[i - 1] !== '--timeout' && argv[i - 1] !== '--file').join(' ').trim();
 
 if (!toWant || !task) {
-  console.error('用法：node 工具\\派发.mjs --to "<会话标题或 id>" "<任务>" [--from <派发方会话id>] [--no-watch] [--timeout 秒] [--dry]');
+  console.error('用法：node 工具\\派发.mjs --to "<会话标题或 id>" "<任务>" [--file 任务.md] [--from <派发方会话id>] [--no-watch] [--timeout 秒] [--dry]');
   process.exit(2);
 }
 if (!fromId) { console.error('✗ 拿不到派发方会话：设 DSH_SESSION_ID 或显式 --from'); process.exit(2); }
