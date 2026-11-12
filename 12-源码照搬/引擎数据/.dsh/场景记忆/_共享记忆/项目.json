@@ -25,6 +25,16 @@
    "memory": "D:\\codeData\\myself\\luanyujia-workbench\\12-源码照搬\\引擎数据\\.dsh\\场景记忆\\程序开发\\项目记忆\\mlw.md",
    "memoryRoot": "D:\\codeData\\workData\\workCode\\mlw",
    "memoryIndex": "D:\\codeData\\workData\\workCode\\mlw\\memory\\_索引.json"
+  },
+  {
+   "name": "ai-compilation-specifications",
+   "paths": [
+    "D:\\codeData\\myself\\ai-compilation-specifications"
+   ],
+   "owner": "程序开发",
+   "status": "active",
+   "aliases": [],
+   "memory": "D:\\codeData\\myself\\luanyujia-workbench\\12-源码照搬\\引擎数据\\.dsh\\场景记忆\\程序开发\\项目记忆\\ai-compilation-specifications.md"
   }
  ]
 }
