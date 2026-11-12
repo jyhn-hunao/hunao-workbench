@@ -119,8 +119,15 @@ function listSessions() {
 //     两条叠加 ⇒ 把 139k/140k 的健康会话（实际 17%）标成 ⚠。**判据两处各算一套，就是虚警的来源。**
 //   ⇒ 现在只读 ctx.mjs 算好的 pct / win / line / projected，自己**不再算一条线**；读不到就干脆不标（宁可不报，
 //     也不用过期口径吓人）。
-const CTX_JS = path.join(HARNESS_DIR, '.dsh', 'skills', 'context-overflow', 'ctx.mjs');
+// 2026-11-12 修：技能装在 DSH_HOME\skills（= 引擎数据\.dsh\skills），原来按 HARNESS_DIR\.dsh 找
+//   ⇒ 恒 MODULE_NOT_FOUND 被 catch 吞掉，CTX 全是 '?'（换机器后同样恒坏）。口径统一到 DSH_HOME。
+const CTX_JS = path.join(DSH_HOME, 'skills', 'context-overflow', 'ctx.mjs');
+// 读不到就记原因，别静默：过期口径不吓人，但「工具根本没装」必须说出来（AGENTS.md §5 不静默兜底）
+const CTX_MISS = [];
 const CTX = (() => {
+  // 先判文件存在再 spawn：execFileSync 在子进程失败时会把它的 stderr 直接写到父进程 stderr，
+  // 光靠 catch 拦不住那几行 trace（2026-11-12 实测）。
+  if (!fs.existsSync(CTX_JS)) { CTX_MISS.push('文件不存在'); return new Map(); }
   try {
     const out = execFileSync(process.execPath, [CTX_JS, '--json', '--all'], { encoding: 'utf8', maxBuffer: 1 << 26, timeout: 60000 });
     const list = JSON.parse(out);
@@ -131,7 +138,10 @@ const CTX = (() => {
       if (x.id) m.set(String(x.id), x);
     }
     return m;
-  } catch (e) { return new Map(); }
+  } catch (e) {
+    CTX_MISS.push(String((e && e.message) || e).split('\n')[0]);
+    return new Map();
+  }
 })();
 const pressureOf = new Map();
 function attachPressure(id, rows) {
@@ -166,6 +176,8 @@ const STRAY = process.argv.includes('--stray');
 const ROTATE_ID = (() => { const i = process.argv.indexOf('--rotate'); return i > -1 ? String(process.argv[i + 1] || '') : ''; })();
 const rotating = !!ROTATE_ID || STRAY;
 if (!checkOnly && !rotating) {
+  // 上下文压力工具缺失时明说，不然「已超压缩线」提示消失得无声无息
+  if (CTX_MISS.length) console.log('⚠ 上下文压力不可用（' + CTX_MISS[0] + '）：' + CTX_JS + '\n  影响：不显示「已超压缩线」提示，其余不受影响。\n');
   console.log('引擎会话索引：' + path.join(DSH_HOME, 'storages'));
   console.log('共 ' + sessions.length + ' 个会话（按最后活动倒序）：\n');
   const hot = [];
