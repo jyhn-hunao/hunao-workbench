@@ -22,7 +22,8 @@ const DSH_HOME = process.env.DSH_HOME || path.join(PROJECT, '引擎数据', '.ds
 // 2026-10-16：默认工作区改成真目录（口径：说明\默认工作区.md）。⛔ 必须放**模块顶层** ——
 //   轮换(L257 附近)与 --stray(L544 附近)在**别的函数里**引用它们，放函数内会 ReferenceError（当天真踩过）。
 const DEFAULT_CWD = path.join(PROJECT, '工作区');
-const KEEP_CWD = process.argv.includes('--keep-cwd');
+const KEEP_CWD = process.argv.includes('--keep-cwd');   // 兼容旧参数（现在默认就沿用）
+const USE_DEFAULT_CWD = process.argv.includes('--default-cwd');
 
 function readJson(p) {
   try { return JSON.parse(fs.readFileSync(p, 'utf8')); } catch (e) { return null; }
@@ -266,7 +267,10 @@ if (rotating && !STRAY) {
     const oldId = String(hit.p.sessionId || '').trim();
     const title = String(hit.p.sessionTitle || '').trim();
     const old = sessions.find((x) => x.id === oldId) || null;
-    const cwd = (KEEP_CWD && old && old.cwd) ? old.cwd : DEFAULT_CWD;   // 默认新工作区；--keep-cwd 才沿用旧会话
+    // 2026-11-12 修（P0：面板绑到工作区里的同名孤儿会话）：默认**沿用旧会话的 cwd**（项目会话必须还在项目根建），
+    //   只有显式 --default-cwd 才落回默认工作区。原来条件写反了（默认 DEFAULT_CWD、--keep-cwd 才沿用）。
+    const oldCwd = (old && old.cwd) ? String(old.cwd) : '';
+    const cwd = (USE_DEFAULT_CWD || !oldCwd) ? DEFAULT_CWD : oldCwd;
     say('面板 ' + (hit.sc.id || hit.sc.file) + ' · ' + hit.p.id + '「' + (hit.p.title || '') + '」');
     say('  旧会话：' + (oldId || '(未绑定)') + '   标题「' + (old ? old.title : title) + '」   工作区 ' + cwd);
 
@@ -393,6 +397,19 @@ if (rotating && !STRAY) {
               const tmp = hit.sc.__path + '.tmp';
               fs.writeFileSync(tmp, JSON.stringify(obj, null, 2) + '\n', 'utf8');
               fs.renameSync(tmp, hit.sc.__path);
+              // ★2026-11-12（P0）：回写后**当场复核三处一致**，不一致就还原备份并报错 ——
+              //   不再出现「json 写了、界面却是别的会话」这种半成品状态。
+              {
+                const chk = readJson(hit.sc.__path) || {};
+                const nowP = (chk.panels || []).find((x) => x.id === hit.p.id) || {};
+                const same = String(nowP.sessionId || '') === String(newId) && String(nowP.sessionTitle || '') === String(title);
+                if (!same) {
+                  try { fs.copyFileSync(bfile, hit.sc.__path); } catch (e2) { /* 还原失败也要报错退出 */ }
+                  die('回写复核失败：json 里 ' + hit.p.id + ' 仍是「' + String(nowP.sessionId || '(空)') + ' / ' + String(nowP.sessionTitle || '') +
+                    '」，期望「' + newId + ' / ' + title + '」⇒ 已还原备份 ' + path.relative(root, bfile));
+                }
+                say('  ✓ 复核：json 面板 ' + hit.p.id + ' = ' + newId + ' 「' + title + '」');
+              }
               say('  ✓ 已回写 ' + path.relative(root, hit.sc.__path) + '（改了 ' + patched + ' 处；备份 ' + path.relative(root, bfile) + '）');
               // 2026-10-16 补（dg-dsh 派单 · 轮换后名册漂移）：**名册也要跟着改** ——
               //   `scenarios\_场景身份索引.md` §二 那行是"这个面板绑哪条会话"的权威记载；以前只改 scenarios\*.json，
