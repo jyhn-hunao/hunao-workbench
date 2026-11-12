@@ -4636,84 +4636,185 @@ function rotateLogStamp() {
   const p = (n) => String(n).padStart(2, '0');
   return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
 }
-function rotateLog(msg) {
+// 2026-11-12 五改：日志改 JSONL（一行一个事件），并用 String() 兜底 ——
+//   旧 txt 里出现过 3 行只写 "undefined"，事后根本查不出卡在哪一步。
+//   现在能按 panel / stage / code 过滤；超过 1 MB 只留上一份，不再无限长。
+function rotateJournal(ev) {
   try {
-    const f = path.join(__dirname, 'data', '换会话日志.txt');
+    const f = path.join(__dirname, 'data', '换会话日志.jsonl');
     fs.mkdirSync(path.dirname(f), { recursive: true });
-    fs.appendFileSync(f, '[' + rotateLogStamp() + '] ' + msg + '\r\n', 'utf8');
+    try {
+      if (fs.statSync(f).size > 1024 * 1024) {
+        try { fs.rmSync(f + '.prev', { force: true }); } catch (e) { /* ignore */ }
+        try { fs.renameSync(f, f + '.prev'); } catch (e) { /* ignore */ }
+      }
+    } catch (e) { /* 文件还不存在 */ }
+    const rec = Object.assign({ ts: rotateLogStamp() }, ev || {});
+    for (const k of Object.keys(rec)) rec[k] = typeof rec[k] === 'string' ? rec[k] : String(rec[k]);
+    fs.appendFileSync(f, JSON.stringify(rec) + '\r\n', 'utf8');
   } catch (e) { /* 日志写不进去不影响按钮 */ }
 }
 
-ipcMain.handle('harness:rotate', async (_event, panelId, opts) => {
-  const id = String(panelId || '').trim();
+// 进程树杀（Windows）：child.kill() 只结束直接子进程，孙子（sessions.mjs / 归档会话.mjs）会继续跑 ⇒
+//   上层已经判"超时失败"，json 和归档还在被改，用户看到状态自己跳变。taskkill /T 才杀得干净。
+function killTree(pid) {
+  try { spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' }); }
+  catch (e) { try { process.kill(pid); } catch (e2) { /* 已经退了 */ } }
+}
+
+// 面板 → 场景。互斥锁用 sceneId 当 key：同一场景可能挂两块 AI 面板（程序开发 = 工作区 + 项目），
+//   它们写同一份 scenarios\*.json，并发点两个按钮必然互相覆盖（旧实现固定 .tmp 文件名更会直接踩踏）。
+function sceneInfoOf(panelId) {
   const dir = path.join(__dirname, 'scenarios');
-  const ids = [];
-  let boundId = '';
   try {
     for (const f of fs.readdirSync(dir)) {
       if (!f.endsWith('.json') || f.charAt(0) === '_') continue;
       const sc = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8'));
       for (const p of (sc.panels || [])) {
-        if (p.type === 'harness' && p.id) ids.push(String(p.id));
-        if (p.type === 'harness' && String(p.id) === id) boundId = String(p.sessionId || '');
+        if (p.type === 'harness' && String(p.id) === panelId) {
+          return {
+            sceneId: String(sc.id || f.replace(/\.json$/, '')),
+            sceneName: String(sc.name || ''),
+            boundId: String(p.sessionId || ''),
+            file: f,
+          };
+        }
       }
     }
-  } catch (e) { return { ok: false, err: '读场景 json 失败：' + ((e && e.message) || e) }; }
-  if (ids.indexOf(id) < 0) return { ok: false, err: '不是已登记的 AI 面板：' + id };
-  // 2026-11-12：json 绑的会话已归档 ⇒ 只做提示、不拦（轮换本身能从归档态重建绑定）
-  let archivedNote = '';
+  } catch (e) { return null; }
+  return null;
+}
+
+// 会话压力 / 轮次 / 最后落盘：自动换会话的判据（口径与 scripts/换会话.mjs 的 pressures() 一致）。
+function sessionStatOf(sid) {
+  const base = path.join(DSH_HOME, 'storages');
   try {
-    const ws = JSON.parse(fs.readFileSync(path.join(DSH_HOME, 'storages', 'workspace.json'), 'utf8'));
-    if (boundId && ((ws.global || {}).archivedSessionIds || []).indexOf(boundId) >= 0) {
-      archivedNote = '（提示：场景 json 原先绑的会话已归档，本次会重建绑定；不是壳没重启）';
+    for (const d of fs.readdirSync(base)) {
+      const f = path.join(base, d, 'sessions', sid + '.json');
+      if (!fs.existsSync(f)) continue;
+      let rec = {};
+      try { rec = (JSON.parse(fs.readFileSync(f, 'utf8')) || {}).record || {}; } catch (e) { return null; }
+      const pv = rec.rows && rec.rows.contextPressure && rec.rows.contextPressure.val;
+      const ts = rec.rows && rec.rows.sessionStats && rec.rows.sessionStats.val;
+      let pct = null;
+      if (pv) {
+        const line = Math.floor((pv.contextWindow || 160000) * 0.8);
+        const projected = pv.pressureTokens > 0
+          ? Math.round(pv.pressureTokens + (pv.surfaceTokens || 0) - ((pv.sampledSurfaceTokens ?? pv.surfaceTokens) || 0))
+          : Math.round(pv.surfaceTokens || 0);
+        pct = Math.round(projected / line * 100);
+      }
+      let mtime = 0; try { mtime = fs.statSync(f).mtimeMs; } catch (e) { /* ignore */ }
+      return { pct: pct, turns: (ts && ts.turns) ?? null, mtime: mtime };
     }
-  } catch (e) { /* 读不到归档台账就不提示 */ }
-  // mode=handover：脚本写交接 + 轮换（默认 transcript 摘录）；否则直接换（--force 跳过 2 小时闸）
-  const handover = String((opts && opts.mode) || '') === 'handover';
-  const script = handover
-    ? path.join(__dirname, '..', '工具', '交接并换会话.mjs')
-    : path.join(__dirname, 'scripts', '换会话.mjs');
-  const scriptArgs = handover
-    ? [script, '--panel', id, '--mode', 'transcript']
-    : [script, id, '--go', '--force'];
-  if (!fs.existsSync(script)) return { ok: false, err: '缺脚本：' + script };
-  rotateLog('开始 · 面板 ' + id + ' · 模式 ' + (handover ? 'transcript 交接' : 'direct 直接换'));
-  return await new Promise((resolve) => {
+  } catch (e) { return null; }
+  return null;
+}
+
+// ---- 到期自动换会话（2026-11-12 用户要求「完全自动化」）----
+// 默认开：压力 ≥88% + ≥20 轮 + 空闲 ≥10 分钟 + 同面板 30 分钟冷却 + 每个 tick 最多换一个。
+// 关掉：外壳\data\自动换会话.json 里把 enabled 改成 false（文件不存在时按默认建一份，方便你改）。
+function autoRotateConfig() {
+  const f = path.join(__dirname, 'data', '自动换会话.json');
+  const def = { enabled: true, threshold: 88, minTurns: 20, idleMin: 10, cooldownMin: 30 };
+  try {
+    if (!fs.existsSync(f)) {
+      fs.mkdirSync(path.dirname(f), { recursive: true });
+      fs.writeFileSync(f, JSON.stringify(def, null, 2) + '\r\n', 'utf8');
+      return def;
+    }
+    return Object.assign(def, JSON.parse(fs.readFileSync(f, 'utf8')) || {});
+  } catch (e) { return def; }
+}
+
+// ---- 换会话执行体（按钮 IPC 和「到期自动换」共用一套）----
+// 2026-11-12 五改：把这些事实一次讲清 ——
+//   ① 互斥按 sceneId（同场景两块 AI 面板写同一份 json，绝不能并发）
+//   ② 超时用进程树杀（child.kill() 杀不掉孙子脚本，会留下"已判失败却还在改文件"的幽灵进程）
+//   ③ 阶段（1/3 交接 · 2/3 建会话 · 3/3 换绑）实时推给界面，按钮标签跟着走
+//   ④ JSONL 证据链（panel / stage / code / newId / reason 各一列，事后能查）
+//   ⑤ 命令与参数写死，只接受场景 json 里真实登记的面板 id
+const ROTATING = new Map();   // sceneId -> { panelId, stage, startedAt, auto }
+
+function runRotate(panelId, opts, onStage) {
+  // 1. 定位面板与场景；不存在就直接拒（互斥由调用方负责）
+  return new Promise((resolve) => {
+    const id = String(panelId || '').trim();
+    const info = sceneInfoOf(id);
+    if (!info) return resolve({ ok: false, stage: '校验', err: '不是已登记的 AI 面板：' + id });
+
+    // 2. json 绑的会话已归档 ⇒ 只提示、不拦（轮换本身能从归档态重建绑定）
+    let archivedNote = '';
+    try {
+      const ws = JSON.parse(fs.readFileSync(path.join(DSH_HOME, 'storages', 'workspace.json'), 'utf8'));
+      if (info.boundId && ((ws.global || {}).archivedSessionIds || []).indexOf(info.boundId) >= 0) {
+        archivedNote = '（提示：场景 json 原先绑的会话已归档，本次会重建绑定；不是壳没重启）';
+      }
+    } catch (e) { /* 读不到归档台账就不提示 */ }
+
+    // 3. 选脚本：handover = 先写交接（transcript 摘录，秒级）；否则直接换（--force 跳过 2 小时闸）
+    const handover = String((opts && opts.mode) || '') === 'handover';
+    const auto = !!(opts && opts.auto);
+    const script = handover
+      ? path.join(__dirname, '..', '工具', '交接并换会话.mjs')
+      : path.join(__dirname, 'scripts', '换会话.mjs');
+    const scriptArgs = handover
+      ? [script, '--panel', id, '--mode', 'transcript']
+      : [script, id, '--go', '--force'];
+    if (!fs.existsSync(script)) return resolve({ ok: false, stage: '校验', err: '缺脚本：' + script });
+
     const t0 = Date.now();
-    let child;
+    let stage = '1/3', out = '', errOut = '', buf = '', done = false, timedOut = false, child = null;
+    const setStage = (s, text) => {
+      if (s) stage = s;
+      const cur = ROTATING.get(info.sceneId);
+      if (cur && s) cur.stage = s;
+      try { if (onStage) onStage(s || stage, text || ''); } catch (e) { /* 界面没了也不影响脚本 */ }
+    };
+    rotateJournal({ ev: 'start', panel: id, scene: info.sceneId, old: info.boundId, mode: handover ? 'transcript' : 'direct', auto: auto });
+
     try {
       child = spawn(toolNode(), scriptArgs, {
-        cwd: __dirname, env: Object.assign({}, process.env, { DSH_HOME: DSH_HOME }), windowsHide: true
+        cwd: __dirname,
+        // DSH_ROTATE_SELF_RELOAD=0：GUI 模式下脚本不写 reload-panels.cmd，由渲染层只重载本面板；
+        //   命令行手动跑时没有渲染层，脚本才写 cmd 让壳帮忙（那时才用 all）。
+        env: Object.assign({}, process.env, { DSH_HOME: DSH_HOME, DSH_ROTATE_SELF_RELOAD: '0' }),
+        windowsHide: true,
       });
     } catch (e) {
-      rotateLog('启动失败 · ' + ((e && e.message) || e));
-      return resolve({ ok: false, code: 1, err: '启动脚本失败：' + ((e && e.message) || e), out: '', warn: '' });
+      rotateJournal({ ev: 'spawn-fail', panel: id, err: (e && e.message) || e });
+      return resolve({ ok: false, stage: '校验', err: '启动脚本失败：' + ((e && e.message) || e), out: '', warn: '' });
     }
-    let out = '', errOut = '', buf = '', done = false, timedOut = false;
+
     const finish = (code, errMsg) => {
       if (done) return;
       done = true;
       clearTimeout(killTimer);
       const all = out + (errOut ? '\n' + errOut : '');
       const ok = code === 0;
-      log('[harness:rotate] ' + id + ' code=' + (code == null ? 'ERR' : code) + ' ' + ((Date.now() - t0) / 1000).toFixed(1) + 's');
       // 失败时只挑「真正原因」给按钮显示（整段 stdout 会被 CSS 省略成一行，用户看不到真因）
-      const reason = ok ? '' : (all.split(/\r?\n/).filter((l) => /^\s*[·✗]/.test(l) || /先别急|轮换失败|换不到|结构闸|超时|失败/.test(l)).slice(0, 3).join(' ') || errMsg || ('脚本退出码 ' + code)).slice(0, 300);
+      const reason = ok ? '' : (all.split(/\r?\n/).filter((l) => /^\s*[·✗]/.test(l) || /先别急|轮换失败|换不到|结构闸|超时|失败|引擎没在跑/.test(l)).slice(0, 3).join(' ') || errMsg || ('脚本退出码 ' + code)).slice(0, 300);
       const warn = ok ? (((all.match(/^WARN:\s*(.+)$/m) || [])[1]) || '').trim() : '';
       const newId = ((all.match(/^NEWID:\s*(session-[0-9a-f-]{8,})\s*$/m) || [])[1]
         || (all.match(/新会话已建[：:]\s*(session-[0-9a-f-]{8,})/) || [])[1] || '').trim();
       const elapsed = ((all.match(/^ELAPSED:\s*([\d.]+)\s*$/m) || [])[1] || ((Date.now() - t0) / 1000).toFixed(1)).trim();
-      rotateLog((ok ? '完成' : '失败') + ' · 面板 ' + id + ' · 新会话 ' + (newId || '—') + ' · 耗时 ' + elapsed + 's'
-        + (ok ? '' : ' · 原因：' + reason));
-      resolve({ ok, code: ok ? 0 : (code || 1), reason: archivedNote + reason, out: archivedNote + all.slice(-6000), warn, newId, elapsed });
+      log('[harness:rotate] ' + id + ' code=' + (code == null ? 'ERR' : code) + ' ' + ((Date.now() - t0) / 1000).toFixed(1) + 's');
+      rotateJournal({ ev: ok ? 'done' : 'fail', panel: id, scene: info.sceneId, code: code == null ? 'ERR' : code, stage: ok ? '完成' : stage, newId: newId, elapsed: elapsed, warn: warn, reason: reason });
+      resolve({ ok: ok, code: ok ? 0 : (code || 1), stage: ok ? '完成' : stage, reason: archivedNote + reason, out: archivedNote + all.slice(-6000), warn: warn, newId: newId, elapsed: elapsed });
     };
+
+    // 4. 超时 240 秒（比脚本内部 180 秒长一档：让脚本自己先报原因，别被上层抢先杀掉）
     const killTimer = setTimeout(() => {
       timedOut = true;
-      try { child.kill(); } catch (e) { /* ignore */ }
-    }, 180000);
-    // 脚本用 P| 行报告步骤（交接 / 建会话 / 换绑+重载）；界面走 toast，这里只落日志
+      try { killTree(child.pid); } catch (e) { /* 可能已退 */ }
+    }, 240000);
+
+    // 5. 脚本用 `P|1/3 交接 · …` 报阶段 ⇒ 实时推给界面 + 进日志
     const onLine = (line) => {
-      if (line.startsWith('P|')) rotateLog('· ' + line.slice(2));
+      if (!line.trim()) return;
+      const m = line.match(/^P\|(\d\/\d)\s*(.*)$/);
+      if (m) setStage(m[1], (m[2] || '').trim());
+      else if (line.startsWith('P|')) setStage('', line.slice(2).trim());
     };
     child.stdout.setEncoding('utf8');
     child.stderr.setEncoding('utf8');
@@ -4727,11 +4828,71 @@ ipcMain.handle('harness:rotate', async (_event, panelId, opts) => {
     child.on('error', (e) => { finish(null, '脚本启动失败：' + ((e && e.message) || e)); });
     child.on('close', (code) => {
       if (buf.trim()) onLine(buf.trim());
-      if (timedOut) errOut += '\n✗ 超时（180 秒）已中止';
-      finish(timedOut ? null : code, timedOut ? '超时（180 秒）已中止' : '');
+      if (timedOut) errOut += '\n✗ 超时（240 秒）已中止（进程树已结束）';
+      finish(timedOut ? null : code, timedOut ? '超时（240 秒）已中止（进程树已结束）' : '');
     });
   });
+}
+
+ipcMain.handle('harness:rotate', async (event, panelId, opts) => {
+  const id = String(panelId || '').trim();
+  const info = sceneInfoOf(id);
+  if (!info) return { ok: false, err: '不是已登记的 AI 面板：' + id };
+  if (ROTATING.has(info.sceneId)) {
+    const cur = ROTATING.get(info.sceneId);
+    return { ok: false, code: 'busy', stage: cur.stage, err: '这个场景正在换会话（面板 ' + cur.panelId + ' · ' + cur.stage + '）—— 等它跑完再点；并发会写坏同一份场景 json' };
+  }
+  ROTATING.set(info.sceneId, { panelId: id, stage: '1/3', startedAt: Date.now(), auto: false });
+  const onStage = (s, text) => {
+    try { event.sender.send('harness:rotate-progress', { panelId: id, sceneId: info.sceneId, stage: s, text: String(text || '') }); } catch (e) { /* 窗口没了 */ }
+  };
+  try {
+    return await runRotate(id, opts, onStage);
+  } finally {
+    ROTATING.delete(info.sceneId);
+  }
 });
+
+// ---- 到期自动换会话（「完全自动化」的那一半）----
+// 判据（全满足才动）：压力 ≥ 阈值 + 轮次 ≥ 下限 + 会话空闲 ≥ idleMin 分钟 + 同面板冷却期已过。
+// 每 5 分钟最多换一个 ⇒ 不会同时改多份场景 json；失败只记日志，下一个 tick 再评估。
+const AUTO_LAST = new Map();
+setInterval(function () {
+  const cfg = autoRotateConfig();
+  if (!cfg.enabled || ROTATING.size) return;
+  const panels = [];
+  try {
+    const dir = path.join(__dirname, 'scenarios');
+    for (const f of fs.readdirSync(dir)) {
+      if (!f.endsWith('.json') || f.charAt(0) === '_') continue;
+      const sc = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8'));
+      for (const p of (sc.panels || [])) {
+        if (p.type === 'harness' && p.sessionId) panels.push({ id: String(p.id), sid: String(p.sessionId), sceneId: String(sc.id || f.replace(/\.json$/, '')) });
+      }
+    }
+  } catch (e) { return; }
+  for (const p of panels) {
+    const st = sessionStatOf(p.sid);
+    if (!st || st.pct == null || st.pct < cfg.threshold) continue;
+    if ((st.turns || 0) < cfg.minTurns) continue;
+    if (st.mtime && (Date.now() - st.mtime) < cfg.idleMin * 60 * 1000) continue;   // 正在用：别打断
+    if (Date.now() - (AUTO_LAST.get(p.id) || 0) < cfg.cooldownMin * 60 * 1000) continue;
+    ROTATING.set(p.sceneId, { panelId: p.id, stage: '自动', startedAt: Date.now(), auto: true });
+    rotateJournal({ ev: 'auto-trigger', panel: p.id, scene: p.sceneId, pct: st.pct, turns: st.turns });
+    runRotate(p.id, { mode: 'handover', auto: true }, function (s, text) {
+      broadcast('harness:rotate-progress', { panelId: p.id, sceneId: p.sceneId, stage: s, text: '自动换会话 · ' + (text || '') });
+    }).then(function (r) {
+      ROTATING.delete(p.sceneId);
+      AUTO_LAST.set(p.id, Date.now());
+      if (r && r.ok) broadcast('harness:rotated', { panelId: p.id, sceneId: p.sceneId, auto: true, newId: r.newId || '' });
+      rotateJournal({ ev: r && r.ok ? 'auto-done' : 'auto-fail', panel: p.id, newId: (r && r.newId) || '', reason: (r && r.reason) || '' });
+    }).catch(function (e) {
+      ROTATING.delete(p.sceneId);
+      rotateJournal({ ev: 'auto-crash', panel: p.id, err: (e && e.message) || e });
+    });
+    return;   // 一个 tick 只换一个
+  }
+}, 5 * 60 * 1000);
 ipcMain.handle('topbar:open', (e, p) => {
   const f = path.resolve(String(p || ''));
   if (f.indexOf(TOPBAR_ROOT) !== 0) return { ok: false, error: '只允许打开项目根目录里的文件' };   // 白名单：别让它变成任意路径打开器
