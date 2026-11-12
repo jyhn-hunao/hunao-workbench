@@ -84,6 +84,7 @@
 - **远程**：`origin` 只指向 gitee `https://gitee.com/ydcy_studio/hunao-workbench.git`；原仓 `mashanglinyu/luanyujia-workbench` 保留为 `upstream`，其 push URL 置为 `DISABLED`，**不得**向原仓推送。
 - **push 授权**：本仓获用户常驻授权（2026-11-10 明确要求「自主 push」），AI 可直接 `git push origin main`；push 前仍须过提交前 gate，只在 gitee，不 force push，不推其它分支与 tag。
 - **粒度与消息**：见 `doc/提交准则.md`——10 类 `type`、本仓 `scope` 词表、理想 ≤ 8 文件 / ≤ 300 行、硬上限 ≤ 12 文件 / ≤ 400 行；消息 `type(scope): 中文摘要`。
+- **消息格式只约束 AI**：`type(scope)` 只管 AI 产出/代办的提交；用户在 git 工具里手写的提交信息不受此约束，界面与脚本**不得**校验、改写或拦截（2026-11-12 用户明确）。
 - **分支**：主线 `main`；本地实验分支 `custom-local` 留在本机，不推送。
 - **不改写已推送历史**：需要修正时新增提交，不 `amend` 已 push 的提交。
 
