@@ -79,9 +79,14 @@ async function listSessions() {
 
   if (flags.has('--list') || !q) {
     const renamedNotArchived = all.filter((s) => /^已归档\s*·/.test(s.title) && !arch.has(s.id));
+    // 2026-11-12：反向核对 —— 台账已归档、标题却还是原名（以前只有「改名没归档」这一向，
+    //   于是「真归档但标题没变」会被误读成没归档）。两边都列，口径才统一。
+    const archivedNotRenamed = all.filter((s) => arch.has(s.id) && !/^已归档\s*·/.test(s.title));
     say('真归档（侧边栏看不到）：' + arch.size + ' 条');
     say('名字带「已归档」但**没真归档**：' + renamedNotArchived.length + ' 条');
     renamedNotArchived.forEach((s) => say('  ✗ ' + s.id + '  ' + s.title));
+    say('台账已归档但**标题没带「已归档」**：' + archivedNotRenamed.length + ' 条' + (archivedNotRenamed.length > 8 ? '（列前 8）' : ''));
+    archivedNotRenamed.slice(0, 8).forEach((s) => say('  · ' + s.id + '  ' + s.title));
     if (!q) say('\n用法：node scripts\\归档会话.mjs <会话id或标题> [--go]');
     return;
   }
@@ -112,5 +117,21 @@ async function listSessions() {
   }
   const ok = r.status === 200 && (archivedIds().has(used) || archivedIds().has(hit.id));
   say((ok ? '✓ 已真归档' : '✗ 归档失败（HTTP ' + r.status + '）') + '：' + used + (ok ? '（设置页「取消归档」可恢复）' : ' ' + String(r.t).slice(0, 160)));
+  // 2026-11-12（用户拍板）：归档成功后统一改名，与轮换归档的口径一致
+  //   ⛔ 改名失败**不影响**「已归档」这个事实（台账已经写进去了）⇒ 分开报，别把两者混成一句
+  if (ok && !/^已归档\s*·/.test(hit.title || '')) {
+    const d = new Date();
+    const p = (n) => String(n).padStart(2, '0');
+    const day = d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+    const base = String(hit.title || used).trim();
+    const archTitle = '已归档 · ' + base + ' · ' + day;
+    try {
+      const rn = await rpc('session/rename', { request: { sessionId: used, title: archTitle } });
+      if (rn.status === 200) say('  ✓ 已改名：' + archTitle + '（归档状态不受影响）');
+      else say('  ⚠ 归档已生效，但改名失败（HTTP ' + rn.status + '）：标题仍是「' + base + '」');
+    } catch (e) {
+      say('  ⚠ 归档已生效，但改名异常：' + ((e && e.message) || e) + '（标题仍是「' + base + '」）');
+    }
+  }
   process.exit(ok ? 0 : 1);
 })().catch((e) => { say('出错：' + e.message); process.exit(1); });
