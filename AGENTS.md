@@ -50,6 +50,7 @@
 | 干完回执给派发方 | `node 12-源码照搬\工具\回执.mjs --ticket <派发单id> --summary "<结论>"` | `12-源码照搬/工具/回执.mjs:1` |
 | 查派发/回执台账 | `12-源码照搬\引擎数据\.dsh\派发\回执日志.md` + 同目录 `*.json` 单子 | `12-源码照搬/工具/派发-公共.mjs:1` |
 | 发布前检查 | `node 12-源码照搬\工具\发布前检查.mjs` | `12-源码照搬/工具/发布前检查.mjs:4` |
+| 环境适配（换机器/换盘符后重算本机路径 + 私有插件落位；`--check` 只读、`--apply` 幂等、`--rotate` 重建会话） | `node 12-源码照搬\外壳\scripts\环境适配.mjs --apply` | `12-源码照搬/外壳/scripts/环境适配.mjs:1` |
 | 规则落地复核 | `powershell -File ~/.dsh/standards/install/verify.ps1 -Segment project,drift -Project D:\codeData\myself\luanyujia-workbench` | `~/.dsh/standards/install/verify.ps1` |
 
 > 「没跑」不等于「通过」：交付时每条命令写清实际执行结果，或写「未执行 + 原因」（`README.md` 的常见问题一栏说明多数故障先看日志）。
@@ -105,7 +106,8 @@
 
 ## 8. 已知风险
 
-- **端口写死两处**：`12-源码照搬/启动.vbs:11` 与 `main.js:15` 都是 3083，与其它 DSH 实例（常见 3080）冲突时必须同改，只改一处会连到别的引擎。
+- **端口默认值集中在四处**：`12-源码照搬/启动.vbs:11`、`main.js:16`（`DSH_PORT` 默认 3083）、`工具\环境.mjs` 的 `DEFAULT_PORTS`；与其它 DSH 实例（常见 3080）冲突时**优先用 `DSH_PORT` / `SITE_PORT` 环境变量覆盖**，⛔ 不要只改 `启动.vbs`（只改一处会连到别的引擎）。自检已改为读 `环境.mjs`，不再自带端口字面量。
+- **换机器/换盘符**：先跑 `node 12-源码照搬\外壳\scripts\环境适配.mjs`（只读体检），再 `--apply`；会话必须在新机器重建（`--rotate` 或逐面板 `换会话.mjs --go`），搬 id 无效。契约见 `doc/机制可移植性规范.md`。
 - **引擎契约随版本漂移**：`建会话.mjs` 依赖「server.log 取 token → 换 cookie → POST /api/<method>」这套现状（`12-源码照搬/外壳/scripts/建会话.mjs:54`），引擎升级后要重跑一次建会话验证。
 - **自检对引擎布局有假设**：`自检.mjs:33` 找的是 `引擎/apps/cli/lib/bin.js`，而当前引擎是打包布局（`引擎/lib/`），所以自检会走「复用 3083 上已跑的实例」分支；本机没起引擎时它会报引擎缺失。
 - **sessionId 是本机数据**：换机器后场景面板必然空白，先跑 `sessions.mjs --check` 再怀疑代码。
