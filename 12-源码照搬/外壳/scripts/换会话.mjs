@@ -6,7 +6,7 @@
 //   node "<工作台>\外壳\scripts\换会话.mjs" site-ai     空跑：打印计划，不动任何东西
 //   node "<工作台>\外壳\scripts\换会话.mjs" site-ai --go   真换（用户只要记到这一条）
 //   可加 --force：交接文件超过 2 小时也照换（会有警告，仍要求文件存在）
-//   可加 --no-seed：不给新会话写开场消息（按钮路径用：面板重载会立刻打开新会话，省掉 seed 的 10 秒等待）
+//   可加 --no-seed：不给新会话写开场消息（默认写；sessions.mjs 看到轮次真的开始就取消，最多 3 秒）
 //
 // 零散会话（没有场景/面板的那些 · 2026-09-23 加）—— 走同一入口，加 --stray：
 //   node "…\scripts\换会话.mjs" --stray                     列出所有零散会话（压力 + 交接文档有没有）
@@ -222,8 +222,8 @@ say('\n' + (flags.has('--go') ? '▶ 开始换会话（真执行）' : '▶ 空�
 const line = 'node ' + cmd.join(' ');
 say('  内部执行：' + line + '\n');
 try {
-  // 2026-11-12：--no-seed 要透传给 sessions.mjs —— 按钮路径靠“面板重载即打开新会话”让它可见，
-  //   省掉 seed 里 10 秒的固定等待（实测换会话 10.5s → 6.8s）。
+  // 2026-11-12：--no-seed 仍要透传给 sessions.mjs（手工指定时不写开场消息）；
+  //   默认 seed 已从“固定等 10 秒”改成“看到轮次真的开始就取消（最多 3 秒）”。
   const out = execFileSync(process.execPath, [SESSIONS, '--rotate', id, '--handoff', handoff,
     ...(flags.has('--force') ? ['--force'] : []), ...(flags.has('--no-seed') ? ['--no-seed'] : []),
     ...(flags.has('--go') ? [] : ['--dry'])],

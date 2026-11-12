@@ -14,6 +14,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+// 2026-11-12：轮换后的开场消息不再固定等 10 秒 —— 用 transcript 判「轮次真的开始了」再取消。
+//   多帧 zstd 的解法只在 工具\派发-公共.mjs 一处，别在这里另抄一份（会漂移）。
+import { unzstdAll } from '../../工具/派发-公共.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PROJECT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -27,6 +30,31 @@ const USE_DEFAULT_CWD = process.argv.includes('--default-cwd');
 
 function readJson(p) {
   try { return JSON.parse(fs.readFileSync(p, 'utf8')); } catch (e) { return null; }
+}
+
+// 2026-11-12：新会话的 transcript 在哪 + 它的轮次有没有真的开始（seed 取消的判据）。
+//   取消太早 ⇒ 会话仍是 blank ⇒ 侧边栏不显示（2026-09-21 实测）；所以等到 user/message 或 turn/start 再取消。
+function transcriptFileOf(id) {
+  const base = path.join(DSH_HOME, 'sessions');
+  try {
+    for (const ws of fs.readdirSync(base)) {
+      const p = path.join(base, ws, id, 'session.v4.jsonl.zstd');
+      if (fs.existsSync(p)) return p;
+    }
+  } catch (e) { /* 还没有会话目录 */ }
+  return '';
+}
+function sessionTurnStarted(id) {
+  const f = transcriptFileOf(id);
+  if (!f) return false;
+  try {
+    for (const line of unzstdAll(fs.readFileSync(f)).toString('utf8').split('\n')) {
+      if (!line.trim()) continue;
+      let e; try { e = JSON.parse(line); } catch (e2) { continue; }
+      if (e.type === 'user/message' || e.type === 'turn/start') return true;
+    }
+  } catch (e) { /* 正在写、解不开：下一轮再试 */ }
+  return false;
 }
 
 // 引擎有两处会话索引：项目缓存总表 + 每会话缓存（文件名就是会话 id）
@@ -370,18 +398,30 @@ if (rotating && !STRAY) {
               say('  ' + (archOk ? '✓' : '⚠ HTTP ' + arc.status) + (archOk
                 ? ' 旧会话已真归档（侧边栏里不再显示；工作台设置页「取消归档」可恢复）'
                 : ' 归档没成 ⇒ 旧会话还会留在侧边栏里；补一次：node scripts\\归档会话.mjs ' + oldId + ' --go'));
-              // ④ 塞一条开场消息再立刻打断：空会话不会出现在侧边栏（2026-09-21 用户实测），有内容才会
+              // ④ 塞一条开场消息再打断：空会话不会出现在侧边栏（2026-09-21 用户实测），有内容才会。
+              //   2026-11-12：开场消息明确写出**场景与面板**（用户报「切换后不告知所处场景」）；
+              //   不再固定等 10 秒，改成轮询 transcript 看到 user/message / turn/start 就取消（最多 3 秒）。
               if (seedIt && !adopt) {
                 // 开场消息同时是"安全指令"：明确禁止读文件/调工具/开始干活 ⇒ 这轮即使跑完也只是回一句话，不会改任何东西
-                const seedTxt = '交接已写好：' + (handoff || '该场景的项目信息') + ' 的 §〇（进度/下一步/卡点）。'
+                const sceneName = String((hit.sc && (hit.sc.name || hit.sc.id)) || '');
+                const panelName = String(hit.p.title || hit.p.id || '');
+                const projName = Array.isArray(hit.p.pinTarget) ? String(hit.p.pinTarget[0] || '') : '';
+                const seedTxt = '【场景：' + (sceneName || '?') + (panelName ? ' · 面板：' + panelName : '') + (projName ? ' · 项目：' + projName : '') + '】这是本会话的开场信息。'
+                  + '交接已写好：' + (handoff || '该场景的项目信息') + ' 的 §〇（进度/下一步/卡点）。'
                   + '现在只回一句话「已读交接」即可 —— 不要读任何文件、不要调用任何工具、不要开始干活，等我下一条指令。';
                 const pr = await rpc('session/prompt', { request: {
                   requestId: (globalThis.crypto && crypto.randomUUID ? crypto.randomUUID() : String(Date.now())),
                   sessionId: newId, mode: 'queue', content: [{ type: 'text', text: seedTxt }],
                 } });
-                await new Promise((r) => setTimeout(r, 10000));   // 取消太早 ⇒ 这轮没真正开始过 ⇒ 会话仍是 blank ⇒ 侧边栏照样不显示它（2026-09-21 实测）
+                const tSeed = Date.now();
+                let seedSeen = false;
+                while (Date.now() - tSeed < 3000) {
+                  await new Promise((r) => setTimeout(r, 250));
+                  if (sessionTurnStarted(newId)) { seedSeen = true; break; }
+                }
                 const cx = await rpc('session/cancel', { request: { sessionId: newId } });
                 say('  ' + (pr.status === 200 ? '✓' : '✗ HTTP ' + pr.status) + ' 已给新会话写入开场消息（这样它才会出现在侧边栏）' + (pr.status === 200 ? '' : ' ' + String(pr.t).slice(0, 160)));
+                if (!seedSeen) say('    （3 秒内没看到轮次开始就取消了；开场消息通常已入队，侧边栏可能晚一点出现）');
                 say('  ' + (cx.status === 200 ? '✓' : '✗ HTTP ' + cx.status) + ' 已打断这轮（开场消息明令它别干活，所以这轮不会动任何东西）' + (cx.status === 200 && cx.j && cx.j.result && cx.j.result.value ? '（accepted=' + cx.j.result.value.accepted + '）' : ''));
               } else say('  （--no-seed：没写开场消息 ⇒ 新会话是空的，侧边栏可能要等它被打开过才显示）');
               // ⑤ 原子回写 json（先备份）

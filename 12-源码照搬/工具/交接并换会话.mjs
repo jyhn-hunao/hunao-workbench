@@ -152,7 +152,7 @@ function writeTranscriptHandoff() {
   if (!ev) fail(5, '读不到旧会话 transcript（' + (transcript || '文件不存在') + '）⇒ 未换会话');
   const all = collectTurns(ev).map((t) => Object.assign(t, { user: stripReminders(t.user) }));
   // 交接提示、开场消息（seed）都没有业务信息，摘录时剔掉；只剩这些 ⇒ 不重写 §〇
-  const useful = all.filter((t) => t.user && !/^【换会话前交接】/.test(t.user) && !/^交接已写好：/.test(t.user));
+  const useful = all.filter((t) => t.user && !/^【换会话前交接】/.test(t.user) && !/^交接已写好：/.test(t.user) && !/^【场景：/.test(t.user));
   if (!useful.length) {
     // 旧会话是空的/只有开场消息：沿用现有 §〇，只刷新时间戳让 2 小时闸放行（别用噪声覆盖真交接）
     const now = new Date();
@@ -303,9 +303,9 @@ async function waitPromptHandoff() {
 function rotate(force) {
   step('2/3', '建会话', '开始轮换…');
   return new Promise((resolve) => {
-    // --no-seed：省掉 sessions.mjs 里 10 秒的“等开场消息跑起来再取消”；面板重载会立刻打开新会话，
-    //   侧边栏同样看得见（2026-11-12 实测：换会话 10.5s → 6.8s）。
-    const args = [path.join(SHELL, 'scripts', '换会话.mjs'), PANEL, '--go', '--no-seed'];
+    // 2026-11-12：保留开场消息（新会话要知道自己属于哪个场景/面板）；sessions.mjs 已改成
+    //   轮询 transcript 看轮次真的开始就取消（最多 3 秒），不再固定等 10 秒。
+    const args = [path.join(SHELL, 'scripts', '换会话.mjs'), PANEL, '--go'];
     if (force) args.push('--force');
     let child;
     try {
