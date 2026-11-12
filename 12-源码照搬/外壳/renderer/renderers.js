@@ -5777,7 +5777,9 @@ renderers.view = (body, meta, head) => {
       return (d.getMonth() + 1) + '-' + p2(d.getDate()) + ' ' + p2(d.getHours()) + ':' + p2(d.getMinutes());
     } catch (e) { return ''; }
   };
-  function remember(p) { try { if (p) localStorage.setItem(storeKey, p); else localStorage.removeItem(storeKey); } catch (e) { /* ignore */ } }
+  // noRemember：临时产物（git diff 的 .txt、转换出的 PDF）不写进"上次看的是谁"——
+  //   否则下次开面板会去恢复一个 %TEMP% 文件（临时目录一清就找不到，还让人以为在预览真文件）。
+  function remember(p) { try { if (cur && cur.noRemember) return; if (p) localStorage.setItem(storeKey, p); else localStorage.removeItem(storeKey); } catch (e) { /* ignore */ } }
 
   // ---- DOM：一条工具行 + 主体 + 一条状态行 ----
   const HEADMODE = !!head;                 // 有标题行 ⇒ 按键并进标题行（见本渲染器顶部说明）
@@ -5886,6 +5888,7 @@ renderers.view = (body, meta, head) => {
     if (cur.doc) { statusEl.textContent = cur.note || '只读预览'; return; }
     if (cur.url && !cur.path) { statusEl.textContent = cur.url; return; }
     if (cur.kind === 'dir') { statusEl.textContent = '文件夹 · ' + cur.path; return; }
+    if (cur.kind === 'diff') { statusEl.textContent = cur.path + (cur.size ? '  ·  ' + fmtSize(cur.size) : '') + '  ·  只读 diff'; return; }
     if (cur.kind === 'opaque') { statusEl.textContent = cur.path; return; }   // 二进制/封装类：只印路径，别写"已保存"（★2026-10-13）
     const bits = [cur.path];
     if (cur.size) bits.push(fmtSize(cur.size));
@@ -5899,7 +5902,7 @@ renderers.view = (body, meta, head) => {
     nameEl.textContent = (HEADMODE && label === HOME) ? '' : label;
     nameEl.title = cur.path || cur.url || cur.note || '';
     if (cur.kind === 'dir') iconEl.textContent = '📁'; else iconEl.textContent = cur.kind === 'image' ? '🖼' : (cur.kind === 'video' ? '🎞' : (cur.kind === 'audio' ? '🔊'
-      : (cur.kind === 'web' ? '🌐' : (cur.kind === 'preset' ? '📋' : (cur.kind === 'text' ? '✎' : (cur.kind === 'office' ? '📘' : (cur.kind === 'opaque' ? '📦' : '👁')))))));
+      : (cur.kind === 'web' ? '🌐' : (cur.kind === 'preset' ? '📋' : (cur.kind === 'text' ? '✎' : (cur.kind === 'diff' ? '±' : (cur.kind === 'office' ? '📘' : (cur.kind === 'opaque' ? '📦' : '👁'))))))));
     const isText = cur.kind === 'text' && !!cur.path;
     const webish = cur.kind === 'web';
     const isDir = cur.kind === 'dir';
@@ -6111,6 +6114,39 @@ renderers.view = (body, meta, head) => {
     remember(p);
     paint();
     try { ta.focus(); } catch (e) { /* ignore */ }
+  }
+  // ---- git diff：只读着色视图（2026-11-12 宿主反馈「预览里没有颜色区分」）----
+  //   为什么不用 textarea：diff 的价值全在 "+/-"，文本框只能一片同色；而且临时 diff 本来也不该改。
+  //   一行一个 div，按行的语义上色：文件头/索引（暗）、@@ 位置块（强调）、新增（绿）、删除（红）。
+  //   内容是 diff 原文，不解释、不改写；要看代码本体请去文件面板。
+  function diffLineCls(ln) {
+    const s = String(ln == null ? '' : ln);
+    if (/^###/.test(s)) return 'is-sec';                       // main.js 写的「### 已暂存 / ### 未暂存」
+    if (/^(diff --git|\+\+\+ |--- |index |new file|deleted file|rename |similarity |Binary files|# )/.test(s)) return 'is-meta';
+    if (s.indexOf('@@') === 0) return 'is-hunk';
+    if (s.charAt(0) === '+') return 'is-add';
+    if (s.charAt(0) === '-') return 'is-del';
+    return '';
+  }
+  async function openDiffText(p) {
+    const stone = ++readSeq;
+    card('⏳', '正在读：' + flowPathParts(p).file, '', p);
+    if (!F || !F.read) { needRestart(p); return; }
+    let r = null;
+    try { r = await F.read(p); } catch (e) { r = { ok: false, err: String((e && e.message) || e) }; }
+    if (disposed || stone !== readSeq) return;
+    if (!r || !r.ok) { card('⚠', '读不到这份 diff', (r && r.err) || '', p); return; }
+    clearBody();
+    const box = el('div', 'view-diff');
+    const lines = String(r.text == null ? '' : r.text).split(/\r?\n/);
+    lines.forEach((ln) => {
+      box.appendChild(el('div', 'view-diff-line ' + diffLineCls(ln), ln === '' ? ' ' : ln));
+    });
+    bodyBox.appendChild(box); inner = box;
+    cur.size = r.size || 0; cur.mtime = r.mtime || 0; cur.dirty = false;
+    remember(p);
+    paint();
+    say(lines.length + ' 行 · 只读 diff（绿 = 新增，红 = 删除，蓝 = 位置块）', '', 6000);
   }
   function openImage(p) {
     clearBody();
@@ -6529,9 +6565,10 @@ renderers.view = (body, meta, head) => {
     if (kind === 'preset') return openPresetMini(o);
     if (kind === 'text' && !p && !url) return openDoc(o);
     if (!p && !url) { showEmpty(); return; }
-    cur = { kind: kind, path: p, url: url, title: String(o.title || ''), dirty: false, size: 0, mtime: 0 };
+    cur = { kind: kind, path: p, url: url, title: String(o.title || ''), dirty: false, size: 0, mtime: 0, noRemember: !!o.noRemember };
     paint();
     if (kind === 'text') return openText(p);
+    if (kind === 'diff') return openDiffText(p);          // git diff：只读着色（见 openDiffText 上方说明）
     if (kind === 'image') return openImage(p);
     if (kind === 'video' || kind === 'audio') return openMedia(p, kind);
     if (kind === 'dir') return openDir(p);                       // ★项目文件夹：摊开列出里面的东西（图片/视频带缩略图）
@@ -6545,7 +6582,7 @@ renderers.view = (body, meta, head) => {
   B.save.addEventListener('click', () => saveText());
   B.reread.addEventListener('click', () => {
     if (cur.kind === 'dir') { open({ kind: 'dir', path: cur.path, title: cur.title }); return; }   // 目录要按 dir 重开，否则会被当成文本
-    if (cur.path) open({ path: cur.path, title: cur.title });
+    if (cur.path) open({ path: cur.path, title: cur.title, kind: cur.kind === 'diff' ? 'diff' : undefined, noRemember: cur.noRemember });
   });
   B.sysopen.addEventListener('click', () => {
     const t = cur.path || cur.url;

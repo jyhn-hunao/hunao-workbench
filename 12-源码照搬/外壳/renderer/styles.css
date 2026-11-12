@@ -2215,8 +2215,27 @@ html[data-theme="light"] .modal-body::-webkit-scrollbar-thumb:hover { background
   font-family: var(--mono); font-size: 12px; line-height: 1.65; padding: 10px 12px;
   -webkit-user-select: text; user-select: text; tab-size: 2;
 }
-.view-img { margin: auto; max-width: 100%; max-height: 100%; object-fit: contain; background: #000; }
-.view-media-el { margin: auto; max-width: 100%; max-height: 100%; background: #000; }
+.view-img { margin: auto; max-width: 100%; max-height: 100%; object-fit: contain; background: var(--viewer-bg); }
+/* git diff 只读着色视图（2026-11-12 宿主：「预览区域现在没有颜色区分」）：
+   绿 = 新增 / 红 = 删除 / 蓝 = @@ 位置块 / 暗 = 文件头与索引行。
+   颜色一律走设计令牌（--ok / --err / --accent / --text-dim），浅色主题自动跟着变。 */
+.view-diff {
+  flex: 1; min-width: 0; min-height: 0; overflow: auto; box-sizing: border-box;
+  background: var(--bg); color: var(--text);
+  font-family: var(--mono); font-size: 12px; line-height: 1.55;
+  padding: 6px 0 12px; -webkit-user-select: text; user-select: text;
+}
+.view-diff-line { padding: 0 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.view-diff-line.is-add { color: var(--ok); background: color-mix(in srgb, var(--ok) 13%, transparent); }
+.view-diff-line.is-del { color: var(--err); background: color-mix(in srgb, var(--err) 13%, transparent); }
+.view-diff-line.is-hunk { color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.view-diff-line.is-sec {
+  color: var(--text); font-weight: 600;
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+  margin-top: 6px; padding-top: 3px; padding-bottom: 3px;
+}
+.view-diff-line.is-meta { color: var(--text-dim); }
+.view-media-el { margin: auto; max-width: 100%; max-height: 100%; background: var(--viewer-bg); }
 .view-web { flex: 1; min-width: 0; min-height: 0; border: 0; background: #fff; }
 /* 空状态 / 报错卡片 / 打开路径的输入行 */
 .view-empty {
