@@ -40,9 +40,10 @@
     {
       "id": "cd-git",
       "title": "Git",
-      "sub": "左：分支树（本地 / 远程，点一条切换）· 右：变更与提交历史",
+      "sub": "左：分支树（本地 / 远程，点一条切换）· 右：变更与提交历史（点文件在预览看 diff）；空白处或分支上右键 = Update / Push / Fetch",
       "type": "git",
       "repo": "D:\\codeData\\myself\\luanyujia-workbench",
+      "viewPanel": "cd-view",
       "col": 1,
       "row": 1,
       "w": 2,
@@ -55,10 +56,7 @@
       "type": "harness",
       "sessionTitle": "luanyujia-workbench",
       "sessionId": "session-ef2edb2f-3196-4b0a-827f-649d9fee5cc3",
-      "pinTarget": [
-        "luanyujia-workbench",
-        "程序开发"
-      ],
+      "pinTarget": ["luanyujia-workbench", "程序开发"],
       "projectSwitch": true,
       "expand": true,
       "col": 3,

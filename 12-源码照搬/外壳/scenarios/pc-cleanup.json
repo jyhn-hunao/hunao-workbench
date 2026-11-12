@@ -7,7 +7,7 @@
  "panels": [
   {
    "id": "pc-drives",
-   "title": "磁盘分区（C 系统 · D 软件 · E 文件 · F 游戏）",
+   "title": "磁盘分区（容量一览）",
    "type": "pc-drives",
    "col": 1,
    "row": 1,
