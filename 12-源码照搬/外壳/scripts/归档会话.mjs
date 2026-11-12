@@ -57,20 +57,18 @@ async function connect() {
   };
 }
 
-// 会话清单（标题 + id）：借用 sessions.mjs 的输出，最省事也最准
+// 会话清单（标题 + id）：用 sessions.mjs 的 **--json**，不再解析人看的表格行。
+// 2026-11-12 用户报「归档名变成 D:\…」：表格第 2 列是 cwd，旧解析按多空格切分取第 2 段
+//   ⇒ 标题恒等于 cwd，改名就成了「已归档 · D:\… · 日期」。表格列顺序还会变，JSON 才是契约。
 async function listSessions() {
   const { execFileSync } = await import('node:child_process');
-  const out = execFileSync(process.execPath, [path.join(root, 'scripts', 'sessions.mjs')], { cwd: root, encoding: 'utf8' });
-  return out.split('\n').map((line) => {
-    // 2026-10-15 修：sessions.mjs 现在打的是 **[裸 uuid36]**（不带 session- 前缀），旧正则只认 `[session-…]`
-    // ⇒ 解析恒为空 ⇒ 任何查询都回"找不到会话"（这个坑藏了挺久，因为平时都用 换会话.mjs）。两种形态都收，统一补前缀。
-    const m = [line.match(/\[((?:session-)?[0-9a-f-]{36})\]/), line.match(/\](.*?)\[/)];
-    if (!m[0]) return null;
-    const raw = m[0][1];
-    const id = raw.startsWith('session-') ? raw : 'session-' + raw;
-    const title = line.split(/\s{2,}/).map((s) => s.trim()).filter(Boolean)[1] || '';
-    return { id, title, line: line.trim() };
-  }).filter(Boolean);
+  const out = execFileSync(process.execPath, [path.join(root, 'scripts', 'sessions.mjs'), '--json'], { cwd: root, encoding: 'utf8', maxBuffer: 32 << 20 });
+  const list = JSON.parse(out);
+  if (!Array.isArray(list)) throw new Error('sessions.mjs --json 没返回数组');
+  return list.map((s) => {
+    const raw = String(s.id || '');
+    return { id: raw.startsWith('session-') ? raw : 'session-' + raw, title: String(s.title || '').trim() };
+  }).filter((s) => s.id !== 'session-');
 }
 
 (async () => {
@@ -123,7 +121,9 @@ async function listSessions() {
     const d = new Date();
     const p = (n) => String(n).padStart(2, '0');
     const day = d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
-    const base = String(hit.title || used).trim();
+    const rawBase = String(hit.title || '').trim();
+    // 2026-11-12 防再犯：标题若已经是路径（历史 bug 留下的），别把路径再写进归档名，退回用会话 id
+    const base = (!rawBase || /^[A-Za-z]:[\\/]/.test(rawBase)) ? used : rawBase;
     const archTitle = '已归档 · ' + base + ' · ' + day;
     try {
       const rn = await rpc('session/rename', { request: { sessionId: used, title: archTitle } });
