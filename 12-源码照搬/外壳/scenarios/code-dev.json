@@ -54,8 +54,11 @@
       "sub": "钉当前项目的会话（cwd = 项目根）；换项目用标题栏「项目」",
       "type": "harness",
       "sessionTitle": "luanyujia-workbench",
-      "sessionId": "session-cd208a77-8ce1-4687-b915-8dfb67eaf220",
-      "pinTarget": ["luanyujia-workbench", "程序开发"],
+      "sessionId": "session-ef2edb2f-3196-4b0a-827f-649d9fee5cc3",
+      "pinTarget": [
+        "luanyujia-workbench",
+        "程序开发"
+      ],
       "projectSwitch": true,
       "expand": true,
       "col": 3,
@@ -69,8 +72,11 @@
       "sub": "管项目：接入 / 切项目 / 跨项目规矩；会话 cwd = 12-源码照搬\\工作区",
       "type": "harness",
       "sessionTitle": "程序开发·工作区",
-      "sessionId": "session-f28099f4-f86d-4529-bad4-870c386f8a43",
-      "pinTarget": ["程序开发·工作区", "程序开发"],
+      "sessionId": "session-ca13beb5-8504-4595-b6aa-dfad124e2db6",
+      "pinTarget": [
+        "程序开发·工作区",
+        "程序开发"
+      ],
       "expand": true,
       "col": 1,
       "row": 4,
