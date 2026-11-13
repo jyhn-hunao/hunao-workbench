@@ -1,7 +1,7 @@
 {
   "version": 1,
   "scene": "社交",
-  "generatedAt": "2026-11-13T07:34:06.531Z",
+  "generatedAt": "2026-11-13T08:16:05.322Z",
   "entries": [
     {
       "path": "决策\\2026-11-13-社交降级为纯通道-不持有AI会话.md",
@@ -15,6 +15,8 @@
       "evidence": [
         "12-源码照搬\\外壳\\scenarios\\social.json::只做通道"
       ],
+      "expires": "",
+      "consolidatedInto": "",
       "size": 499
     },
     {
@@ -29,6 +31,8 @@
       "evidence": [
         "外壳\\scripts\\sessions.mjs::之前那一节）"
       ],
+      "expires": "",
+      "consolidatedInto": "",
       "size": 602
     }
   ]

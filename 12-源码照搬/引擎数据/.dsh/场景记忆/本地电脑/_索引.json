@@ -1,7 +1,7 @@
 {
   "version": 1,
   "scene": "本地电脑",
-  "generatedAt": "2026-11-13T07:34:06.514Z",
+  "generatedAt": "2026-11-13T08:16:05.305Z",
   "entries": [
     {
       "path": "决策\\2026-11-10-面板依赖的扫描脚本从未入库-renderers-js.md",
@@ -13,6 +13,8 @@
       ],
       "distinct": [],
       "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
       "size": 975
     },
     {
@@ -26,6 +28,8 @@
       ],
       "distinct": [],
       "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
       "size": 905
     },
     {
@@ -39,7 +43,21 @@
       ],
       "distinct": [],
       "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
       "size": 858
+    },
+    {
+      "path": "归档\\场景私有记忆-202611130923-拆分前.md",
+      "kind": "归档",
+      "title": "本地电脑 · 场景私有记忆",
+      "date": "",
+      "tags": [],
+      "distinct": [],
+      "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 2820
     }
   ]
 }

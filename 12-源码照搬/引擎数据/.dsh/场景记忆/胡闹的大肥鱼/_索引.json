@@ -1,7 +1,7 @@
 {
   "version": 1,
   "scene": "胡闹的大肥鱼",
-  "generatedAt": "2026-11-13T07:34:06.608Z",
+  "generatedAt": "2026-11-13T08:16:05.432Z",
   "entries": [
     {
       "path": "决策\\2026-11-13-设置改按钮弹窗-记忆一律走工具.md",
@@ -17,6 +17,8 @@
         "12-源码照搬\\工具\\桌宠.mjs::function cmdProactive",
         "12-源码照搬\\工具\\人格记忆.mjs::function cmdWrite"
       ],
+      "expires": "",
+      "consolidatedInto": "",
       "size": 995
     },
     {
@@ -32,6 +34,8 @@
         "12-源码照搬\\工具\\人格记忆.mjs::function rebuildRecent",
         "12-源码照搬\\引擎数据\\.dsh\\AGENTS.md::开场先读人格卡与近期记忆"
       ],
+      "expires": "",
+      "consolidatedInto": "",
       "size": 634
     },
     {
@@ -48,6 +52,8 @@
         "12-源码照搬\\工具\\桌宠.mjs::const table = { 路由",
         "12-源码照搬\\外壳\\scripts\\换会话.mjs::⑦ 桥接路由"
       ],
+      "expires": "",
+      "consolidatedInto": "",
       "size": 1050
     },
     {
@@ -63,6 +69,8 @@
         "12-源码照搬\\外壳\\桌宠设置.js::dispatchPolicy",
         "工具\\桌宠自检.mjs::通道来的 confirm ⇒ 升到 never"
       ],
+      "expires": "",
+      "consolidatedInto": "",
       "size": 795
     },
     {
@@ -77,6 +85,8 @@
       "evidence": [
         "引擎数据\\.dsh\\AGENTS.md::人格唯一，记在"
       ],
+      "expires": "",
+      "consolidatedInto": "",
       "size": 609
     },
     {
@@ -87,6 +97,8 @@
       "tags": [],
       "distinct": [],
       "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
       "size": 156
     },
     {
@@ -97,6 +109,8 @@
       "tags": [],
       "distinct": [],
       "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
       "size": 350
     },
     {
@@ -107,6 +121,8 @@
       "tags": [],
       "distinct": [],
       "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
       "size": 915
     }
   ]
