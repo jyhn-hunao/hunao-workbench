@@ -9,7 +9,9 @@ if (!sid || !title) {
   console.log('用法：node 会话改名.mjs <sessionId> "新标题"');
   process.exit(2);
 }
-const BASE = process.env.DSH_GUI_BASE || process.env.DSH_WEB_URL || ('http://127.0.0.1:' + (process.env.DSH_PORT || '3083'));
+// 端口真源：唯一实现在 工具\环境.mjs（env > 机器配置 > 默认），脚本里不再写字面量（2026-11-13）
+import { port } from '../../工具/环境.mjs';
+const BASE = process.env.DSH_GUI_BASE || process.env.DSH_WEB_URL || ('http://127.0.0.1:' + port('dsh'));
 const DSH_HOME = process.env.DSH_HOME || '<盘根>:/DSH/引擎/.dsh';
 // token 在「外壳」的 server.log 里（不是 引擎 目录）；两个位置都试
 const SELF_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');   // 本仓 = 外壳\

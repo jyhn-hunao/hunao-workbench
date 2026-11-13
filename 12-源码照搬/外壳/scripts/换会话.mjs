@@ -44,7 +44,9 @@ const MEM_TOOL = path.resolve(GUI, '..', '工具', '场景记忆.mjs');   // 场
 const PROJ_TOOL = path.resolve(GUI, '..', '工具', '记忆.mjs');       // 项目层体检用的工具（2026-11-13 B 批②）
 const SESSIONS = path.join(here, 'sessions.mjs');
 const ARCHIVE = path.join(here, '归档会话.mjs');
-const BASE = process.env.DSH_GUI_BASE || process.env.DSH_WEB_URL || ('http://127.0.0.1:' + (process.env.DSH_PORT || '3083'));
+// 端口真源：唯一实现在 工具\环境.mjs（env > 机器配置 > 默认），脚本里不再写字面量（2026-11-13）
+import { port } from '../../工具/环境.mjs';
+const BASE = process.env.DSH_GUI_BASE || process.env.DSH_WEB_URL || ('http://127.0.0.1:' + port('dsh'));
 
 // 面板 → 交接文件的**非标路径覆盖表**。标准路径由 handoffOf() 按场景名现算，新场景无需登记。
 // 2026-11-12：补上「AI·工作区」（cd-ai-home）——同一个场景记忆文件（程序开发）。

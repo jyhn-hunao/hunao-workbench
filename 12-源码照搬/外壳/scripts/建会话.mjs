@@ -24,7 +24,10 @@ const root = shellDir;                                        // 外壳
 const PROJECT = path.resolve(shellDir, '..');                  // 12-源码照搬
 const HARNESS_DIR = process.env.DSH_HARNESS_DIR || path.join(PROJECT, '引擎');
 const DSH_HOME = process.env.DSH_HOME || path.join(HARNESS_DIR, '.dsh');
-const BASE = process.env.DSH_GUI_BASE || process.env.DSH_WEB_URL || ('http://127.0.0.1:' + (process.env.DSH_PORT || '3083'));   // 不在 3080 时用 --base 或 DSH_GUI_BASE
+// 端口真源：唯一实现在 工具\环境.mjs（env > 机器配置 > 默认），脚本里不再写字面量（2026-11-13）
+// 要用别的端口实例：设 DSH_PORT（或 DSH_GUI_BASE 直接给完整地址），不要改这里的字面量。
+import { port } from '../../工具/环境.mjs';
+const BASE = process.env.DSH_GUI_BASE || process.env.DSH_WEB_URL || ('http://127.0.0.1:' + port('dsh'));
 
 const argv = process.argv.slice(2);
 const val = (k, d) => { const i = argv.indexOf(k); return i >= 0 && argv[i + 1] ? argv[i + 1] : d; };

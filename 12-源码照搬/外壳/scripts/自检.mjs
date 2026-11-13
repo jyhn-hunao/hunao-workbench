@@ -131,6 +131,29 @@ check('引擎更新', true, upd
       : '已最新（本地 ' + upd.localVersion + '，检查于 ' + String(upd.checkedAt).slice(0, 16) + '）')
   : '未检查过（跑 node 工具\\引擎更新检查.mjs --notify）');
 
+// 9) 运行时数据体积（2026-11-13 新增）：electron-profile 的缓存只增不减，超阈值就提示回收
+//    只统计、不删；回收命令见 外壳\scripts\清理缓存.mjs（必须退出工作台后再跑）
+try {
+  const DATA_DIR = path.join(ROOT, '外壳', 'data');
+  let bytes = 0, files = 0;
+  const walkSize = (d) => {
+    let items = [];
+    try { items = fs.readdirSync(d, { withFileTypes: true }); } catch { return; }
+    for (const it of items) {
+      const p = path.join(d, it.name);
+      if (it.isDirectory()) walkSize(p);
+      else if (it.isFile()) { try { bytes += fs.statSync(p).size; files++; } catch { /* 读不到跳过 */ } }
+    }
+  };
+  walkSize(DATA_DIR);
+  const mb = Math.round(bytes / 1024 / 1024);
+  check('数据目录体积', mb < 800, mb >= 800
+    ? mb + ' MB / ' + files + ' 文件（超 800 MB 阈值）⇒ 退出工作台后跑 node 外壳\\scripts\\清理缓存.mjs --apply'
+    : mb + ' MB / ' + files + ' 文件');
+} catch (e) {
+  check('数据目录体积', true, '统计跳过：' + ((e && e.message) || e));
+}
+
 // 输出
 let fail = 0;
 for (const r of rows) {

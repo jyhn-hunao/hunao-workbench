@@ -100,10 +100,11 @@ function personaBlock(sceneName) {
   const p = Object.assign({}, def.persona || {}, cur.persona || {});
   if (!p.name || String(p.name) !== String(sceneName || '')) return '';   // 只注入给这条人格场景
   const lines = ['你是「' + p.name + '」。'];
-  if (p.callUser) lines.push('你对他的称呼：' + p.callUser + '。');
-  if (p.tone) lines.push('说话语气：' + p.tone + '（别写成客服腔）。');
-  if (p.selfIntro) lines.push('自我设定：' + p.selfIntro + '。');
-  lines.push('上面是「人格卡」的当前值（来自设置弹窗），照它来，别自己换人设。');
+  if (p.identity) lines.push('【我是谁】' + p.identity);
+  if (p.speech) lines.push('【说话】' + p.speech);
+  if (p.care) lines.push('【我在意什么】' + p.care);
+  if (p.never) lines.push('【我绝不会】' + p.never);
+  lines.push('上面四块是「人格卡」的当前值（来自设置弹窗），照它来说话办事，别自己换人设。');
   return lines.join('\n');
 }
 

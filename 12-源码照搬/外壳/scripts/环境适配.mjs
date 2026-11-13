@@ -22,6 +22,8 @@
 //       ⛔ 不自动改端口（自动顺延最容易连到别人的引擎，一律报错停下）。
 
 import fs from 'node:fs'
+// 2026-11-13：端口默认值只认 工具\环境.mjs（唯一真源）
+import { port } from '../../工具/环境.mjs'
 import net from 'node:net'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -86,7 +88,8 @@ function buildMachine() {
     workbenchRoot: PROJECT,
     repoRoot: REPO,
     codeRoot,
-    ports: old.ports || { dsh: 3083, site: 31238, preview: 31240, webAi: 31239 },
+    // 2026-11-13：端口默认值只认 工具\环境.mjs（唯一真源），这里不再抄一份字面量
+    ports: old.ports || { dsh: port('dsh'), site: port('site'), preview: port('preview'), webAi: port('webAi') },
     nodeExe,
     engineVersion: readJson(path.join(ENGINE_DIR, 'package.json'))?.version || '',
     projects,
