@@ -810,18 +810,27 @@ function cmdDoctor(root, flags) {
   lines.push('体量：' + docs.length + ' 篇 · ' + (total / 1024).toFixed(1) + ' KB')
   if (big.length) warns.push(big.length + ' 篇超 12 KB：' + big.slice(0, 2).map(d => d.path).join('、'))
 
-  // 7. 新鲜度（2026-11-13 加）：最后一次提交比最新记忆还新 ⇒ 大概率「改完代码没写回」
-  //    只能做近似：提交可能只是改文档，所以判 ⚠ 不判 ✗，别让它拦收工。
+  // 7. 新鲜度（2026-11-13 加）：记忆很久没动、之后又攒了多次提交 ⇒ 大概率「改完代码没写回」。
+  //    判据必须同时满足「≥3 次提交」与「>3 天」，否则「先写记忆、后提交」这种正常顺序都会误报
+  //    （第一版只看时间先后，上线当天就误报了 1 次）。
   {
     const newest = docs.reduce((a, d) => (!a || d.mtimeMs > a.mtimeMs ? d : a), null)
-    const g = spawnSync('git', ['-C', root, 'log', '-1', '--format=%ct'], { encoding: 'utf8' })
-    const ts = g.status === 0 ? Number(String(g.stdout || '').trim()) * 1000 : 0
+    const git = (args) => {
+      const g = spawnSync('git', ['-C', root].concat(args), { encoding: 'utf8' })
+      return g.status === 0 ? String(g.stdout || '').trim() : ''
+    }
+    const ts = Number(git(['log', '-1', '--format=%ct'])) * 1000
     if (!ts || !newest) lines.push('新鲜度：跳过（不是 git 仓或没有记忆）')
-    else if (ts > newest.mtimeMs + 60000) {
-      lines.push('新鲜度：⚠ 提交比记忆新')
-      warns.push('最近一次提交（' + new Date(ts).toLocaleString('zh-CN', { hour12: false })
-        + '）晚于最新记忆（memory/' + newest.path + '）：这轮改了代码却没写回？')
-    } else lines.push('新鲜度：✓ 记忆不落后于提交')
+    else {
+      const since = Math.floor(newest.mtimeMs / 1000)
+      const n = Number(git(['rev-list', '--count', '--since', String(since), 'HEAD']) || 0)
+      const stale = ts - newest.mtimeMs > 3 * 86400000
+      if (n >= 3 && stale) {
+        lines.push('新鲜度：⚠ 记忆 ' + Math.round((ts - newest.mtimeMs) / 86400000) + ' 天没动，之后有 ' + n + ' 次提交')
+        warns.push('最新记忆（memory/' + newest.path + '）已 ' + Math.round((ts - newest.mtimeMs) / 86400000)
+          + ' 天没更新，之后又提交了 ' + n + ' 次：这轮改了代码却没写回？')
+      } else lines.push('新鲜度：✓ 记忆不落后（之后 ' + n + ' 次提交，' + (stale ? '超过 3 天但次数不足' : '3 天内') + '）')
+    }
   }
 
   // 8. 场景层：另一份记忆（§〇 交接）也一起验，别只报一半
