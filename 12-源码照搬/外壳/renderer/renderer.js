@@ -45,24 +45,34 @@ function applyBadges() {
 // 不必为了改版本卡重启 GUI；这里不再重复实现，避免两处同时写同一块 DOM。
 
 
-// ---------- 热更新：带时间戳重载 styles.css + 板块数据 + renderers.js（不重载页面 → webview 对话保持） ----------
-function hotReloadRenderers() {
+// ---------- 热更新：带时间戳重载 styles.css + 板块数据 + 图标登记表 + renderers.js（不重载页面 → webview 对话保持） ----------
+// 重载单个脚本：同一个 id 旧的先删掉，再带时间戳插入（缓存击穿必须带，否则改完看不见变化）
+function reloadScriptOnce(src, id) {
+  return new Promise((resolve) => {
+    const old = id ? document.getElementById(id) : null;
+    if (old) old.remove();
+    const s = document.createElement('script');
+    if (id) s.id = id;
+    s.src = './' + src + '?t=' + Date.now();
+    s.onload = () => resolve(true);
+    s.onerror = () => resolve(false);
+    document.head.appendChild(s);
+  });
+}
+async function hotReloadRenderers() {
   // 样式表同样带时间戳刷新，让 styles.css 改动热生效
   try {
     const css = document.querySelector('link[href*="styles.css"]');
     if (css) css.href = './styles.css?t=' + Date.now();
   } catch (e) { /* ignore */ }
   // 2026-11-04：行情数据不随公开版发布，热加载已移除。
-  return new Promise((resolve) => {
-    const old = document.getElementById('renderers-script');
-    if (old) old.remove();
-    const s = document.createElement('script');
-    s.id = 'renderers-script';
-    s.src = './renderers.js?t=' + Date.now();   // 缓存击穿：强制重新拉取
-    s.onload = () => resolve(true);
-    s.onerror = () => { setStatus('渲染器热更新失败，请重启 GUI', true); resolve(false); };
-    document.head.appendChild(s);
-  });
+  // 2026-11-13：图标登记表（scene-icons.js）也必须先重载 —— 改 MAP / 新加场景图标后 ⟳ 就生效，
+  //   不用重启壳。顺序不能反：renderers.js 一加载就执行 decorateScenarioIcons，读的是 window.WB_SCENE_ICONS。
+  const libOk = await reloadScriptOnce('scene-icons.js', 'scene-icons-script');
+  if (!libOk) console.warn('[图标] scene-icons.js 重载失败，沿用上一份登记表，继续更新渲染器');
+  const okR = await reloadScriptOnce('renderers.js', 'renderers-script');
+  if (!okR) setStatus('渲染器热更新失败，请重启 GUI', true);
+  return okR;
 }
 
 // 刷新按钮：热更新渲染器 + 重建当前场景（重新读取 scenarios/*.json）
@@ -1226,8 +1236,8 @@ async function init() {
   // 命令（command，2026-10-26）：迷你神经元网（6 蓝节点 + 1 琥珀核心 + 连线）—— 与 renderers.js 的 SCENARIO_ICONS['command'] 同一份。
   const NEURON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3.7 4.5 8 2.9l4.4 1.7M3 8.4l.7-3.9M8 2.9l.4 5.2M12.4 4.6 8.4 8.1M8.4 8.1l3.8 3.4M8.4 8.1l-3.8 4.1M3 8.4l5.4-.3" stroke="#8fb4ff" stroke-width=".85" stroke-linecap="round" opacity=".6"/><circle cx="3.7" cy="4.5" r="1.45" fill="#8fb4ff"/><circle cx="8" cy="2.9" r="1.15" fill="#8fb4ff" opacity=".85"/><circle cx="12.4" cy="4.6" r="1.25" fill="#8fb4ff"/><circle cx="3" cy="8.4" r="1.05" fill="#8fb4ff" opacity=".8"/><circle cx="8.4" cy="8.1" r="1.85" fill="#f0a35e"/><circle cx="12.2" cy="11.5" r="1.15" fill="#8fb4ff" opacity=".85"/><circle cx="4.6" cy="12.2" r="1.05" fill="#8fb4ff" opacity=".8"/></svg>';
   const ICONS = {
-  'bilibili': 'assets/bilibili-icon.png',
-    'douyin': 'assets/douyin-icon.png',   // 2026-10-26 宿主新建「刷抖音」场景（抖音官方 favicon）   // 2026-10-19 宿主新建「B站」场景（官方 favicon.svg）
+    'bilibili': 'assets/bilibili-icon.png',   // 2026-10-19 宿主新建「B站」场景（官方 favicon.svg）
+    'douyin': 'assets/douyin-icon.png',     // 2026-10-26 宿主新建「刷抖音」场景（抖音官方 favicon）
     'harness': 'assets/deepseek-whale.png',
     'oa-ops': 'data:image/svg+xml;utf8,' + encodeURIComponent(SERVER_SVG),  // 服务器图标（原为云朵 ☁️）
     'stock-analysis': 'assets/hithink-icon.png',  // 同花顺官方图标（scripts\fetch-hithink-icon.mjs 从官网抓；原为通用股票图）
@@ -1240,6 +1250,18 @@ async function init() {
     'pc-cleanup': 'data:image/svg+xml;utf8,' + encodeURIComponent(CLEAN_SVG),   // 本地电脑（用量环）
     'workbench-custom': 'data:image/svg+xml;utf8,' + encodeURIComponent(WORKBENCH_SVG),  // 工作台定制（蓝壳 + 琥珀可换块）
     'command': 'data:image/svg+xml;utf8,' + encodeURIComponent(NEURON_SVG)  // 命令（记忆神经元）
+  };
+
+  // 场景图标取哪一份（2026-11-13）：**图标登记表优先**（renderer\scene-icons.js，只在那一处登记，
+  // 库图标在 renderer\assets\icons\）⇒ 这张 ICONS 只留"官方 logo 图片"这类，不用再加新场景。
+  // 都没登记才退回 🧩（两个场景会顶同一枚，就是这次的毛病，别再让它发生）。
+  const iconFor = (id) => {
+    try {
+      const lib = window.WB_SCENE_ICONS;
+      const h = (lib && lib.markupOf) ? lib.markupOf(id) : '';
+      if (h) return h;
+    } catch (e) { /* 登记表没加载就当没有，走下面的兜底 */ }
+    return ICONS[id] || '🧩';
   };
 
   // 「⧉ 在新窗口打开」：标签右侧的小按钮（场景分离 → 一屏一个场景）
@@ -1259,7 +1281,10 @@ async function init() {
     //   initScenarioTabBar），HTML5 DnD 会和它抢事件、幽灵图也丑。data-movable 只用来给光标样式。
     if (draggable) t.dataset.movable = '1';
     const ico = mkEl('span', 'tab-ico');
-    if (typeof icon === 'string' && (/\.(png|ico)$/i.test(icon) || icon.startsWith('data:image/svg+xml'))) {
+    if (typeof icon === 'string' && icon.charAt(0) === '<') {
+      // 图标库给的整段标记（<img class="tab-ico-img tab-ico-svg" src="assets/icons/xxx.svg">）
+      ico.innerHTML = icon;
+    } else if (typeof icon === 'string' && (/\.(png|ico)$/i.test(icon) || icon.startsWith('data:image/svg+xml'))) {
       const img = document.createElement('img');
       img.className = 'tab-ico-img';
       img.src = icon;
@@ -1304,7 +1329,7 @@ async function init() {
   // 这里只提供 persist 回调把新顺序报上去。老的 HTML5 DnD + localStorage 实现已删除。
 
   // 场景 0：Harness（默认初始界面，固定最前不可拖）
-  const tab0 = makeTab('harness', 'DSH 引擎', ICONS.harness, true, false);
+  const tab0 = makeTab('harness', 'DSH 引擎', iconFor('harness'), true, false);
   tab0.dataset.scId = 'harness';
   tab0.addEventListener('click', () => {
     tabsNav.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
@@ -1321,7 +1346,7 @@ async function init() {
   const finalList = list;
 
   finalList.map(s => {
-    const t = makeTab(s.id, s.name, ICONS[s.id] || '🧩', false, true);
+    const t = makeTab(s.id, s.name, iconFor(s.id), false, true);
     t.dataset.scId = s.id;
     t.addEventListener('click', () => {
       tabsNav.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));

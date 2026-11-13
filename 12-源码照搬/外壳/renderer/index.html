@@ -112,6 +112,9 @@
     </div>
   </div>
 
+  <!-- 场景图标登记表（2026-11-13 · 单处权威）：必须在 renderers.js / renderer.js 之前加载，
+       两层都用它取图标（图标本体在 renderer\assets\icons\，由 scripts\图标库.mjs 抓取） -->
+  <script id="scene-icons-script" src="scene-icons.js"></script>
   <script id="renderers-script" src="renderers.js"></script>
   <script src="renderer.js"></script>
   <!-- 顶栏状态区（2026-10-16 新增 · 压力灯 / 谁在等我 / 快照回滚）：纯增量，不动上面任何脚本 -->
