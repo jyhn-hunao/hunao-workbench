@@ -18,6 +18,11 @@
  *   node 场景记忆.mjs check   --场景 刷抖音       # 结构/指纹/§〇/项目/归档/分条 全检（--all 全场景）
  *   node 场景记忆.mjs 写      --场景 刷抖音 --类 决策|坑|通知 --标题 "…" [--正文 <md>|--要点 "a|b|c"] [--证据 "路径::片段"]
  *                              # 一条一个文件：自动 frontmatter + 登记索引 + 同轮 check
+ *                              # 拿不准加 --不确定 "要问用户的疑问" ⇒ 进 _待确认.md，不生效；用户点头后 确认 --序号 N
+ *                              # 和已有条目像但不是一回事：--不是同一条 "词：区别" ⇒ 写进 distinct，联想层不再用该词连边
+ *   node 场景记忆.mjs 待确认  --场景 刷抖音       # 列出 _待确认.md 队列（编号用于 确认）
+ *   node 场景记忆.mjs 确认    --场景 刷抖音 --序号 N [--放弃]  # 转正 / 丢掉一条待确认
+ *   node 场景记忆.mjs 收工    --场景 刷抖音       # 索引 + 近期记忆 + check + 待确认计数（exit 0 才算收工）
  *   node 场景记忆.mjs 拆      --场景 刷抖音 [--dry]   # 把 §五 存量条目拆成 决策\/坑\ 分条，原文整份进 归档\
  *   node 场景记忆.mjs 整理    --场景 刷抖音 [--days 180] [--dry]  # 旧条目搬 归档\，§五 下标重算
  *
@@ -34,6 +39,8 @@ const __HERE = path.dirname(__f2u(import.meta.url))
 const __ARGV_ROOT = (() => { const i = process.argv.indexOf('--root'); return i >= 0 ? process.argv[i + 1] : '' })()
 const WORKBENCH_ROOT = __ARGV_ROOT || process.env.DSH_WORKBENCH_ROOT || path.resolve(__HERE, '..')
 const MEMROOT = process.env.DSH_SCENE_MEMORY || path.join(WORKBENCH_ROOT, '引擎数据', '.dsh', '场景记忆')
+// 场景目录（派生清单，2026-11-13）：神经元不再靠手工登记表 索引.json，也不用目录扫描 IPC
+const SCENE_REG = path.join(MEMROOT, '_共享记忆', '场景目录.json')
 // 公开模板：不写审计日志
 function audit() {}
 const GUI = process.env.DSH_GUI_DIR || path.join(WORKBENCH_ROOT, '外壳')
@@ -653,6 +660,7 @@ function cmdCheck(name) {
   // 分条红线（2026-11-13）：一条一个文件——单篇 >2 KB 说明又在往里写过程；evidence 逐条复核
   {
     let n = 0
+    let longTagN = 0
     for (const k of KINDS) {
       const sub = path.join(dir, k)
       if (!fs.existsSync(sub)) continue
@@ -661,13 +669,26 @@ function cmdCheck(name) {
       for (const f of files) {
         const p = path.join(sub, f)
         const b = fs.statSync(p).size
+        const txt = fs.readFileSync(p, 'utf8')
         if (b > KIND_SIZE) problems.push('单篇 ' + k + '\\' + f + ' ' + b + ' B 超 2 KB（一条一个文件：只留结论，过程进 归档\\）')
-        const bad = evidenceOf(fs.readFileSync(p, 'utf8')).map((ref) => [ref, verifyEvidence(ref)]).filter((x) => x[1])
+        const bad = evidenceOf(txt).map((ref) => [ref, verifyEvidence(ref)]).filter((x) => x[1])
         bad.forEach((x) => problems.push('证据失效 ' + k + '\\' + f + ' → ' + x[0] + '（' + x[1] + '）'))
+        longTagN += tagsOf(txt).filter((t) => t.length > 12 || TAG_BAD_RE.test(t)).length
       }
       if (files.length > KIND_BULK) warns.push(k + '\\ 有 ' + files.length + ' 篇（>' + KIND_BULK + '：跑 整理 --days ' + KIND_OLD_DAYS + ' 把旧条目搬 归档\\）')
     }
     if (n) ok.push('分条 ' + n + ' 篇')
+    // 标签整句：联想层会把这些词当主题词连边，越连越糊（用户 2026-11-13 要求防「词像义不同」）
+    if (longTagN) warns.push('标签像整句/超长 ' + longTagN + ' 处：收敛成 ≤12 字的主题词（新写入已被 写 拦住）')
+  }
+  // 待确认队列：不确定的东西不许无限期挂着
+  {
+    const blocks = readPending(dir)
+    if (blocks.length) {
+      warns.push('待确认 ' + blocks.length + ' 条（用户点头后 确认 --序号 N 转正）')
+      const stale = blocks.filter((b) => b.date && (Date.now() - Date.parse(b.date)) > 7 * 86400000)
+      if (stale.length) warns.push('待确认有 ' + stale.length + ' 条超 7 天：别让不确定的记忆烂在队列里，当轮就问用户')
+    }
   }
   console.log(`\n${name}：${problems.length ? '✗ ' + problems.length + ' 个问题' : '✓ 全部通过'}（§〇 ${sec0Bytes} B${warns.length ? ' · ⚠ ' + warns.length : ''}）`)
   problems.forEach((p) => console.log('   ✗ ' + p))
@@ -854,7 +875,135 @@ function renderPointerSec(dir, note, keepLines = []) {
   ].join('\r\n')
 }
 
+/* ---------------------------------------- 写入闸门（2026-11-13：不确定就问用户）
+//  ① 相似检测：同场景已有条目的标题与新标题二元词重合 ≥62% ⇒ 拒写，先确认是不是同一条
+//  ② 消歧清单：`--不是同一条 "词：区别"` ⇒ frontmatter distinct，联想层不再拿该词连边
+//  ③ 待确认队列：`--不确定 "疑问"` ⇒ 不落正式条目，进 `_待确认.md`，用户点头后 `确认 --序号 N`
+//  判据来源：用户 2026-11-13「遇到不确定的记忆要向我确认，防止错误/模糊/词像义不同」。
+ */
+
+const TITLE_STOP = new Set(['场景', '记忆', '项目', '工作台', '文件', '目录', '工具', '面板', '代码', '规则',
+  '文档', '条目', '一条', '不是', '就是', '可以', '需要', '已经', '没有', '时候', '问题', '这个', '那个',
+  '一个', '我们', '用户', '以及', '还是', '但是', '如果', '因为', '所以', '现在', '然后', '东西', '这里', '那里'])
+
+function gramsOfTitle(s) {
+  const out = new Set()
+  for (const r of String(s || '').toLowerCase().match(/[\u4e00-\u9fff]+/g) || []) {
+    for (let i = 0; i < r.length - 1; i++) { const g = r.slice(i, i + 2); if (!TITLE_STOP.has(g)) out.add(g) }
+  }
+  for (const w of String(s || '').toLowerCase().match(/[a-z0-9][a-z0-9_.-]{2,}/g) || []) out.add(w)
+  return out
+}
+
+/** 标题相似度（Dice 系数，0–1）；只看"像不像同一条"，不做语义判断 */
+function simOf(a, b) {
+  const A = gramsOfTitle(a), B = gramsOfTitle(b)
+  if (!A.size || !B.size) return 0
+  let hit = 0
+  A.forEach((g) => { if (B.has(g)) hit++ })
+  return (2 * hit) / (A.size + B.size)
+}
+
+/** 同场景里和新标题最像的 3 条（只跟自己场景比：跨场景相近是正常的"共享主题"） */
+function similarEntries(dir, title) {
+  const out = []
+  for (const k of KINDS) for (const f of kindFiles(dir, k)) {
+    const s = simOf(title, titleOf(path.join(dir, k, f)))
+    if (s >= 0.4) out.push({ kind: k, file: f, title: titleOf(path.join(dir, k, f)), score: s })
+  }
+  return out.sort((a, b) => b.score - a.score).slice(0, 3)
+}
+
+const TAG_BAD_RE = /[，。、；;：:！？!?+＋|｜]/
+const DISTINCT_MAX = 12          // 消歧词条上限：多了说明这条本身就该拆
+const PENDING = (dir) => path.join(dir, '_待确认.md')
+const PENDING_HEAD = '# _待确认 · 不确定就不落盘，等用户点头\r\n\r\n> 工具维护（`写 --不确定` 追加，`确认` 转正/放弃）。⛔ 别手改这一页。\r\n'
+
+/** frontmatter 的 distinct（消歧词）：内联数组，兼容块状 */
+function distinctOfText(text) {
+  const m = text.match(/^---\r?\n([\s\S]*?)\r?\n---/)
+  if (!m) return []
+  const block = m[1].match(/^distinct:\r?\n((?:[ \t]*-[^\r\n]*\r?\n?)+)/m)
+  if (block) return block[1].split(/\r?\n/).map((s) => s.replace(/^[ \t]*-[ \t]*/, '').trim()).filter(Boolean)
+  const one = m[1].match(/^distinct:[ \t]*\[?([^\]\r\n]*)\]?$/m)
+  return one ? one[1].split(/[,，]/).map((s) => s.trim().replace(/^["']|["']$/g, '')).filter(Boolean) : []
+}
+
+/** 解析待确认队列：每块 `## <编号> · <类> · <标题> · <日期>` + 疑问/证据 + body 标记 */
+function readPending(dir) {
+  const p = PENDING(dir)
+  if (!fs.existsSync(p)) return []
+  const text = fs.readFileSync(p, 'utf8')
+  const re = /^## (\d+) · (决策|坑|通知) · ([^\r\n]*?) · (\d{4}-\d{2}-\d{2})/gm
+  const blocks = []
+  let m
+  while ((m = re.exec(text))) blocks.push({ id: Number(m[1]), kind: m[2], title: m[3].trim(), date: m[4], start: m.index })
+  blocks.forEach((b, i) => { b.end = i + 1 < blocks.length ? blocks[i + 1].start : text.length })
+  for (const b of blocks) {
+    const body = text.slice(b.start, b.end)
+    b.question = ((body.match(/^- 疑问：([^\r\n]*)/m) || [])[1] || '').trim()
+    b.ev = (body.match(/^- 证据：.*$/gm) || []).map((l) => l.replace(/^- 证据：/, '').trim()).filter(Boolean)
+    b.tags = ((body.match(/^- 标签：([^\r\n]*)/m) || [])[1] || '').split(/[,，/／]/).map((s) => s.trim()).filter(Boolean)
+    b.distinct = ((body.match(/^- 消歧：([^\r\n]*)/m) || [])[1] || '').split(/[,，/／]/).map((s) => s.trim()).filter(Boolean)
+    const inner = body.match(/<!-- body:start -->([\s\S]*?)<!-- body:end -->/)
+    b.body = inner ? inner[1].trim() : ''
+  }
+  return blocks
+}
+
+function writePendingFile(dir, blocksText) {
+  fs.writeFileSync(PENDING(dir), blocksText.replace(/\s*$/, '\r\n'), 'utf8')
+}
+
+function dropPending(dir, id) {
+  const text = fs.existsSync(PENDING(dir)) ? fs.readFileSync(PENDING(dir), 'utf8') : ''
+  const blocks = readPending(dir)
+  const b = blocks.find((x) => x.id === id)
+  if (!b) return false
+  writePendingFile(dir, text.slice(0, b.start) + text.slice(b.end))
+  return true
+}
+
+/** 不落正式条目：进待确认队列，等用户表态（返回 0 表示"已挂起"，不是"已记录"） */
+function appendPending(dir, o) {
+  const p = PENDING(dir)
+  const cur = fs.existsSync(p) ? fs.readFileSync(p, 'utf8') : PENDING_HEAD
+  const id = readPending(dir).reduce((m, b) => Math.max(m, b.id), 0) + 1
+  const rows = [
+    '', '## ' + id + ' · ' + o.kind + ' · ' + o.title + ' · ' + o.d,
+    '- 疑问：' + o.question,
+    ...o.ev.map((e) => '- 证据：' + e),
+  ]
+  if (o.distinct.length) rows.push('- 消歧：' + o.distinct.join(' / '))
+  if (o.tags.length) rows.push('- 标签：' + o.tags.join(' / '))
+  rows.push('<!-- body:start -->', o.body, '<!-- body:end -->', '')
+  writePendingFile(dir, cur + rows.join('\r\n'))
+  console.log('⏸ 已入待确认 #' + id + '（未生效）：' + o.kind + ' · ' + o.title)
+  console.log('   疑问：' + o.question)
+  console.log('   下一步：问用户 → 确认后 `确认 --场景 ' + path.basename(dir) + ' --序号 ' + id + '`；否掉加 `--放弃`。')
+  return 0
+}
+
 /* --------------------------------------------------- 写一条（唯一入口） */
+
+/** 真正落盘：frontmatter + 索引 + 文件索引（不跑 check，调用方决定） */
+function doWrite(name, kind, title, body, ev, tags, d, distinct) {
+  const dir = path.join(MEMROOT, name)
+  const fm = ['---', 'title: ' + title, 'date: ' + d, 'tags: [' + [kind].concat(tags).join(', ') + ']']
+  if (distinct.length) fm.push('distinct: [' + distinct.join(', ') + ']')
+  if (ev.length) fm.push('evidence:', ...ev.map((e) => '  - ' + e))
+  fm.push('---')
+  const sub = path.join(dir, kind)
+  fs.mkdirSync(sub, { recursive: true })
+  let file = d + '-' + slugOf(title) + '.md'
+  let n = 1
+  while (fs.existsSync(path.join(sub, file))) file = d + '-' + slugOf(title) + '-' + (++n) + '.md'
+  const text = fm.join('\r\n') + '\r\n\r\n# ' + title + '\r\n\r\n' + body + '\r\n'
+  fs.writeFileSync(path.join(sub, file), text, 'utf8')
+  indexAdd(dir, kind + '\\' + file, title)
+  cmdIndex(name, true)
+  return { file, text }
+}
 
 function cmdWrite(arg) {
   const name = findSceneDir(arg) || arg
@@ -872,6 +1021,22 @@ function cmdWrite(arg) {
     if (titleOf(path.join(dir, k, f)) === title) { console.error('✗ 同名条目已存在：' + k + '\\' + f + '（改标题，或直接编辑那一篇）'); return 1 }
   }
 
+  // 1.5 写入闸门：和已有条目太像 ⇒ 先确认是不是同一条（用户 2026-11-13：不确定就要问）
+  const distinctRaw = vals('--不是同一条').concat(vals('--不同')).map((s) => String(s).trim()).filter(Boolean)
+  const distinct = distinctRaw.map((s) => s.split(/[：:]/)[0].trim()).filter(Boolean).slice(0, DISTINCT_MAX)
+  const similar = similarEntries(dir, title)
+  const top = similar[0]
+  if (top && top.score >= 0.5 && !distinct.length) {
+    console.error('✗ 和已有条目太像（' + Math.round(top.score * 100) + '%）：' + top.kind + '\\' + top.file + ' · ' + top.title)
+    similar.slice(1).forEach((x) => console.error('   ~ ' + Math.round(x.score * 100) + '% ' + x.kind + '\\' + x.file + ' · ' + x.title))
+    console.error('  是同一条 ⇒ 直接改那一篇（不新写）；确实是两件事 ⇒ 加 --不是同一条 "区分词：区别" 再写')
+    return 3
+  }
+  if (similar.length) {
+    console.log('· 相近条目（确认不是同一条再写）：')
+    similar.forEach((x) => console.log('   ' + Math.round(x.score * 100) + '% ' + x.kind + '\\' + x.file + ' · ' + x.title))
+  }
+
   // 2. 正文：--正文 文件优先，其次 --要点 "a|b|c"
   const draft = val('--正文') || val('--body')
   let body = ''
@@ -884,29 +1049,473 @@ function cmdWrite(arg) {
   if (!body.trim()) { console.error('✗ 缺少 --正文 <md文件> 或 --要点 "a|b|c"'); return 2 }
   body = body.replace(/^\s*#\s+[^\r\n]*\r?\n/, '').trim().replace(/\r?\n/g, '\r\n')
 
-  // 3. frontmatter（date / tags / evidence）+ 落盘 <类>\<日期>-<标题>.md
+  // 3. frontmatter（date / tags / evidence / distinct）+ 落盘 <类>\<日期>-<标题>.md
   const d = val('--日期') || dayStr()
   const tags = (val('--标签') || '').split(/[,，]/).map((s) => s.trim()).filter(Boolean)
+  const badTag = tags.find((t) => t.length > 12 || TAG_BAD_RE.test(t))
+  if (badTag) { console.error('✗ 标签「' + badTag + '」像整句/超长（≤12 字、不含标点）：改成词表里的主题词，一条最多 3 个'); return 2 }
+  if (tags.length > 3) { console.error('✗ 标签最多 3 个（多了就是没想清主题）：' + tags.join(' / ')); return 2 }
   const ev = vals('--证据').concat(vals('--evidence')).flatMap((s) => s.split(/[;；]/)).map((s) => s.trim()).filter(Boolean)
-  // 不写 description：标题已是一句话结论，再抄一遍正文首行只是白占 ~300 B/篇（60 篇 ≈ 9 KB）
-  const fm = ['---', 'title: ' + title, 'date: ' + d, 'tags: [' + [kind].concat(tags).join(', ') + ']']
-  if (ev.length) fm.push('evidence:', ...ev.map((e) => '  - ' + e))
-  fm.push('---')
-  const sub = path.join(dir, kind)
-  fs.mkdirSync(sub, { recursive: true })
-  let file = d + '-' + slugOf(title) + '.md'
-  let n = 1
-  while (fs.existsSync(path.join(sub, file))) file = d + '-' + slugOf(title) + '-' + (++n) + '.md'
-  const text = fm.join('\r\n') + '\r\n\r\n# ' + title + '\r\n\r\n' + body + '\r\n'
-  if (flagOn('--dry')) { console.log('[dry] 将写：' + kind + '\\' + file + '（' + Buffer.byteLength(text) + ' B）'); return 0 }
-  fs.writeFileSync(path.join(sub, file), text, 'utf8')
-  console.log('✓ 已写入：' + kind + '\\' + file + '（' + Buffer.byteLength(text) + ' B）')
-  if (Buffer.byteLength(text) > KIND_SIZE) console.log('⚠ 超 ' + (KIND_SIZE / 1024) + ' KB：一条只写结论，细节进 归档\\ 或留在会话');
-  if (!ev.length) console.log('⚠ 没写 --证据：这条以后没法自动判「还成不成立」')
 
-  // 4. 同轮收尾：登记索引 → 跑 check；check 不过就说「已写入但没完成」
-  indexAdd(dir, kind + '\\' + file, title)
+  // 3.5 消歧：词像但不是一回事 ⇒ 正文留一段说明 + distinct（联想层不再用这个词连边）
+  if (distinctRaw.length) {
+    body += '\r\n\r\n## 消歧\r\n' + distinctRaw.map((s) => {
+      const i = s.search(/[：:]/)
+      const w = i >= 0 ? s.slice(0, i).trim() : s
+      const why = i >= 0 ? s.slice(i + 1).trim() : ''
+      return '- 与「' + w + '」不是同一件事' + (why ? '：' + why : '（未写原因，补一句）')
+    }).join('\r\n')
+  }
+
+  // 4. 拿不准就问：只进待确认队列，不落正式条目（用户点头后 `确认 --序号 N`）
+  const question = (val('--不确定') || val('--待确认') || '').trim()
+  if (question) {
+    if (flagOn('--dry')) { console.log('[dry] 将入待确认：' + title + ' · 疑问：' + question); return 0 }
+    return appendPending(dir, { kind, title, body, ev, tags, d, distinct, question })
+  }
+  if (flagOn('--dry')) { console.log('[dry] 将写：' + kind + '\\' + d + '-' + slugOf(title) + '.md（' + Buffer.byteLength(body) + ' B 正文）'); return 0 }
+
+  // 5. 同轮收尾：落盘（doWrite 内含索引）→ 跑 check；check 不过就说「已写入但没完成」
+  const r = doWrite(name, kind, title, body, ev, tags, d, distinct)
+  console.log('✓ 已写入：' + kind + '\\' + r.file + '（' + Buffer.byteLength(r.text) + ' B）')
+  if (Buffer.byteLength(r.text) > KIND_SIZE) console.log('⚠ 超 2 KB：一条只写结论，细节进 归档\\ 或留在会话')
+  if (!ev.length) console.log('⚠ 没写 --证据：这条以后没法自动判「还成不成立」')
   if (cmdCheck(name) !== 0) { console.error('✗ 已写入但自检未过 → 按上面的条目修完才算完成'); return 1 }
+  return 0
+}
+
+/* ---------------------------------------- 待确认 / 确认 / 收工（2026-11-13） */
+
+function cmdPending(arg) {
+  const name = findSceneDir(arg) || arg
+  const dir = path.join(MEMROOT, name)
+  if (!fs.existsSync(dir)) { console.error('✗ 找不到场景目录：' + arg); return 2 }
+  const blocks = readPending(dir)
+  if (!blocks.length) { console.log(name + '：待确认 0 条 ✓'); return 0 }
+  console.log('\n' + name + '：待确认 ' + blocks.length + ' 条（未生效，等用户点头）')
+  blocks.forEach((b) => {
+    console.log('  #' + b.id + ' [' + b.kind + '] ' + b.title + '（' + b.date + '）')
+    console.log('      疑问：' + (b.question || '（没写疑问，补一句要问什么）'))
+    if (b.ev.length) console.log('      证据：' + b.ev.join(' · '))
+  })
+  return 0
+}
+
+function cmdConfirm(arg) {
+  const name = findSceneDir(arg) || arg
+  const dir = path.join(MEMROOT, name)
+  if (!fs.existsSync(dir)) { console.error('✗ 找不到场景目录：' + arg); return 2 }
+  const id = Number(val('--序号') || val('--id') || 0)
+  if (!id) { console.error('✗ 缺 --序号（先跑 待确认 看编号）'); return 2 }
+  const blocks = readPending(dir)
+  const b = blocks.find((x) => x.id === id)
+  if (!b) { console.error('✗ 队列里没有 #' + id + '（现有：' + (blocks.map((x) => '#' + x.id).join(' ') || '空') + '）'); return 2 }
+  if (flagOn('--放弃')) {
+    dropPending(dir, id)
+    console.log('✓ 已放弃 #' + id + '（没有落任何条目）')
+    return 0
+  }
+  if (!b.body.trim()) { console.error('✗ #' + id + ' 没有正文，补完再确认'); return 2 }
+  for (const k of KINDS) for (const f of kindFiles(dir, k)) {
+    if (titleOf(path.join(dir, k, f)) === b.title) { console.error('✗ 同名条目已存在：' + k + '\\' + f); return 1 }
+  }
+  if (!b.ev.length) console.log('⚠ 这条没有证据：以后没法判「还成不成立」')
+  const r = doWrite(name, b.kind, b.title, b.body, b.ev, b.tags, b.date, b.distinct)
+  dropPending(dir, id)
+  console.log('✓ 已转正：' + b.kind + '\\' + r.file + '（' + Buffer.byteLength(r.text) + ' B）')
+  if (cmdCheck(name) !== 0) { console.error('✗ 已转正但自检未过 → 按上面的条目修完'); return 1 }
+  return 0
+}
+
+/** 收工一条命令：索引 + 近期记忆 + check + 待确认计数（exit 0 才算收工） */
+function cmdFinish(arg) {
+  const name = findSceneDir(arg) || arg
+  const dir = path.join(MEMROOT, name)
+  if (!fs.existsSync(dir)) { console.error('✗ 找不到场景目录：' + arg); return 2 }
+  cmdIndex(name, true)
+  // 巩固：同主题攒够 3 条就自动落一份 定论 草案（已存在的 draft 不重算，confirmed 不碰）
+  let made = 0
+  try { const st = {}; cmdDistill(name, { quiet: true, stats: st }); made = st.made || 0 } catch (e) { made = -1 }
+  const r = spawnSync(process.execPath, [path.join(__HERE, '近期记忆.mjs'), '生成', '--场景', name], { encoding: 'utf8' })
+  const tail = String(r.stdout || r.stderr || '').trim().split(/\r?\n/).filter(Boolean).pop() || ''
+  const pend = readPending(dir).length
+  const code = cmdCheck(name)
+  console.log('· 收工：索引 ✓ · 近期记忆 ' + (r.status === 0 ? '✓' : '跳过（' + tail.slice(0, 80) + '）')
+    + ' · 定论 ' + (made < 0 ? '巩固失败（不影响收工）' : '+' + made) + ' · 待确认 ' + pend + ' 条' + (pend ? '（问用户，别挂着）' : ''))
+  return code
+}
+
+/* --------------------------------------------------- 索引（神经元的数据面：分条记忆的机器可读清单） */
+//  2026-11-13：神经元要按「标签/证据」连联想边，就得有机器可读的索引；
+//  正文仍是唯一真源，`_索引.json` 只是**可再生产物**（删了重跑一条命令就回来）。
+
+/** frontmatter 的 tags：数组块与同行逗号两种写法都认 */
+function tagsOf(text) {
+  const m = text.match(/^---\r?\n([\s\S]*?)\r?\n---/)
+  if (!m) return []
+  const fm = m[1]
+  const block = fm.match(/^tags:\r?\n((?:[ \t]*-[^\r\n]*\r?\n?)+)/m)
+  if (block) {
+    return block[1].split(/\r?\n/)
+      .map((s) => s.replace(/^[ \t]*-[ \t]*/, '').replace(/^["']|["']$/g, '').trim())
+      .filter(Boolean)
+  }
+  const one = fm.match(/^tags:[ \t]*\[?([^\]\r\n]+)\]?$/m)
+  return one ? one[1].split(/[,，]/).map((s) => s.trim().replace(/^["']|["']$/g, '')).filter(Boolean) : []
+}
+
+/** 一条分条记忆的摘要（渲染器读它画点、算联想边） */
+function entryOf(file, kind) {
+  const text = fs.readFileSync(file, 'utf8')
+  const fm = (text.match(/^---\r?\n([\s\S]*?)\r?\n---/) || [])[1] || ''
+  const date = ((fm.match(/^date:[ \t]*(\d{4}-\d{2}-\d{2})/m) || [])[1])
+    || (path.basename(file).match(/^(\d{4}-\d{2}-\d{2})/) || [])[1] || ''
+  return {
+    path: kind + '\\' + path.basename(file),
+    kind,
+    title: titleOf(file),
+    date,
+    tags: tagsOf(text),
+    distinct: distinctOfText(text),
+    evidence: evidenceOf(text),
+    size: fs.statSync(file).size,
+  }
+}
+
+/* ---------------------------------------- 场景目录（派生：给神经元一份完整场景清单）
+//  2026-11-13 用户报「模块里只有 5 个场景，社交/胡闹没进来」：渲染器的目录扫描走 oaApi.filesLocal，
+//  真实壳没有这个 IPC ⇒ 自动进图一直静默失效，只剩手工登记表 5 个。
+//  改成工具产出 `_共享记忆\场景目录.json`：每次 索引 / 写 / 收工 更新本场景，`索引 --all` 全量重建。
+ */
+
+function readSceneReg() {
+  try { const d = JSON.parse(fs.readFileSync(SCENE_REG, 'utf8')); return Array.isArray(d.scenes) ? d : { version: 1, scenes: [] } } catch { return { version: 1, scenes: [] } }
+}
+
+function writeSceneReg(scenes) {
+  const sorted = scenes.slice().sort((a, b) => String(a.name).localeCompare(String(b.name), 'zh'))
+  fs.mkdirSync(path.dirname(SCENE_REG), { recursive: true })
+  fs.writeFileSync(SCENE_REG, JSON.stringify({ version: 1, generatedAt: new Date().toISOString(), scenes: sorted }, null, 2) + '\n', 'utf8')
+}
+
+/** 单场景登记：名字 / 场景 id / 面板 / 分条数 / 是否有私有记忆与身份卡 */
+function sceneRegUpsert(name, entryCount) {
+  const sc = sceneOf(name) || {}
+  const dir = path.join(MEMROOT, name)
+  const row = {
+    name,
+    id: String(sc.id || ''),
+    panels: (sc.panels || []).filter((p) => p && p.id).map((p) => p.id),
+    entries: Number(entryCount) || 0,
+    hasPrivate: fs.existsSync(path.join(dir, '场景私有记忆.md')),
+    hasIdentity: fs.existsSync(path.join(dir, '身份卡.md')),
+    updatedAt: new Date().toISOString(),
+  }
+  const cur = readSceneReg().scenes || []
+  writeSceneReg(cur.filter((x) => x.name !== name).concat([row]))
+}
+
+function cmdIndexAll() {
+  const dirs = fs.readdirSync(MEMROOT, { withFileTypes: true }).filter((e) => e.isDirectory() && !e.name.startsWith('_')).map((e) => e.name).sort()
+  let n = 0
+  let total = 0
+  for (const d of dirs) {
+    const p = path.join(MEMROOT, d)
+    const mark = ['场景私有记忆.md', '身份卡.md', '_索引.json'].some((f) => fs.existsSync(path.join(p, f)))
+    if (!mark) continue
+    if (cmdIndex(d, true) !== 0) continue
+    n++
+    try { total += (JSON.parse(fs.readFileSync(path.join(p, '_索引.json'), 'utf8')).entries || []).length } catch {}
+  }
+  const scenes = readSceneReg().scenes.filter((s) => fs.existsSync(path.join(MEMROOT, s.name)))
+  writeSceneReg(scenes)
+  console.log('✓ 场景目录已重建：' + scenes.length + ' 个场景（索引 ' + n + ' 个 · 分条 ' + total + ' 条）')
+  scenes.forEach((s) => console.log('  ' + s.name + '  [' + (s.id || '?') + ']  面板 ' + (s.panels.join('/') || '—') + '  分条 ' + s.entries))
+  return 0
+}
+
+function cmdIndex(arg, quiet) {
+  const name = findSceneDir(arg) || arg
+  const dir = path.join(MEMROOT, name)
+  if (!fs.existsSync(dir)) { console.error('✗ 找不到场景目录：' + arg); return 2 }
+  const entries = []
+  for (const k of KINDS) for (const f of kindFiles(dir, k)) entries.push(entryOf(path.join(dir, k, f), k))
+  // 「记忆\」是人格/桌宠这类非 决策/坑 的要点存储，有就一起收（不强制）
+  const memDir = path.join(dir, '记忆')
+  if (fs.existsSync(memDir)) {
+    for (const f of fs.readdirSync(memDir).filter((x) => x.endsWith('.md')).sort()) entries.push(entryOf(path.join(memDir, f), '记忆'))
+  }
+  // 「定论\」是 `沉淀` 产出的语义层（派生草案），一起进索引 ⇒ 神经元下钻能看到
+  const disDir = path.join(dir, DISTILL_DIR)
+  if (fs.existsSync(disDir)) {
+    for (const f of fs.readdirSync(disDir).filter((x) => x.endsWith('.md')).sort()) entries.push(entryOf(path.join(disDir, f), DISTILL_DIR))
+  }
+  entries.sort((a, b) => String(b.date).localeCompare(String(a.date)))
+  const out = { version: 1, scene: path.basename(dir), generatedAt: new Date().toISOString(), entries }
+  fs.writeFileSync(path.join(dir, '_索引.json'), JSON.stringify(out, null, 2) + '\n', 'utf8')
+  sceneRegUpsert(path.basename(dir), entries.length)     // 场景目录：神经元靠它把新场景画进来
+  if (!quiet) console.log(`✓ 索引已写：${path.basename(dir)}\\_索引.json（${entries.length} 条）`)
+  return 0
+}
+
+/* --------------------------------------------------- 沉淀（情景 → 定论，2026-11-13）
+//  人脑会把一条条经历压成规律；原来只有 85 条按日期的情景记录，没有"定论"层。
+//  `沉淀` 按标题相似度把同主题条目聚类（≥3 条才成篇），把各条的「要点」抽取去重写成
+//  `定论\<主题>.md`（草案，带来源指针）。不手改原文，只做派生的摘要层。
+*/
+const DISTILL_DIR = '定论'
+
+/** 一条记忆的要点：`## 要点` 下的 `- xxx` 优先；否则取 frontmatter description + 正文前两句 */
+function bulletsOfFile(file) {
+  const t = fs.readFileSync(file, 'utf8')
+  const fm = (t.match(/^---\r?\n([\s\S]*?)\r?\n---/) || [])[1] || ''
+  const out = []
+  const desc = (fm.match(/^description:[ \t]*(.+)$/m) || [])[1]
+  if (desc) out.push(desc.trim())
+  const body = t.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, '')
+  const sec = body.match(/##[ \t]*要点\r?\n([\s\S]*?)(?=\r?\n##[ \t]|\r?\n#\s|$)/)
+  if (sec) {
+    sec[1].split(/\r?\n/).forEach((l) => {
+      const m = l.match(/^[-*][ \t]+(.+)/)
+      if (m) out.push(m[1].trim())
+    })
+  } else {
+    body.split(/\r?\n/)
+      .filter((l) => l.trim() && !/^#/.test(l) && !/^>/.test(l))
+      .join(' ')
+      .split(/[。；]/)
+      .forEach((s) => { if (s.trim().length >= 8) out.push(s.trim()) })
+  }
+  return out.slice(0, 4)
+}
+
+/** 简易最长公共子串（给主题起名；没有 4 字以上就退回最高频二元词） */
+function lcsOf2(a, b) {
+  const A = String(a || ''), B = String(b || '')
+  let best = ''
+  for (let i = 0; i < A.length; i++) {
+    for (let j = i + best.length + 1; j <= A.length; j++) {
+      const s = A.slice(i, j)
+      if (B.includes(s)) { if (s.length > best.length) best = s } else break
+    }
+  }
+  return best
+}
+
+const BAD_TOPIC = new Set(['mjs', 'json', 'js', 'md', 'txt', 'log', 'yml', 'yaml', 'ps1', 'exe', 'cmd', 'bat', 'html', 'css'])
+
+/** 标题聚类（2026-11-13 改）：不用"两两相似 + 并查集"——40 条会被链成一个巨簇。
+ *  改成"主题种子"：取中等频次的词（≥min、≤8 条），把这个词命中的条目收成一组；
+ *  组内最多 8 条、组间不重叠。宁可少沉淀，也不把不相干的事糊成一篇。 */
+function clustersOf(entries, min, max = 8) {
+  const G = entries.map((e) => gramsOfTitle(e.title + ' ' + (Array.isArray(e.tags) ? e.tags.join(' ') : '')))
+  const df = {}
+  G.forEach((g) => g.forEach((x) => { df[x] = (df[x] || 0) + 1 }))
+  const seeds = Object.keys(df).filter((g) => df[g] >= min && df[g] <= max && !BAD_TOPIC.has(g))
+    .sort((a, b) => df[b] - df[a] || b.length - a.length)
+  const used = new Set()
+  const groups = []
+  for (const g of seeds) {
+    const idx = entries.map((_, i) => i).filter((i) => !used.has(i) && G[i].has(g))
+    if (idx.length < min) continue
+    idx.forEach((i) => used.add(i))
+    groups.push(idx.map((i) => entries[i]))
+  }
+  return groups
+}
+
+/** 给一组条目起主题名：组内高频且较长的中文短语（df × 长度²），够 3 字才用；否则退回最长公共子串 */
+function topicOf(group) {
+  const df = {}
+  const add = (s) => { if (s) df[s] = (df[s] || 0) + 1 }
+  group.forEach((e) => {
+    const t = String(e.title || '').toLowerCase()
+    for (const r of t.match(/[\u4e00-\u9fff]+/g) || []) {
+      for (let len = 2; len <= 5; len++) {
+        for (let i = 0; i + len <= r.length; i++) {
+          const s = r.slice(i, i + len)
+          if (TITLE_STOP.has(s) || /^(的|了|在|是|和|与|把|被|给)/.test(s)) continue
+          add(s)
+        }
+      }
+    }
+    ;(t.match(/[a-z0-9][a-z0-9_.-]{2,}/g) || []).forEach((w) => {
+      const s = w.replace(/\.[a-z0-9]+$/, '')       // renderers.js → renderers，别把扩展名当主题
+      if (s.length >= 3 && !BAD_TOPIC.has(s)) add(s)
+    })
+  })
+  const best = Object.keys(df).filter((s) => df[s] >= 2 && !BAD_TOPIC.has(s))
+    .sort((a, b) => (df[b] * b.length * b.length) - (df[a] * a.length * a.length) || b.length - a.length)[0]
+  if (best && best.length >= 3) return best.slice(0, 16)
+  // 没有够长的公共短语：用两条最像标题的最长公共子串兜底
+  let lcs = ''
+  for (let i = 0; i < group.length; i++) {
+    for (let j = i + 1; j < group.length; j++) {
+      const s = lcsOf2(group[i].title, group[j].title).replace(/^[-_·\s]+|[-_·\s]+$/g, '')
+      if (s.length > lcs.length) lcs = s
+    }
+  }
+  if (lcs.length >= 3) return lcs.slice(0, 16)
+  if (lcs.length >= 3) return lcs.slice(0, 16)
+  return best && best.length >= 3 ? best.slice(0, 16) : ''
+}
+
+function cmdDistill(arg, opts = {}) {
+  const quiet = !!opts.quiet
+  const log = quiet ? () => {} : console.log
+  const all = process.argv.slice(2).includes('--all')
+  const min = Number(val('--min')) || 3
+  const dry = process.argv.slice(2).includes('--dry')
+  const force = process.argv.slice(2).includes('--force')
+  const names = all
+    ? (readSceneReg().scenes || []).map((s) => s.name)
+    : [findSceneDir(arg) || arg].filter(Boolean)
+  if (!names.length) { console.error('✗ 缺 --场景 <目录名>（或 --all）'); return 2 }
+  let made = 0
+  for (const name of names) {
+    const dir = path.join(MEMROOT, name)
+    if (!fs.existsSync(dir)) { console.error('✗ 找不到场景目录：' + name); continue }
+    if (!fs.existsSync(path.join(dir, '_索引.json'))) cmdIndex(name, true)
+    let entries = []
+    try { entries = (JSON.parse(fs.readFileSync(path.join(dir, '_索引.json'), 'utf8')).entries || []) } catch {}
+    entries = entries.filter((e) => ['决策', '坑', '通知', '记忆'].includes(String(e.kind)))
+    const groups = clustersOf(entries, min)
+    if (!groups.length) { log(`· ${name}：没有 ≥${min} 条的同主题簇（不用沉淀）`); continue }
+    const outDir = path.join(dir, DISTILL_DIR)
+    for (const g of groups) {
+      const topic = topicOf(g)
+      if (!topic) { log(`· ${name}：一簇 ${g.length} 条找不到明确主题名，跳过（不硬造词）`); continue }
+      // 文件名安全：标题里的 / \ : * ? " < > | 不能进文件名
+      const safe = topic.replace(/[\\/:*?"<>|\r\n]/g, '·').replace(/[.\s]+$/g, '').slice(0, 20) || '同主题'
+      const file = safe + '.md'
+      const abs = path.join(outDir, file)
+      const srcs = g.map((e) => ({ date: e.date, title: e.title, rel: e.path, kind: e.kind }))
+      if (fs.existsSync(abs) && !force) { log(`· ${name}：跳过已有 定论\\${file}（来源 ${g.length} 条；要重算加 --force）`); continue }
+      if (fs.existsSync(abs) && /^status:[ \t]*confirmed/m.test(fs.readFileSync(abs, 'utf8'))) {
+        log(`· ${name}：跳过已确认的 定论\\${file}（confirmed 不再自动覆盖）`); continue
+      }
+      // 结论只收「被 ≥2 条来源重复说到」的点，避免把各说各的原文堆成 8 条噪声
+      const cand = []
+      g.forEach((e) => {
+        const p = path.join(dir, String(e.path || ''))
+        if (/\.md$/i.test(p) && fs.existsSync(p)) {
+          bulletsOfFile(p).forEach((b) => cand.push({ b, src: String(e.path) }))
+        }
+      })
+      const cons = []
+      cand.forEach((x) => {
+        const hit = cons.find((c) => simOf(c.b, x.b) >= 0.55)
+        if (hit) hit.srcs.add(x.src)
+        else cons.push({ b: x.b, srcs: new Set([x.src]) })
+      })
+      const pick = cons.filter((c) => c.srcs.size >= 2).sort((a, b) => b.srcs.size - a.srcs.size).slice(0, 6)
+      // 每条来源留一句摘要：同主题的 7 条放在一页能顺着看，这就是"巩固"最小可用的形态
+      const srcLines = g.map((e) => {
+        const p = path.join(dir, String(e.path || ''))
+        let gist = ''
+        if (/\.md$/i.test(p) && fs.existsSync(p)) gist = (bulletsOfFile(p)[0] || '').replace(/\s+/g, ' ')
+        return { date: e.date, title: e.title, rel: e.path, gist: gist.slice(0, 140) }
+      })
+      if (dry) { log(`[dry] ${name} → 定论\\${file}（${g.length} 条来源 · ${pick.length} 条共识）`); continue }
+      fs.mkdirSync(outDir, { recursive: true })
+      const lines = [
+        '---',
+        'kind: 定论',
+        'topic: ' + topic,
+        'date: ' + dayStr(),
+        'status: draft',
+        'generated_by: 工具/场景记忆.mjs 沉淀',
+        'tags:',
+        '  - 定论',
+        '  - ' + topic.slice(0, 12),
+        'sources:',
+        ...srcs.map((s) => '  - ' + s.rel.replace(/\\/g, '/')),
+        'evidence:',
+        ...srcs.slice(0, 2).map((s) => '  - ' + path.join(dir, s.rel).replace(/\\/g, '/') + '::' + s.title.slice(0, 8)),
+        '---',
+        '# ' + topic,
+        '',
+        '> 由 ' + g.length + ' 条同主题记忆自动汇总的**草案**：`## 摘要` 每条来源一句，方便一页看完全貌。',
+        '> AI/用户归纳后请写进 `## 结论` 并把 `status` 改成 `confirmed`（confirmed 不会被 `沉淀 --force` 覆盖）；`sources/topic` 由工具维护。',
+        '',
+        '## 摘要',
+        '',
+        ...srcLines.map((s) => '- ' + s.date + ' ' + s.title + (s.gist ? ('：' + s.gist) : '') + ' · `' + s.rel + '`'),
+        '',
+        '## 结论',
+        '',
+        ...(pick.length
+          ? pick.map((c) => '- ' + c.b + '（来源 ' + c.srcs.size + ' 条）')
+          : ['- （待归纳：以上 ' + g.length + ' 条各说各的，需要一句共同结论；没有就不硬凑）']),
+        '',
+        '## 来源',
+        '',
+        ...srcs.map((s) => '- ' + s.date + ' ' + s.title + ' · `' + s.rel + '`'),
+        '',
+      ]
+      fs.writeFileSync(abs, lines.join('\r\n'), 'utf8')
+      made++
+      log(`✓ 沉淀：${name}\\定论\\${file}（${g.length} 条来源 → ${pick.length} 条结论）`)
+    }
+    if (!dry) cmdIndex(name, true)
+  }
+  if (opts.stats) opts.stats.made = made
+  if (!quiet) console.log(made ? `\n✓ 本次沉淀 ${made} 篇（索引已同步）` : '\n· 本次没有新增定论')
+  return 0
+}
+
+/* --------------------------------------------------- 召回（按需检索，2026-11-13）
+//  场景层原来只能 `读 --节 §〇`，85 条分条没有检索入口；heat 只亮不排。
+//  `召回` 在标题（×3）/标签（×2）/正文（×1）上算命中，叠 IDF 与 45 天热度，输出前 N 条。
+*/
+function cmdRecall(arg) {
+  const all = process.argv.slice(2).includes('--all')
+  const q = (val('--词') || val('--query') || '').trim()
+  if (!q) { console.error('✗ 缺 --词 "<关键词>"（如 召回 --场景 命令 --词 "场景目录"）'); return 2 }
+  const limit = Number(val('--条')) || 8
+  const names = all
+    ? (readSceneReg().scenes || []).map((s) => s.name)
+    : [findSceneDir(arg) || arg].filter(Boolean)
+  if (!names.length) { console.error('✗ 缺 --场景 <目录名>（或 --all）'); return 2 }
+  const grams = gramsOfTitle(q)
+  const words = (String(q).toLowerCase().match(/[a-z0-9][a-z0-9_.-]{2,}/g) || [])
+  const rows = []
+  for (const name of names) {
+    const dir = path.join(MEMROOT, name)
+    if (!fs.existsSync(dir)) continue
+    if (!fs.existsSync(path.join(dir, '_索引.json'))) cmdIndex(name, true)
+    let entries = []
+    try { entries = (JSON.parse(fs.readFileSync(path.join(dir, '_索引.json'), 'utf8')).entries || []) } catch {}
+    for (const e of entries) {
+      const title = String(e.title || '')
+      const tags = (Array.isArray(e.tags) ? e.tags : []).map(String)
+      const file = path.join(dir, String(e.path || ''))
+      let body = ''
+      try { body = fs.readFileSync(file, 'utf8') } catch {}
+      const tG = gramsOfTitle(title + ' ' + tags.join(' '))
+      let hit = 0
+      grams.forEach((g) => { if (tG.has(g)) hit += 3 })
+      for (const w of words) { if ((title + ' ' + tags.join(' ')).toLowerCase().includes(w)) hit += 3 }
+      grams.forEach((g) => { if (body.includes(g)) hit += 1 })
+      if (!hit) continue
+      const days = e.date ? Math.max(0, (Date.now() - Date.parse(e.date)) / 86400000) : 60
+      const heat = Math.exp(-days / 45)
+      rows.push({ scene: name, kind: String(e.kind || ''), title, date: e.date || '', path: file, rel: e.path, score: hit + 0.6 * heat })
+    }
+  }
+  rows.sort((a, b) => b.score - a.score)
+  const top = rows.slice(0, limit)
+  if (!top.length) { console.log(`· 召回「${q}」：0 条命中（场景 ${names.join('/')}）`); return 0 }
+  console.log(`召回「${q}」· 命中 ${rows.length} 条，取前 ${top.length}：`)
+  top.forEach((r, i) => {
+    console.log(`  ${String(i + 1).padStart(2)}. [${r.score.toFixed(1)}] ${r.date} ${r.scene}/${r.kind} · ${r.title}`)
+    console.log(`      ${r.path}`)
+  })
+  // 记账：召回有没有被真的调用，事后可查（不写进正文）
+  try {
+    const log = path.join(MEMROOT, '_共享记忆', '_召回.log')
+    fs.appendFileSync(log, JSON.stringify({ at: new Date().toISOString(), q, scenes: names, hits: rows.length, top: top.map((r) => r.rel) }) + '\n', 'utf8')
+  } catch {}
   return 0
 }
 
@@ -961,6 +1570,7 @@ function cmdSplit(arg) {
   const lines = text.split(/\r?\n/)
   const rebuilt = lines.slice(0, sec.start).join('\r\n') + '\r\n' + pointer + '\r\n' + lines.slice(sec.end).join('\r\n')
   fs.writeFileSync(main, rebuilt, 'utf8')
+  cmdIndex(name, true)
   console.log('✓ 已拆：' + plans.length + ' 条 → 分条目录 · 原文归档 归档\\' + archName)
   console.log('✓ §五 已换成下标（' + Buffer.byteLength(renderPointerSec(dir)) + ' B）：' + (Buffer.byteLength(rebuilt) / 1024).toFixed(1) + ' KB 主文件')
   if (cmdCheck(name) !== 0) { console.error('✗ 已拆分但自检未过 → 按上面的条目修完'); return 1 }
@@ -997,6 +1607,7 @@ function cmdTidy(arg) {
     const lines = text.split(/\r?\n/)
     fs.writeFileSync(path.join(dir, '场景私有记忆.md'), lines.slice(0, sec.start).join('\r\n') + '\r\n' + pointer + lines.slice(sec.end).join('\r\n'), 'utf8')
   }
+  cmdIndex(name, true)
   console.log('✓ 已搬 ' + moved.length + ' 篇进 归档\\，§五 下标已重算')
   if (cmdCheck(name) !== 0) { console.error('✗ 已整理但自检未过'); return 1 }
   return 0
@@ -1045,7 +1656,8 @@ if (cmd === 'check' && argv.includes('--all')) {
   process.exit(n ? 1 : 0)
 }
 
-if (!arg) { console.error('用法：node 场景记忆.mjs <init|stamp|交接|check|list|读|写|拆|整理> --场景 <目录名>'); process.exit(2) }
+// `索引 --all` / `沉淀 --all` / `召回 --all` 不需要 --场景
+if (!arg && !(argv.includes('--all') && ['索引', 'index', '沉淀', 'distill', '召回', 'recall'].includes(cmd))) { console.error('用法：node 场景记忆.mjs <init|stamp|交接|check|list|读|写|待确认|确认|收工|拆|整理|索引|沉淀|召回> --场景 <目录名>（索引/check/沉淀/召回 支持 --all）'); process.exit(2) }
 
 if (cmd === 'list') process.exit(0)
 if (cmd === 'init') process.exit(cmdInit(arg))
@@ -1054,8 +1666,16 @@ if (cmd === 'stamp') process.exit(cmdStamp(findSceneDir(arg) || arg))
 if (cmd === '交接' || cmd === 'handover') process.exit(cmdHandover(arg))
 // 2026-11-13：写一条 / 拆 §五 / 整理旧条目——让「记忆别长成一坨」有命令可用，而不是靠文档劝
 if (cmd === '写' || cmd === 'write') process.exit(cmdWrite(arg))
+// 2026-11-13（用户要求：拿不准先问，别把错误/模糊记忆写死）：不确定进队列，确认后转正；收工一条命令
+if (cmd === '待确认' || cmd === 'pending') process.exit(cmdPending(arg))
+if (cmd === '确认' || cmd === 'confirm') process.exit(cmdConfirm(arg))
+if (cmd === '收工' || cmd === 'finish') process.exit(cmdFinish(arg))
 if (cmd === '拆' || cmd === 'split') process.exit(cmdSplit(arg))
 if (cmd === '整理' || cmd === 'tidy') process.exit(cmdTidy(arg))
+if (cmd === '索引' || cmd === 'index') process.exit(argv.includes('--all') ? cmdIndexAll() : cmdIndex(arg))
+// 2026-11-13：巩固（情景→定论）与按需检索（场景层召回）
+if (cmd === '沉淀' || cmd === 'distill') process.exit(cmdDistill(arg))
+if (cmd === '召回' || cmd === 'recall') process.exit(cmdRecall(arg))
 if (cmd === 'check') {
   const ex = exceptionOf(arg)
   if (ex && ex.handler === 'oa') process.exit(cmdCheckOa())
