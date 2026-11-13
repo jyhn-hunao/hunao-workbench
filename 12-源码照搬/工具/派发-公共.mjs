@@ -14,13 +14,15 @@ import path from 'node:path';
 import zlib from 'node:zlib';
 import { fileURLToPath } from 'node:url';
 import crypto from 'node:crypto';
+// 2026-11-13：端口真源在 环境.mjs（env > 机器配置 > 默认），本文件不再写字面量端口。
+import { port } from './环境.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const ROOT = path.resolve(HERE, '..');                         // 12-源码照搬
 export const DSH_HOME = process.env.DSH_HOME || path.join(ROOT, '引擎数据', '.dsh');
 export const SHELL = path.join(ROOT, '外壳');
 export const DISPATCH_DIR = path.join(DSH_HOME, '派发');
-export const BASE = process.env.DSH_WEB_URL || 'http://127.0.0.1:3083';
+export const BASE = process.env.DSH_WEB_URL || ('http://127.0.0.1:' + port('dsh'));
 
 // 1. 会话索引：逐会话缓存文件（真源）+ 总表补齐（抄 项目切换.js 的口径）
 export function loadSessions() {
