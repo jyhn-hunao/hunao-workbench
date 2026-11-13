@@ -15,7 +15,11 @@
  *   node 场景记忆.mjs stamp   --场景 刷抖音       # 重生成 身份卡 + 场景画像
  *   node 场景记忆.mjs 交接    --场景 刷抖音       # 归档旧版 + 补 §〇 四小节 + stamp + 登记索引
  *   node 场景记忆.mjs 读      --场景 刷抖音 [--节 §〇]  # 只打印某一节（默认 §〇，约 2-4 KB，别整读 25 KB）
- *   node 场景记忆.mjs check   --场景 刷抖音       # 结构/指纹/§〇/项目/归档 全检（--all 全场景）
+ *   node 场景记忆.mjs check   --场景 刷抖音       # 结构/指纹/§〇/项目/归档/分条 全检（--all 全场景）
+ *   node 场景记忆.mjs 写      --场景 刷抖音 --类 决策|坑|通知 --标题 "…" [--正文 <md>|--要点 "a|b|c"] [--证据 "路径::片段"]
+ *                              # 一条一个文件：自动 frontmatter + 登记索引 + 同轮 check
+ *   node 场景记忆.mjs 拆      --场景 刷抖音 [--dry]   # 把 §五 存量条目拆成 决策\/坑\ 分条，原文整份进 归档\
+ *   node 场景记忆.mjs 整理    --场景 刷抖音 [--days 180] [--dry]  # 旧条目搬 归档\，§五 下标重算
  *
  * --场景 可传目录名（刷抖音）或场景 id（douyin）。
  */
@@ -634,7 +638,37 @@ function cmdCheck(name) {
   }
   if (sec0Bytes > 4096) problems.push('§〇 ' + sec0Bytes + ' B 超 4 KB（红线 4096）')
   const mainBytes = Buffer.byteLength(main)
-  if (mainBytes > 25600) warns.push('主文件 ' + (mainBytes / 1024).toFixed(1) + ' KB 超 25 KB（红线，搬旧内容进 归档\\ 并留指针）')
+  // 2026-11-13（用户问「文件越来越大怎么办」）：主文件红线从 warn 升级成 ✗，>12 KB 提前提醒该拆。
+  //   只告警不阻断等于看着它长大——这正是 §五 长到 18 KB 的原因。
+  if (mainBytes > 25600) problems.push('主文件 ' + (mainBytes / 1024).toFixed(1) + ' KB 超 25 KB 红线（跑 拆 --场景 ' + name + '，把 §五 搬成 决策\\/坑\\ 分条）')
+  else if (mainBytes > 12288) warns.push('主文件 ' + (mainBytes / 1024).toFixed(1) + ' KB（>12 KB 该拆了：先跑 拆 --场景 ' + name + ' --dry 看清单）')
+  // §五 不许再攒正文（2026-11-13）：拆过的场景只要 §五 里又出现「日期开头的正条目」就是巨石复发。
+  //   这条比 25 KB 红线早得多——追加 5 条才 3 KB，等到 25 KB 已经晚了。指针行（`… → 决策\x.md`）不算。
+  {
+    const splitDone = KINDS.some((k) => fs.existsSync(path.join(dir, k)))
+    const sec5 = sectionOf(main, '五|坑与决策')
+    const inline = sec5 ? sec5.body.split(/\r?\n/).filter((l) => /^- ?\d{4}-\d{2}-\d{2}/.test(l) && !l.includes(' → ')).length : 0
+    if (splitDone && inline) problems.push('§五 里还有 ' + inline + ' 条正文（本场景已分条）：新条目用 写 --场景 ' + name + ' --类 决策|坑 --标题 "…"，存量用 拆')
+  }
+  // 分条红线（2026-11-13）：一条一个文件——单篇 >2 KB 说明又在往里写过程；evidence 逐条复核
+  {
+    let n = 0
+    for (const k of KINDS) {
+      const sub = path.join(dir, k)
+      if (!fs.existsSync(sub)) continue
+      const files = fs.readdirSync(sub).filter((f) => f.endsWith('.md'))
+      n += files.length
+      for (const f of files) {
+        const p = path.join(sub, f)
+        const b = fs.statSync(p).size
+        if (b > KIND_SIZE) problems.push('单篇 ' + k + '\\' + f + ' ' + b + ' B 超 2 KB（一条一个文件：只留结论，过程进 归档\\）')
+        const bad = evidenceOf(fs.readFileSync(p, 'utf8')).map((ref) => [ref, verifyEvidence(ref)]).filter((x) => x[1])
+        bad.forEach((x) => problems.push('证据失效 ' + k + '\\' + f + ' → ' + x[0] + '（' + x[1] + '）'))
+      }
+      if (files.length > KIND_BULK) warns.push(k + '\\ 有 ' + files.length + ' 篇（>' + KIND_BULK + '：跑 整理 --days ' + KIND_OLD_DAYS + ' 把旧条目搬 归档\\）')
+    }
+    if (n) ok.push('分条 ' + n + ' 篇')
+  }
   console.log(`\n${name}：${problems.length ? '✗ ' + problems.length + ' 个问题' : '✓ 全部通过'}（§〇 ${sec0Bytes} B${warns.length ? ' · ⚠ ' + warns.length : ''}）`)
   problems.forEach((p) => console.log('   ✗ ' + p))
   warns.forEach((p) => console.log('   ⚠ ' + p))
@@ -675,6 +709,296 @@ function cmdRead(arg, flags) {
   console.log('[' + key + '] ' + name + ' · ' + bytes + ' B · 源 ' + file)
   console.log(sec)
   if (bytes > 4096) { console.error('⚠ 这一节 ' + bytes + ' B 超 4 KB 红线：搬旧内容进 归档\ 并留指针'); return 1 }
+  return 0
+}
+
+/* --------------------------------------------------- 分条记忆（2026-11-13 加） */
+
+// 一条事实一个文件：三类别目录。⛔ 不再往 §五 追加正文（那是「一坨」的复发入口）
+const KINDS = ['决策', '坑', '通知']
+const KIND_SIZE = 2048        // 单篇红线：超了就说明又在写过程
+const KIND_BULK = 30          // 单目录篇数：超了提示 整理
+const KIND_OLD_DAYS = 180     // 整理默认：超过多少天搬 归档\
+const SLUG_BAD = /[\\/:*?"<>|\s]+/g
+const DAY_RE = /\d{4}-\d{2}-\d{2}/
+const dayStr = (d = NOW()) => { const p = (n) => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}` }
+// 布尔旗标必须查 `argv.includes`：`val('--dry')` 取的是「--dry 的下一个参数」，永远为空 ⇒ dry 从不生效（2026-11-13 实际踩到）
+const flagOn = (k) => process.argv.slice(2).includes(k)
+// 文件名要人能读：去掉反引号/引号/括号等排版字符，其余非中文非字母数字一律归成一个 '-'
+// 截断优先落在 '-' 分词处，避免把词切成「…别整段重」「…是-CRL」这种半截
+const clipSlug = (s, n = 32) => {
+  const cut = s.slice(0, n)
+  const i = cut.lastIndexOf('-')
+  return (i >= Math.floor(n / 2) ? cut.slice(0, i) : cut).replace(/-$/, '')
+}
+const slugOf = (s, n = 32) => clipSlug(String(s)
+  .replace(/\*\*/g, '')
+  .replace(/[`~"'“”‘’「」『』()（）【】\[\]{}<>《》]/g, '')
+  .replace(/[^0-9A-Za-z\u4e00-\u9fa5]+/g, '-')
+  .replace(/-+/g, '-').replace(/^-|-$/g, ''), n)
+
+/** 取某一节的正文（`## 五…` 到下一个 `## ` 之前）；找不到返回 null */
+function sectionOf(text, kw) {
+  const lines = text.split(/\r?\n/)
+  const heads = []
+  lines.forEach((l, i) => { if (/^## /.test(l)) heads.push(i) })
+  const start = heads.find((i) => new RegExp(kw).test(lines[i]))
+  if (start === undefined) return null
+  const next = heads.find((i) => i > start)
+  return { start, end: next === undefined ? lines.length : next, body: lines.slice(start, next === undefined ? lines.length : next).join('\n') }
+}
+
+/** §五 按顶级 `- ` 条目切（缩进子条与续行归上一条）；是否「日期条目」由调用方判 */
+function bulletsOf(secBody) {
+  const out = []
+  let cur = null
+  for (const line of secBody.split(/\r?\n/)) {
+    if (/^- /.test(line)) {
+      if (cur) out.push(cur)
+      cur = { text: line }
+    } else if (cur && line.trim()) {
+      cur.text += '\n' + line
+    } else if (cur) { out.push(cur); cur = null }
+  }
+  if (cur) out.push(cur)
+  return out
+}
+
+/** 从条目里取 日期 / 括注标签 / 标题 / 类别 */
+function metaOfBullet(text) {
+  const body = text.replace(/^-\s+/, '')
+  const d = (body.match(/^(\d{4}-\d{2}-\d{2})/) || [])[1] || dayStr()
+  const tag = ((body.match(/（([^）]{0,40})）/) || [])[1] || '').trim()
+  const rest = body.replace(/^\d{4}-\d{2}-\d{2}(（[^）]*）)?[：:]?\s*/, '')
+  const title = rest.replace(/\*\*/g, '').split(/——|。|；/)[0].replace(/[，,]\s*$/, '').trim().slice(0, 60) || tag || '条目'
+  const kind = /坑|踩|故障|报错|失效/.test(tag) ? '坑' : '决策'
+  return { date: d, tag, title, kind, body }
+}
+
+/** frontmatter 里的 evidence（复用 记忆.mjs 的 `路径::片段` 约定）
+ *  2026-11-13 修：单行分支原来用 `^evidence:\s*(.+)$`，`\s` 会吃掉换行 ⇒ 把数组块的首行连同 `- ` 当值，
+ *  既丢了第二条又让值带前缀。现在先认数组块，再认同一行的单个值。 */
+function evidenceOf(text) {
+  const m = text.match(/^---\r?\n([\s\S]*?)\r?\n---/)
+  if (!m) return []
+  const fm = m[1]
+  const block = fm.match(/^evidence:\r?\n((?:[ \t]*-[^\r\n]*\r?\n?)+)/m)
+  if (block) return block[1].split(/\r?\n/).map((s) => s.replace(/^[ \t]*-[ \t]*/, '').trim()).filter(Boolean)
+  const one = fm.match(/^evidence:[ \t]*(\S[^\r\n]*)$/m)
+  return one ? [one[1].trim()] : []
+}
+
+/** 同名参数的全部取值（`--证据` 可重复；`val()` 只取第一个，2026-11-13 实际踩到） */
+function vals(k) {
+  const a = process.argv.slice(2)
+  const out = []
+  a.forEach((x, i) => { if (x === k && a[i + 1] && !String(a[i + 1]).startsWith('--')) out.push(a[i + 1]) })
+  return out
+}
+
+/** 证据复核：文件在、片段对得上
+ *  路径先按工作台根解析；找不到再往上找一层——两种写法都常见：`工具\x.mjs`（相对工作台）
+ *  与 `12-源码照搬/工具/x.mjs`（相对仓根）。2026-11-13：只认前者时前者写法里的仓根路径全被误报失效。 */
+function verifyEvidence(ref) {
+  const i = String(ref).indexOf('::')
+  const rel = i < 0 ? String(ref) : String(ref).slice(0, i)
+  const needle = i < 0 ? '' : String(ref).slice(i + 2)
+  const bases = [WORKBENCH_ROOT, path.resolve(WORKBENCH_ROOT, '..')]
+  const abs = path.isAbsolute(rel)
+    ? (fs.existsSync(rel) ? rel : '')
+    : bases.map((b) => path.join(b, rel)).find((p) => fs.existsSync(p))
+  if (!abs) return '文件不存在：' + rel + '（已试 ' + (path.isAbsolute(rel) ? '绝对路径' : bases.join(' / ')) + '）'
+  if (needle && !fs.readFileSync(abs, 'utf8').includes(needle)) return '文件里找不到「' + needle + '」'
+  return ''
+}
+
+/** 某类目录里的文件（按名倒序 = 新的在前） */
+function kindFiles(dir, kind) {
+  const d = path.join(dir, kind)
+  return fs.existsSync(d) ? fs.readdirSync(d).filter((f) => f.endsWith('.md')).sort().reverse() : []
+}
+
+/** 文件标题：优先 frontmatter title，其次首个 `# ` */
+function titleOf(file) {
+  const t = fs.readFileSync(file, 'utf8')
+  const fm = (t.match(/^---\r?\n[\s\S]*?\r?\ntitle:\s*(.+)\r?$/m) || [])[1]
+  if (fm) return fm.trim()
+  return ((t.split(/\r?\n/).find((l) => /^#\s+/.test(l)) || '').replace(/^#\s+/, '')) || path.basename(file, '.md')
+}
+
+/** 给 _文件索引.md 追加一行（已登记过就跳过，避免重复行） */
+function indexAdd(dir, rel, what, status = '活') {
+  const fidx = path.join(dir, '_文件索引.md')
+  if (!fs.existsSync(fidx)) return false
+  const text = fs.readFileSync(fidx, 'utf8')
+  if (text.includes('`' + rel + '`')) return false
+  fs.appendFileSync(fidx, `| \`${rel}\` | ${what} | ${status} | ${dayStr()} |\r\n`, 'utf8')
+  return true
+}
+
+/** 重写 §五：只留「有多少篇 + 最近 5 条指针」；`keepLines` 是没有日期、原样保留的旧备注 */
+function renderPointerSec(dir, note, keepLines = []) {
+  const counts = KINDS.map((k) => k + '\\ ' + kindFiles(dir, k).length + ' 篇').join(' · ')
+  const rows = KINDS.flatMap((k) => kindFiles(dir, k).slice(0, 5).map((f) => ({ k, f, t: titleOf(path.join(dir, k, f)) })))
+  const latest = rows.slice(0, 5).map((r) => `- ${r.f.slice(0, 10)}：${r.t} → \`${r.k}\\${r.f}\``)
+  return [
+    '## 五、坑与决策（已拆分，只放下标）',
+    '',
+    '> ' + (note || '一条一个文件：正文在 `决策\\` / `坑\\` / `通知\\`，原文整份留 `归档\\`（只进不改）。'),
+    '> ⛔ 不要再往这一节追加正文——新条目用 `node 工具\\场景记忆.mjs 写 --场景 <场景> --类 决策|坑 --标题 "…"`。',
+    '',
+    '- 规模：' + counts,
+    '- 最近 5 条：',
+    ...latest,
+    ...(keepLines.length ? ['', '### 原 §五 未归类条目（原样保留）', ...keepLines.map((s) => s.trim()), ''] : ['']),
+  ].join('\r\n')
+}
+
+/* --------------------------------------------------- 写一条（唯一入口） */
+
+function cmdWrite(arg) {
+  const name = findSceneDir(arg) || arg
+  const dir = path.join(MEMROOT, name)
+  const ex = !fs.existsSync(dir) ? exceptionOf(arg) : null
+  if (ex) { console.log(`\n${ex.title || arg}（${ex.id}）：例外场景，记忆在 ${(ex.roots || []).map((r) => r.path).join(' / ')} ⇒ 不进标准结构，请直接写那几份文档`); return 1 }
+  if (!fs.existsSync(dir)) { console.error('✗ 找不到场景目录：' + arg); return 2 }
+
+  // 1. 校验：类别白名单、标题必填且不撞名
+  const kind = val('--类') || val('--kind')
+  const title = (val('--标题') || val('--title') || '').trim()
+  if (!KINDS.includes(kind)) { console.error('✗ --类 必须是：' + KINDS.join(' / ')); return 2 }
+  if (!title) { console.error('✗ 缺少 --标题'); return 2 }
+  for (const k of KINDS) for (const f of kindFiles(dir, k)) {
+    if (titleOf(path.join(dir, k, f)) === title) { console.error('✗ 同名条目已存在：' + k + '\\' + f + '（改标题，或直接编辑那一篇）'); return 1 }
+  }
+
+  // 2. 正文：--正文 文件优先，其次 --要点 "a|b|c"
+  const draft = val('--正文') || val('--body')
+  let body = ''
+  if (draft) {
+    if (!fs.existsSync(path.resolve(draft))) { console.error('✗ 正文文件不存在：' + draft); return 2 }
+    body = fs.readFileSync(path.resolve(draft), 'utf8').replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, '')
+  } else if (val('--要点')) {
+    body = '## 要点\r\n' + val('--要点').split('|').map((s) => s.trim()).filter(Boolean).map((s) => '- ' + s).join('\r\n')
+  }
+  if (!body.trim()) { console.error('✗ 缺少 --正文 <md文件> 或 --要点 "a|b|c"'); return 2 }
+  body = body.replace(/^\s*#\s+[^\r\n]*\r?\n/, '').trim().replace(/\r?\n/g, '\r\n')
+
+  // 3. frontmatter（date / tags / evidence）+ 落盘 <类>\<日期>-<标题>.md
+  const d = val('--日期') || dayStr()
+  const tags = (val('--标签') || '').split(/[,，]/).map((s) => s.trim()).filter(Boolean)
+  const ev = vals('--证据').concat(vals('--evidence')).flatMap((s) => s.split(/[;；]/)).map((s) => s.trim()).filter(Boolean)
+  const desc = (body.split('\r\n').find((l) => l.trim() && !l.startsWith('#')) || '').replace(/^-\s*/, '').trim().slice(0, 120)
+  const fm = ['---', 'title: ' + title, 'description: ' + desc, 'date: ' + d, 'tags: [' + [kind].concat(tags).join(', ') + ']']
+  if (ev.length) fm.push('evidence:', ...ev.map((e) => '  - ' + e))
+  fm.push('---')
+  const sub = path.join(dir, kind)
+  fs.mkdirSync(sub, { recursive: true })
+  let file = d + '-' + slugOf(title) + '.md'
+  let n = 1
+  while (fs.existsSync(path.join(sub, file))) file = d + '-' + slugOf(title) + '-' + (++n) + '.md'
+  const text = fm.join('\r\n') + '\r\n\r\n# ' + title + '\r\n\r\n' + body + '\r\n'
+  if (flagOn('--dry')) { console.log('[dry] 将写：' + kind + '\\' + file + '（' + Buffer.byteLength(text) + ' B）'); return 0 }
+  fs.writeFileSync(path.join(sub, file), text, 'utf8')
+  console.log('✓ 已写入：' + kind + '\\' + file + '（' + Buffer.byteLength(text) + ' B）')
+  if (Buffer.byteLength(text) > KIND_SIZE) console.log('⚠ 超 ' + (KIND_SIZE / 1024) + ' KB：一条只写结论，细节进 归档\\ 或留在会话');
+  if (!ev.length) console.log('⚠ 没写 --证据：这条以后没法自动判「还成不成立」')
+
+  // 4. 同轮收尾：登记索引 → 跑 check；check 不过就说「已写入但没完成」
+  indexAdd(dir, kind + '\\' + file, title)
+  if (cmdCheck(name) !== 0) { console.error('✗ 已写入但自检未过 → 按上面的条目修完才算完成'); return 1 }
+  return 0
+}
+
+/* --------------------------------------------------- 拆（一次性还债，可 dry） */
+
+function cmdSplit(arg) {
+  const name = findSceneDir(arg) || arg
+  const dir = path.join(MEMROOT, name)
+  const main = path.join(dir, '场景私有记忆.md')
+  if (!fs.existsSync(main)) { console.error('✗ 找不到 ' + main + '（先跑 init）'); return 2 }
+  const text = fs.readFileSync(main, 'utf8')
+
+  // 1. 找 §五 并按条目切；只有「日期开头的条目」能拆成文件，其余原样保留在 §五（绝不静默丢内容）
+  const sec = sectionOf(text, '五|坑与决策')
+  if (!sec) { console.error('✗ 找不到 §五 段（## 五、坑与决策）'); return 3 }
+  const all = bulletsOf(sec.body)
+  const DATED = /^-\s*\d{4}-\d{2}-\d{2}/
+  const dated = all.filter((b) => DATED.test(b.text))
+  const keep = all.filter((b) => !DATED.test(b.text)).map((b) => b.text)
+  if (!dated.length) { console.log('· ' + name + '：§五 没有日期条目（已是下标或只有备注）⇒ 不用拆'); return 0 }
+  const plans = dated.map((b) => { const m = metaOfBullet(b.text); return { ...m, file: m.date + '-' + slugOf(m.title) + '.md' } })
+
+  // 2. 计划与对账（先打印，--dry 到此为止）
+  const origBytes = Buffer.byteLength(sec.body)
+  const newBytes = plans.reduce((s, p) => s + Buffer.byteLength(p.body) + 160, 0)
+  console.log('\n' + name + '：§五 ' + origBytes + ' B / ' + plans.length + ' 条 → 决策 ' + plans.filter((p) => p.kind === '决策').length + ' 篇 · 坑 ' + plans.filter((p) => p.kind === '坑').length + ' 篇（正文合计约 ' + newBytes + ' B）'
+    + (keep.length ? ' · 另有 ' + keep.length + ' 条无日期备注原样保留' : ''))
+  plans.forEach((p) => console.log('  ' + p.date + ' ' + p.kind + ' | ' + p.title + ' → ' + p.kind + '\\' + p.file))
+  if (flagOn('--dry')) { console.log('\n[dry] 未落盘。确认后去掉 --dry 重跑。'); return 0 }
+
+  // 3. 原文整份进 归档\（只进不改），再逐条落盘；同名自动加序号，绝不覆盖既有条目
+  const archName = `场景私有记忆-${stamp().replace(/[-: ]/g, '').slice(0, 12)}-拆分前.md`
+  fs.writeFileSync(path.join(dir, '归档', archName), text, 'utf8')
+  let wrote = 0
+  for (const p of plans) {
+    const sub = path.join(dir, p.kind)
+    fs.mkdirSync(sub, { recursive: true })
+    let file = p.file
+    let n = 1
+    while (fs.existsSync(path.join(sub, file))) file = p.file.replace(/\.md$/, '-' + (++n) + '.md')
+    wrote++
+    const fm = ['---', 'title: ' + p.title, 'description: ' + p.body.replace(/\r?\n/g, ' ').slice(0, 120), 'date: ' + p.date,
+      'tags: [' + [p.kind, p.tag].filter(Boolean).join(', ') + ']', 'source: 场景私有记忆.md §五（' + dayStr() + ' 拆分）']
+    const ev = evidenceOf(p.body)
+    if (ev.length) fm.push('evidence:', ...ev.map((e) => '  - ' + e))
+    fm.push('---')
+    fs.writeFileSync(path.join(sub, file), fm.join('\r\n') + '\r\n\r\n# ' + p.title + '\r\n\r\n' + p.body.replace(/\r?\n/g, '\r\n') + '\r\n', 'utf8')
+    indexAdd(dir, p.kind + '\\' + file, p.title)
+  }
+  // 4. §五 换成下标（正文已在分条文件里；无日期备注原样带上）
+  const pointer = renderPointerSec(dir, '一条一个文件（' + dayStr() + ' 从 §五 拆分，原文整份在 `归档\\' + archName + '`）。', keep)
+  const lines = text.split(/\r?\n/)
+  const rebuilt = lines.slice(0, sec.start).join('\r\n') + '\r\n' + pointer + '\r\n' + lines.slice(sec.end).join('\r\n')
+  fs.writeFileSync(main, rebuilt, 'utf8')
+  console.log('✓ 已拆：' + plans.length + ' 条 → 分条目录 · 原文归档 归档\\' + archName)
+  console.log('✓ §五 已换成下标（' + Buffer.byteLength(renderPointerSec(dir)) + ' B）：' + (Buffer.byteLength(rebuilt) / 1024).toFixed(1) + ' KB 主文件')
+  if (cmdCheck(name) !== 0) { console.error('✗ 已拆分但自检未过 → 按上面的条目修完'); return 1 }
+  return 0
+}
+
+/* --------------------------------------------------- 整理（旧条目搬 归档\） */
+
+function cmdTidy(arg) {
+  const name = findSceneDir(arg) || arg
+  const dir = path.join(MEMROOT, name)
+  if (!fs.existsSync(dir)) { console.error('✗ 找不到场景目录：' + arg); return 2 }
+  const days = Number(val('--days') || KIND_OLD_DAYS)
+  const cut = dayStr(new Date(Date.now() - days * 86400000))
+  const moved = []
+  for (const k of KINDS) {
+    for (const f of kindFiles(dir, k)) {
+      const d = (f.match(/^(\d{4}-\d{2}-\d{2})/) || [])[1]
+      if (d && d < cut) moved.push({ k, f })
+    }
+  }
+  console.log('\n' + name + '：' + days + ' 天前（<' + cut + '）' + moved.length + ' 篇待搬 归档\\')
+  moved.forEach((m) => console.log('  ' + m.k + '\\' + m.f))
+  if (!moved.length) return 0
+  if (flagOn('--dry')) { console.log('[dry] 未搬。确认后去掉 --dry 重跑。'); return 0 }
+  for (const m of moved) {
+    fs.renameSync(path.join(dir, m.k, m.f), path.join(dir, '归档', m.f))
+    indexAdd(dir, '归档\\' + m.f, '旧条目（自动整理搬入）', '留档')
+  }
+  const pointer = renderPointerSec(dir, '旧条目已搬 `归档\\`（<' + cut + '，' + moved.length + ' 篇）。')
+  const text = fs.readFileSync(path.join(dir, '场景私有记忆.md'), 'utf8')
+  const sec = sectionOf(text, '五|坑与决策')
+  if (sec) {
+    const lines = text.split(/\r?\n/)
+    fs.writeFileSync(path.join(dir, '场景私有记忆.md'), lines.slice(0, sec.start).join('\r\n') + '\r\n' + pointer + lines.slice(sec.end).join('\r\n'), 'utf8')
+  }
+  console.log('✓ 已搬 ' + moved.length + ' 篇进 归档\\，§五 下标已重算')
+  if (cmdCheck(name) !== 0) { console.error('✗ 已整理但自检未过'); return 1 }
   return 0
 }
 
@@ -721,13 +1045,17 @@ if (cmd === 'check' && argv.includes('--all')) {
   process.exit(n ? 1 : 0)
 }
 
-if (!arg) { console.error('用法：node 场景记忆.mjs <init|stamp|交接|check|list|读> --场景 <目录名>'); process.exit(2) }
+if (!arg) { console.error('用法：node 场景记忆.mjs <init|stamp|交接|check|list|读|写|拆|整理> --场景 <目录名>'); process.exit(2) }
 
 if (cmd === 'list') process.exit(0)
 if (cmd === 'init') process.exit(cmdInit(arg))
 if (cmd === '读' || cmd === 'read') process.exit(cmdRead(arg, { sec: val('--节') || val('--sec') }))
 if (cmd === 'stamp') process.exit(cmdStamp(findSceneDir(arg) || arg))
 if (cmd === '交接' || cmd === 'handover') process.exit(cmdHandover(arg))
+// 2026-11-13：写一条 / 拆 §五 / 整理旧条目——让「记忆别长成一坨」有命令可用，而不是靠文档劝
+if (cmd === '写' || cmd === 'write') process.exit(cmdWrite(arg))
+if (cmd === '拆' || cmd === 'split') process.exit(cmdSplit(arg))
+if (cmd === '整理' || cmd === 'tidy') process.exit(cmdTidy(arg))
 if (cmd === 'check') {
   const ex = exceptionOf(arg)
   if (ex && ex.handler === 'oa') process.exit(cmdCheckOa())

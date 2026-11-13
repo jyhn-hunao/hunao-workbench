@@ -44,7 +44,11 @@ function parseArgs(argv) {
       const k = a.slice(2)
       const v = argv[i + 1]
       if (v === undefined || v.startsWith('--')) throw new Error('参数缺少取值：--' + k)
-      flags[k] = v; i++
+      // 同名参数可重复（如两条 --证据）：第一次赋值，之后并成数组（2026-11-13 修：原来只留最后一个）
+      flags[k] = Object.prototype.hasOwnProperty.call(flags, k)
+        ? (Array.isArray(flags[k]) ? flags[k].concat(v) : [flags[k], v])
+        : v
+      i++
       continue
     }
     pos.push(a)
@@ -672,8 +676,10 @@ function cmdWrite(root, flags) {
   // 3. 补 frontmatter：描述取正文第一行；evidence 是「三个月后还能自证」的唯一凭据
   const desc = String(flags.desc || flags['描述'] || '').trim()
     || (inner.split(/\r?\n/).find(l => l.trim() && !l.startsWith('#')) || '').replace(/^-\s*/, '').trim().slice(0, 200)
-  const tags = String(flags.tags || flags['标签'] || '').split(/[,，]/).map(s => s.trim()).filter(Boolean)
-  const ev = String(flags.evidence || flags['证据'] || '').split(/[;；]/).map(s => s.trim()).filter(Boolean)
+  // 同名参数可能是数组（重复传 --证据 / --标签）
+  const listOf = (x) => (Array.isArray(x) ? x.join(';') : String(x || ''))
+  const tags = listOf(flags.tags || flags['标签']).split(/[,，;；]/).map(s => s.trim()).filter(Boolean)
+  const ev = listOf(flags.evidence || flags['证据']).split(/[;；]/).map(s => s.trim()).filter(Boolean)
   const d = new Date()
   const p = (n) => String(n).padStart(2, '0')
   const date = d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate())
