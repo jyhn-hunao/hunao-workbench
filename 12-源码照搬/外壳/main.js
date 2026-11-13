@@ -34,7 +34,7 @@ app.setAppUserModelId('deepseek.harness.gui.v2');   // 2026-10-13 换新身份�
 // 2026-10-10 为「换电脑一比一复制」加（见 项目信息.md §39）：只要引擎与工作台仍是同级目录，任何盘符都能跑。
 const HARNESS_DIR = (function () {
   const sibling = path.join(path.dirname(__dirname), '引擎');
-  try { if (fs.existsSync(path.join(sibling, 'apps', 'cli'))) return sibling; } catch (e) { /* ignore */ }
+  try { if (fs.existsSync(path.join(sibling, 'apps', 'cli'))) return sibling; } catch (e) { warnOnce("main", e) }
   return path.join(path.dirname(__dirname), '引擎');
 })();
 const NPM_BIN = path.join(os.homedir(), 'AppData', 'Roaming', 'npm');
@@ -53,9 +53,9 @@ function rotateLog() {
   try {
     const st = fs.statSync(LOG_FILE);
     if (st.size <= LOG_MAX_BYTES) return;
-    try { fs.rmSync(LOG_PREV, { force: true }); } catch (e) { /* ignore */ }
+    try { fs.rmSync(LOG_PREV, { force: true }); } catch (e) { warnOnce("main", e) }
     fs.renameSync(LOG_FILE, LOG_PREV);
-  } catch (e) { /* 文件不存在或正被占用：忽略，不影响启动 */ }
+  } catch (e) { warnOnce("main", e) }
 }
 rotateLog();
 const SCENARIOS_DIR = path.join(__dirname, 'scenarios');
@@ -89,15 +89,15 @@ let siteServer = null;
 // ---- 数据盘隔离：所有 Electron 运行时数据（userData/session、webview partition、localStorage 等）
 // 强制写到 D 盘项目目录，绝不落到 C 盘。必须在任何 app API 之前设置。----
 const PROFILE_DIR = path.join(__dirname, 'data', 'electron-profile');
-try { fs.mkdirSync(PROFILE_DIR, { recursive: true }); } catch (e) { /* ignore */ }
-try { app.setPath('userData', PROFILE_DIR); } catch (e) { /* ignore */ }
-try { app.setPath('sessionData', path.join(PROFILE_DIR, 'sessions')); } catch (e) { /* ignore */ }
+try { fs.mkdirSync(PROFILE_DIR, { recursive: true }); } catch (e) { warnOnce("main", e) }
+try { app.setPath('userData', PROFILE_DIR); } catch (e) { warnOnce("main", e) }
+try { app.setPath('sessionData', path.join(PROFILE_DIR, 'sessions')); } catch (e) { warnOnce("main", e) }
 
 // ---- 默认工作区：新会话的 cwd（`<本夹>\工作区`）----
 // 为什么要在启动时建：根 .gitignore 挡着 `工作区/`，克隆下来是空的、甚至不存在；
 // cwd 不存在会让建会话/换会话收到一个坏路径。空目录本身是设计状态（见 `说明\默认工作区.md`）。
 const WORKSPACE_DIR = path.join(__dirname, '..', '工作区');
-try { fs.mkdirSync(WORKSPACE_DIR, { recursive: true }); } catch (e) { /* 只读盘就不建，交给引擎报错 */ }
+try { fs.mkdirSync(WORKSPACE_DIR, { recursive: true }); } catch (e) { warnOnce("main", e) }
 
 // 启动计时基准：日志里会打印「窗口可见耗时」与「引擎就绪总耗时」，便于日后评估启动速度
 const APP_T0 = Date.now();
@@ -112,6 +112,23 @@ function log(line) {
   logTail = (logTail + line + '\n').slice(-1200);
 }
 
+// 静默兜底统一出口（2026-11-13）：主进程里原本 140+ 处 catch 只留一句注释，故障时用户只看到"界面没反应"。
+//   同一"位置+消息"只记一次（WARN_SEEN），避免轮询/事件类 catch 把 server.log 刷爆；log() 内部失败不再往里递归。
+const WARN_SEEN = new Set();
+let WARN_IN = false;
+function warnOnce(tag, e) {
+  if (WARN_IN) return;
+  const msg = (e && (e.message || String(e))) || "unknown";
+  let at = "";
+  try { at = (String((e && e.stack) || "").split("\n")[1] || "").trim().replace(/^at\s+/, ""); } catch (x) { at = ""; }
+  const key = tag + "|" + msg.slice(0, 120) + "|" + at;
+  if (WARN_SEEN.has(key)) return;
+  WARN_SEEN.add(key);
+  WARN_IN = true;
+  try { log("[warn] (" + tag + ") " + msg + (at ? " @ " + at : "")); } catch (x) { warnOnce("main", x) }
+  WARN_IN = false;
+}
+
 // ---- 焦点探针（2026-11-12 用户同意；只记必要几行，不刷屏）----
 // 用途：复现「一个面板跑任务时，另一个面板输入框打不进字」时，看是谁把 webview 焦点抢走。
 // 开关：data\focus-probe.on 存在才写日志；删掉文件即时关闭（每次事件都查一次，不常驻开启）。
@@ -121,15 +138,15 @@ try {
     try {
       if (wc.getType() !== 'webview') return;
       const where = () => '[focus-probe] wc=' + wc.id + ' ' + String(wc.getURL() || '').slice(0, 90);
-      wc.on('focus', () => { try { if (fs.existsSync(FOCUS_PROBE_FILE)) log(where() + ' FOCUS'); } catch (e) { /* ignore */ } });
-      wc.on('blur', () => { try { if (fs.existsSync(FOCUS_PROBE_FILE)) log(where() + ' BLUR'); } catch (e) { /* ignore */ } });
-    } catch (e) { /* ignore */ }
+      wc.on('focus', () => { try { if (fs.existsSync(FOCUS_PROBE_FILE)) log(where() + ' FOCUS'); } catch (e) { warnOnce("main", e) } });
+      wc.on('blur', () => { try { if (fs.existsSync(FOCUS_PROBE_FILE)) log(where() + ' BLUR'); } catch (e) { warnOnce("main", e) } });
+    } catch (e) { warnOnce("main", e) }
   });
-} catch (e) { /* ignore */ }
+} catch (e) { warnOnce("main", e) }
 
 // 渲染层诊断进 server.log（2026-11-12 P0：面板切会话的「期望/实际」要留证据，别只写在界面小字里）
 ipcMain.on('diag:log', (_e, m) => {
-  try { log('[renderer] ' + String(m == null ? '' : m).slice(0, 400)); } catch (e) { /* ignore */ }
+  try { log('[renderer] ' + String(m == null ? '' : m).slice(0, 400)); } catch (e) { warnOnce("main", e) }
 });
 // ==================== 多窗口（场景分离） ====================
 // 主窗口照旧（场景 = 标签页）；任意场景可「弹出」成独立窗口，一屏看一个场景。
@@ -154,7 +171,7 @@ function allWindows() {
 }
 function broadcast(channel, payload) {
   for (const w of allWindows()) {
-    try { w.webContents.send(channel, payload); } catch (e) { /* ignore */ }
+    try { w.webContents.send(channel, payload); } catch (e) { warnOnce("main", e) }
   }
 }
 function windowOfEvent(e) {
@@ -190,7 +207,7 @@ function rectOfWindow(win) {
     const max = win.isMaximized();
     const b = (max && typeof win.getNormalBounds === 'function') ? win.getNormalBounds() : win.getBounds();
     let displayId = '';
-    try { const d = screen.getDisplayMatching(b); if (d) displayId = String(d.id); } catch (e) { /* ignore */ }
+    try { const d = screen.getDisplayMatching(b); if (d) displayId = String(d.id); } catch (e) { warnOnce("main", e) }
     return { x: b.x, y: b.y, w: b.width, h: b.height, maximized: max, display: displayId };
   } catch (e) { return null; }
 }
@@ -231,7 +248,7 @@ function loadWinLayout() {
       if (d && d.scene) map[String(d.scene)] = d;
     });
     layoutCache.detached = map;
-  } catch (e) { /* 首次运行没有该文件，正常 */ }
+  } catch (e) { warnOnce("main", e) }
 }
 // 恢复前校验：副屏被拔 / 坐标跑到屏幕外 → 夹回工作区，避免"窗口开了但看不见"
 function fitSavedBounds(saved, defW, defH) {
@@ -277,7 +294,7 @@ function fitSavedBounds(saved, defW, defH) {
 let fatalShown = false;
 function reportFatal(where, err) {
   const detail = (err && (err.stack || err.message)) || String(err);
-  try { log('[FATAL] ' + where + ': ' + detail); } catch (e) { /* ignore */ }
+  try { log('[FATAL] ' + where + ': ' + detail); } catch (e) { warnOnce("main", e) }
   if (fatalShown) return;
   fatalShown = true;
   try {
@@ -287,7 +304,7 @@ function reportFatal(where, err) {
       '\n\n日志：' + LOG_FILE +
       '\n回滚：把 data\\backups\\gui-<最新> 里的文件覆盖回来即可。'
     );
-  } catch (e) { /* 弹框本身失败就只留日志 */ }
+  } catch (e) { warnOnce("main", e) }
 }
 process.on('uncaughtException', function (err) { reportFatal('主进程未捕获异常', err); });
 process.on('unhandledRejection', function (reason) { reportFatal('主进程未处理的 Promise 拒绝', reason); });
@@ -320,7 +337,7 @@ function captureToken(text) {
 let lastBoot = { stage: 'init', pct: 0, text: '准备中…', detail: '', ts: Date.now() };
 function sendBoot(patch) {
   lastBoot = Object.assign({}, lastBoot, patch, { ts: Date.now() });
-  try { broadcast('boot:progress', lastBoot); } catch (e) { /* ignore */ }
+  try { broadcast('boot:progress', lastBoot); } catch (e) { warnOnce("main", e) }
   return lastBoot;
 }
 
@@ -359,14 +376,14 @@ function resolveNodeExe() {
   if (cachedNodeExe !== null) return cachedNodeExe;
   cachedNodeExe = '';
   if (process.env.DSH_NODE) {
-    try { if (fs.statSync(process.env.DSH_NODE).isFile()) { cachedNodeExe = process.env.DSH_NODE; return cachedNodeExe; } } catch (e) { /* ignore */ }
+    try { if (fs.statSync(process.env.DSH_NODE).isFile()) { cachedNodeExe = process.env.DSH_NODE; return cachedNodeExe; } } catch (e) { warnOnce("main", e) }
   }
   const dirs = String(process.env.Path || process.env.PATH || '').split(path.delimiter).filter(Boolean);
   // 末位兜底：本机常见安装位置（PATH 里没有 node 时仍可直连）
   dirs.push('<盘根>:\\software\\node.js');
   for (const d of dirs) {
     const p = path.join(d, 'node.exe');
-    try { if (fs.statSync(p).isFile()) { cachedNodeExe = p; return cachedNodeExe; } } catch (e) { /* next */ }
+    try { if (fs.statSync(p).isFile()) { cachedNodeExe = p; return cachedNodeExe; } } catch (e) { warnOnce("main", e) }
   }
   log('[boot] 未找到系统 node，将用 Electron 的 Node 模式直跑');
   return cachedNodeExe;
@@ -511,7 +528,7 @@ function killServer() {
   if (serverProc) {
     try {
       spawnSync('taskkill', ['/pid', String(serverProc.pid), '/T', '/F'], { windowsHide: true });
-    } catch (e) { /* ignore */ }
+    } catch (e) { warnOnce("main", e) }
     serverProc = null;
   }
 }
@@ -521,7 +538,7 @@ function readSceneTabOrder() {
   try {
     const j = JSON.parse(fs.readFileSync(SCENE_ORDER_FILE, 'utf8'));
     if (j && Array.isArray(j.ids)) return j.ids.filter((x) => typeof x === 'string' && x);
-  } catch (e) { /* 没有文件 / 内容坏了，都按"没存过"处理 */ }
+  } catch (e) { warnOnce("main", e) }
   return [];
 }
 function saveSceneTabOrder(ids) {
@@ -562,7 +579,7 @@ function listScenarios() {
     try {
       const s = JSON.parse(fs.readFileSync(path.join(SCENARIOS_DIR, f), 'utf8'));
       if (s && s.id) out.push({ id: s.id, name: s.name, description: s.description || '', first: !!s.first });
-    } catch (e) { /* skip bad json */ }
+    } catch (e) { warnOnce("main", e) }
   }
   // 在这里就排好 ⇒ 任何消费方（主窗口标签栏 / 独立场景窗口 / 以后的新界面）拿到的顺序天然一致
   return applySceneTabOrder(out);
@@ -586,7 +603,7 @@ function applyOaScenario(sid) {
   if (!id) return { ok: false, err: '缺少场景 id' };
   oaActiveScenario = id;
   const m = scenarioMeta(id);
-  try { oaSsh.setMeta(m); } catch (e) { /* ignore */ }
+  try { oaSsh.setMeta(m); } catch (e) { warnOnce("main", e) }
   invalidateOaCache();          // 切场景后所有采集缓存作废（不同公司数据不能混）
   const sc = getScenario(id);
   return {
@@ -716,7 +733,7 @@ function createWindow(opts) {
   win.setMenuBarVisibility(false);
   win.once('ready-to-show', function () {
     win.show();
-    if (fit.maximized) { try { win.maximize(); } catch (e) { /* ignore */ } }
+    if (fit.maximized) { try { win.maximize(); } catch (e) { warnOnce("main", e) } }
     if (isMain) log('[boot] 窗口可见耗时 ' + (Date.now() - APP_T0) + 'ms');
     else log('[win] 场景窗口已打开: ' + scene + (fit.clamped ? '（原屏幕已不在，已夹回主屏）' : ''));
   });
@@ -747,7 +764,7 @@ function createWindow(opts) {
       releaseBlenderEmbedSync();
       quitRequested = true;
       // 主窗口关闭 = 整个应用退出（用户选定的行为）：连带关掉分离窗口
-      for (const w of detachWindows.slice()) { try { w.close(); } catch (e) { /* ignore */ } }
+      for (const w of detachWindows.slice()) { try { w.close(); } catch (e) { warnOnce("main", e) } }
     } else {
       const i = detachWindows.indexOf(win);
       if (i >= 0) detachWindows.splice(i, 1);
@@ -785,14 +802,14 @@ function openSceneWindow(sceneId) {
   try {
     const known = listScenarios().map(function (s) { return s.id; });
     if (known.indexOf(id) < 0) return { ok: false, err: 'unknown-scene', scene: id };
-  } catch (e) { /* 校验本身失败就不拦，交给渲染层 */ }
+  } catch (e) { warnOnce("main", e) }
   const exist = findSceneWindow(id);
   if (exist) {
     try {
       if (exist.isMinimized()) exist.restore();
       exist.show();
       exist.focus();
-    } catch (e) { /* ignore */ }
+    } catch (e) { warnOnce("main", e) }
     return { ok: true, focused: true, scene: id };
   }
   createWindow({ scene: id });
@@ -842,7 +859,7 @@ function isInternalUrl(u) {
 function openInSystemBrowser(u) {
   try {
     if (EXTERNAL_PROTOCOLS.test(u)) { shell.openExternal(u); return true; }
-  } catch (e) { /* ignore */ }
+  } catch (e) { warnOnce("main", e) }
   return false;
 }
 
@@ -863,7 +880,7 @@ app.on('web-contents-created', function (event, contents) {
       //   以前直接 deny ⇒ 点了没反应。改成**就地打开**（照 scripts/sidebar.js L72-75 的写法）：
       //   不开新窗口、不弹系统浏览器，就在这个面板里继续走。
       if (isEmbed) {
-        try { if (/^(https?:\/\/|file:\/\/)/.test(details.url || '')) contents.loadURL(details.url); } catch (e) { /* ignore */ }
+        try { if (/^(https?:\/\/|file:\/\/)/.test(details.url || '')) contents.loadURL(details.url); } catch (e) { warnOnce("main", e) }
         return { action: 'deny' };
       }
       if (webai) {
@@ -878,7 +895,7 @@ app.on('web-contents-created', function (event, contents) {
       openInSystemBrowser(details.url);
       return { action: 'deny' };
     });
-  } catch (e) { /* ignore */ }
+  } catch (e) { warnOnce("main", e) }
   if (webai) return;   // 内置网页版 AI：导航完全照浏览器来，不接管
   contents.on('will-navigate', function (e, url) {
     if (isInternalUrl(url)) return;
@@ -892,7 +909,7 @@ app.on('web-contents-created', function (event, contents) {
       if (isEmbed) return;                            // 2026-10-19 embed: iframe 导航也放行（B站的内部 iframe 全靠它）
       if (openInSystemBrowser(url)) e.preventDefault();
     });
-  } catch (e) { /* 旧版 Electron 无此事件，忽略 */ }
+  } catch (e) { warnOnce("main", e) }
 });
 
 // ---- IPC：渲染层请求 token / 场景配置 ----
@@ -981,28 +998,28 @@ const HARNESS_WIDE_PIN_JS = `(() => {
         try {
           el.style.setProperty('--dsh-chat-content-width', COL, 'important');
           el.style.setProperty('--dsh-composer-card-max-width', CARD, 'important');
-        } catch (e) {}
+        } catch (e) { warnOnce("main", e) }
         el = el.parentElement;
       }
     };
     var cols = document.querySelectorAll('[data-chat-flow]');
-    for (var i = 0; i < cols.length; i++) { try { cols[i].style.setProperty('max-width', COL, 'important'); } catch (e) {} pin(cols[i]); }
+    for (var i = 0; i < cols.length; i++) { try { cols[i].style.setProperty('max-width', COL, 'important'); } catch (e) { warnOnce("main", e) } pin(cols[i]); }
     var cards = document.querySelectorAll('[data-composer-card]');
-    for (var j = 0; j < cards.length; j++) { try { cards[j].style.setProperty('max-width', CARD, 'important'); } catch (e) {} pin(cards[j]); }
+    for (var j = 0; j < cards.length; j++) { try { cards[j].style.setProperty('max-width', CARD, 'important'); } catch (e) { warnOnce("main", e) } pin(cards[j]); }
     var c0 = cols[0], w = 0, pw = 0;
     if (c0) {
       try {
         w = c0.getBoundingClientRect().width;
         // ⚠ 分母用父层**内容盒**（clientWidth 去左右内边距），不能用 border box —— max-width 的 % 就是这么算的
         var p = c0.parentElement || c0, cs = null;
-        try { cs = getComputedStyle(p); } catch (e2) {}
+        try { cs = getComputedStyle(p); } catch (e2) { warnOnce("main", e2) }
         pw = p.clientWidth - ((cs && parseFloat(cs.paddingLeft)) || 0) - ((cs && parseFloat(cs.paddingRight)) || 0);
-      } catch (e) {}
+      } catch (e) { warnOnce("main", e) }
     }
     return { cols: cols.length, cards: cards.length, w: Math.round(w), pw: Math.round(pw) };
   };
   var r = pinOnce();
-  try { if (!window.__kunWideTimer) window.__kunWideTimer = setInterval(pinOnce, 2000); } catch (e) {}
+  try { if (!window.__kunWideTimer) window.__kunWideTimer = setInterval(pinOnce, 2000); } catch (e) { warnOnce("main", e) }
   return r.cols + '列 ' + r.w + '/' + r.pw + 'px';
 })()`;
 const HARNESS_CHAT_CSS = [
@@ -1029,7 +1046,7 @@ const HARNESS_FIX_JS = `(() => {
     if (!f) return false;
     // 会话列铺满（见上方 HARNESS_WIDE_CSS / HARNESS_WIDE_PIN_JS 的实测说明）：每次 fix 重算一次，
     // React 重渲染把 max-width 顶回去也能在一秒内纠回来。
-    try { window.__wideTxt = ${HARNESS_WIDE_PIN_JS}; } catch (e) { /* ignore */ }
+    try { window.__wideTxt = ${HARNESS_WIDE_PIN_JS}; } catch (e) { warnOnce("main", e) }
     // 单轨道：配合下方结构隐藏，仅剩的中心列占满整个框架
     f.style.setProperty('grid-template-columns', 'minmax(0, 1fr)', 'important');
     // 结构法：定位中心列（含聊天流/会话），隐藏框架其余非定位子元素（侧栏列/详情列）
@@ -1047,7 +1064,7 @@ const HARNESS_FIX_JS = `(() => {
         const c = kids[i];
         if (c === center) continue;
         let pos = 'static';
-        try { pos = getComputedStyle(c).position; } catch (e) { /* ignore */ }
+        try { pos = getComputedStyle(c).position; } catch (e) { warnOnce("main", e) }
         if (pos === 'absolute') continue;
         c.style.setProperty('display', 'none', 'important');
       }
@@ -1084,7 +1101,7 @@ const HARNESS_FIX_JS = `(() => {
   // 幂等守卫：主进程也会 dom-ready/did-finish-load 各投一次，不守卫就会攒出多个 MutationObserver + 定时器。
   if (!window.__kunFixOn) {
     window.__kunFixOn = 1;
-    try { new MutationObserver(fix).observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['style'] }); } catch (e) {}
+    try { new MutationObserver(fix).observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['style'] }); } catch (e) { warnOnce("main", e) }
     setInterval(fix, 1000);
   }
   const all = document.querySelectorAll('[style*="grid-template-columns"]');
@@ -1100,7 +1117,7 @@ const HARNESS_FIX_JS = `(() => {
     for (let i = 0; i < kk.length && i < 8; i++) {
       const c = kk[i];
       let pos = 'static', cr = { x: -1, w: -1 };
-      try { pos = getComputedStyle(c).position; cr = { x: Math.round(c.getBoundingClientRect().x), w: Math.round(c.getBoundingClientRect().width) }; } catch (e) { /* ignore */ }
+      try { pos = getComputedStyle(c).position; cr = { x: Math.round(c.getBoundingClientRect().x), w: Math.round(c.getBoundingClientRect().width) }; } catch (e) { warnOnce("main", e) }
       kidsInfo.push({ i: i, cls: (c.className && c.className.toString().slice(0, 30) || c.tagName), pos: pos, x: cr.x, w: cr.w, vis: c.offsetParent !== null });
     }
   }
@@ -1161,10 +1178,10 @@ ipcMain.handle('harness:wv:inject', (e, webContentsId, pinTarget) => {
           fs.mkdirSync(dir, { recursive: true });
           fs.writeFileSync(path.join(dir, 'panel-latest.png'), img.toPNG());
           log('[wv:inject] 截图已保存 panel-latest.png');
-        } catch (ex) { /* ignore */ }
+        } catch (ex) { warnOnce("main", ex) }
       }
     }, function () { /* ignore */ });
-  } catch (ex) { /* ignore */ }
+  } catch (ex) { warnOnce("main", ex) }
   try {
     const p = wc.insertCSS(HARNESS_CHAT_CSS);
     if (p && typeof p.catch === 'function') p.catch(function (err) { log('[wv:inject] insertCSS 拒绝: ' + (err && err.message || err)); });
@@ -1185,7 +1202,7 @@ ipcMain.handle('harness:wv:inject', (e, webContentsId, pinTarget) => {
             function (d) { if (d) log('[wv:inject] diag: ' + String(d).slice(0, 900)); },
             function () { /* ignore */ }
           );
-        } catch (ex) { /* ignore */ }
+        } catch (ex) { warnOnce("main", ex) }
       },
       function (err) { log('[wv:inject] js 失败: ' + (err && err.message || err)); }
     );
@@ -1257,6 +1274,140 @@ ipcMain.handle('scene:add-project', async (e, scene, panelId) => {
   try { r = projectSwitchSvc.switchTo(sid, pid, root); }
   catch (ex) { return { ok: false, err: '接入成功但切换失败：' + String((ex && ex.message) || ex), log: on.log }; }
   return Object.assign({ onboarded: true, log: on.log }, r);
+});
+// ---- 场景内多会话（2026-11-13）：列会话 / 建临时会话 ----
+// 口径：一个场景 = 一条主会话（面板 json 里那条，唯一写场景记忆）+ N 条临时会话（同 cwd、同一套场景身份，用完归档）。
+// 这里只做「读列表」「建一条」；切到哪条由渲染层在自己分区里记（写会话键 + 重载 webview），不改场景配置。
+const SESSION_CACHE_DIR = path.join(DSH_HOME, 'storages', 'session_projcache', 'sessions');
+function sessJson(p) { try { return JSON.parse(fs.readFileSync(p, 'utf8')); } catch (e) { return null; } }
+function sessNorm(p) { return String(p || '').replace(/[\\/]+/g, '/').replace(/\/+$/, '').toLowerCase(); }
+// 1. 会话索引快照：逐会话缓存是真源，总表补齐（与 工具\派发-公共.mjs 同一口径，别另立一套）
+function sessAll() {
+  const out = new Map();
+  if (fs.existsSync(SESSION_CACHE_DIR)) {
+    for (const f of fs.readdirSync(SESSION_CACHE_DIR)) {
+      if (!f.endsWith('.json')) continue;
+      const rec = (sessJson(path.join(SESSION_CACHE_DIR, f)) || {}).record;
+      const rows = (rec && rec.rows) || null;
+      if (!rows) continue;
+      const id = f.replace(/\.json$/, '');
+      out.set(id, {
+        id,
+        title: String((rows.title && rows.title.val) || '').trim(),
+        cwd: String((rec.identity && rec.identity.cwd) || ''),
+        at: Number((rec.identity && rec.identity.createdAt) || 0)
+      });
+    }
+  }
+  const total = ((sessJson(path.join(DSH_HOME, 'storages', 'session_projcache.json')) || {}).tables || {}).sessions || {};
+  for (const id of Object.keys(total)) {
+    if (out.has(id)) continue;
+    const v = total[id] || {};
+    const rows = v.rows || {};
+    out.set(id, {
+      id,
+      title: String((rows.title && rows.title.val) || '').trim(),
+      cwd: String((v.identity && v.identity.cwd) || ''),
+      at: Number((v.identity && v.identity.createdAt) || 0)
+    });
+  }
+  return out;
+}
+function sessArchived() {
+  const ws = sessJson(path.join(DSH_HOME, 'storages', 'workspace.json')) || {};
+  return new Set((((ws.global || {}).archivedSessionIds) || []).map(String));
+}
+// 2. 面板 → 主会话 + 它所在目录（临时会话必须同 cwd，才带同一套场景身份）
+function sessPanelOf(scene, panelId) {
+  const sc = getScenario(String(scene || ''));
+  const panel = (((sc && sc.panels) || []).filter((p) => p && String(p.id) === String(panelId || ''))[0]) || null;
+  return { sc, panel };
+}
+function sessCwdOf(panel, all) {
+  const bound = all.get(String((panel && panel.sessionId) || '')) || null;
+  if (bound && bound.cwd) return bound.cwd;
+  if (panel && panel.cwd) return String(panel.cwd);
+  return path.join(path.dirname(__dirname), '工作区');
+}
+ipcMain.handle('scene:sessions', (e, scene, panelId) => {
+  const { sc, panel } = sessPanelOf(scene, panelId);
+  if (!panel) return { ok: false, err: '场景里没有面板「' + String(panelId || '') + '」（场景：' + String(scene || '') + '）' };
+  const all = sessAll();
+  const cwd = sessCwdOf(panel, all);
+  const archived = sessArchived();
+  const sceneName = String((sc && (sc.name || sc.id)) || scene || '');
+  // 归属判定：主会话永远在表里；其余必须「同 cwd + 标题属于本场景」。
+  // 为什么不能只按 cwd：6 个单场景面板的 cwd 都是同一个「工作区」，只按 cwd 会把人格会话、
+  // 别的场景的会话一起端上来 ⇒ 场景身份当场失效。标题归属 = `<场景名>` 或 `<场景名>-…`
+  // （新建临时会话就按 `<场景名>-临时-<用途>-<MMDDHHmm>` 命名，见 scene:new-session）。
+  const owned = (t) => {
+    const s = String(t || '').replace(/^已归档\s*·\s*/, '');
+    if (!sceneName) return false;
+    return s === sceneName || s.indexOf(sceneName + '-') === 0;
+  };
+  const rows = [];
+  for (const s of all.values()) {
+    const t = String(s.title || '');
+    const isPrimary = String(s.id) === String(panel.sessionId || '');
+    if (!isPrimary) {
+      if (sessNorm(s.cwd) !== sessNorm(cwd)) continue;   // 别的项目目录：不归这个面板
+      if (!owned(t)) continue;                           // 别的场景的会话：绝不列出来
+    }
+    rows.push({
+      id: s.id,
+      title: t || '(未命名)',
+      primary: isPrimary,
+      archived: archived.has(String(s.id)),
+      temp: t.indexOf('-临时-') >= 0,
+      at: s.at
+    });
+  }
+  // 主会话永远在表里（索引还没落到缓存时也要能显示「主」）
+  if (panel.sessionId && !rows.some((r) => r.primary)) {
+    rows.push({ id: String(panel.sessionId), title: String(panel.sessionTitle || '(主会话)'), primary: true, archived: false, temp: false, at: 0 });
+  }
+  // 排序：主会话置顶，其余按创建时间新→旧
+  rows.sort((a, b) => (Number(b.primary) - Number(a.primary)) || (b.at - a.at));
+  return { ok: true, cwd, scene: sceneName, sessions: rows, bound: { id: String(panel.sessionId || ''), title: String(panel.sessionTitle || '') } };
+});
+// 3. 建一条临时会话：走 建会话.mjs（与 换会话 同一套 token→cookie→RPC），不自造通道；
+//    --no-seed 跳过「塞开场消息再取消」那 10 秒 —— 建完立刻由面板打开，侧边栏自然会显示。
+function sessStamp() { const d = new Date(); const p = (n) => String(n).padStart(2, '0'); return p(d.getMonth() + 1) + p(d.getDate()) + p(d.getHours()) + p(d.getMinutes()); }
+function sessionCreate(title, cwd) {
+  return new Promise((resolve) => {
+    const script = path.join(__dirname, 'scripts', '建会话.mjs');
+    if (!fs.existsSync(script)) { resolve({ ok: false, err: '找不到建会话脚本：' + script }); return; }
+    try { fs.mkdirSync(cwd, { recursive: true }); } catch (e) { warnOnce("main", e) }
+    const nodeExe = resolveNodeExe();
+    const env = Object.assign({ DSH_GUI_BASE: BASE, DSH_HOME: DSH_HOME, DSH_LOG: LOG_FILE }, process.env);
+    let cmd = nodeExe, args = [script, '--title', title, '--cwd', cwd, '--no-seed'];
+    if (!nodeExe) { env.ELECTRON_RUN_AS_NODE = '1'; cmd = process.execPath; }
+    execFile(cmd, args, { cwd: __dirname, env, timeout: 120000, windowsHide: true, maxBuffer: 4 * 1024 * 1024 },
+      (err, stdout, stderr) => {
+        const out = String(stdout || '') + (stderr ? '\n' + String(stderr) : '');
+        if (err) { resolve({ ok: false, err: '建会话失败：' + ((err && err.message) || err), log: out.slice(-2000) }); return; }
+        const m = out.match(/sessionId\s*=\s*(session-[0-9a-fA-F-]+)/);
+        if (!m) { resolve({ ok: false, err: '建会话成功但没解析到 sessionId', log: out.slice(-2000) }); return; }
+        resolve({ ok: true, id: m[1], log: out.slice(-2000) });
+      });
+  });
+}
+ipcMain.handle('scene:new-session', async (e, scene, panelId, purpose) => {
+  const { sc, panel } = sessPanelOf(scene, panelId);
+  if (!panel) return { ok: false, err: '场景里没有面板「' + String(panelId || '') + '」' };
+  const all = sessAll();
+  const cwd = sessCwdOf(panel, all);
+  const sceneName = String((sc && (sc.name || sc.id)) || scene || '场景');
+  // 标题即归属：`<场景>-临时-<用途>-<MMDDHHmm>`（桌宠/派发按标题认人，命名要可读可辨）
+  const clean = String(purpose || '').replace(/[\r\n\t]+/g, ' ').replace(/[\\/:*?"<>|]/g, ' ').trim().slice(0, 24) || '临时';
+  const base = sceneName + '-临时-' + clean + '-' + sessStamp();
+  // 同一分钟同用途再点一次 ⇒ 加序号，别造出两条同名会话（同名会让派发/桌宠认错人）
+  let title = base, n = 1;
+  while ([...all.values()].some((s) => String(s.title) === title)) { n += 1; title = base + '-' + n; }
+  const r = await sessionCreate(title, cwd);
+  if (!r.ok) return r;
+  log('[scene:sessions] 新建临时会话「' + title + '」 ' + r.id + ' cwd=' + cwd);
+  return { ok: true, id: r.id, title, cwd, log: r.log };
 });
 // 场景标签顺序（拖拽换位）：渲染层拖完报上来，下次开机 / 其它窗口都读它
 ipcMain.handle('scenes:order:get', () => ({ saved: fs.existsSync(SCENE_ORDER_FILE), ids: readSceneTabOrder() }));
@@ -1412,7 +1563,7 @@ ipcMain.handle('kun:net:probe', (e, host, port, timeoutMs) => {
     const fin = (open) => {
       if (done) return;
       done = true;
-      try { if (sock) sock.destroy(); } catch (x) { /* ignore */ }
+      try { if (sock) sock.destroy(); } catch (x) { warnOnce("main", x) }
       resolve({ ok: true, host: h, port: p, open: !!open, ms: Date.now() - t0 });
     };
     const timer = setTimeout(() => fin(false), wait);
@@ -1431,7 +1582,7 @@ ipcMain.handle('kun:net:probe', (e, host, port, timeoutMs) => {
 //   只剩这两条：系统浏览器打开外链、主进程代发 HTTP 探测（绕开渲染器跨域限制）。
 ipcMain.handle('site:open', (e, url) => {
   const u = String(url || '');
-  if (/^(https?:|mailto:)/i.test(u)) { try { shell.openExternal(u); } catch (ex) { /* ignore */ } }
+  if (/^(https?:|mailto:)/i.test(u)) { try { shell.openExternal(u); } catch (ex) { warnOnce("main", ex) } }
   return true;
 });
 // 网站可用性探测（我的网址状态；主进程发请求，绕开渲染器跨域限制）
@@ -1443,7 +1594,7 @@ ipcMain.handle('site:probe', (e, url) => {
     try {
       mod = u.toLowerCase().indexOf('https:') === 0 ? require('https') : require('http');
       const done = (ok, status) => { clearTimeout(timer); resolve({ ok: ok, status: status || 0 }); };
-      const timer = setTimeout(() => { try { req && req.destroy(); } catch (x) { /* ignore */ } done(false, 0); }, 6000);
+      const timer = setTimeout(() => { try { req && req.destroy(); } catch (x) { warnOnce("main", x) } done(false, 0); }, 6000);
       req = mod.get(u, { headers: { 'User-Agent': 'kun-probe/1.0' } }, (res) => {
         // 2xx / 3xx 视为在线
         const code = res.statusCode || 0;
@@ -1524,7 +1675,7 @@ ipcMain.handle('review:files', (e, rel) => {
       try {
         const st = fs.statSync(path.join(t.full, en.name));
         isDir = st.isDirectory(); size = isDir ? 0 : st.size; mtime = Math.floor(st.mtimeMs / 1000);
-      } catch (ex2) { /* ignore */ }
+      } catch (ex2) { warnOnce("main", ex2) }
       return { name: en.name, isDir: isDir, size: size, mtime: mtime, text: isDir || REVIEW_TEXT_EXT.test(en.name) };
     })
     .sort((a, b) => (b.isDir - a.isDir) || a.name.localeCompare(b.name, 'zh'));
@@ -1576,9 +1727,9 @@ function officeSweep() {
       try {
         const p = path.join(OFFICE_PDF_DIR, f);
         if (fs.statSync(p).mtimeMs < cut) fs.unlinkSync(p);
-      } catch (e) { /* ignore */ }
+      } catch (e) { warnOnce("main", e) }
     });
-  } catch (e) { /* 目录还不存在，正常 */ }
+  } catch (e) { warnOnce("main", e) }
 }
 
 function officeToPdf(src) {
@@ -1594,7 +1745,7 @@ function officeToPdf(src) {
     .update(src.toLowerCase() + '|' + st.size + '|' + st.mtimeMs).digest('hex');
   const out = path.join(OFFICE_PDF_DIR, key + '.pdf');
   try { if (fs.statSync(out).size > 0) return Promise.resolve({ ok: true, pdf: out, cached: true }); }
-  catch (e) { /* 没缓存，往下走 */ }
+  catch (e) { warnOnce("main", e) }
   if (officeJobs[key]) return officeJobs[key];
 
   officeSweep();
@@ -1615,7 +1766,7 @@ function officeToPdf(src) {
     if (ch.stdout) ch.stdout.on('data', function (d) { so += d.toString(); });
     if (ch.stderr) ch.stderr.on('data', function (d) { se += d.toString(); });
     // 90 秒兜底：Office 偶尔会卡在激活/字体对话框上，别让面板一直转圈
-    const timer = setTimeout(function () { try { ch.kill(); } catch (e) { /* ignore */ } }, 90000);
+    const timer = setTimeout(function () { try { ch.kill(); } catch (e) { warnOnce("main", e) } }, 90000);
     ch.on('error', function (e) { clearTimeout(timer); finish({ ok: false, err: 'PowerShell 起不来：' + e.message }); });
     ch.on('close', function () {
       clearTimeout(timer);
@@ -1667,7 +1818,7 @@ function blenderPidList() {
       const m = line.match(/"blender\.exe","(\d+)"/i);
       if (m) pids.push(parseInt(m[1], 10));
     });
-  } catch (e) { /* ignore */ }
+  } catch (e) { warnOnce("main", e) }
   return pids;
 }
 // 抓帧进程：持续把 Blender 窗口画面写成 JPEG（被 GUI 遮挡也能抓到）
@@ -1685,7 +1836,7 @@ function startBlenderCapture() {
         log('[blender] 已收掉遗留抓帧进程 pid=' + oldPid);
       }
     }
-  } catch (e) { /* ignore */ }
+  } catch (e) { warnOnce("main", e) }
   try {
     blenderCapProc = spawn('powershell.exe',
       ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', BLENDER_CAPTURE_PS],
@@ -1700,7 +1851,7 @@ function startBlenderCapture() {
 }
 function stopBlenderCapture() {
   if (!blenderCapProc) return;
-  try { spawnSync('taskkill', ['/pid', String(blenderCapProc.pid), '/T', '/F'], { windowsHide: true }); } catch (e) { /* ignore */ }
+  try { spawnSync('taskkill', ['/pid', String(blenderCapProc.pid), '/T', '/F'], { windowsHide: true }); } catch (e) { warnOnce("main", e) }
   blenderCapProc = null;
 }
 function readBlenderMeta() {
@@ -1720,7 +1871,7 @@ function checkMcpPort(cb) {
     if (done) return;
     done = true;
     mcpCache = { at: Date.now(), v: v };
-    try { sock.destroy(); } catch (e) { /* ignore */ }
+    try { sock.destroy(); } catch (e) { warnOnce("main", e) }
     cb(v);
   };
   const sock = net.connect({ host: '127.0.0.1', port: BLENDER_MCP_PORT });
@@ -1775,14 +1926,14 @@ ipcMain.handle('blender:launch', () => {
 ipcMain.handle('blender:close', async (e, opts) => {
   const force = !!(opts && opts.force);
   blenderEmbedCssRect = null;
-  try { await blenderEmbedCommand({ cmd: 'release' }, 4000); } catch (ex) { /* ignore */ }
+  try { await blenderEmbedCommand({ cmd: 'release' }, 4000); } catch (ex) { warnOnce("main", ex) }
 
   const pids = blenderPidList();
   if (!pids.length) { stopBlenderCapture(); blenderRunCache = { at: Date.now(), v: false }; return { ok: true, already: true }; }
 
   for (const pid of pids) {
     const a = force ? ['/F', '/PID', String(pid)] : ['/PID', String(pid)];
-    try { spawnSync('taskkill', a, { windowsHide: true, encoding: 'utf8' }); } catch (ex) { /* ignore */ }
+    try { spawnSync('taskkill', a, { windowsHide: true, encoding: 'utf8' }); } catch (ex) { warnOnce("main", ex) }
   }
   log('[blender] 已发送' + (force ? '强制' : '') + '关闭请求 pid=' + pids.join(','));
 
@@ -1818,7 +1969,7 @@ function startBlenderEmbedAgent() {
   if (blenderEmbedProc && blenderEmbedProc.exitCode === null) return true;
   if (!fs.existsSync(BLENDER_EMBED_AGENT)) { log('[blender] 内置代理缺失: ' + BLENDER_EMBED_AGENT); return false; }
   try {
-    try { fs.unlinkSync(BLENDER_EMBED_RES); } catch (e) { /* ignore */ }
+    try { fs.unlinkSync(BLENDER_EMBED_RES); } catch (e) { warnOnce("main", e) }
     blenderEmbedProc = spawn('powershell.exe',
       ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', BLENDER_EMBED_AGENT,
         '-Cmd', BLENDER_EMBED_CMD, '-Res', BLENDER_EMBED_RES, '-ParentPid', String(process.pid)],
@@ -1952,7 +2103,7 @@ function releaseBlenderEmbedSync() {
   try {
     blenderEmbedSeq += 1;
     fs.writeFileSync(BLENDER_EMBED_CMD, JSON.stringify({ cmd: 'quit', seq: blenderEmbedSeq }));
-  } catch (e) { /* ignore */ }
+  } catch (e) { warnOnce("main", e) }
 }
 
 // 工作区文件浏览（只允许 BLENDER_DIR 内）
@@ -1975,10 +2126,10 @@ function startAppwAgent(procName) {
   const name = String(procName || '').trim();
   if (!name) return false;
   if (appwProc && appwProc.exitCode === null && appwProcName === name) return true;
-  if (appwProc && appwProc.exitCode === null) { try { appwProc.kill(); } catch (e) { /* ignore */ } appwProc = null; }
+  if (appwProc && appwProc.exitCode === null) { try { appwProc.kill(); } catch (e) { warnOnce("main", e) } appwProc = null; }
   if (!fs.existsSync(APPW_AGENT)) { log('[appwin] 内置代理缺失: ' + APPW_AGENT); return false; }
   try {
-    try { fs.unlinkSync(APPW_RES); } catch (e) { /* ignore */ }
+    try { fs.unlinkSync(APPW_RES); } catch (e) { warnOnce("main", e) }
     appwProcName = name;
     appwProc = spawn('powershell.exe',
       ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', APPW_AGENT,
@@ -2065,7 +2216,7 @@ ipcMain.handle('appwin:release', async () => {
 
 ipcMain.handle('blender:files', (e, relPath) => {
   const root = path.resolve(BLENDER_DIR);
-  try { if (!fs.existsSync(root)) fs.mkdirSync(root, { recursive: true }); } catch (ex) { /* ignore */ }
+  try { if (!fs.existsSync(root)) fs.mkdirSync(root, { recursive: true }); } catch (ex) { warnOnce("main", ex) }
   const rel = String(relPath || '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
   const full = rel ? path.resolve(root, rel) : root;
   if (full !== root && !full.startsWith(root + path.sep)) return { ok: false, err: '越界路径：仅可浏览 Blender 工作区' };
@@ -2077,7 +2228,7 @@ ipcMain.handle('blender:files', (e, relPath) => {
     try {
       const st = fs.statSync(path.join(full, en.name));
       isDir = st.isDirectory(); size = isDir ? 0 : st.size; mtime = Math.floor(st.mtimeMs / 1000);
-    } catch (ex2) { /* ignore */ }
+    } catch (ex2) { warnOnce("main", ex2) }
     return { name: en.name, isDir: isDir, size: size, mtime: mtime };
   }).filter(r => r.name !== '.gitkeep')
     .sort((a, b) => (b.isDir - a.isDir) || a.name.localeCompare(b.name, 'zh'));
@@ -2205,7 +2356,7 @@ ipcMain.handle('oa:files', async (e, remotePath, force) => {
     try {
       const r = await cachedOa('files:' + base, OA_TTL.files, () => oaSsh.listDir(base), !!force);
       if (r && r.ok) return { ok: true, base: base, rows: r.entries || [], real: true };
-    } catch (ex) { /* 失败回退 */ }
+    } catch (ex) { warnOnce("main", ex) }
     return { ok: false, err: '列表获取失败', base: base, rows: oaStore.getFiles(base).rows, real: false };
   }
   const f = oaStore.getFiles(base);
@@ -2225,7 +2376,7 @@ function gitIgnoredNames(base, names) {
     const done = () => {
       if (settled) return;
       settled = true;
-      try { clearTimeout(timer); } catch (e) { /* ignore */ }
+      try { clearTimeout(timer); } catch (e) { warnOnce("main", e) }
       const set = new Set();
       // -z 输出是 NUL 分隔的裸路径（不带引号转义），目录会带尾斜杠 ⇒ 去掉斜杠还原成条目名
       String(out).split('\u0000').forEach((s) => {
@@ -2237,7 +2388,7 @@ function gitIgnoredNames(base, names) {
     try {
       cp = spawn('git', ['-C', base, 'check-ignore', '--stdin', '-z'], { windowsHide: true });
     } catch (e) { return resolve(empty()); }
-    timer = setTimeout(() => { try { cp.kill(); } catch (e) { /* ignore */ } done(); }, 6000);
+    timer = setTimeout(() => { try { cp.kill(); } catch (e) { warnOnce("main", e) } done(); }, 6000);
     cp.on('error', () => { out = ''; done(); });          // 没装 git ⇒ 全放行
     cp.stdout.on('data', (d) => { out += String(d); });
     cp.on('close', () => done());
@@ -2264,7 +2415,7 @@ ipcMain.handle('oa:files:local', async (e, localPath, opts) => {
       try {
         const st = await fs.promises.stat(path.join(base, en.name));
         isDir = st.isDirectory(); size = isDir ? 0 : st.size; mtime = Math.floor(st.mtimeMs / 1000);
-      } catch (err) { /* 忽略单个文件失败 */ }
+      } catch (err) { warnOnce("main", err) }
       return { name: en.name, isDir: isDir, size: size, mtime: mtime };
     }));
     rows.sort((a, b) => (b.isDir - a.isDir) || a.name.localeCompare(b.name, 'zh'));
@@ -2313,7 +2464,7 @@ ipcMain.on('oa:dragstart', (event, filePath) => {
     if (icon && !icon.isEmpty()) payload.icon = icon;
     event.sender.startDrag(payload);
   } catch (ex) {
-    try { console.error('[oa:dragstart] 已忽略错误：', ex && ex.message); } catch (e2) {}
+    try { console.error('[oa:dragstart] 已忽略错误：', ex && ex.message); } catch (e2) { warnOnce("main", e2) }
   }
 });
 // ★ 读图（返回 dataURL，供面板大图显示）：支持本地绝对路径
@@ -2459,7 +2610,7 @@ function httpProbe(url, timeoutMs) {
       }, (res) => {
         const code = res.statusCode;
         const ms = Date.now() - started;
-        try { res.destroy(); } catch (e) { /* ignore */ }   // 不读正文
+        try { res.destroy(); } catch (e) { warnOnce("main", e) }   // 不读正文
         finish({ ok: code >= 200 && code < 500, code: code, ms: ms });
       });
     } catch (ex) {
@@ -2659,7 +2810,7 @@ function findBrowser() {
     process.env['ProgramFiles(x86)'] && path.join(process.env['ProgramFiles(x86)'], 'Google\\Chrome\\Application\\chrome.exe'),
     process.env.LOCALAPPDATA && path.join(process.env.LOCALAPPDATA, 'Google\\Chrome\\Application\\chrome.exe')
   ].filter(Boolean);
-  for (const c of cands) { try { if (fs.existsSync(c)) return c; } catch (e) { /* ignore */ } }
+  for (const c of cands) { try { if (fs.existsSync(c)) return c; } catch (e) { warnOnce("main", e) } }
   return '';
 }
 ipcMain.handle('oa:appWindow', (e, which) => {
@@ -2670,7 +2821,7 @@ ipcMain.handle('oa:appWindow', (e, which) => {
     if (!exe) return { ok: false, err: '没找到 Edge / Chrome，请先装一个浏览器' };
     startPreviewServer();   // 包装页服务：窗口内容走本地页（含 📌 置顶按钮）
     const prof = path.join(PREVIEW_ROOT, 'data', String(which));
-    try { if (!fs.existsSync(prof)) fs.mkdirSync(prof, { recursive: true }); } catch (ex) { /* 目录建不了也让浏览器自己试 */ }
+    try { if (!fs.existsSync(prof)) fs.mkdirSync(prof, { recursive: true }); } catch (ex) { warnOnce("main", ex) }
     const args = [
       '--app=http://127.0.0.1:' + PREVIEW_PORT + '/' + String(which),
       '--window-size=400,830',
@@ -2753,7 +2904,7 @@ function getAiPermissions() {
   try {
     const raw = oaStore.getConfig('ai.permission');
     if (raw) Object.assign(p, JSON.parse(raw));
-  } catch (e) { /* 忽略坏配置 */ }
+  } catch (e) { warnOnce("main", e) }
   return p;
 }
 function saveAiPermissions(p) {
@@ -2832,7 +2983,7 @@ const agentReadLines = (f) => {
   } catch (e) { return []; }
 };
 const agentWriteLines = (f, arr) => {
-  try { fs.writeFileSync(f, arr.map(x => JSON.stringify(x)).join('\n') + (arr.length ? '\n' : ''), 'utf8'); } catch (e) { }
+  try { fs.writeFileSync(f, arr.map(x => JSON.stringify(x)).join('\n') + (arr.length ? '\n' : ''), 'utf8'); } catch (e) { warnOnce("main", e) }
 };
 ipcMain.handle('oa:agent:dequeue', () => {
   const lines = agentReadLines(AGENT_INBOX);
@@ -2938,7 +3089,7 @@ function buildOaSystem(c) {
         L.push('');
       }
     }
-  } catch (e) { }
+  } catch (e) { warnOnce("main", e) }
   if (c.connected) {
     L.push('【连接状态】已接入真实服务器 ' + (c.host || '') + (c.user ? '（' + c.user + '@' + (c.host || '') + '）' : ''));
   } else {
@@ -3082,7 +3233,7 @@ ipcMain.handle('stock:sector:daily:set', (e, market, date, snapshots) => {
   // snapshots = { sectorId: { avg, up, down, quotes } }
   if (!snapshots || typeof snapshots !== 'object') return { ok: false };
   Object.keys(snapshots).forEach(sid => {
-    try { stockStore.cacheSectorDaily(market, date, sid, snapshots[sid]); } catch (ex) { /* 单条失败不影响整体 */ }
+    try { stockStore.cacheSectorDaily(market, date, sid, snapshots[sid]); } catch (ex) { warnOnce("main", ex) }
   });
   return { ok: true, n: Object.keys(snapshots).length };
 });
@@ -3289,7 +3440,7 @@ print(json.dumps(out, ensure_ascii=False))
       const data = JSON.parse(out.trim().split('\n').pop());
       // 3) 成功后写入持久缓存（kline 非空才写）
       if (data && data.ok && data.kline && data.kline.length) {
-        try { stockStore.cacheKline(sym, per, data); } catch (ex) { /* 缓存失败不影响返回 */ }
+        try { stockStore.cacheKline(sym, per, data); } catch (ex) { warnOnce("main", ex) }
       }
       resolve(data);
     }
@@ -3364,7 +3515,7 @@ print(json.dumps(raw, ensure_ascii=False))
         const code = need[i];
         if (raw[tk] && raw[tk].length) {
           out[code] = raw[tk];
-          try { stockStore.cacheKline(code, 'day', { ok: true, code: tk, kline: raw[tk], minute: [], date: '' }); } catch (ex) { /* ignore */ }
+          try { stockStore.cacheKline(code, 'day', { ok: true, code: tk, kline: raw[tk], minute: [], date: '' }); } catch (ex) { warnOnce("main", ex) }
         }
       });
       resolve({ ok: true, data: out });
@@ -3493,7 +3644,7 @@ print(json.dumps({'ok': True, 'type': '${o.type}', 'list': rows, 'ts': __import_
     try {
       const data = JSON.parse(out.trim().split('\n').pop());
       if (data.ok && data.list && data.list.length) {
-        try { stockStore.cacheRank(cacheKey, { list: data.list, ts: data.ts }); } catch (ex) { /* ignore */ }
+        try { stockStore.cacheRank(cacheKey, { list: data.list, ts: data.ts }); } catch (ex) { warnOnce("main", ex) }
       } else {
         // 拉取失败但缓存有 → 用缓存
         const cached = stockStore.latestRank(cacheKey);
@@ -3551,17 +3702,17 @@ ipcMain.handle('plugins:list', () => {
             name = pkg.name || d;
             version = pkg.version || null;
             description = pkg.description || '';
-          } catch (e) { /* 忽略坏 JSON */ }
+          } catch (e) { warnOnce("main", e) }
         }
         const plugin = { name, displayName: d, version, description, path: dir };
         // 插件自身的 缓存/ 与 配置/ 目录（展示本地化数据位置）
         for (const sub of ['缓存', 'data', 'cache']) {
           const sp = path.join(dir, sub);
-          try { if (fs.statSync(sp).isDirectory()) { plugin.cacheDir = sp; break; } } catch (e) { /* ignore */ }
+          try { if (fs.statSync(sp).isDirectory()) { plugin.cacheDir = sp; break; } } catch (e) { warnOnce("main", e) }
         }
         for (const sub of ['配置', 'config']) {
           const sp = path.join(dir, sub);
-          try { if (fs.statSync(sp).isDirectory()) { plugin.configDir = sp; break; } } catch (e) { /* ignore */ }
+          try { if (fs.statSync(sp).isDirectory()) { plugin.configDir = sp; break; } } catch (e) { warnOnce("main", e) }
         }
         out.plugins.push(plugin);
       }
@@ -3571,10 +3722,10 @@ ipcMain.handle('plugins:list', () => {
     for (const base of [path.join(HARNESS_DIR, 'packages', 'client'), path.join(HARNESS_DIR, 'packages', 'host')]) {
       try {
         n += fs.readdirSync(base).filter(x => { try { return fs.statSync(path.join(base, x)).isDirectory(); } catch (e) { return false; } }).length;
-      } catch (e) { /* ignore */ }
+      } catch (e) { warnOnce("main", e) }
     }
     out.builtinCount = n;
-  } catch (e) { /* ignore */ }
+  } catch (e) { warnOnce("main", e) }
   return out;
 });
 
@@ -3682,7 +3833,7 @@ ipcMain.handle('skills:list', () => {
 // 打开技能目录 / 打开单个技能正文（系统默认程序）
 ipcMain.handle('skills:open', (e, target) => {
   const p = target ? String(target) : SKILLS_DIR;
-  try { if (fs.existsSync(p)) { shell.openPath(p); return { ok: true, path: p }; } } catch (ex) { /* ignore */ }
+  try { if (fs.existsSync(p)) { shell.openPath(p); return { ok: true, path: p }; } } catch (ex) { warnOnce("main", ex) }
   return { ok: false, err: '路径不存在：' + p };
 });
 
@@ -3690,7 +3841,7 @@ ipcMain.handle('skills:open', (e, target) => {
 const CREDENTIALS_PATH = path.join(DSH_DATA_DIR, '.credentials.yaml');
 ipcMain.handle('settings:list', () => {
   const out = { settingsPath: SETTINGS_PATH, credentialsPath: CREDENTIALS_PATH, files: {} };
-  try { if (fs.existsSync(SETTINGS_PATH)) out.files.settings = fs.readFileSync(SETTINGS_PATH, 'utf8'); } catch (e) { /* ignore */ }
+  try { if (fs.existsSync(SETTINGS_PATH)) out.files.settings = fs.readFileSync(SETTINGS_PATH, 'utf8'); } catch (e) { warnOnce("main", e) }
   try {
     if (fs.existsSync(CREDENTIALS_PATH)) {
       let t = fs.readFileSync(CREDENTIALS_PATH, 'utf8');
@@ -3698,7 +3849,7 @@ ipcMain.handle('settings:list', () => {
       t = t.replace(/(:\s*)(["']?)([A-Za-z0-9_\-.]{12,})(["']?)(\s*(#.*)?)$/gm, '$1$2••••••（已隐藏）$4$5');
       out.files.credentials = t;
     }
-  } catch (e) { /* ignore */ }
+  } catch (e) { warnOnce("main", e) }
   return out;
 });
 ipcMain.handle('settings:open', (e, which) => {
@@ -3740,7 +3891,7 @@ function fetchBalanceViaPlugin() {
               granted: j.granted, toppedUp: j.toppedUp
             });
           }
-        } catch (e) { /* 非 JSON → 视为插件不可用 */ }
+        } catch (e) { warnOnce("main", e) }
         finish(null);   // 插件返回失败 → 交给直连路径
       });
     });
@@ -3761,7 +3912,7 @@ function readDeepseekKey() {
       const m = fs.readFileSync(cred, 'utf8').match(/DEEPSEEK_API_KEY:\s*(\S+)/);
       const k = m && m[1] ? m[1].replace(/^["']|["']$/g, '') : '';
       if (k) return k;
-    } catch (e) { /* 这个候选读不了就试下一个 */ }
+    } catch (e) { warnOnce("main", e) }
   }
   return process.env.DEEPSEEK_API_KEY || '';
 }
@@ -3771,13 +3922,13 @@ async function fetchDeepseekBalance() {
   try {
     const viaPlugin = await fetchBalanceViaPlugin();
     if (viaPlugin) { balanceVia = 'plugin'; return viaPlugin; }
-  } catch (e) { /* 回退直连 */ }
+  } catch (e) { warnOnce("main", e) }
   balanceVia = 'direct';
 
   const key = readDeepseekKey();
   if (!key) return { ok: false, err: '未配置 DEEPSEEK_API_KEY（已查 ' + CRED_FILES.join(' / ') + ' 与环境变量）', ts: Date.now() };
   const ctl = new AbortController();
-  const to = setTimeout(() => { try { ctl.abort(); } catch (e) { /* ignore */ } }, 15000);
+  const to = setTimeout(() => { try { ctl.abort(); } catch (e) { warnOnce("main", e) } }, 15000);
   try {
     const res = await fetch(BALANCE_URL, {
       headers: { Authorization: 'Bearer ' + key, Accept: 'application/json' },
@@ -3805,8 +3956,8 @@ function pushBalance(v) {
   lastBalance = v;
   try {
     // 余额要发全部窗口：分离出去的场景窗口也显示余额条
-    try { broadcast('balance:update', v); } catch (e) { /* ignore */ }
-  } catch (e) { /* ignore */ }
+    try { broadcast('balance:update', v); } catch (e) { warnOnce("main", e) }
+  } catch (e) { warnOnce("main", e) }
   return v;
 }
 
@@ -3864,7 +4015,7 @@ ipcMain.handle('remoteAccess:guideImage', async () => {
   try {
     const p = path.join(HARNESS_DIR, '插件', '手机远程访问', 'runtime', '手机导入.png');
     if (fs.existsSync(p)) return 'data:image/png;base64,' + fs.readFileSync(p).toString('base64');
-  } catch (e) { /* 图缺失时前端会降级为文字说明 */ }
+  } catch (e) { warnOnce("main", e) }
   return '';
 });
 
@@ -3877,12 +4028,12 @@ ipcMain.handle('remoteAccess:action', async (e, action) => {
 ipcMain.handle('theme:set-window-bg', (e, color) => {
   const v = String(color || '');
   if (/^#[0-9a-fA-F]{6}$/.test(v)) {
-    try { const w = windowOfEvent(e); if (w) w.setBackgroundColor(v); } catch (ex) { /* ignore */ }
+    try { const w = windowOfEvent(e); if (w) w.setBackgroundColor(v); } catch (ex) { warnOnce("main", ex) }
   }
   return true;
 });
 ipcMain.handle('balance:open', () => {
-  try { shell.openExternal(BALANCE_PAGE); } catch (e) { /* ignore */ }
+  try { shell.openExternal(BALANCE_PAGE); } catch (e) { warnOnce("main", e) }
   return true;
 });
 
@@ -3906,7 +4057,7 @@ const MODEL_PATCH_FILES = () => {
     const top = path.join(DSH_DATA_DIR, 'cordis.patch.yml');
     if (fs.existsSync(top)) out.push(top);
     if (fs.existsSync(SETTINGS_PATH)) out.push(SETTINGS_PATH);   // 旧引擎口径，留着兼容
-  } catch (e) { /* ignore */ }
+  } catch (e) { warnOnce("main", e) }
   return out;
 };
 
@@ -3970,7 +4121,7 @@ ipcMain.handle('models:list', () => {
           if (m) refs.add(m[1]);
         }
       }
-    } catch (e) { /* ignore */ }
+    } catch (e) { warnOnce("main", e) }
     const def = {};
     const merged = new Map();
     for (const f of files) {
@@ -3996,7 +4147,7 @@ ipcMain.handle('models:list', () => {
       baseURL: p.baseURL || null,
       models: p.models || []
     }));
-  } catch (e) { /* ignore */ }
+  } catch (e) { warnOnce("main", e) }
   return out;
 });
 
@@ -4045,7 +4196,7 @@ function topbarWorkbenchSessions() {
         if (p && p.sessionId) out.push({ scene: j.title || j.id || f, panel: p.title || p.id || '', sessionId: p.sessionId });
       }
     }
-  } catch (e) { /* ignore */ }
+  } catch (e) { warnOnce("main", e) }
   return out;
 }
 
@@ -4065,7 +4216,7 @@ function topbarRunAsync(script, args, timeout) {
       try {
         cp = spawn(t.exe, [script].concat(args || []), { windowsHide: true, env: t.env });
       } catch (e) { last = String((e && e.message) || e); return attempt(i + 1); }
-      const timer = setTimeout(() => { try { cp.kill(); } catch (e) { /* ignore */ } }, timeout || 120000);
+      const timer = setTimeout(() => { try { cp.kill(); } catch (e) { warnOnce("main", e) } }, timeout || 120000);
       cp.stdout.on('data', (d) => { out += d; });
       cp.stderr.on('data', (d) => { out += d; });
       cp.on('error', (e) => { if (settled) return; settled = true; clearTimeout(timer); last = String((e && e.message) || e); attempt(i + 1); });
@@ -4114,11 +4265,11 @@ function topbarLnkTarget(p) {
         i = end;
       }
     }
-  } catch (e) { /* ignore */ }
+  } catch (e) { warnOnce("main", e) }
   for (const c of cands) {
     const t = String(c).replace(/\0+$/, '').trim();
     if (!/^[A-Za-z]:\\/.test(t)) continue;
-    try { if (fs.existsSync(t) && fs.statSync(t).isDirectory()) return t; } catch (e) { /* ignore */ }
+    try { if (fs.existsSync(t) && fs.statSync(t).isDirectory()) return t; } catch (e) { warnOnce("main", e) }
   }
   return null;
 }
@@ -4147,7 +4298,7 @@ function topbarRecentFolders(limit) {
       const m = buf.toString('utf16le').match(/[A-Za-z]:\\[^\u0000-\u001f]{2,180}/g) || [];
       for (const s of m) add(s, '资源管理器最近');
     }
-  } catch (e) { /* ignore */ }
+  } catch (e) { warnOnce("main", e) }
   // ② 补充：%APPDATA%\…\Recent\*.lnk（系统开着"显示最近使用的文件"时才有）
   try {
     const rd = path.join(process.env.APPDATA || '', 'Microsoft', 'Windows', 'Recent');
@@ -4155,7 +4306,7 @@ function topbarRecentFolders(limit) {
       if (!/\.lnk$/i.test(n)) continue;
       add(topbarLnkTarget(path.join(rd, n)), '最近使用');
     }
-  } catch (e) { /* ignore */ }
+  } catch (e) { warnOnce("main", e) }
   // ③ 补充：地址栏里敲过的路径（注册表 TypedPaths，reg.exe 查一次，几十毫秒）
   try {
     const r = spawnSync('reg', ['query', 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\TypedPaths'],
@@ -4164,7 +4315,7 @@ function topbarRecentFolders(limit) {
       const m = line.match(/REG_SZ\s+(.+)$/);
       if (m) add(m[1], '地址栏敲过');
     }
-  } catch (e) { /* ignore */ }
+  } catch (e) { warnOnce("main", e) }
   // 排序：按**文件夹自己的最后修改时间**从新到旧（跳转列表里没有时间戳，这是最接近"最近用过"的可靠口径）
   const rows = Array.from(cands.values()).sort((a, b) => b.at - a.at).slice(0, want);
   topbarRecentCache = { at: now, rows };
@@ -4200,7 +4351,7 @@ function nvidiaSmiOnce() {
     let out = '', done = false, cp = null;
     try { cp = spawn(exe, ['--query-gpu=name,utilization.gpu,temperature.gpu,memory.used,memory.total', '--format=csv,noheader,nounits'], { windowsHide: true }); }
     catch (e) { return resolve(null); }
-    const t = setTimeout(() => { try { cp.kill(); } catch (e) { /* ignore */ } if (!done) { done = true; resolve(null); } }, 3000);
+    const t = setTimeout(() => { try { cp.kill(); } catch (e) { warnOnce("main", e) } if (!done) { done = true; resolve(null); } }, 3000);
     cp.stdout.on('data', (d) => { out += d; });
     cp.stderr.on('data', () => { /* 没 N 卡会往 stderr 写，忽略 */ });
     cp.on('error', () => { if (!done) { done = true; clearTimeout(t); resolve(null); } });
@@ -4209,12 +4360,12 @@ function nvidiaSmiOnce() {
 }
 ipcMain.handle('kun:sys:load', async () => {
   const out = { ok: true, at: Date.now(), cpu: null, gpu: null };
-  try { out.cpu = loadCpuPercent(); } catch (e) { /* ignore */ }
+  try { out.cpu = loadCpuPercent(); } catch (e) { warnOnce("main", e) }
   // 2026-10-20（宿主：顶栏加内存）—— os.totalmem/freemem ⇒ 已用百分比 + GB（零子进程）
   try {
     const tot = os.totalmem(), free = os.freemem();
     out.mem = { usedPct: Math.round((1 - free / tot) * 100), usedGB: Math.round((tot - free) / 1073741824 * 10) / 10, totalGB: Math.round(tot / 1073741824 * 10) / 10 };
-  } catch (e) { /* ignore */ }
+  } catch (e) { warnOnce("main", e) }
   try {
     const raw = await nvidiaSmiOnce();
     if (raw) {
@@ -4223,7 +4374,7 @@ ipcMain.handle('kun:sys:load', async () => {
         out.gpu = { name: p[0], util: Number(p[1]), temp: Number(p[2]), memUsed: Number(p[3]), memTotal: Number(p[4]) };
       }
     }
-  } catch (e) { /* 没 N 卡就只显示 CPU */ }
+  } catch (e) { warnOnce("main", e) }
   return out;
 });
 // ==========================================================================================
@@ -4374,7 +4525,7 @@ ipcMain.handle('topbar:pending', () => {
         text: cells[2].replace(/\*\*/g, '').replace(/\s+/g, ' ').slice(0, 220), file: TOPBAR_CARD
       });
     }
-  } catch (e) { /* ignore */ }
+  } catch (e) { warnOnce("main", e) }
   try {
     for (const d of fs.readdirSync(TOPBAR_MEM)) {
       const f = path.join(TOPBAR_MEM, d, '项目信息.md');
@@ -4390,7 +4541,7 @@ ipcMain.handle('topbar:pending', () => {
       const m = head.match(/卡点[：:]\s*([^\n\r]{2,200})/);
       if (m) items.push({ kind: 'scene', date: '', from: d, status: '卡点', text: m[1].replace(/\*\*/g, '').trim(), file: f });
     }
-  } catch (e) { /* ignore */ }
+  } catch (e) { warnOnce("main", e) }
   return { ok: true, at: Date.now(), items };
 });
 
@@ -4511,7 +4662,7 @@ function envRun(mode) {
       try {
         const j = JSON.parse(txt.slice(i));
         return { ok: !!j.ok, rows: Array.isArray(j.rows) ? j.rows : [], at: Date.now(), mode };
-      } catch (e) { /* 解析失败 ⇒ 报原文 */ }
+      } catch (e) { warnOnce("main", e) }
     }
     return { ok: false, rows: [], at: Date.now(), mode, error: txt.slice(0, 400) || '脚本没有输出' };
   });
@@ -4661,7 +4812,7 @@ setInterval(() => { updateAutoCheck(false).catch(() => {}); }, 6 * 3600 * 1000);
 // ⛔ 只回「启动配置」，不碰源码/构建产物（源码坏了要走 git，这个工具做不到，也不该自动做）。
 const GUARD_FILE = path.join(__dirname, 'data', 'start-guard.json');
 function readGuard() { try { return JSON.parse(fs.readFileSync(GUARD_FILE, 'utf8')); } catch (e) { return null; } }
-function writeGuard(obj) { try { fs.writeFileSync(GUARD_FILE, JSON.stringify(obj, null, 2) + '\n', 'utf8'); } catch (e) { /* ignore */ } }
+function writeGuard(obj) { try { fs.writeFileSync(GUARD_FILE, JSON.stringify(obj, null, 2) + '\n', 'utf8'); } catch (e) { warnOnce("main", e) } }
 function engineLastGood() {
   try {
     const m = JSON.parse(fs.readFileSync(path.join(__dirname, 'data', 'engine-good', 'meta.json'), 'utf8'));
@@ -4693,7 +4844,7 @@ async function guardCheckAfterBoot() {
                : '上次没正常退出、引擎也没起来，自动回退没成功 —— 看 server.log 或手动「引擎回退」',
       bad: !ok, ms: 20000
     });
-  } catch (e2) { /* ignore */ }
+  } catch (e2) { warnOnce("main", e2) }
 }
 
 // ---- 工具清单（2026-11-12 改为实时扫描：新增工具 = 引擎里多一个 dsh-tool-* 包，不再靠人维护 json）----
@@ -4729,7 +4880,7 @@ function toolNode() {
   if (process.env.NVM_SYMLINK) cands.push(path.join(process.env.NVM_SYMLINK, 'node.exe'));
   if (process.env.ProgramFiles) cands.push(path.join(process.env.ProgramFiles, 'nodejs', 'node.exe'));
   if (process.env['ProgramFiles(x86)']) cands.push(path.join(process.env['ProgramFiles(x86)'], 'nodejs', 'node.exe'));
-  for (const p of cands) { try { if (fs.existsSync(p)) return p; } catch (e) { /* ignore */ } }
+  for (const p of cands) { try { if (fs.existsSync(p)) return p; } catch (e) { warnOnce("main", e) } }
   return 'node';   // 交给 PATH；找不到时 spawn 会报 ENOENT，界面会显示原因
 }
 
@@ -4749,21 +4900,21 @@ function rotateJournal(ev) {
     fs.mkdirSync(path.dirname(f), { recursive: true });
     try {
       if (fs.statSync(f).size > 1024 * 1024) {
-        try { fs.rmSync(f + '.prev', { force: true }); } catch (e) { /* ignore */ }
-        try { fs.renameSync(f, f + '.prev'); } catch (e) { /* ignore */ }
+        try { fs.rmSync(f + '.prev', { force: true }); } catch (e) { warnOnce("main", e) }
+        try { fs.renameSync(f, f + '.prev'); } catch (e) { warnOnce("main", e) }
       }
-    } catch (e) { /* 文件还不存在 */ }
+    } catch (e) { warnOnce("main", e) }
     const rec = Object.assign({ ts: rotateLogStamp() }, ev || {});
     for (const k of Object.keys(rec)) rec[k] = typeof rec[k] === 'string' ? rec[k] : String(rec[k]);
     fs.appendFileSync(f, JSON.stringify(rec) + '\r\n', 'utf8');
-  } catch (e) { /* 日志写不进去不影响按钮 */ }
+  } catch (e) { warnOnce("main", e) }
 }
 
 // 进程树杀（Windows）：child.kill() 只结束直接子进程，孙子（sessions.mjs / 归档会话.mjs）会继续跑 ⇒
 //   上层已经判"超时失败"，json 和归档还在被改，用户看到状态自己跳变。taskkill /T 才杀得干净。
 function killTree(pid) {
   try { spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' }); }
-  catch (e) { try { process.kill(pid); } catch (e2) { /* 已经退了 */ } }
+  catch (e) { try { process.kill(pid); } catch (e2) { warnOnce("main", e2) } }
 }
 
 // 面板 → 场景。互斥锁用 sceneId 当 key：同一场景可能挂两块 AI 面板（程序开发 = 工作区 + 项目），
@@ -4808,7 +4959,7 @@ function sessionStatOf(sid) {
           : Math.round(pv.surfaceTokens || 0);
         pct = Math.round(projected / line * 100);
       }
-      let mtime = 0; try { mtime = fs.statSync(f).mtimeMs; } catch (e) { /* ignore */ }
+      let mtime = 0; try { mtime = fs.statSync(f).mtimeMs; } catch (e) { warnOnce("main", e) }
       return { pct: pct, turns: (ts && ts.turns) ?? null, mtime: mtime };
     }
   } catch (e) { return null; }
@@ -4854,7 +5005,7 @@ function runRotate(panelId, opts, onStage) {
       if (info.boundId && ((ws.global || {}).archivedSessionIds || []).indexOf(info.boundId) >= 0) {
         archivedNote = '（提示：场景 json 原先绑的会话已归档，本次会重建绑定；不是壳没重启）';
       }
-    } catch (e) { /* 读不到归档台账就不提示 */ }
+    } catch (e) { warnOnce("main", e) }
 
     // 3. 选脚本：handover = 先写交接（transcript 摘录，秒级）；否则直接换（--force 跳过 2 小时闸）
     const handover = String((opts && opts.mode) || '') === 'handover';
@@ -4873,7 +5024,7 @@ function runRotate(panelId, opts, onStage) {
       if (s) stage = s;
       const cur = ROTATING.get(info.sceneId);
       if (cur && s) cur.stage = s;
-      try { if (onStage) onStage(s || stage, text || ''); } catch (e) { /* 界面没了也不影响脚本 */ }
+      try { if (onStage) onStage(s || stage, text || ''); } catch (e) { warnOnce("main", e) }
     };
     rotateJournal({ ev: 'start', panel: id, scene: info.sceneId, old: info.boundId, mode: handover ? 'transcript' : 'direct', auto: auto });
 
@@ -4910,7 +5061,7 @@ function runRotate(panelId, opts, onStage) {
     // 4. 超时 240 秒（比脚本内部 180 秒长一档：让脚本自己先报原因，别被上层抢先杀掉）
     const killTimer = setTimeout(() => {
       timedOut = true;
-      try { killTree(child.pid); } catch (e) { /* 可能已退 */ }
+      try { killTree(child.pid); } catch (e) { warnOnce("main", e) }
     }, 240000);
 
     // 5. 脚本用 `P|1/3 交接 · …` 报阶段 ⇒ 实时推给界面 + 进日志
@@ -4948,7 +5099,7 @@ ipcMain.handle('harness:rotate', async (event, panelId, opts) => {
   }
   ROTATING.set(info.sceneId, { panelId: id, stage: '1/3', startedAt: Date.now(), auto: false });
   const onStage = (s, text) => {
-    try { event.sender.send('harness:rotate-progress', { panelId: id, sceneId: info.sceneId, stage: s, text: String(text || '') }); } catch (e) { /* 窗口没了 */ }
+    try { event.sender.send('harness:rotate-progress', { panelId: id, sceneId: info.sceneId, stage: s, text: String(text || '') }); } catch (e) { warnOnce("main", e) }
   };
   try {
     return await runRotate(id, opts, onStage);
@@ -5032,9 +5183,9 @@ ipcMain.handle('window:minimize', (e) => {
       try {
         w.unmaximize();
         w.minimize();
-        w.once('restore', function () { try { w.maximize(); } catch (e3) { /* ignore */ } });
+        w.once('restore', function () { try { w.maximize(); } catch (e3) { warnOnce("main", e3) } });
       } catch (e2) { log('[win] 兜底也失败: ' + ((e2 && e2.message) || e2)); }
-    } catch (e) { /* ignore */ }
+    } catch (e) { warnOnce("main", e) }
   }, 300);
   return { ok: true };
 });
@@ -5159,12 +5310,12 @@ if (!gotLock) {
   app.on('before-quit', function () {
     quitRequested = true;      // 保留"下次恢复"的布局：整体退出 ≠ 用户关掉某个场景窗口
     // 2026-10-24：正常退出 ⇒ 给保险哨子盖章（下次启动不会误判成"升级中途被关掉"）
-    try { writeGuard({ clean: true, at: Date.now(), pid: process.pid }); } catch (e) { /* ignore */ }
-    try { saveWinLayout(); } catch (e) { /* ignore */ }
+    try { writeGuard({ clean: true, at: Date.now(), pid: process.pid }); } catch (e) { warnOnce("main", e) }
+    try { saveWinLayout(); } catch (e) { warnOnce("main", e) }
     releaseBlenderEmbedSync();
     killServer();
     stopBlenderCapture();
-    try { bridgeService.stop(); } catch (e) { /* 桥接收尾失败不能让退出卡住 */ }
+    try { bridgeService.stop(); } catch (e) { warnOnce("main", e) }
   });
 }
 
@@ -5270,7 +5421,7 @@ ipcMain.handle('webai:bridge', function (e, ver) {
   const E = require('electron').BrowserWindow;
   const w = E.fromWebContents(e.sender);
   let title = '';
-  try { title = w ? w.getTitle() : ''; } catch (x) { }
+  try { title = w ? w.getTitle() : ''; } catch (x) { warnOnce("main", x) }
   const v = String(ver || '?');
   const prev = webAiWinVer.get(e.sender.id);
   webAiWinVer.set(e.sender.id, { ver: v, title: title });
@@ -5288,7 +5439,7 @@ ipcMain.handle('webai:who', function () {
   const list = [];
   webAiWinVer.forEach(function (rec, id) { list.push({ id: id, ver: rec.ver, title: rec.title, ok: rec.ver === WEB_AI_WANT }); });
   const t = webAiTargetWindow();
-  let tTitle = ''; try { tTitle = t ? t.getTitle() : ''; } catch (e) { }
+  let tTitle = ''; try { tTitle = t ? t.getTitle() : ''; } catch (e) { warnOnce("main", e) }
   return { want: WEB_AI_WANT, windows: list, target: tTitle, pending: webAiPending.size };
 });
 ipcMain.handle('webai:done', function (e, id, r) {
@@ -5334,7 +5485,7 @@ const webAiServer = http.createServer(function (req, res) {
     const list = [];
     webAiWinVer.forEach(function (rec, id) { list.push({ id: id, ver: rec.ver, title: rec.title, ok: rec.ver === WEB_AI_WANT }); });
     const t = webAiTargetWindow();
-    let tTitle = ''; try { tTitle = t ? t.getTitle() : ''; } catch (e) { }
+    let tTitle = ''; try { tTitle = t ? t.getTitle() : ''; } catch (e) { warnOnce("main", e) }
     json(200, { want: WEB_AI_WANT, windows: list, target: tTitle, stale: list.filter(function (x) { return !x.ok; }).length });
     return;
   }
@@ -5369,7 +5520,7 @@ try {
 // 独立模块 crash.js：本地崩溃转储（不上传）+ 主进程异常流水 data\crash-log.jsonl + 版本策略 data\version-policy.json。
 // 全部 try/catch 吞掉 ⇒ 记不下来也不影响使用；不弹窗、不拦启动。
 try {
-  require('./crash.js').install({ log: log, appendLog: function (m) { try { log(m) } catch (e) {} } });
+  require('./crash.js').install({ log: log, appendLog: function (m) { try { log(m) } catch (e) { warnOnce("main", e) } } });
 } catch (e) {
   log('[crash] 挂载失败（已忽略，不影响使用）：' + (e && e.message ? e.message : String(e)));
 }
@@ -5394,7 +5545,7 @@ setInterval(function () {
     var hit = target === 'all' ? views : views.filter(function (wc) {
       try { var u = String(wc.getURL()); return u.indexOf(target) >= 0 || u.indexOf(encodeURIComponent(target)) >= 0; } catch (e) { return false; }
     });
-    hit.forEach(function (wc) { try { wc.reload(); } catch (e) {} });
+    hit.forEach(function (wc) { try { wc.reload(); } catch (e) { warnOnce("main", e) } });
 
     // 2026-10-16 补（界面侧）：顶栏状态区 `renderer\topbar-status.js` 是靠 index.html 的 <script> 加载的，
     //   而下面那条"主窗口热更新"只 executeJavaScript(reloadScene()) ⇒ **不会重新执行页面脚本** ⇒ 改了它主窗口永远不变
@@ -5410,7 +5561,7 @@ setInterval(function () {
         log('[reload-panels] topbar-status.js 变了 ⇒ 整页重载主窗口（让它重新执行）');
         if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.reloadIgnoringCache();
       }
-    } catch (e) { /* ignore */ }
+    } catch (e) { warnOnce("main", e) }
 
     // 2026-09-27 补：<客户> OA 这类「同页 div 面板」不是 webview，上面那条重载碰不到它们。
     // 再让窗口跑一次它自己的热更新（重灌带时间戳的 renderers.js，**不重载页面** ⇒ Harness 对话不断）。
@@ -5438,17 +5589,17 @@ setInterval(function () {
           // 一旦够不着（no-fn / err:…）就退回整页重载：不依赖 eval、不依赖动态插 script，必然读到新 renderers.js。
           if (r === 'no-fn' || String(r).indexOf('err:') === 0) {
             log('[reload-panels] ' + tag + ' 热更新够不着 ⇒ 整页重载该窗口');
-            try { w.webContents.reloadIgnoringCache(); } catch (e2) { /* ignore */ }
+            try { w.webContents.reloadIgnoringCache(); } catch (e2) { warnOnce("main", e2) }
           }
         }).catch(function (e) {
           log('[reload-panels] ' + tag + ' executeJavaScript 被拒（多半是 CSP）⇒ 整页重载该窗口: ' + ((e && e.message) || e));
-          try { w.webContents.reloadIgnoringCache(); } catch (e2) { /* ignore */ }
+          try { w.webContents.reloadIgnoringCache(); } catch (e2) { warnOnce("main", e2) }
         });
       });
       log('[reload-panels] 同页面板热更新窗口: ' + targets.length + '/' + wins.length + ' 个');
-    } catch (e) { /* 窗口没了也不致命 */ }
+    } catch (e) { warnOnce("main", e) }
     log('[reload-panels] ' + target + ' ⇒ 重载 ' + hit.length + '/' + views.length + ' 个面板');
-  } catch (e) { /* 命令文件忙/损坏都不致命，下一轮再试 */ }
+  } catch (e) { warnOnce("main", e) }
 }, 500);
 
 webAiServer.listen(WEB_AI_PORT, '127.0.0.1', function () {
@@ -5742,7 +5893,7 @@ ipcMain.handle('kun:git:commit', async (_e, repo, files, message, opts) => {
   if (o.amend) args.push('--amend');
   args.push('--', ...paths);
   const c = await run(args);
-  try { fs.unlinkSync(msgFile); } catch (e) { /* 删不掉不影响结果 */ }
+  try { fs.unlinkSync(msgFile); } catch (e) { warnOnce("main", e) }
   if (!c.ok) return { ok: false, err: String(c.err || '').trim() || 'git commit 失败' };
   let pushed = null;
   let pushErr = '';

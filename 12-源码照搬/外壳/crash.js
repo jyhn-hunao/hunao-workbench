@@ -91,6 +91,14 @@ function install(options) {
     say('[crash] 崩溃转储启用失败（忽略）：' + (e && e.message ? e.message : String(e)))
   }
 
+  // ①.5 退出期的"进程消失"不算崩溃（2026-11-13）
+  //   现象：crash-log.jsonl 里成簇出现 reason:"killed" exitCode:1，与正常退出难区分，
+  //   排查时只能猜。这里记一个退出标记，落盘时带上 duringQuit / quitting 两个字段，
+  //   事后一眼能分出"退出时被杀"和"运行期真崩"。
+  let quitting = false
+  app.on('before-quit', () => { quitting = true })
+  app.on('will-quit', () => { quitting = true })
+
   // ② 主进程异常流水（官方 crash-report 的本地版）
   process.on('uncaughtException', (err) => {
     appendLine({ kind: 'uncaughtException', message: err && err.message, stack: err && err.stack })
@@ -101,11 +109,18 @@ function install(options) {
     say('[crash] 未处理的 Promise 拒绝（已记录）：' + (reason && reason.message ? reason.message : String(reason)))
   })
   app.on('render-process-gone', (event, contents, details) => {
-    appendLine({ kind: 'render-process-gone', reason: details && details.reason, exitCode: details && details.exitCode, url: (() => { try { return contents.getURL() } catch (e) { return '' } })() })
-    say('[crash] 渲染进程崩溃：' + JSON.stringify(details || {}))
+    const d = details || {}
+    appendLine({
+      kind: 'render-process-gone',
+      reason: d.reason, exitCode: d.exitCode,
+      duringQuit: quitting,          // true = 退出过程中消失，不是运行期崩溃
+      verdict: quitting ? 'exit' : 'crash',
+      url: (() => { try { return contents.getURL() } catch (e) { return '' } })(),
+    })
+    say('[crash] 渲染进程消失（' + (quitting ? '退出导致，非崩溃' : '运行期崩溃') + '）：' + JSON.stringify(d || {}))
   })
   app.on('child-process-gone', (event, details) => {
-    appendLine({ kind: 'child-process-gone', details: details })
+    appendLine({ kind: 'child-process-gone', duringQuit: quitting, verdict: quitting ? 'exit' : 'crash', details: details })
   })
 
   // ③ 版本策略

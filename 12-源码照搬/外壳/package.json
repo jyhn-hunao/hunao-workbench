@@ -2,10 +2,11 @@
   "name": "dsh-workbench",
   "version": "0.2.1-rc.3",
   "private": true,
-  "description": "胡闹的工作台 · 公开模板（5 场景：命令 / B站 / 自我复盘 / 本地电脑 / 程序开发）",
+  "description": "胡闹的工作台 · 公开模板（7 场景：命令 / B站 / 自我复盘 / 本地电脑 / 程序开发 / 胡闹的大肥鱼 / 社交）",
   "main": "main.js",
   "scripts": {
-    "start": "electron ."
+    "start": "electron .",
+    "test": "node scripts/测试.mjs"
   },
   "devDependencies": {
     "electron": "43.4.0",

@@ -72,6 +72,10 @@ contextBridge.exposeInMainWorld('app', {
   sceneProjects: (scene, panelId) => ipcRenderer.invoke('scene:projects', scene, panelId),
   sceneSwitchProject: (scene, panelId, root) => ipcRenderer.invoke('scene:switch-project', scene, panelId, root),
   sceneAddProject: (scene, panelId) => ipcRenderer.invoke('scene:add-project', scene, panelId),
+  // ---- 场景内多会话（2026-11-13）：面板标题栏的「会话」条用它 ----
+  // 缺这两个 = 主进程/preload 还是旧的 ⇒ 面板里不挂会话条（不会半残：按钮直接不出现）。
+  sceneSessions: (scene, panelId) => ipcRenderer.invoke('scene:sessions', scene, panelId),
+  sceneNewSession: (scene, panelId, purpose) => ipcRenderer.invoke('scene:new-session', scene, panelId, purpose),
   // ---- 社交场景 · 消息流（2026-11-13）----
   // 缺这个命名空间 = 主进程/preload 还是旧的 ⇒ so-msg 面板显示「重启一次工作台」，不会假装有数据。
   social: {
