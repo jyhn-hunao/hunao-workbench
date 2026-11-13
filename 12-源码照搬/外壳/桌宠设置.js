@@ -103,6 +103,36 @@ function tailLog(n) {
 }
 
 // 5. 会话 id 与桥接配置（面板只展示/同步用，不把它存进设置.json）
+// 人格卡现状：设置弹窗要能一眼看到「她是谁 / 记了多少」，而不是让人去翻目录（2026-11-13）
+function personaStats() {
+  let st = {};
+  try { st = getSettings() || {}; } catch (e) { st = {}; }
+  const name = String((st.persona && st.persona.name) || '胡闹的大肥鱼');
+  const dir = path.join(DSH_HOME, '场景记忆', name);
+  const countMd = (sub) => {
+    try {
+      return fs.readdirSync(path.join(dir, sub)).filter((f) => f.endsWith('.md') && !f.startsWith('_')).length;
+    } catch (e) { return 0; }
+  };
+  const bytes = (f) => { try { return fs.statSync(f).size; } catch (e) { return 0; } };
+  let todo = 0;
+  try {
+    const t = fs.readFileSync(path.join(dir, '_待办.md'), 'utf8');
+    todo = (t.match(/^\s*- \[ \]/gm) || []).length;
+  } catch (e) { todo = 0; }
+  return {
+    name,
+    dir,
+    exists: fs.existsSync(dir),
+    记忆: countMd('记忆'),
+    对话: countMd('对话'),
+    决策: countMd('决策'),
+    坑: countMd('坑'),
+    待办: todo,
+    私忆字节: bytes(path.join(dir, '场景私有记忆.md')),
+    近期字节: bytes(path.join(dir, '_近期.md')),
+  };
+}
 function petSession() {
   const j = readJson(path.join(SHELL, 'scenarios', 'pet.json')) || {};
   const p = (j.panels || []).filter((x) => x && x.id === 'pet-ai')[0] || {};
@@ -202,6 +232,6 @@ module.exports = {
   DEFAULT_FILE, DATA_FILE, DSH_HOME,
   getSettings, setSettings, resolveRoute,
   logPath, logDispatch, tailLog,
-  petSession, listScenes,
+  petSession, listScenes, personaStats,
   channelOf, dispatchPolicy, proactiveGate
 };

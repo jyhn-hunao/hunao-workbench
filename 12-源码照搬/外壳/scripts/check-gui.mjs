@@ -81,6 +81,19 @@ for (const f of fs.readdirSync(scDir).filter((x) => x.endsWith('.json')).sort())
   else ok(line);
 }
 
+// 2026-11-13 新增（反向检查）：注册表里**没被任何场景用**的类型。
+// 这些不是 bug —— 模板/文档（`模板\场景-最小示例.json`、`00-核心机制/面板类型总览.md`）把它们当"可选面板"列着，
+// 删掉会让文档与模板指向不存在的类型；但数量要摆出来，免得下次又有人以为"注册了就有人在用"。
+const usedTypes = new Set();
+for (const f of fs.readdirSync(scDir).filter((x) => x.endsWith('.json'))) {
+  let sc;
+  try { sc = JSON.parse(read(path.join('scenarios', f))); } catch { continue; }
+  for (const p of sc.panels || []) if (p && p.type) usedTypes.add(p.type);
+}
+const unused = [...types].filter((t) => !usedTypes.has(t)).sort();
+warn('注册但当前 7 个场景未使用：' + unused.length + ' / ' + types.size + ' 个（模板预留，不算错）' +
+  (unused.length ? '：' + unused.join('、') : ''));
+
 // ---------- 4) 渲染器 cleanup ----------
 head('4. 渲染器定时器 cleanup');
 const lines = renderersSrc.split(/\r?\n/);
@@ -393,6 +406,7 @@ const ALLOWED_FILES = [
   '社交.js',       // 2026-11-13：社交通道消息流数据面（main.js require）
   '用量.js',       // 2026-11-13：用量统计数据面（main.js require）
   '工具清单.js',   // 2026-11-13：工具白名单元数据（渲染层取名字用）
+  '架构索引.md',  // 2026-11-13：外壳架构索引（改 main.js / renderers.js 前先查；文档，不进备份清单）
   'package.json', 'package-lock.json', 'start.vbs', 'icon.ico', 'icon.png',
   'server.log', 'server.log.prev', '.gitignore', '项目信息.md', 'GUI改造私有记忆.md', '官方能力搬迁计划.md', '迁移手册.md',
   'pnpm-lock.yaml', 'pnpm-workspace.yaml',   // 本机包管理器残留（入库与否看 .gitignore，别当源码收进来）

@@ -3,6 +3,10 @@
 // 场景 1：<客户> OA 系统运维（本地渲染）
 // 场景 2：大A / 美股分析（本地渲染）
 // 设计：壳与 Harness 解耦——只通过 HTTP+token 认识它；场景配置在 scenarios/ 下。
+//
+// ⚠ 本文件 5,700+ 行，改之前先看 `外壳\架构索引.md`（分段表 + 段起行 + 函数索引命令）。
+//   定位方式：grep 段标题里的中文关键词，别整文件重排/格式化（会造出几万行 diff）。
+//   本文件属"壳"层：改完必须重启工作台才生效（renderer\ 下的文件才走 ⟳ 热更新）。
 const { app, BrowserWindow, dialog, shell, ipcMain, webContents, nativeImage, screen } = require('electron');
 const { spawn, spawnSync, execFile } = require('child_process');
 const http = require('http');
@@ -4344,6 +4348,7 @@ ipcMain.handle('pet:settings-get', () => ({
   settings: petSvc.getSettings(),
   files: { 默认值: petSvc.DEFAULT_FILE, 运行值: petSvc.DATA_FILE },
   session: petSvc.petSession(),
+  stats: petSvc.personaStats(),      // 人格卡现状：记了多少条、待办几件、开场注入多大
   scenes: petSvc.listScenes()      // 设置弹窗「派给谁」下拉用：真实存在的场景会话，别手写标题
 }));
 ipcMain.handle('pet:settings-set', (e, patch) => petSvc.setSettings(patch || {}));

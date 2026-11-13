@@ -21,6 +21,8 @@ import { execFileSync } from 'node:child_process';
 // 2026-11-12：轮换后的开场消息不再固定等 10 秒 —— 用 transcript 判「轮次真的开始了」再取消。
 //   多帧 zstd 的解法只在 工具\派发-公共.mjs 一处，别在这里另抄一份（会漂移）。
 import { unzstdAll } from '../../工具/派发-公共.mjs';
+// 2026-11-13：端口真源收敛到 工具\环境.mjs（env > 机器配置 > 默认），本文件不再写字面量端口。
+import { port } from '../../工具/环境.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PROJECT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -90,22 +92,45 @@ const SEED_MEM_LIMIT = Number(process.env.DSH_SEED_MEM_LIMIT) || 4 * 1024;
 // 开场注入：按「本面板交接 → 场景 §〇 → 近期记忆」顺序**拼接**（不是取第一个就返回）。
 // 2026-11-13 修：原来三段只取第一个命中的，导致「人格卡有了、近期记忆永远进不来」——
 //   等于长期记忆写了也想不起来。现在每段按剩余预算截断，总预算仍是 SEED_MEM_LIMIT。
+// 人格卡口径：设置弹窗里改的「名字 / 怎么叫你 / 语气 / 自我设定」要真的进开场，
+// 否则配置只是摆设（2026-11-13）。
+function personaBlock(sceneName) {
+  const def = readJson(path.join(root, 'pet', '设置.默认.json')) || {};
+  const cur = readJson(path.join(root, 'data', 'pet', '设置.json')) || {};
+  const p = Object.assign({}, def.persona || {}, cur.persona || {});
+  if (!p.name || String(p.name) !== String(sceneName || '')) return '';   // 只注入给这条人格场景
+  const lines = ['你是「' + p.name + '」。'];
+  if (p.callUser) lines.push('你对他的称呼：' + p.callUser + '。');
+  if (p.tone) lines.push('说话语气：' + p.tone + '（别写成客服腔）。');
+  if (p.selfIntro) lines.push('自我设定：' + p.selfIntro + '。');
+  lines.push('上面是「人格卡」的当前值（来自设置弹窗），照它来，别自己换人设。');
+  return lines.join('\n');
+}
+
 function memSeedBlock(sceneName, panelId) {
   const mdir = path.join(DSH_HOME, '场景记忆', String(sceneName || ''));
   if (!fs.existsSync(mdir)) return null;
   const cand = [
+    { tag: '人格口径', text: personaBlock(sceneName), cut: '' },
     { tag: '本面板交接', file: path.join(mdir, '面板交接', String(panelId || '') + '.md'), cut: '' },
     { tag: '场景 §〇', file: path.join(mdir, '场景私有记忆.md'), cut: '## 核心职责' },
-    // 近期记忆由 工具\人格记忆.mjs 自动重建（最近长期 + 最近对话 + 未办待办）；没有这个文件就跳过
+    // 近期记忆：人格场景由 工具\人格记忆.mjs 重建，其余场景由 工具\近期记忆.mjs 重建；
+    // 没有这个文件就跳过（不至于把开场弄挂）
     { tag: '近期记忆', file: path.join(mdir, '_近期.md'), cut: '' },
   ];
   const parts = [];
   const files = [];
   let used = 0;
   for (const c of cand) {
-    if (!c.file || !fs.existsSync(c.file)) continue;
     let body = '';
-    try { body = fs.readFileSync(c.file, 'utf8'); } catch (e) { continue; }
+    let from = c.file || '';
+    if (c.text !== undefined) {
+      body = String(c.text || '');
+      if (!body.trim()) continue;
+    } else {
+      if (!c.file || !fs.existsSync(c.file)) continue;
+      try { body = fs.readFileSync(c.file, 'utf8'); } catch (e) { continue; }
+    }
     if (c.cut) {
       const at = body.indexOf(c.cut);
       body = at > 0 ? body.slice(0, at) : body;
@@ -123,8 +148,8 @@ function memSeedBlock(sceneName, panelId) {
       cut = true;
     }
     used += bytes;
-    files.push(c.file);
-    parts.push('【' + c.tag + '】\n' + body + (cut ? '\n…（已截断，全文见：' + c.file + '）' : ''));
+    if (from) files.push(from);
+    parts.push('【' + c.tag + '】\n' + body + (cut ? '\n…（已截断，全文见：' + from + '）' : ''));
   }
   if (!parts.length) return null;
   const text = parts.join('\n\n');
@@ -438,7 +463,8 @@ if (rotating && !STRAY) {
       else {
         // ③ token → cookie
         const LOG = process.env.DSH_LOG || path.join(root, 'server.log');
-        const BASE = process.env.DSH_GUI_BASE || process.env.DSH_WEB_URL || ('http://127.0.0.1:' + (process.env.DSH_PORT || '3083'));
+        // 端口真源：唯一实现在 工具\环境.mjs（env > 机器配置 > 默认），脚本里不再写字面量（2026-11-13）
+        const BASE = process.env.DSH_GUI_BASE || process.env.DSH_WEB_URL || ('http://127.0.0.1:' + port('dsh'));
         // token 正则跟随 BASE 的端口（原来写死 3080：引擎默认跑 3083 时取不到 token）
         const PORT = (() => { try { return new URL(BASE).port || '80'; } catch (e) { return ''; } })();
         const toks = fs.existsSync(LOG)
@@ -814,7 +840,7 @@ if (rotating && STRAY) {
       if (dry) say('\n--dry：以上都没执行。去掉 --dry 即真做。');
       else {
         const LOG = path.join(root, 'server.log');
-        const BASE = process.env.DSH_GUI_BASE || process.env.DSH_WEB_URL || ('http://127.0.0.1:' + (process.env.DSH_PORT || '3083'));
+        const BASE = process.env.DSH_GUI_BASE || process.env.DSH_WEB_URL || ('http://127.0.0.1:' + port('dsh'));   // 端口真源见 工具\环境.mjs
         // token 正则跟随 BASE 的端口（原来写死 3080：引擎默认跑 3083 时取不到 token）
         const PORT = (() => { try { return new URL(BASE).port || '80'; } catch (e) { return ''; } })();
         const toks = fs.existsSync(LOG)
