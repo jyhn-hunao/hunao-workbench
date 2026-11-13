@@ -6,6 +6,9 @@ node_modules/
 _临时/
 发布/
 
+# 记忆包（工具\记忆打包.mjs 产物：全量记忆快照，含 gitignore 掉的归档/登记表，不入库）
+记忆包/
+
 # 引擎数据（用户自己的，不入库）
 引擎数据/.dsh/sessions/
 引擎数据/.dsh/storages/

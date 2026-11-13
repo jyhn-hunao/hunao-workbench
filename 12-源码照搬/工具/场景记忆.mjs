@@ -43,6 +43,9 @@ const WORKBENCH_ROOT = __ARGV_ROOT || process.env.DSH_WORKBENCH_ROOT || path.res
 const MEMROOT = process.env.DSH_SCENE_MEMORY || path.join(WORKBENCH_ROOT, '引擎数据', '.dsh', '场景记忆')
 // 场景目录（派生清单，2026-11-13）：神经元不再靠手工登记表 索引.json，也不用目录扫描 IPC
 const SCENE_REG = path.join(MEMROOT, '_共享记忆', '场景目录.json')
+// 记忆数据契约版本（2026-11-13）：schema.json 由 工具\记忆打包.mjs 升版 维护；check --all 校验，换机/升级时判「老数据 vs 新工具」
+const MEM_SCHEMA_VERSION = 2
+const MEM_SCHEMA_FILE = path.join(MEMROOT, '_共享记忆', 'schema.json')
 // 公开模板：不写审计日志
 function audit() {}
 const GUI = process.env.DSH_GUI_DIR || path.join(WORKBENCH_ROOT, '外壳')
@@ -1866,6 +1869,16 @@ if (cmd === 'check' && argv.includes('--all')) {
   }
   // 例外场景（清单见 场景记忆-例外.json）：标准根下没有目录，但一样要 check
   for (const ex of readExceptions().values()) n += cmdCheckException(ex.id, ex) ? 1 : 0
+  // 1. 数据契约版本（2026-11-13）：⚠ 不阻断，但每次 check --all 都提醒——老数据撞新工具是最常见的"换机后莫名其妙"来源
+  if (!fs.existsSync(MEM_SCHEMA_FILE)) {
+    console.log('⚠ _共享记忆\\schema.json 不存在：跑 工具\\记忆打包.mjs 升版 落地记忆数据契约版本')
+  } else {
+    try {
+      const sv = JSON.parse(fs.readFileSync(MEM_SCHEMA_FILE, 'utf8')).schemaVersion || 0
+      if (sv < MEM_SCHEMA_VERSION) console.log('⚠ 记忆数据 schema v' + sv + ' 比工具期望旧（v' + MEM_SCHEMA_VERSION + '）：跑 工具\\记忆打包.mjs 升版')
+      else if (sv > MEM_SCHEMA_VERSION) console.log('⚠ 记忆数据 schema v' + sv + ' 比本工具新：换新工具再写数据，别用旧工具降级')
+    } catch { console.log('⚠ _共享记忆\\schema.json 读不动：跑 工具\\记忆打包.mjs 升版 重写') }
+  }
   process.exit(n ? 1 : 0)
 }
 
