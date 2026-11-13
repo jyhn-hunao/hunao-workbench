@@ -60,15 +60,15 @@ body {
   -webkit-app-region: drag;
   cursor: default;
 }
-/* 蓝色的点：默认是"精致的小点"——静态、内里有高光、外面一圈极细的环，不闪不呼吸。
-   呼吸 + 扩散圆环只在鼠标移上去时才开始（见下面的 .brand:hover 规则），这样平时安静、
-   碰上去才"活过来"，也不抢注意力。 */
+/* 工作台标识：2026-11-13 起从「一颗圆点」换成工作台自有形象（顶栏 22px 圆形头像，
+   图见 assets/workbench-avatar.png，原图 1536×1536 已去掉右下角「豆包 AI 生成」水印）。
+   状态语义不变：#brand-dot 仍由 renderers.js 的 highlightEngineMismatch 打 brand-dot-warn ⇒ 外环转琥珀色。 */
 .brand-dot {
   /* 唯一保留 no-drag 的地方：鼠标事件能进来 ⇒ .brand:hover 生效 ⇒ 版本卡照常弹 */
   -webkit-app-region: no-drag;
-  width: 7px; height: 7px; border-radius: 50%;
-  background: radial-gradient(circle at 35% 30%, #a8ccff 0%, var(--accent) 65%, #3a6fd8 100%);
-  box-shadow: 0 0 3px rgba(79,140,255,.5), inset 0 0 2px rgba(255,255,255,.45);
+  width: 22px; height: 22px; border-radius: 50%;
+  background: url('assets/workbench-avatar.png') center / cover no-repeat;
+  box-shadow: 0 0 0 1px var(--line-2);
   flex-shrink: 0;
   position: relative;
   transition: box-shadow .18s ease;
@@ -115,10 +115,9 @@ body {
   70%  { transform: scale(2.3); opacity: 0; }
   100% { transform: scale(2.3); opacity: 0; }
 }
-/* 引擎版本与"本壳适配版本"不一致：小点转琥珀色（提醒去核对上游实现，见 §18） */
+/* 引擎版本与"本壳适配版本"不一致：外环转琥珀色（提醒去核对上游实现，见 §18） */
 .brand-dot.brand-dot-warn {
-  background: radial-gradient(circle at 35% 30%, #ffe0a3 0%, #f5a524 65%, #b26a00 100%);
-  box-shadow: 0 0 4px rgba(245,165,36,.6), inset 0 0 2px rgba(255,255,255,.45);
+  box-shadow: 0 0 0 1.5px var(--warn), 0 0 0 3px var(--warn-soft);
 }
 .brand-dot.brand-dot-warn::before { border-color: rgba(245,165,36,.45); }
 .brand:hover .brand-dot.brand-dot-warn::before { border-color: rgba(255,208,120,.9); }
@@ -749,7 +748,8 @@ html[data-theme="light"] .init-error { color: #7a1220; background: rgba(255, 235
 .boot-card { width: min(520px, 84vw); display: flex; flex-direction: column; align-items: center; gap: 13px; }
 .boot-logo {
   width: 66px; height: 66px; border-radius: 17px;
-  background: url('assets/deepseek-whale.png') center/contain no-repeat;
+  /* 2026-11-13：启动页标识由 DeepSeek 鲸鱼换成工作台自有形象（同一张图的方形裁切版，已去水印） */
+  background: url('assets/workbench-logo.png') center/contain no-repeat;
   animation: bootPulse 2.2s ease-in-out infinite;
 }
 @keyframes bootPulse {
@@ -5215,17 +5215,21 @@ html[data-theme] .brand {
   color: var(--text);
 }
 html[data-theme] .brand-name { color: var(--text); }
-/* 品牌点：原来是一颗会呼吸发光的蓝色小灯 ⇒ 极简一颗纯色圆点，不闪不亮 */
+/* 品牌标识：原来是一颗 7px 纯色圆点 ⇒ 换成 22px 圆形头像（工作台自有形象），不闪不亮 */
 html[data-theme] .brand-dot {
-  width: 7px; height: 7px;
-  background: var(--text);
-  box-shadow: none;
+  width: 22px; height: 22px;
+  background: url('assets/workbench-avatar.png') center / cover no-repeat;
+  box-shadow: 0 0 0 1px var(--line-2);
   border-radius: 50%;
   animation: none !important;
 }
 html[data-theme] .brand-dot::before,
 html[data-theme] .brand-dot::after { content: none; display: none; }
-html[data-theme] .brand-dot.brand-dot-warn { background: var(--warn); }
+/* 版本不一致的提醒：头像不动，外环转琥珀色 */
+html[data-theme] .brand-dot.brand-dot-warn {
+  background: url('assets/workbench-avatar.png') center / cover no-repeat;
+  box-shadow: 0 0 0 1.5px var(--warn), 0 0 0 3px var(--warn-soft);
+}
 
 html[data-theme] .brand-tip {
   background: var(--bg-panel);
@@ -6396,3 +6400,29 @@ html[data-theme] .cut-mask { backdrop-filter: none; -webkit-backdrop-filter: non
    这里只把"浅色下写死的白 10% 描边"换成发丝线 */
 html[data-theme="light"] .kneu-search,
 html[data-theme="light"] .kneu-btn { border-color: var(--line-2); }
+
+/* ---- 社交 · 消息流面板（so-msg · msgflow，2026-11-13）----
+   规矩：只用设计令牌（--bg / --border / --text / --text-dim / --ok / --warn / --accent），
+   不写死颜色 —— 浅色主题下写死的深色常量会变成白字白底。 */
+.mf-panel { display: flex; flex-direction: column; gap: 8px; min-height: 0; }
+.mf-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; flex: 0 0 auto; }
+.mf-chip { display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px; border-radius: 999px;
+  border: 1px solid var(--border); background: var(--bg); font-size: 12px; line-height: 18px; white-space: nowrap; }
+.mf-chip-name { color: var(--text); }
+.mf-chip-state { font-weight: 600; color: var(--text-dim); }
+.mf-chip.is-ok { border-color: var(--ok); }
+.mf-chip.is-ok .mf-chip-state { color: var(--ok); }
+.mf-chip.is-warn { border-color: var(--warn); }
+.mf-chip.is-warn .mf-chip-state { color: var(--warn); }
+.mf-chip.is-off { border-color: var(--border); }
+.mf-chip-time { margin-left: auto; font-size: 12px; color: var(--text-dim); }
+.mf-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column;
+  gap: 8px; padding-right: 4px; }
+.mf-row { display: flex; flex-direction: column; gap: 2px; max-width: 88%; padding: 6px 10px;
+  border-radius: 10px; border: 1px solid var(--border); background: var(--bg); font-size: 13px; line-height: 1.5; }
+.mf-row.is-them { align-self: flex-start; }
+.mf-row.is-her { align-self: flex-end; border-color: var(--accent); background: transparent; }
+.mf-meta { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-dim); }
+.mf-who { font-weight: 600; color: var(--text); }
+.mf-text { white-space: pre-wrap; word-break: break-word; color: var(--text); }
+.mf-empty { color: var(--text-dim); font-size: 13px; line-height: 1.6; padding: 10px 2px; }
