@@ -114,7 +114,7 @@ function memSeedBlock(sceneName, panelId) {
   const cand = [
     { tag: '人格口径', text: personaBlock(sceneName), cut: '' },
     { tag: '本面板交接', file: path.join(mdir, '面板交接', String(panelId || '') + '.md'), cut: '' },
-    { tag: '场景 §〇', file: path.join(mdir, '场景私有记忆.md'), cut: '## 核心职责' },
+    { tag: '场景 §〇', file: path.join(mdir, '场景私有记忆.md'), cut: '## 核心职责', keepTail: true },
     // 近期记忆：人格场景由 工具\人格记忆.mjs 重建，其余场景由 工具\近期记忆.mjs 重建；
     // 没有这个文件就跳过（不至于把开场弄挂）
     { tag: '近期记忆', file: path.join(mdir, '_近期.md'), cut: '' },
@@ -144,7 +144,14 @@ function memSeedBlock(sceneName, panelId) {
     let bytes = Buffer.byteLength(body, 'utf8');
     let cut = false;
     if (bytes > left) {
-      body = Buffer.from(body, 'utf8').subarray(0, left - 40).toString('utf8').replace(/\uFFFD$/, '');
+      // 2026-11-14：§〇 优先保末尾——「下一步·卡点」在 §〇 尾部，头截会把最要紧的部分先截掉
+      if (c.keepTail) {
+        const head = Buffer.from(body, 'utf8').subarray(0, 180).toString('utf8').replace(/\uFFFD$/, '');
+        const tail = Buffer.from(body, 'utf8').subarray(-(left - Buffer.byteLength(head, 'utf8') - 60)).toString('utf8').replace(/^\uFFFD/, '');
+        body = head + '\n…（§〇 中段省略，保留末尾「下一步·卡点」；全文见：' + from + '）…\n' + tail;
+      } else {
+        body = Buffer.from(body, 'utf8').subarray(0, left - 40).toString('utf8').replace(/\uFFFD$/, '');
+      }
       bytes = Buffer.byteLength(body, 'utf8');
       cut = true;
     }
