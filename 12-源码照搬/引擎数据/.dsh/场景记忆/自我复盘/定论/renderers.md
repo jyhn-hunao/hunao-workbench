@@ -2,7 +2,7 @@
 kind: 定论
 topic: renderers
 date: 2026-11-13
-status: draft
+status: confirmed
 generated_by: 工具/场景记忆.mjs 沉淀
 tags:
   - 定论
@@ -28,7 +28,9 @@ evidence:
 
 ## 结论
 
-- （待归纳：以上 3 条各说各的，需要一句共同结论；没有就不硬凑）
+1. 热更只覆盖 `renderers.js`；改 `index.html` 的 `<script>` 标签必须重启整壳。「改了但界面没变」先区分是没生效还是写错。
+2. 对运行中的大文件写盘必须原子：写 `<file>.tmp` → `rename`，禁止 `fs.writeFileSync` 直接截断重写（壳正跑着重载会读到半截）。
+3. 混合行尾的大文件（如 1.1MB 的 renderers.js）用 `git -c core.autocrlf=false add` 暂存，再 `diff --cached --numstat` 复核，防止 66 行 diff 膨胀成上万行。
 
 ## 来源
 

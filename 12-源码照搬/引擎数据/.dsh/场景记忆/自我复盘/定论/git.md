@@ -2,7 +2,7 @@
 kind: 定论
 topic: git
 date: 2026-11-13
-status: draft
+status: confirmed
 generated_by: 工具/场景记忆.mjs 沉淀
 tags:
   - 定论
@@ -28,7 +28,9 @@ evidence:
 
 ## 结论
 
-- （待归纳：以上 3 条各说各的，需要一句共同结论；没有就不硬凑）
+1. 动主渲染器这类高风险文件前，先 checkpoint（提交或 `git stash`）——回滚目标是明确的一版，不是「我记得哪版能用」。
+2. autocrlf 下 `diff --cached --numstat` 会把 CRLF 文件报成整文件增删（numstat 会骗人），判噪声用 `git show --numstat HEAD` 复核真实提交内容。
+3. commit 与 push 分步：先 commit → `git show --stat` 确认干净 → 再 push；已推送不可改写历史，噪声提交会永久留在历史里。
 
 ## 来源
 

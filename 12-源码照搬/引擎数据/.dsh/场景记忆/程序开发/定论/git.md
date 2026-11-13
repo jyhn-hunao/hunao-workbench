@@ -2,7 +2,7 @@
 kind: 定论
 topic: git
 date: 2026-11-13
-status: draft
+status: confirmed
 generated_by: 工具/场景记忆.mjs 沉淀
 tags:
   - 定论
@@ -28,7 +28,9 @@ evidence:
 
 ## 结论
 
-- （待归纳：以上 3 条各说各的，需要一句共同结论；没有就不硬凑）
+1. `type(scope)` 只约束 AI 产出/代办的提交，界面与脚本**不得校验**用户手写的提交信息；main.js 在主进程，相关改动要重启工作台才生效。
+2. `git add` 报 `index.lock: Permission denied` = `.git` 目录对当前用户缺写权限，跑 diagnose-windows-sandbox-acl 技能补 ACL，别手改权限。
+3. PowerShell 里 git/mvn 的 `-m`、`-D` 等选项必须放在 `--` **之前**（`git commit -m "msg" -- a.md`），`-D` 参数要加引号；JDK21 项目先切 `JAVA_HOME` 到 `D:\java\jdk21`。
 
 ## 来源
 
