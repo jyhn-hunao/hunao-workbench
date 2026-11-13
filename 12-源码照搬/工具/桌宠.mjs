@@ -26,6 +26,7 @@ const pet = require('../外壳/桌宠设置.js');
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DISPATCH = path.join(ROOT, '工具', '派发.mjs');
 const SYNC = path.join(ROOT, '工具', '同步桥接路由.mjs');
+const MEMTOOL = path.join(ROOT, '工具', '人格记忆.mjs');
 
 const argv = process.argv.slice(2);
 const cmd = String(argv[0] || '');
@@ -52,14 +53,32 @@ function cmdDispatch() {
   const timeoutSec = Math.max(30, Number(val('--超时', 600)) || 600);
   if (!text.trim()) { say('✗ 缺少 --文本 "<原话>"'); return 4; }
 
-  const r = pet.resolveRoute(text, pet.getSettings());
+  const settings = pet.getSettings();
+  // 工具白名单是硬门：设置里没让「派活」，直接拒绝，不靠模型自觉（2026-11-13）
+  const allow = (settings.tools || {}).allow || [];
+  const deny = (settings.tools || {}).deny || [];
+  if (deny.indexOf('dispatch') >= 0 || allow.indexOf('dispatch') < 0) {
+    say('✗ 设置里没允许「派活给别的场景」⇒ 不派。（人格面板 ⚙ 设置 → 她可以做什么 → 派活给别的场景）');
+    return 5;
+  }
+
+  const r = pet.resolveRoute(text, settings);
   if (!r.hit) {
     say('✗ 认不出该派给谁。候选场景：' + (r.candidates || []).join(' / '));
     return 2;
   }
-  // 审批：confirm 级别必须有人点头（--确认）；read 级别直接派
-  if (r.hit.level !== 'read' && !confirmed) {
-    say('⚠ 这条要派给「' + r.hit.to + '」，级别 ' + r.hit.level + ' ⇒ 需要你确认。确认后加 --确认 再跑一次：');
+  // 审批：路由级别 + 全局审批级别取更严的一档（read 场景在「只读也要先问」时同样要确认）
+  const ap = settings.approval || {};
+  const rank = { read: 0, confirm: 1, never: 2 };
+  const routeRank = rank[r.hit.level] == null ? 1 : rank[r.hit.level];
+  const readAsk = (ap.read || 'auto') !== 'auto' ? 1 : 0;
+  const needLevel = Math.max(routeRank, readAsk);
+  if (needLevel >= 2) {
+    say('✗ 这条的路由级别是「禁止」⇒ 不派。要改：人格面板 ⚙ 设置 → 哪句话该交给谁');
+    return 5;
+  }
+  if (needLevel >= 1 && !confirmed) {
+    say('⚠ 这条要派给「' + r.hit.to + '」⇒ 需要你确认。确认后加 --确认 再跑一次：');
     say('  node 12-源码照搬\\工具\\桌宠.mjs 派 --文本 "' + text + '" --确认');
     return 3;
   }
@@ -69,17 +88,22 @@ function cmdDispatch() {
   }
 
   const t0 = Date.now();
-  const res = spawnSync(process.execPath || 'node', [DISPATCH, '--to', r.hit.to, text, '--timeout', String(timeoutSec)], {
+  // 派发方默认是人格会话（桌宠就是「胡闹的大肥鱼」这条会话），别让人再手填 --from
+  const fromId = String(val('--from', '') || pet.petSession().sessionId || '');
+  const args = [DISPATCH, '--to', r.hit.to, text, '--timeout', String(timeoutSec)];
+  if (fromId) args.push('--from', fromId);
+  const res = spawnSync(process.execPath || 'node', args, {
     cwd: ROOT, encoding: 'utf8', timeout: (timeoutSec + 20) * 1000, maxBuffer: 8 * 1024 * 1024,
   });
   const ms = Date.now() - t0;
   const out = String((res.stdout || '') + (res.stderr || '')).trim();
   const ok = res.status === 0 && !res.error;
   const tail = out.split('\n').filter(Boolean).slice(-3).join(' | ');
+  const ticket = (out.match(/派发单\s+([0-9\w-]+)/) || [])[1] || '';
   pet.logDispatch({
     at: new Date().toISOString(), text, to: r.hit.to, level: r.hit.level,
     ok, summary: ok ? (tail || '已投递') : (res.error ? String(res.error.message || res.error) : tail || '退出码 ' + res.status),
-    ms,
+    ms, ticket,
   });
   say((ok ? '✓' : '✗') + ' 派给「' + r.hit.to + '」' + (ok ? ' 完成' : ' 失败') + '（' + Math.round(ms) + 'ms）');
   if (tail) say('  ' + tail);
@@ -114,9 +138,39 @@ function cmdSync() {
   return r.status === 0 ? 0 : 4;
 }
 
-const table = { 路由: cmdRoute, 派: cmdDispatch, 日志: cmdLog, 设置: cmdSettings, 桥接同步: cmdSync };
+// 6. 能主动吗：把「主动性 + 免打扰」这两项从参数变成可执行判断（人格主动开口前先问它）
+function cmdProactive() {
+  const s = pet.getSettings();
+  const p = String((s.persona || {}).proactive || 'low');
+  if (p === 'low') { say('✗ 不主动：设置里是「少吭声」⇒ 只答不说'); return 1; }
+  const q = s.quiet || {};
+  const toMin = (x) => { const m = /^(\d{1,2}):(\d{2})$/.exec(String(x || '')); return m ? (+m[1]) * 60 + (+m[2]) : null; };
+  const now = new Date();
+  const hh = now.getHours() * 60 + now.getMinutes();
+  const a = toMin(q.from), b = toMin(q.to);
+  if (a != null && b != null) {
+    const inside = a <= b ? (hh >= a && hh < b) : (hh >= a || hh < b);   // 跨零点也算
+    if (inside) { say('✗ 不主动：现在是免打扰时段（' + q.from + '–' + q.to + '）'); return 1; }
+  }
+  say('✓ 可以主动开口（档位：' + (p === 'high' ? '会主动找我' : '有事才说')
+    + '；每小时最多 ' + (q.proactiveMaxPerHour == null ? 2 : q.proactiveMaxPerHour) + ' 次——上限靠你自己数，工具只给判据）');
+  return 0;
+}
+
+// 7. 记：把「写记忆」这步交给 人格记忆.mjs（开关与确认都在那边按设置执行）
+function cmdRemember() {
+  const pass = argv.slice(1);
+  const sub = String(pass[0] || '');
+  const full = ['写', '读', '体检', '归档'].indexOf(sub) >= 0 ? pass : ['写'].concat(pass);   // 不写子命令默认是「写」
+  const r = spawnSync(process.execPath || 'node', [MEMTOOL].concat(full), { cwd: ROOT, encoding: 'utf8', timeout: 90000, maxBuffer: 4 * 1024 * 1024 });
+  const out = String((r.stdout || '') + (r.stderr || '')).trim();
+  if (out) out.split('\n').forEach(say);
+  return r.status === 0 ? 0 : (r.status || 4);
+}
+
+const table = { 路由: cmdRoute, 派: cmdDispatch, 日志: cmdLog, 设置: cmdSettings, 桥接同步: cmdSync, 能主动吗: cmdProactive, 记: cmdRemember };
 if (!table[cmd]) {
-  say('用法：node 12-源码照搬\\工具\\桌宠.mjs <路由|派|日志|设置|桥接同步> [参数]');
+  say('用法：node 12-源码照搬\\工具\\桌宠.mjs <路由|派|日志|设置|桥接同步|能主动吗|记> [参数]');
   process.exit(2);
 }
 process.exit(table[cmd]());
