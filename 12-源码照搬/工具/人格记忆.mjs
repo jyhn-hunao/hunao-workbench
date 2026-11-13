@@ -59,6 +59,35 @@ function addIndex(file, line) {
   return true;
 }
 
+// 3.2 近似去重：同一天的标题相等只是最粗的一层；这里按「去标点后的双字重合度」判近似，
+//      命中就提示已有条目、不再写第二份（要强制另存加 --另存）。跨 记忆/对话 也一起查，防止同一件事两边各记一条。
+function normTitle(s) { return String(s || '').replace(/[^\u4e00-\u9fa5A-Za-z0-9]/g, '').toLowerCase(); }
+function grams(s) { const g = new Set(); for (let i = 0; i < s.length - 1; i++) g.add(s.slice(i, i + 2)); return g; }
+function similarTitle(a, b) {
+  const x = normTitle(a), y = normTitle(b);
+  if (!x || !y) return 0;
+  if (x === y) return 1;
+  const A = grams(x), B = grams(y);
+  if (!A.size || !B.size) return 0;
+  let hit = 0;
+  for (const g of A) if (B.has(g)) hit += 1;
+  return hit / Math.min(A.size, B.size);
+}
+function findSimilar(titleText) {
+  for (const dir of [DIR_LONG, DIR_TALK]) {
+    if (!fs.existsSync(dir)) continue;
+    for (const f of fs.readdirSync(dir)) {
+      if (!f.endsWith('.md') || f.startsWith('_')) continue;
+      const full = path.join(dir, f);
+      const t = fs.readFileSync(full, 'utf8');
+      const m = /^title:\s*(.+)$/m.exec(t) || /^#\s*(.+)$/m.exec(t);
+      const old = m ? m[1].trim() : f.replace(/\.md$/, '');
+      if (similarTitle(titleText, old) >= 0.7) return { file: full, title: old };
+    }
+  }
+  return null;
+}
+
 // 3.5 近期摘要：把「最近 10 条记忆索引 + 未办待办 5 条」压成一份 ≤2 KB 的小文件。
 //     为什么有它：开场注入只带 §〇（人格卡），不读这份就等于「有记忆但想不起来」；
 //     每轮读它成本很小，需要细节再用 读 --词 顺着看原文。
@@ -119,6 +148,15 @@ function cmdWrite() {
   }
 
   ensureDirs();
+  // 近似去重：命中就提示已有条目，不再写第二份（--另存 可强制写新的）
+  if (!has('--另存')) {
+    const dup = findSimilar(title);
+    if (dup) {
+      say('✓ 已有相近条目，不重复写：' + path.relative(ROOT, dup.file) + '（标题：' + dup.title + '）');
+      say('  要强制另存一份：加 --另存；要改旧的就直接编辑那个文件（记忆只追加，不改历史段落）');
+      return 0;
+    }
+  }
   const date = today();
   const source = String(val('--来源', '工作台')).trim();
   const dir = kind === '记忆' ? DIR_LONG : DIR_TALK;

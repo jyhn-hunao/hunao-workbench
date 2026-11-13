@@ -87,34 +87,53 @@ function sessionTurnStarted(id) {
 //   超长一律截断并给出全文路径：开场消息塞太大反而把上下文预算吃掉。
 //   上限可用 DSH_SEED_MEM_LIMIT 覆盖（自检/调参用；默认 4 KB）。
 const SEED_MEM_LIMIT = Number(process.env.DSH_SEED_MEM_LIMIT) || 4 * 1024;
+// 开场注入：按「本面板交接 → 场景 §〇 → 近期记忆」顺序**拼接**（不是取第一个就返回）。
+// 2026-11-13 修：原来三段只取第一个命中的，导致「人格卡有了、近期记忆永远进不来」——
+//   等于长期记忆写了也想不起来。现在每段按剩余预算截断，总预算仍是 SEED_MEM_LIMIT。
 function memSeedBlock(sceneName, panelId) {
   const mdir = path.join(DSH_HOME, '场景记忆', String(sceneName || ''));
   if (!fs.existsSync(mdir)) return null;
   const cand = [
-    { tag: '本面板交接', file: path.join(mdir, '面板交接', String(panelId || '') + '.md') },
-    { tag: '场景 §〇', file: path.join(mdir, '场景私有记忆.md') },
+    { tag: '本面板交接', file: path.join(mdir, '面板交接', String(panelId || '') + '.md'), cut: '' },
+    { tag: '场景 §〇', file: path.join(mdir, '场景私有记忆.md'), cut: '## 核心职责' },
+    // 近期记忆由 工具\人格记忆.mjs 自动重建（最近长期 + 最近对话 + 未办待办）；没有这个文件就跳过
+    { tag: '近期记忆', file: path.join(mdir, '_近期.md'), cut: '' },
   ];
+  const parts = [];
+  const files = [];
+  let used = 0;
   for (const c of cand) {
     if (!c.file || !fs.existsSync(c.file)) continue;
     let body = '';
     try { body = fs.readFileSync(c.file, 'utf8'); } catch (e) { continue; }
-    if (c.tag === '场景 §〇') {
-      const cut = body.indexOf('## 核心职责');
-      body = cut > 0 ? body.slice(0, cut) : body;
+    if (c.cut) {
+      const at = body.indexOf(c.cut);
+      body = at > 0 ? body.slice(0, at) : body;
     }
     body = body.replace(/\r\n/g, '\n').trim();
     if (!body) continue;
+    const left = SEED_MEM_LIMIT - used;
+    if (left <= 80) { parts.push('【' + c.tag + '】\n…（预算已满，本段省略）'); files.push(c.file); continue; }
     // 按**字节**算体量（中文一字 3 字节，按字符数算会低估三倍）
-    const over = Buffer.byteLength(body, 'utf8') > SEED_MEM_LIMIT;
-    if (over) body = Buffer.from(body, 'utf8').subarray(0, SEED_MEM_LIMIT).toString('utf8').replace(/\uFFFD$/, '');
-    return {
-      tag: c.tag,
-      file: c.file,
-      size: Buffer.byteLength(body, 'utf8'),
-      text: over ? body + '\n…（已截断，全文见上述路径）' : body,
-    };
+    let bytes = Buffer.byteLength(body, 'utf8');
+    let cut = false;
+    if (bytes > left) {
+      body = Buffer.from(body, 'utf8').subarray(0, left - 40).toString('utf8').replace(/\uFFFD$/, '');
+      bytes = Buffer.byteLength(body, 'utf8');
+      cut = true;
+    }
+    used += bytes;
+    files.push(c.file);
+    parts.push('【' + c.tag + '】\n' + body + (cut ? '\n…（已截断，全文见：' + c.file + '）' : ''));
   }
-  return null;
+  if (!parts.length) return null;
+  const text = parts.join('\n\n');
+  return {
+    tag: '人格卡 + 近期记忆',
+    file: files.join(' + '),
+    size: Buffer.byteLength(text, 'utf8'),
+    text,
+  };
 }
 
 // 引擎有两处会话索引：项目缓存总表 + 每会话缓存（文件名就是会话 id）

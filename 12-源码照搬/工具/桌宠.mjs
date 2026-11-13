@@ -67,18 +67,14 @@ function cmdDispatch() {
     say('✗ 认不出该派给谁。候选场景：' + (r.candidates || []).join(' / '));
     return 2;
   }
-  // 审批：路由级别 + 全局审批级别取更严的一档（read 场景在「只读也要先问」时同样要确认）
-  const ap = settings.approval || {};
-  const rank = { read: 0, confirm: 1, never: 2 };
-  const routeRank = rank[r.hit.level] == null ? 1 : rank[r.hit.level];
-  const readAsk = (ap.read || 'auto') !== 'auto' ? 1 : 0;
-  const needLevel = Math.max(routeRank, readAsk);
-  if (needLevel >= 2) {
-    say('✗ 这条的路由级别是「禁止」⇒ 不派。要改：人格面板 ⚙ 设置 → 哪句话该交给谁');
+  // 审批一律走 桌宠设置.js 的 dispatchPolicy（通道降级、全局只读要问、never 都在那一条里判）
+  const pol = pet.dispatchPolicy(text, r.hit, settings);
+  if (pol.level === 'never') {
+    say('✗ 不派：' + (pol.reason || '该场景被设为禁止') + '。要改：人格面板 ⚙ 设置 → 哪句话该交给谁');
     return 5;
   }
-  if (needLevel >= 1 && !confirmed) {
-    say('⚠ 这条要派给「' + r.hit.to + '」⇒ 需要你确认。确认后加 --确认 再跑一次：');
+  if (pol.confirm && !confirmed) {
+    say('⚠ 这条要派给「' + r.hit.to + '」⇒ 需要你确认（' + pol.reason + '）。确认后加 --确认 再跑一次：');
     say('  node 12-源码照搬\\工具\\桌宠.mjs 派 --文本 "' + text + '" --确认');
     return 3;
   }
@@ -138,23 +134,13 @@ function cmdSync() {
   return r.status === 0 ? 0 : 4;
 }
 
-// 6. 能主动吗：把「主动性 + 免打扰」这两项从参数变成可执行判断（人格主动开口前先问它）
+// 6. 能主动吗：判据与次数账都在 桌宠设置.js 的 proactiveGate 里（跨进程计数，避免各写一份）
+//    --记账 才占用这一小时的额度；只查询不记账。
 function cmdProactive() {
-  const s = pet.getSettings();
-  const p = String((s.persona || {}).proactive || 'low');
-  if (p === 'low') { say('✗ 不主动：设置里是「少吭声」⇒ 只答不说'); return 1; }
-  const q = s.quiet || {};
-  const toMin = (x) => { const m = /^(\d{1,2}):(\d{2})$/.exec(String(x || '')); return m ? (+m[1]) * 60 + (+m[2]) : null; };
-  const now = new Date();
-  const hh = now.getHours() * 60 + now.getMinutes();
-  const a = toMin(q.from), b = toMin(q.to);
-  if (a != null && b != null) {
-    const inside = a <= b ? (hh >= a && hh < b) : (hh >= a || hh < b);   // 跨零点也算
-    if (inside) { say('✗ 不主动：现在是免打扰时段（' + q.from + '–' + q.to + '）'); return 1; }
-  }
-  say('✓ 可以主动开口（档位：' + (p === 'high' ? '会主动找我' : '有事才说')
-    + '；每小时最多 ' + (q.proactiveMaxPerHour == null ? 2 : q.proactiveMaxPerHour) + ' 次——上限靠你自己数，工具只给判据）');
-  return 0;
+  const g = pet.proactiveGate(pet.getSettings(), { record: has('--记账') });
+  say((g.ok ? '✓ ' : '✗ ') + g.reason);
+  if (g.ok && !has('--记账')) say('  （要真的开口就加 --记账：占一次本小时的额度）');
+  return g.ok ? 0 : 1;
 }
 
 // 7. 记：把「写记忆」这步交给 人格记忆.mjs（开关与确认都在那边按设置执行）

@@ -130,9 +130,78 @@ function listScenes() {
   return out.filter((x) => (seen[x.title] ? false : (seen[x.title] = true)));
 }
 
+// 6. 审批策略：一处判定，所有入口（桌宠.mjs 派 / 未来面板按钮 / 定时任务）都调它，别各写一份
+//    输入：text 原话、rv 路由命中 {to, level}、settings
+//    输出：{ level: read|confirm|never, reason, confirm: 需不需要人点头 }
+//    规则（顺序即优先级）：
+//      a) 通道来的一律降一级（QQ/飞书 前缀）——防止「那头的我」指使她改仓库/对外发消息
+//      b) 路由自带的 never 最高
+//      c) 全局 approval.read !== auto 时，连 read 级也要确认
+const CHANNEL_PREFIX = [/^（QQ/, /^（飞书/, /^\[QQ/, /^\[飞书/];
+function channelOf(text) {
+  const t = String(text || '');
+  for (const re of CHANNEL_PREFIX) if (re.test(t)) return 'im';
+  return '';
+}
+function dispatchPolicy(text, rv, settings) {
+  const s = settings || getSettings();
+  const ap = s.approval || {};
+  const rank = { read: 0, confirm: 1, never: 2 };
+  const base = rank[(rv && rv.level) || 'confirm'];
+  let level = base == null ? 1 : base;
+  const reasons = [];
+  if (channelOf(text)) {
+    level = Math.min(2, level + 1);
+    reasons.push('来自外部通道的指令，权限降一级');
+  }
+  if ((ap.read || 'auto') !== 'auto' && level === 0) {
+    level = 1;
+    reasons.push('设置里「只看资料」也要求先问');
+  }
+  if (level >= 2) return { level: 'never', confirm: false, reason: reasons.concat('该场景被设为禁止').join('；') };
+  return { level: level === 1 ? 'confirm' : 'read', confirm: level === 1, reason: reasons.join('；') || '按路由级别执行' };
+}
+
+// 7. 主动闸门：档位 + 免打扰 + 每小时上限（计数落盘，跨进程有效）
+//    为什么不在插件里改：主动钟在第三方插件内，改它等于改引擎依赖；这里给「能不能开口」的硬判据 + 次数账。
+const PROACTIVE_STATE = path.join(SHELL, 'data', 'pet', '主动记录.json');
+function proactiveGate(settings, opts) {
+  const s = settings || getSettings();
+  const o = opts || {};
+  const now = o.now ? new Date(o.now) : new Date();
+  const p = String((s.persona || {}).proactive || 'low');
+  if (p === 'low') return { ok: false, reason: '档位是「少吭声」（只答不说）' };
+  const q = s.quiet || {};
+  const toMin = (x) => { const m = /^(\d{1,2}):(\d{2})$/.exec(String(x || '')); return m ? (+m[1]) * 60 + (+m[2]) : null; };
+  const hh = now.getHours() * 60 + now.getMinutes();
+  const a = toMin(q.from), b = toMin(q.to);
+  if (a != null && b != null) {
+    const inside = a <= b ? (hh >= a && hh < b) : (hh >= a || hh < b);
+    if (inside) return { ok: false, reason: '免打扰时段（' + q.from + '–' + q.to + '）' };
+  }
+  const cap = Number(q.proactiveMaxPerHour == null ? 2 : q.proactiveMaxPerHour);
+  const stateFile = o.stateFile || PROACTIVE_STATE;
+  const st = readJson(stateFile) || {};
+  const hourKey = now.getFullYear() + '-' + String(now.getMonth() + 1) + '-' + now.getDate() + 'T' + now.getHours();
+  const used = Number((st.hours || {})[hourKey] || 0);
+  if (cap > 0 && used >= cap) return { ok: false, reason: '这一小时已主动 ' + used + '/' + cap + ' 次', used, cap };
+  // record=true 才记账（查询不该消耗额度）
+  if (o.record) {
+    const hours = st.hours || {};
+    hours[hourKey] = used + 1;
+    const keys = Object.keys(hours).sort().slice(-48);      // 只留最近 48 个小时桶，文件不会越长越大
+    const keep = {};
+    for (const k of keys) keep[k] = hours[k];
+    fs.mkdirSync(path.dirname(stateFile), { recursive: true });
+    fs.writeFileSync(stateFile, JSON.stringify({ hours: keep, last: now.toISOString() }, null, 2), 'utf8');
+  }
+  return { ok: true, reason: '可以主动开口（本小时 ' + (o.record ? used + 1 : used) + '/' + cap + '）', used: o.record ? used + 1 : used, cap };
+}
+
 module.exports = {
   DEFAULT_FILE, DATA_FILE, DSH_HOME,
   getSettings, setSettings, resolveRoute,
   logPath, logDispatch, tailLog,
-  petSession, listScenes
+  petSession, listScenes,
+  channelOf, dispatchPolicy, proactiveGate
 };
