@@ -399,6 +399,12 @@ contextBridge.exposeInMainWorld('app', {
     // 2026-11-12：环境适配（整台工作台的属性：本机路径 / 私有插件落位 / 会话 / 端口）
     envCheck: () => ipcRenderer.invoke('topbar:env-check'),
     envApply: () => ipcRenderer.invoke('topbar:env-apply'),
+    // 2026-11-13：记忆包（可移植性安全网：打包/核对/恢复/升版，工具 = 工具\记忆打包.mjs）
+    memPackages: () => ipcRenderer.invoke('topbar:mem-packages'),
+    memPack: () => ipcRenderer.invoke('topbar:mem-pack'),
+    memCheck: (pkgName) => ipcRenderer.invoke('topbar:mem-check', pkgName || ''),
+    memRestore: (pkgName) => ipcRenderer.invoke('topbar:mem-restore', pkgName || ''),
+    memSchema: () => ipcRenderer.invoke('topbar:mem-schema'),
     // 2026-11-13：引擎更新（版本级：查版本 / 下载装配 / 换入 / 退回某一版）。
     //   工具侧只认 registry 的 dist-tags，不指定版本号；apply 与 rollback 会关掉工作台再重开。
     updateStatus: () => ipcRenderer.invoke('topbar:update-status'),

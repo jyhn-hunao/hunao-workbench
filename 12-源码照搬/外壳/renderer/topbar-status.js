@@ -1198,6 +1198,115 @@
     if (ENV.rows.length) box.appendChild(el('div', 'tbs-pop-hint', '新机器上的会话必须重建：命令行 node 外壳\\scripts\\环境适配.mjs --rotate（会归档旧会话，所以界面不给这个按钮）。'));
   }
 
+  // ⑤b 记忆包（2026-11-13）：可移植性安全网 —— 打包/核对/恢复/升版，工具 = 工具\记忆打包.mjs。
+  //    打的是「连 git 都不跟」的记忆快照（归档/身份卡/项目.json），换机与误删兜底；
+  //    恢复前工具会自动把当前数据快照到 恢复前备份-<时间>，界面再要一次确认，双保险。
+  var MEM = { state: 'idle', rows: [], dir: '', at: 0, err: '', busy: false, out: '', confirmAt: 0 };
+
+  function memShort(n) { return String(n || '').replace(/^记忆包-/, '').replace(/^恢复前备份-/, '备份 '); }
+
+  function memGot(v) {
+    MEM.rows = (v && v.rows) || [];
+    MEM.dir = (v && v.dir) || '';
+    MEM.err = (v && v.error) || '';
+    MEM.at = Date.now();
+    MEM.state = 'ok';
+    repaint('mempack', buildMem);
+  }
+
+  function refreshMem() {
+    if (!TB || typeof TB.memPackages !== 'function') return;
+    MEM.state = 'loading';
+    repaint('mempack', buildMem);
+    Promise.resolve().then(function () { return TB.memPackages(); }).then(memGot).catch(function (e) {
+      MEM.state = 'error'; MEM.err = String((e && e.message) || e); repaint('mempack', buildMem);
+    });
+  }
+
+  function memRun(call, okText) {
+    if (MEM.busy) return;
+    MEM.busy = true;
+    MEM.state = 'loading';
+    MEM.out = '';
+    repaint('mempack', buildMem);
+    call().then(function (r) {
+      MEM.busy = false;
+      MEM.state = 'ok';
+      MEM.out = (r && r.ok) ? String(r.out || '✓ 完成') : ('没成功：' + ((r && r.error) || (r && r.out) || '未知原因'));
+      toast((r && r.ok) ? okText : MEM.out, !(r && r.ok), (r && r.ok) ? 5000 : 8000);
+      refreshMem();
+    }).catch(function (e) {
+      MEM.busy = false; MEM.state = 'error'; MEM.err = String((e && e.message) || e);
+      repaint('mempack', buildMem);
+    });
+  }
+
+  function buildMem(box) {
+    box.appendChild(el('div', 'tbs-pop-h', '记忆包 · ' + MEM.rows.length + ' 份'));
+    box.appendChild(el('div', 'tbs-pop-sub', '换机兜底：把 git 不跟的归档 / 身份卡 / 项目.json 一起打进去；恢复前自动留可回滚快照'));
+    if (MEM.out) {
+      var ob = el('div', 'tbs-pop-hint', MEM.out);
+      ob.style.whiteSpace = 'pre-wrap';
+      ob.style.maxHeight = '120px';
+      ob.style.overflowY = 'auto';
+      box.appendChild(ob);
+    }
+    if (MEM.state === 'loading') box.appendChild(el('div', 'tbs-pop-hint', '正在跑（打包/恢复要几秒）…'));
+    if (!MEM.rows.length && MEM.state !== 'loading') box.appendChild(el('div', 'tbs-pop-hint', '还没有记忆包。点「打包」生成一份；生成后建议拷到 U 盘 / 网盘。'));
+    if (MEM.rows.length) {
+      var list = el('div', 'tbs-pop-list');
+      MEM.rows.slice(0, 8).forEach(function (x, i) {
+        var r0 = el('div', 'tbs-row');
+        r0.appendChild(el('span', 'tbs-dot ' + (i === 0 && x.kind === 'pkg' ? 'ok' : '')));
+        var mid = el('div', 'tbs-row-mid');
+        mid.appendChild(el('div', 'tbs-row-t', memShort(x.name)));
+        mid.appendChild(el('div', 'tbs-row-s', x.kind === 'backup' ? '恢复前的自动快照（回滚用）' : '记忆快照（核对 / 恢复的对象）'));
+        r0.appendChild(mid);
+        list.appendChild(r0);
+      });
+      box.appendChild(list);
+      if (MEM.rows.length > 8) box.appendChild(el('div', 'tbs-pop-hint', '…共 ' + MEM.rows.length + ' 份，全部在 12-源码照搬\\记忆包\\'));
+    }
+    var foot = el('div', 'tbs-pop-f');
+    var pk = el('button', 'tbs-btn', MEM.busy ? '跑着…' : '打包');
+    pk.type = 'button';
+    pk.title = '全量快照场景记忆 + 各项目 memory\\（含 gitignore 掉的归档/登记表），落到 12-源码照搬\\记忆包\\记忆包-<时间>\\';
+    pk.addEventListener('click', function () { memRun(function () { return TB.memPack(); }, '记忆包打好了（在 12-源码照搬\\记忆包\\）'); });
+    foot.appendChild(pk);
+    var ck = el('button', 'tbs-btn', '核对');
+    ck.type = 'button';
+    ck.title = '用最新一份包和当前记忆逐文件比 sha256：有「缺失」会标红（可能误删，恢复可捞回）；变了/新增只提示';
+    ck.addEventListener('click', function () { memRun(function () { return TB.memCheck(''); }, '核对完成（有缺失会标红）'); });
+    foot.appendChild(ck);
+    var sc = el('button', 'tbs-btn', '升版');
+    sc.type = 'button';
+    sc.title = '落地/刷新 _共享记忆\\schema.json 数据契约版本（幂等）';
+    sc.addEventListener('click', function () { memRun(function () { return TB.memSchema(); }, 'schema 契约已落地'); });
+    foot.appendChild(sc);
+    var rs = el('button', 'tbs-btn danger', '恢复');
+    rs.type = 'button';
+    rs.title = '用最新一份包覆盖当前记忆（工具先自动快照当前到 恢复前备份-<时间>，可回滚）';
+    rs.addEventListener('click', function () {
+      var now = Date.now();
+      if (MEM.confirmAt && now - MEM.confirmAt < 6000) {
+        MEM.confirmAt = 0;
+        memRun(function () { return TB.memRestore(''); }, '恢复完成（当前数据已先快照，可回滚）');
+      } else {
+        MEM.confirmAt = now;
+        rs.textContent = '再点一次确认覆盖';
+        toast('恢复会覆盖当前记忆（会先自动快照，可回滚）。6 秒内再点一次执行。', false, 6000);
+        setTimeout(function () { if (MEM.confirmAt && Date.now() - MEM.confirmAt >= 6000) { MEM.confirmAt = 0; repaint('mempack', buildMem); } }, 6500);
+      }
+    });
+    foot.appendChild(rs);
+    var op = el('button', 'tbs-btn', '打开目录');
+    op.type = 'button';
+    op.addEventListener('click', function () { if (K.app && K.app.revealPath && MEM.dir) K.app.revealPath(MEM.dir); });
+    foot.appendChild(op);
+    foot.appendChild(el('span', 'tbs-pop-hint', MEM.at ? ('刷新于 ' + new Date(MEM.at).toLocaleTimeString('zh-CN', { hour12: false })) : ''));
+    box.appendChild(foot);
+  }
+
   // ⑥ 引擎更新（2026-11-13）：版本级 —— 查最新 / 下载装配 / 换入 / 退回某一版。
   //    与「回退（界面/引擎）」「环境适配」的区别：那两块管"能不能起来"，这块管"引擎本身换了个版本"。
   //    ⛔ 不写死版本号：界面显示的都是 registry 当下回的 latest，官方以后怎么发版都走这一套。
@@ -2006,6 +2115,16 @@
   // 2026-10-23 宿主：「这个会话压力不需要了删掉这个功能」⇒ 胶囊 + ⋯ 菜单条目 + 明细面板**整段删除**
   //   （引擎侧 `topbar:pressure` IPC 与 ctx.mjs 仍保留，命令行照常能查；只是界面不再展示）
   wrap.appendChild(fPill);
+  // 记忆包胶囊（2026-11-13）：可移植性安全网入口 —— 打包 / 核对 / 恢复 / 升版
+  var memPill = el('button', 'tbs-pill');
+  memPill.type = 'button';
+  memPill.innerHTML = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">'
+    + '<path d="M8 1.9 1.9 4.5v7L8 14.1l6.1-2.6v-7L8 1.9Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>'
+    + '<path d="M8 4.4v7M2.5 5.2 8 8l5.5-2.8" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>'
+    + '<span class="tbs-txt">记忆包</span>';
+  memPill.title = '记忆包：全量快照（含 git 不跟的归档/登记表）· 核对 · 恢复 · 升版 —— 换机与误删的兜底';
+  memPill.addEventListener('click', function () { openPop(memPill, 'mempack', buildMem); refreshMem(); });
+  wrap.appendChild(memPill);
     // 2026-10-19 宿主：助手移进 ⋯ 菜单（同上，代码留着）
   // wrap.appendChild(hPill);
   wrap.appendChild(mPill);

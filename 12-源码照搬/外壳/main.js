@@ -4670,6 +4670,62 @@ function envRun(mode) {
 ipcMain.handle('topbar:env-check', () => envRun('check'));
 ipcMain.handle('topbar:env-apply', () => envRun('apply'));
 
+// ⑥b 记忆包（2026-11-13）：顶栏「记忆包」胶囊 —— 打包/核对/恢复/升版 全走 工具\记忆打包.mjs。
+//   包目录 = <工作台>\记忆包（.gitignore 已挡）；恢复是覆盖写，工具侧会先自动快照当前（可回滚）。
+function memPkgTool() {
+  const t = path.join(TOPBAR_ROOT, '工具', '记忆打包.mjs');
+  return fs.existsSync(t) ? t : '';
+}
+// 列记忆包目录（记忆包-* 与 恢复前备份-*）；名字带时间戳 ⇒ 字典序即时间倒序
+function memPkgList() {
+  const dir = path.join(TOPBAR_ROOT, '记忆包');
+  try {
+    if (!fs.existsSync(dir)) return { ok: true, rows: [], dir };
+    const rows = fs.readdirSync(dir, { withFileTypes: true })
+      .filter((e) => e.isDirectory() && (e.name.startsWith('记忆包-') || e.name.startsWith('恢复前备份-')))
+      .map((e) => ({ name: e.name, kind: e.name.startsWith('恢复前备份-') ? 'backup' : 'pkg' }))
+      .sort((a, b) => b.name.localeCompare(a.name));
+    return { ok: true, rows, dir };
+  } catch (e) { return { ok: false, rows: [], dir, error: String((e && e.message) || e) }; }
+}
+// 只允许「记忆包」目录下真实存在的目录名（空 = 最新一份包）；拒绝路径分隔与上级跳转，防路径穿越
+function memPkgResolve(name) {
+  const dir = path.join(TOPBAR_ROOT, '记忆包');
+  const n = String(name || '');
+  if (!n) {
+    const p = (memPkgList().rows || []).find((x) => x.kind === 'pkg');
+    return p ? path.join(dir, p.name) : '';
+  }
+  if (n.includes('\\') || n.includes('/') || n.includes('..')) return '';
+  const t = path.join(dir, n);
+  return fs.existsSync(t) ? t : '';
+}
+ipcMain.handle('topbar:mem-packages', () => memPkgList());
+ipcMain.handle('topbar:mem-pack', () => {
+  const tool = memPkgTool();
+  if (!tool) return { ok: false, error: '找不到 工具\\记忆打包.mjs' };
+  return topbarRunAsync(tool, ['打包'], 300000).then((r) => ({ ok: r.ok, out: String(r.out || '').slice(0, 800) }));
+});
+ipcMain.handle('topbar:mem-check', (e, name) => {
+  const tool = memPkgTool();
+  if (!tool) return { ok: false, error: '找不到 工具\\记忆打包.mjs' };
+  const target = memPkgResolve(name);
+  if (!target) return { ok: false, error: '还没有记忆包（先点「打包」），或找不到选中的包' };
+  return topbarRunAsync(tool, ['核对', '--包', target], 300000).then((r) => ({ ok: r.ok, out: String(r.out || '').slice(0, 1200) }));
+});
+ipcMain.handle('topbar:mem-restore', (e, name) => {
+  const tool = memPkgTool();
+  if (!tool) return { ok: false, error: '找不到 工具\\记忆打包.mjs' };
+  const target = memPkgResolve(name);
+  if (!target) return { ok: false, error: '还没有记忆包（先点「打包」），或找不到选中的包' };
+  return topbarRunAsync(tool, ['恢复', '--包', target], 300000).then((r) => ({ ok: r.ok, out: String(r.out || '').slice(0, 1200) }));
+});
+ipcMain.handle('topbar:mem-schema', () => {
+  const tool = memPkgTool();
+  if (!tool) return { ok: false, error: '找不到 工具\\记忆打包.mjs' };
+  return topbarRunAsync(tool, ['升版'], 60000).then((r) => ({ ok: r.ok, out: String(r.out || '').slice(0, 400) }));
+});
+
 // ⑥c 引擎更新（2026-11-13）：查版本 → 下载装配 → 替换 → 回退
 //   工具（工具\引擎更新.mjs）只认 registry 的 dist-tags，**不写死版本号**；官方以后怎么发版都走这一套。
 //   ⛔ 替换必须停机：引擎整目录被运行中的 node 占着（Windows 文件锁）。所以「立即更新」的真实动作是：
