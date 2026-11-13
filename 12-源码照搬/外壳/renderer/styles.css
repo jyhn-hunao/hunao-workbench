@@ -2660,6 +2660,13 @@ html[data-theme="light"] .embed-wv { background: #ffffff; }
 .oa-file-headbtn { cursor: pointer; font-size: 11px; padding: 1px 7px; border-radius: 99px;
   background: rgba(255,255,255,.10); color: #cfd8e6; white-space: nowrap; flex: 0 0 auto; }
 .oa-file-headbtn:hover { background: rgba(255,255,255,.22); }
+/* 降噪开关（「已忽略 N」）：开着的时候用 accent 描边，表示"现在多显示了东西" */
+.oa-file-headbtn.ign-toggle.on { background: rgba(120,170,255,.20); color: var(--text); box-shadow: 0 0 0 1px var(--accent) inset; }
+/* 被 .gitignore 忽略的行（点开开关后才看得到）：整行压暗一档，跟真文件分开 */
+.oa-file-row.oa-file-ignored .oa-file-name,
+.oa-file-row.oa-file-ignored .oa-file-size,
+.oa-file-row.oa-file-ignored .oa-file-time { color: var(--text-dim); }
+.oa-file-row.oa-file-ignored .oa-file-ic { opacity: .55; }
 /* 复制反馈：只框住路径本身（内描边，不改变尺寸、不影响标题栏） */
 .oa-file-rootpath.copied-flash { box-shadow: 0 0 0 2px rgba(120,220,160,.75) inset; background: rgba(120,220,160,.30); }
 

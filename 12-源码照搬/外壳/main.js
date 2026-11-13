@@ -2204,12 +2204,54 @@ ipcMain.handle('oa:files', async (e, remotePath, force) => {
   const f = oaStore.getFiles(base);
   return { ok: true, base: f.base, rows: f.rows, real: false };
 });
+// ---- 列目录时问 git：这些条目里哪些是「被 .gitignore 忽略」的（降噪用）----
+//   为什么要放主进程：只有这里能起子进程读 .gitignore 规则；渲染层拿不到规则本身。
+//   口径：base 不在 git 仓库里 / 本机没装 git ⇒ 一律当"没有忽略项"（原样全显示，行为不变）。
+//   为什么一次问一批：一屏几十个条目逐个起 git 会卡；`check-ignore --stdin -z` 一次问完（约 40ms）。
+//   为什么目录要带尾斜杠：规则常写成 `node_modules/`（只匹配目录），不带斜杠问会漏。
+//   退出码说明：0 = 有命中、1 = 一个都没命中（正常）、128 = 不在仓库里 —— 都只按 stdout 取结果。
+function gitIgnoredNames(base, names) {
+  return new Promise((resolve) => {
+    const empty = () => new Set();
+    if (!names || !names.length) return resolve(empty());
+    let cp = null, out = '', settled = false, timer = null;
+    const done = () => {
+      if (settled) return;
+      settled = true;
+      try { clearTimeout(timer); } catch (e) { /* ignore */ }
+      const set = new Set();
+      // -z 输出是 NUL 分隔的裸路径（不带引号转义），目录会带尾斜杠 ⇒ 去掉斜杠还原成条目名
+      String(out).split('\u0000').forEach((s) => {
+        const n = s.replace(/[\\/]+$/, '');
+        if (n) set.add(n);
+      });
+      resolve(set);
+    };
+    try {
+      cp = spawn('git', ['-C', base, 'check-ignore', '--stdin', '-z'], { windowsHide: true });
+    } catch (e) { return resolve(empty()); }
+    timer = setTimeout(() => { try { cp.kill(); } catch (e) { /* ignore */ } done(); }, 6000);
+    cp.on('error', () => { out = ''; done(); });          // 没装 git ⇒ 全放行
+    cp.stdout.on('data', (d) => { out += String(d); });
+    cp.on('close', () => done());
+    try {
+      cp.stdin.on('error', () => { /* stdin 提前关闭不算错 */ });
+      cp.stdin.end(names.join('\u0000') + '\u0000');
+    } catch (e) { done(); }
+  });
+}
 // 本地文件：项目目录浏览（与云端无关，始终可用）
-ipcMain.handle('oa:files:local', async (e, localPath) => {
+//   降噪（2026-11-13 用户要求）：默认不显示被 .gitignore 忽略的目录/文件（node_modules、引擎、工作区…一列就是一屏），
+//   面板标题行给一个「已忽略 N」开关，点开才显示；不在 git 仓库里的普通目录行为一个字不变。
+ipcMain.handle('oa:files:local', async (e, localPath, opts) => {
   const base = localPath || oaStore.getConfig('oa.path.local') || '<资料库>';
+  const showIgnored = !!(opts && opts.showIgnored);
   try {
-    // ★ 异步 + 并行 stat：不再阻塞主进程（原来用 readdirSync/statSync，大目录会卡住整个界面）
+    // 1) 读目录（异步）
     const ents = await fs.promises.readdir(base, { withFileTypes: true });
+    // 2) 问一次 git：哪些条目被忽略（目录带尾斜杠问，否则 `xxx/` 这类规则匹配不上）
+    const ignored = await gitIgnoredNames(base, ents.map((en) => en.name + (en.isDirectory() ? '/' : '')));
+    // 3) 并行 stat：不再阻塞主进程（原来用 readdirSync/statSync，大目录会卡住整个界面）
     const rows = await Promise.all(ents.map(async (en) => {
       let isDir = en.isDirectory(), size = 0, mtime = 0;
       try {
@@ -2219,7 +2261,17 @@ ipcMain.handle('oa:files:local', async (e, localPath) => {
       return { name: en.name, isDir: isDir, size: size, mtime: mtime };
     }));
     rows.sort((a, b) => (b.isDir - a.isDir) || a.name.localeCompare(b.name, 'zh'));
-    return { ok: true, base: base, rows: rows };
+    // 4) 分「藏起来」与「显示」：`.git` 目录本身也不用给人看（始终归到"可隐藏"这一类）
+    const isNoise = (r) => ignored.has(r.name) || r.name === '.git';
+    const hidden = rows.filter(isNoise).length;
+    let shown = rows;
+    if (showIgnored) {
+      // 点开开关时照样显示，但打标记 ⇒ 面板把这一行画淡，一眼分出"这是被忽略的"
+      rows.forEach((r) => { if (ignored.has(r.name)) r.ign = true; });
+    } else {
+      shown = rows.filter((r) => !isNoise(r));
+    }
+    return { ok: true, base: base, rows: shown, ignored: hidden, showIgnored: showIgnored };
   } catch (ex) {
     return { ok: false, err: '无法读取目录: ' + base, base: base, rows: [] };
   }
@@ -5241,8 +5293,8 @@ ipcMain.handle('kun:git:panel', async (_e, repo) => {
       (err, stdout, stderr) => resolve({ ok: !err, out: String(stdout || ''), err: String(stderr || (err && err.message) || '') }));
   });
   const [head, changes, log, stat] = await Promise.all([
-    run(['status', '--porcelain=v1', '-b']),
-    run(['status', '--porcelain=v1']),
+    run(['status', '--porcelain=v1', '--ignored=no', '-b']),
+    run(['status', '--porcelain=v1', '--ignored=no']),
     run(['log', '-60', '--date=format:%m-%d %H:%M', '--pretty=%H|%h|%an|%ad|%p|%s']),
     run(['diff', '--shortstat'])
   ]);
@@ -5259,7 +5311,12 @@ ipcMain.handle('kun:git:panel', async (_e, repo) => {
   // 2) 变更清单：XY 路径（最多 60 条，面板不再往下拉）
   //    X = 暂存区、Y = 工作区，两位原样交给面板 —— 面板靠它分「已暂存 / 未暂存」；
   //    trim 掉会把 " M" 和 "M " 抹成一样，就分不出暂存没暂存了（显示时面板自己归一成一位）。
-  const items = String(changes.out).split(/\r?\n/).filter(Boolean).slice(0, 60)
+  //    2026-11-13 用户要求：被 .gitignore 忽略的目录与文件不在面板上出现。
+  //      上面已加 --ignored=no（git 正常不会吐 `!!`）；这里再兜一道 —— 万一本机 git 版本或配置
+  //      把 ignored 条目带回来，也不让它进清单（`.dsh/`、`引擎/`、`node_modules/` 这类一屏全是噪音）。
+  const items = String(changes.out).split(/\r?\n/).filter(Boolean)
+    .filter((l) => !l.startsWith('!!'))
+    .slice(0, 60)
     .map((l) => ({ code: l.slice(0, 2) || '?', path: l.slice(3) }));
   // 3) 最近 8 条提交：hash|date|subject
   const commits = String(log.out).split(/\r?\n/).filter(Boolean).map((l) => {

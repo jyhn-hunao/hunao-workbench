@@ -284,7 +284,7 @@ contextBridge.exposeInMainWorld('app', {
     logs: (limit) => ipcRenderer.invoke('oa:logs', limit),
     logsReal: (kinds, lines, force) => ipcRenderer.invoke('oa:logs:real', kinds, lines, force),
     files: (base, force) => ipcRenderer.invoke('oa:files', base, force),
-    filesLocal: (p) => ipcRenderer.invoke('oa:files:local', p),
+    filesLocal: (p, opts) => ipcRenderer.invoke('oa:files:local', p, opts),
     upload: (localPath, remoteDir) => ipcRenderer.invoke('oa:upload', localPath, remoteDir),
     dragStart: (filePath) => ipcRenderer.send('oa:dragstart', filePath),
     openFolder: (dir) => ipcRenderer.invoke('oa:openFolder', dir),

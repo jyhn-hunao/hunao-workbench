@@ -15712,7 +15712,8 @@ renderers['file'] = (body, meta, head) => {
     var list = mk('div', 'file-list oa-file-list');
     pane.appendChild(bar); pane.appendChild(list);
     wrap.appendChild(pane);
-    var state = { root: '', atDrives: false };   // atDrives：drives 模式下停在「此电脑」盘符列表
+    // showIgnored：是否显示被 .gitignore 忽略的条目（默认藏；面板标题行的「已忽略 N」开关翻它）
+    var state = { root: '', atDrives: false, showIgnored: false };   // atDrives：drives 模式下停在「此电脑」盘符列表
 
     // —— 工具条内容 ——
     if (isLocal) {
@@ -15768,6 +15769,25 @@ renderers['file'] = (body, meta, head) => {
       });
       barHost.appendChild(wireHeadBtn(openBtn));
       barHost.appendChild(wireHeadBtn(upBtn));
+      // ★2026-11-13★ 降噪开关（用户要求「git 工具不要显示被忽略的目录和文件」）：
+      //   默认把 .gitignore 命中的条目藏起来（node_modules/、引擎/、工作区/ 这类一列就满屏），
+      //   真要看的时候点这一颗「已忽略 N」才显示 —— 计数由主进程返回（它才读得到 .gitignore 规则）。
+      var ignBtn = mk('span', 'oa-file-headbtn ign-toggle', '已忽略');
+      ignBtn.style.display = 'none';
+      var ignTipl = function () {
+        return state.showIgnored
+          ? '正在显示被 .gitignore 忽略的条目（画淡的那几行）；点一下重新藏起来'
+          : '被 .gitignore 忽略的目录/文件默认不显示；点一下显示它们';
+      };
+      ignBtn.title = ignTipl();
+      ignBtn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        state.showIgnored = !state.showIgnored;
+        ignBtn.classList.toggle('on', state.showIgnored);
+        ignBtn.title = ignTipl();
+        load(state.atDrives ? '' : state.root);
+      });
+      barHost.appendChild(wireHeadBtn(ignBtn));
     } else {
       var TAGS = [['代码', '/opt/langchen_oa'], ['数据库', '/root/backup'],
                   ['备份', '/opt/langchen_oa_backups'], ['日志', '/var/log/nginx']];
@@ -15890,7 +15910,7 @@ renderers['file'] = (body, meta, head) => {
       if (!rest.length && medGrid.length) return;
 
       rest.forEach(function (it) {
-        var row = mk('div', 'file-row oa-file-row');
+        var row = mk('div', 'file-row oa-file-row' + (it.ign ? ' oa-file-ignored' : ''));
         row.appendChild(mk('span', 'oa-file-ic', it.isDir ? '📁' : '📄'));
         row.appendChild(mk('span', 'oa-file-name', it.name));
         row.appendChild(mk('span', 'oa-file-size', it.isDir ? '' : fmtSize(it.size)));
@@ -15967,6 +15987,7 @@ renderers['file'] = (body, meta, head) => {
     function showDrives() {
       if (!DRIVES) return;
       state.atDrives = true; state.root = '';
+      if (ignBtn) ignBtn.style.display = 'none';   // 「此电脑」是盘符列表，跟 .gitignore 无关
       setRootLabel('此电脑');
       pathTagExt.textContent = ''; pathTagExt.style.display = 'none';
       pathTag.classList.remove('deep'); pathTag.style.maxWidth = '';
@@ -16010,10 +16031,18 @@ renderers['file'] = (body, meta, head) => {
         // ★ drives 模式：p 空 / '::drives' ⇒ 停在「此电脑」；进盘 ⇒ 把"根"换成该盘盘根（↑ 上级到盘根再回此电脑）
         if (DRIVES && (!p || p === '::drives')) { showDrives(); return; }
         if (DRIVES) { var drPre = driveRootOf(p); if (drPre) LOCAL_ROOT = drPre; }
-        Promise.resolve(K.filesLocal ? K.filesLocal(p) : null).then(function (r) {
+        Promise.resolve(K.filesLocal ? K.filesLocal(p, { showIgnored: !!state.showIgnored }) : null).then(function (r) {
           if (disposed) return;
           if (!r || r.ok === false) { list.innerHTML = ''; list.appendChild(mk('div', 'oa-file-empty', '无法读取：' + ((r && r.err) || ''))); return; }
           state.root = r.base || p || '';
+          // 标题行的「已忽略 N」开关：仓库里有被忽略条目才出现；点开状态下换成提示语
+          var ignN = Number(r.ignored || 0);
+          if (ignBtn) {
+            ignBtn.style.display = ignN ? '' : 'none';
+            ignBtn.textContent = state.showIgnored ? ('已忽略 ' + ignN + ' · 显示中') : ('已忽略 ' + ignN);
+            ignBtn.classList.toggle('on', !!state.showIgnored);
+            ignBtn.title = ignTipl();
+          }
           state.atDrives = false;
           if (DRIVES) { var drNow = driveRootOf(state.root); if (drNow) { LOCAL_ROOT = drNow; setRootLabel(drNow.slice(0, 2)); } }
           // ★ 绿色路径标签 = 当前文件夹（相对项目根显示；太长压中间）+ 子路径小字保留完整相对路径
