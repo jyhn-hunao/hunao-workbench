@@ -39,7 +39,7 @@
 | 环境自检 | `node 12-源码照搬\外壳\scripts\自检.mjs` | `12-源码照搬/外壳/scripts/自检.mjs:2` |
 | 场景与会话核对 | `node 12-源码照搬\外壳\scripts\sessions.mjs --check` | `12-源码照搬/外壳/scripts/sessions.mjs:12` |
 | 建会话 | `node 12-源码照搬\外壳\scripts\建会话.mjs --title "场景名"` | `12-源码照搬/外壳/scripts/建会话.mjs:13` |
-| 换会话（建新 + 归档旧 + 回写绑定） | `node 12-源码照搬\外壳\scripts\换会话.mjs <面板id> --go` | `12-源码照搬/外壳/scripts/换会话.mjs:7` |
+| 换会话（建新 + 归档旧 + 回写绑定；**换前过场景 check + 项目记忆体检**） | `node 12-源码照搬\外壳\scripts\换会话.mjs <面板id> --go` | `12-源码照搬/外壳/scripts/换会话.mjs:7` |
 | 场景记忆自检 | `node 12-源码照搬\工具\场景记忆.mjs check --场景 <目录名>` | `12-源码照搬/工具/场景记忆.mjs` `cmdCheck` |
 | 场景记忆写一条（自动 frontmatter + 索引 + 同轮 check，§五 不再追加正文） | `node 12-源码照搬\工具\场景记忆.mjs 写 --场景 <场景> --类 决策\|坑 --标题 "x" --要点 "a\|b" --证据 "<路径>::<片段>"` | `12-源码照搬/工具/场景记忆.mjs` `cmdWrite` |
 | 场景记忆拆分（存量 §五 条目 → 一条一个文件，先 `--dry` 看计划） | `node 12-源码照搬\工具\场景记忆.mjs 拆 --场景 <场景> [--dry]` | `12-源码照搬/工具/场景记忆.mjs` `cmdSplit` |
@@ -112,6 +112,7 @@
 - **端口默认值集中在四处**：`12-源码照搬/启动.vbs:11`、`main.js:16`（`DSH_PORT` 默认 3083）、`工具\环境.mjs` 的 `DEFAULT_PORTS`；与其它 DSH 实例（常见 3080）冲突时**优先用 `DSH_PORT` / `SITE_PORT` 环境变量覆盖**，⛔ 不要只改 `启动.vbs`（只改一处会连到别的引擎）。自检已改为读 `环境.mjs`，不再自带端口字面量。
 - **换机器/换盘符**：先跑 `node 12-源码照搬\外壳\scripts\环境适配.mjs`（只读体检），再 `--apply`；会话必须在新机器重建（`--rotate` 或逐面板 `换会话.mjs --go`），搬 id 无效。契约见 `doc/机制可移植性规范.md`。
 - **引擎契约随版本漂移**：`建会话.mjs` 依赖「server.log 取 token → 换 cookie → POST /api/<method>」这套现状（`12-源码照搬/外壳/scripts/建会话.mjs:54`），引擎升级后要重跑一次建会话验证。
+- **引擎生命周期归壳所有**：引擎必须由壳拉起（`启动.vbs` → `main.js` 的 spawn 计划），token 由壳从引擎 stdout 捕获（`main.js:401-403`）。⛔ 不得在壳外 `Stop-Process`/`Start-Process` 自行重启引擎——外部重启后旧 token 立刻失效，界面报 `dsh web authentication required`（白屏）。要重载插件或换引擎版本，重启整壳，不要只重启引擎。
 - **自检认两套引擎布局**（2026-11-12 已修，勿再按旧记忆判断）：`自检.mjs` 同时探 `引擎/lib/bin.js`（打包版，当前本机）与 `引擎/apps/cli/lib/bin.js`（源码版）；两者都不在、且端口上也没有引擎在跑时才会报「缺引擎」，别当自己改坏。
 - **sessionId 是本机数据**：换机器后场景面板必然空白，先跑 `sessions.mjs --check` 再怀疑代码。
 - **`main.js` 单文件 260 KB**：改动前先定位到行，避免整文件重排产生巨型 diff。
