@@ -67,6 +67,15 @@ function sectionZero(text) {
   return body.replace(/^##\s*§〇[^\r\n]*\r?\n+/, '')
 }
 
+/** §〇 截断保尾（2026-11-14）：「下一步·卡点」在 §〇 末尾，头截会把最要紧的先截掉 */
+function tailOf(text, n) {
+  const t = String(text || '')
+  if (Buffer.byteLength(t, 'utf8') <= n) return t
+  const head = Buffer.from(t, 'utf8').subarray(0, 120).toString('utf8').replace(/\uFFFD$/, '')
+  const tail = Buffer.from(t, 'utf8').subarray(-(n - Buffer.byteLength(head, 'utf8') - 40)).toString('utf8').replace(/^\uFFFD/, '')
+  return head + '\n…（§〇 中段省略，保留末尾「下一步·卡点」；全文用 场景记忆.mjs 读）…\n' + tail
+}
+
 /** 用户这轮说的话（兼容 content 是字符串或 [{type:'text',text}]） */
 function userText(messages) {
   const parts = []
@@ -88,23 +97,28 @@ function grams(s) {
   return out
 }
 
-/** 从 _索引.json 里挑和本轮问题最相关的 3 条：先标题/标签，没命中再退回正文前 2 KB */
+/** 从 _索引.json 里挑和本轮问题最相关的 3 条：先标题/标签，没命中再退回正文前 2 KB
+//  2026-11-14：归档条目与 expires 已过的条目不参与注入——半记得的不主动喂，过期的该失效 */
 function related(sceneDir, query, limit = 3) {
+  const today = new Date().toISOString().slice(0, 10)
+  const usable = (e) => String(e.kind) !== '归档' && (!e.expires || String(e.expires) >= today)
   try {
     const idx = JSON.parse(fs.readFileSync(path.join(sceneDir, '_索引.json'), 'utf8'))
     const list = Array.isArray(idx.entries) ? idx.entries : []
     const q = grams(query)
     if (!q.size) return []
     const byTitle = list.map((e) => {
+      if (!usable(e)) return { e: null, hit: 0 }
       const t = grams(String(e.title || '') + ' ' + (e.tags || []).join(' '))
       let hit = 0
       q.forEach((g) => { if (t.has(g)) hit++ })
       return { e, hit }
-    }).filter((x) => x.hit > 0).sort((a, b) => b.hit - a.hit).slice(0, limit)
+    }).filter((x) => x.e && x.hit > 0).sort((a, b) => b.hit - a.hit).slice(0, limit)
     if (byTitle.length) return byTitle.map((x) => x.e)
     // 标题没命中：正文前 2 KB 兜底（只在没有标题命中时做，别每轮读全量）
     const out = []
     for (const e of list.slice(0, 60)) {
+      if (!usable(e)) continue
       let txt = ''
       try { txt = fs.readFileSync(path.join(sceneDir, String(e.path || '')), 'utf8').slice(0, 2000) } catch { continue }
       let hit = 0
@@ -119,7 +133,7 @@ function build(scene, panel, query) {
   const dir = path.join(memRoot(), scene)
   const main = path.join(dir, '场景私有记忆.md')
   if (!fs.existsSync(main)) return ''
-  const z = sectionZero(fs.readFileSync(main, 'utf8')).slice(0, 1600)
+  const z = tailOf(sectionZero(fs.readFileSync(main, 'utf8')), 1600)
   let recent = ''
   try { recent = stripHead(fs.readFileSync(path.join(dir, '_近期.md'), 'utf8')).slice(0, 700) } catch {}
   const rel = related(dir, query)
