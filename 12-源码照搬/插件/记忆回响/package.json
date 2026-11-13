@@ -1,0 +1,8 @@
+{
+  "name": "dsh-memory-recall",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "index.js",
+  "description": "每轮用户发言前注入本场景的 §〇 / 近期 / 相关条目（强制回想）"
+}
