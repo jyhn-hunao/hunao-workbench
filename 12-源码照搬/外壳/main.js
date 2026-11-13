@@ -12,6 +12,8 @@ const os = require('os');
 const fs = require('fs');
 const crypto = require('crypto');
 const projectSwitch = require('./项目切换');   // 程序开发场景「项目下拉」的数据面（可单测：scripts\项目切换自检.mjs）
+const socialSvc = require('./社交');           // 社交场景「消息流」的数据面（只读 transcript + 探 OneBot 端口；可单测：工具\消息流.mjs）
+const bridgeSvc = require('./桥接');           // QQ 个人号桥接（SnowLuma）的进程面：随壳启动/退出、面板按钮按需打开
 
 const DSH_PORT = String(process.env.DSH_PORT || '3083');
 const BASE = 'http://127.0.0.1:' + DSH_PORT;
@@ -4317,6 +4319,23 @@ const usageSvc = require('./用量').createService({
 });
 ipcMain.handle('usage:list', () => usageSvc.list());
 
+// ---- 社交场景「消息流」（2026-11-13）----
+// 数据面在 社交.js（读社交会话的 transcript + 探 OneBot 3000/3001 + 看两个 IM 插件装没装），这里只接 IPC。
+// 为什么要它：通道（协议端 / dsh-im 凭据）是别人的活，但**在面板里看得见**是本工作台的活 ——
+//   没有这一格，社交场景只剩一个 AI 对话框，用户说的「割裂感」就在这里。
+// 只读：不写会话、不改场景、不启停引擎；通道没通就诚实地显示没通，渲染层不许把它画成绿的。
+const socialService = socialSvc.createService({ dshHome: DSH_HOME });
+ipcMain.handle('social:flow', (e, args) => socialService.flow(args || {}));
+
+// ---- QQ 个人号桥接（SnowLuma，2026-11-13）----
+// 用户要求：随工作台一起启动、省掉单独启动；控制台不常驻面板，由「社交」场景里的齿轮按钮按需开窗。
+// 生命周期归壳（和引擎同一条规矩）：壳退出时把子进程一起收掉，不在壳外单开一只。
+// 只读状态 + 两个动作：status / start / stop；协议本身（QQ 注入、OneBot 端口）在 SnowLuma 控制台里配。
+const bridgeService = bridgeSvc.createService();
+ipcMain.handle('bridge:snowluma-status', () => bridgeService.status());
+ipcMain.handle('bridge:snowluma-start', () => bridgeService.start());
+ipcMain.handle('bridge:snowluma-stop', () => bridgeService.stop());
+
 // ② 谁在等我：共用定位卡 §六 未办结行 + 各场景记忆 §〇 的「卡点」
 ipcMain.handle('topbar:pending', () => {
   const items = [];
@@ -4481,6 +4500,139 @@ function envRun(mode) {
 }
 ipcMain.handle('topbar:env-check', () => envRun('check'));
 ipcMain.handle('topbar:env-apply', () => envRun('apply'));
+
+// ⑥c 引擎更新（2026-11-13）：查版本 → 下载装配 → 替换 → 回退
+//   工具（工具\引擎更新.mjs）只认 registry 的 dist-tags，**不写死版本号**；官方以后怎么发版都走这一套。
+//   ⛔ 替换必须停机：引擎整目录被运行中的 node 占着（Windows 文件锁）。所以「立即更新」的真实动作是：
+//      起一个脱离 Electron 的子进程 → 主进程退出 → 子进程等端口释放 → 备份 → 换入 → 探活 → 把工作台拉起来。
+//      子进程负责验收与自动回退，所以主进程退出不会把"半坏状态"留在盘上。
+function updateScript() {
+  const tool = path.join(TOPBAR_ROOT, '工具', '引擎更新.mjs');
+  return fs.existsSync(tool) ? tool : '';
+}
+// 把脚本 stdout 里第一个 { 起的 JSON 翻成对象（退出码非 0 也翻，里面带 error）
+function updateParse(r) {
+  const txt = String((r && r.out) || '');
+  const i = txt.indexOf('{');
+  if (i < 0) return { ok: false, error: txt.slice(0, 600) || '脚本没有输出' };
+  try {
+    const j = JSON.parse(txt.slice(i));
+    return { ok: !!j.ok, data: j.data || null, error: j.error || null };
+  } catch (e) {
+    return { ok: false, error: '脚本输出不是完整 JSON：' + txt.slice(0, 400) };
+  }
+}
+function updateRun(args, timeout) {
+  const tool = updateScript();
+  if (!tool) return Promise.resolve({ ok: false, error: '找不到 工具\\引擎更新.mjs' });
+  return topbarRunAsync(tool, args, timeout || 60000).then(updateParse);
+}
+// 脱离主进程跑 apply / rollback，然后自己退出——停机替换只能这么干
+function updateSpawnDetached(args) {
+  const node = resolveNodeExe();
+  const env = Object.assign({}, process.env);
+  let cmd = node;
+  let full = args;
+  if (!node) { env.ELECTRON_RUN_AS_NODE = '1'; cmd = process.execPath; }
+  try {
+    const cp = spawn(cmd, full, { cwd: TOPBAR_ROOT, detached: true, stdio: 'ignore', windowsHide: true, env });
+    cp.unref();
+  } catch (e) {
+    return { ok: false, error: '起不来更新进程：' + String((e && e.message) || e) };
+  }
+  log('[update] 已切到停机更新，主进程准备退出');
+  setTimeout(() => { try { app.quit(); } catch (e) { log('[update] quit 失败：' + e.message); } }, 700);
+  return { ok: true, willRestart: true };
+}
+ipcMain.handle('topbar:update-status', () => updateRun(['status', '--json'], 30000));
+ipcMain.handle('topbar:update-check', () => {
+  const tool = path.join(TOPBAR_ROOT, '工具', '引擎更新检查.mjs');
+  if (!fs.existsSync(tool)) return { ok: false, error: '找不到 工具\\引擎更新检查.mjs' };
+  return topbarRunAsync(tool, ['--json'], 120000).then((r) => {
+    const txt = String((r && r.out) || '');
+    const i = txt.indexOf('{');
+    let j = null;
+    if (i >= 0) { try { j = JSON.parse(txt.slice(i)); } catch (e) { j = null; } }
+    if (!j) return { ok: false, error: txt.slice(0, 600) || '脚本没有输出' };
+    return { ok: true, check: j };
+  });
+});
+ipcMain.handle('topbar:update-prepare', (e, ver) => {
+  const args = ['prepare', '--json'];
+  if (ver) args.push('--version', String(ver));
+  return updateRun(args, 900000);
+});
+function updateConfirm(title, message, detail, okText) {
+  try {
+    const win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0] || null;
+    const opt = { type: 'warning', buttons: [okText, '取消'], defaultId: 1, cancelId: 1, title, message, detail };
+    return (win ? dialog.showMessageBoxSync(win, opt) : dialog.showMessageBoxSync(opt)) === 0;
+  } catch (e) { return false; }
+}
+ipcMain.handle('topbar:update-apply', (e, ver) => {
+  const tool = updateScript();
+  if (!tool) return { ok: false, error: '找不到 工具\\引擎更新.mjs' };
+  const go = updateConfirm('引擎更新', '换上新引擎并重启工作台？',
+    '会先整目录备份当前引擎（约 500 MB），换入后跑环境适配与探活。\n任一步不合格会自动退回旧引擎，不会留下半坏状态。\n换的过程中工作台会关掉；验收通过会自动重新打开。', '现在就换（会关掉工作台）');
+  if (!go) return { ok: false, error: '已取消' };
+  const args = [tool, 'apply', '--json', '--wait', '150', '--then-start'];
+  if (ver) args.push('--version', String(ver));
+  return updateSpawnDetached(args);
+});
+ipcMain.handle('topbar:update-rollback', (e, name) => {
+  const tool = updateScript();
+  if (!tool) return { ok: false, error: '找不到 工具\\引擎更新.mjs' };
+  const go = updateConfirm('引擎回退（换版本）', '回到 ' + (name ? String(name) : '最近一份备份') + ' ？',
+    '会先把现在这份另存为 failed-*（不删），再把备份换回来，然后跑环境适配与探活。\n回退同样要停机，工作台会重开。', '现在回退（会关掉工作台）');
+  if (!go) return { ok: false, error: '已取消' };
+  const args = [tool, 'rollback', '--json', '--wait', '150', '--then-start'];
+  if (name) args.push('--to', String(name));
+  return updateSpawnDetached(args);
+});
+ipcMain.handle('topbar:update-clean', (e, keep) => updateRun(['clean', '--json', '--keep', String(keep || 2)], 60000));
+
+// ⑥d 自动检查（2026-11-13）：查版本这件事归壳自己干，不依赖任何外部定时任务。
+//   启动后 40 秒跑一次，之后每 6 小时看一眼；24 小时内查过的不重复联网（registry 没必要反复打）。
+//   结果落 引擎更新/check.json（不入库）：界面展开「引擎更新」时先读它，所以不点按钮也知道有没有新版。
+//   ⛔ 跟 ⑥c 一样只读：这里只跑检查脚本，不下载、不替换。
+const UPDATE_CHECK_FILE = path.join(TOPBAR_ROOT, '引擎更新', 'check.json');
+const UPDATE_CHECK_GAP = 24 * 3600 * 1000;
+function updateReadCheck() {
+  try {
+    const j = JSON.parse(fs.readFileSync(UPDATE_CHECK_FILE, 'utf8'));
+    return { ok: true, check: j.check || null, at: j.at || 0 };
+  } catch (e) {
+    return { ok: false, error: '还没查过', check: null, at: 0 };
+  }
+}
+function updateFetchCheck() {
+  const tool = path.join(TOPBAR_ROOT, '工具', '引擎更新检查.mjs');
+  if (!fs.existsSync(tool)) return Promise.resolve({ ok: false, error: '找不到 工具\\引擎更新检查.mjs' });
+  return topbarRunAsync(tool, ['--json'], 120000).then((r) => {
+    const txt = String((r && r.out) || '');
+    const i = txt.indexOf('{');
+    let j = null;
+    if (i >= 0) { try { j = JSON.parse(txt.slice(i)); } catch (e) { j = null; } }
+    if (!j) return { ok: false, error: txt.slice(0, 600) || '检查脚本没有输出' };
+    const rec = { at: Date.now(), check: j };
+    try {
+      fs.mkdirSync(path.dirname(UPDATE_CHECK_FILE), { recursive: true });
+      fs.writeFileSync(UPDATE_CHECK_FILE, JSON.stringify(rec, null, 2), 'utf8');
+    } catch (e) { log('[update] check.json 写不进去：' + e.message); }
+    return { ok: true, cached: false, check: j, at: rec.at };
+  });
+}
+function updateAutoCheck(force) {
+  const last = updateReadCheck();
+  if (!force && last.ok && (Date.now() - last.at) < UPDATE_CHECK_GAP) {
+    return Promise.resolve({ ok: true, cached: true, check: last.check, at: last.at });
+  }
+  return updateFetchCheck();
+}
+ipcMain.handle('topbar:update-last', () => updateReadCheck());
+ipcMain.handle('topbar:update-auto', (e, force) => updateAutoCheck(!!force));
+setTimeout(() => { updateAutoCheck(false).catch(() => {}); }, 40000);
+setInterval(() => { updateAutoCheck(false).catch(() => {}); }, 6 * 3600 * 1000);
 
 
 // ===== 2026-10-24（宿主）：「升级中途不小心关闭 ⇒ 自动回滚到上次正常」 =====
@@ -4952,6 +5104,11 @@ if (!gotLock) {
     try {
       startBalancePoll();  // 余额实时显示：每 10s 拉取 DeepSeek 平台余额
     } catch (err) { reportFatal('启动余额轮询失败', err); }
+    // QQ 个人号桥接（SnowLuma）：跟着工作台一起起，别让用户再单独开一只。
+    // 起不来不阻塞主流程 —— 原因写日志，面板按钮上也能看到（不许静默）。
+    try {
+      bridgeService.autoStart().catch(function (e) { log('[bridge] 随壳启动失败: ' + ((e && e.message) || e)); });
+    } catch (err) { log('[bridge] 随壳启动异常: ' + ((err && err.message) || err)); }
     let ok = false;
     try {
       ok = await startServer();
@@ -4989,6 +5146,7 @@ if (!gotLock) {
     releaseBlenderEmbedSync();
     killServer();
     stopBlenderCapture();
+    try { bridgeService.stop(); } catch (e) { /* 桥接收尾失败不能让退出卡住 */ }
   });
 }
 

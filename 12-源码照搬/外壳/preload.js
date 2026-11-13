@@ -72,6 +72,18 @@ contextBridge.exposeInMainWorld('app', {
   sceneProjects: (scene, panelId) => ipcRenderer.invoke('scene:projects', scene, panelId),
   sceneSwitchProject: (scene, panelId, root) => ipcRenderer.invoke('scene:switch-project', scene, panelId, root),
   sceneAddProject: (scene, panelId) => ipcRenderer.invoke('scene:add-project', scene, panelId),
+  // ---- 社交场景 · 消息流（2026-11-13）----
+  // 缺这个命名空间 = 主进程/preload 还是旧的 ⇒ so-msg 面板显示「重启一次工作台」，不会假装有数据。
+  social: {
+    flow: (args) => ipcRenderer.invoke('social:flow', args)
+  },
+  // ---- QQ 个人号桥接（SnowLuma，2026-11-13）----
+  // 随壳启动/退出；面板上的齿轮按钮用它确认"起没起"，没起就先拉起再开窗口。
+  bridge: {
+    snowlumaStatus: () => ipcRenderer.invoke('bridge:snowluma-status'),
+    snowlumaStart: () => ipcRenderer.invoke('bridge:snowluma-start'),
+    snowlumaStop: () => ipcRenderer.invoke('bridge:snowluma-stop')
+  },
   // ---- 设置：读取 / 打开 Harness 配置文件 ----
   settings: {
     list: () => ipcRenderer.invoke('settings:list'),
@@ -376,6 +388,18 @@ contextBridge.exposeInMainWorld('app', {
     // 2026-11-12：环境适配（整台工作台的属性：本机路径 / 私有插件落位 / 会话 / 端口）
     envCheck: () => ipcRenderer.invoke('topbar:env-check'),
     envApply: () => ipcRenderer.invoke('topbar:env-apply'),
+    // 2026-11-13：引擎更新（版本级：查版本 / 下载装配 / 换入 / 退回某一版）。
+    //   工具侧只认 registry 的 dist-tags，不指定版本号；apply 与 rollback 会关掉工作台再重开。
+    updateStatus: () => ipcRenderer.invoke('topbar:update-status'),
+    updateCheck: () => ipcRenderer.invoke('topbar:update-check'),
+    updatePrepare: (ver) => ipcRenderer.invoke('topbar:update-prepare', ver),
+    updateApply: (ver) => ipcRenderer.invoke('topbar:update-apply', ver),
+    updateRollback: (name) => ipcRenderer.invoke('topbar:update-rollback', name),
+    updateClean: (keep) => ipcRenderer.invoke('topbar:update-clean', keep),
+    // 2026-11-13：自动检查归壳自己（启动后查一次 + 每 6 小时看一眼，24 小时内不重复联网）。
+    //   updateLast 只读上次落盘的结果，所以面板一展开就知道有没有新版，不用等一次网络往返。
+    updateLast: () => ipcRenderer.invoke('topbar:update-last'),
+    updateAuto: (force) => ipcRenderer.invoke('topbar:update-auto', force),
     // 主进程主动推的提示（升级/崩溃保险自动回退后用它告诉用户）
     onToast: (cb) => { ipcRenderer.on('topbar:toast', (e, v) => cb(v)); },
     open: (p) => ipcRenderer.invoke('topbar:open', p),

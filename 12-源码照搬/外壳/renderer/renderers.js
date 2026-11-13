@@ -6671,6 +6671,221 @@ renderers.view = (body, meta, head) => {
   };
 };
 
+// ============ msgflow：「社交」场景的消息流 + 通道状态（2026-11-13）============
+// 为什么有这个面板（用户原话）：「如果我的面板里没有社交软件的场景，本身就会产生割裂感；
+//   虽然桌宠不会通过面板查看消息，但为了让功能看上去是连上的，没有这个场景的面板就会让产品有割裂」。
+//   ⇒ 通道（协议端 / dsh-im 凭据）归别人，**看得见**归工作台：这一格只做「消息流 + 通道亮没亮」。
+//
+// 数据：window.app.social.flow({ sessionId, sessionTitle, limit }) → 外壳\社交.js
+//   · messages：role 'them' = 对面（IM 通道投进来的也是它），'her' = 她；
+//   · channels：ok = 真在听；warn = 装了没通；off = 没有 —— ⛔ 不许把 warn 画成绿。
+// 规矩：只读轮询（4 s）；样式全走 styles.css 的 .mf-* 组件类 + 设计令牌（不内联写死颜色）；
+//   动态文字一律 textContent（消息正文里可能有尖括号）；失败只留一行原因 + 一次 toast，不刷屏。
+renderers.msgflow = function (body, meta, head) {
+  body.classList.add('mf-panel');
+  var POLL_MS = 4000;
+  var st = { channels: [], messages: [], err: '', at: 0, title: '', found: false, busy: false, toasted: false };
+
+  var chips = document.createElement('div');
+  chips.className = 'mf-chips';
+  var list = document.createElement('div');
+  list.className = 'mf-list';
+  body.appendChild(chips);
+  body.appendChild(list);
+
+  // ---------- 标题栏「⚙ 桥接」：按需打开 SnowLuma 控制台（用户要求：设置按钮打开，不常驻面板）----------
+  // 点一下：先确认运行时在不在（随壳启动已经拉过一次）→ 没在跑就先让主进程拉起 → 再开浮动窗口。
+  // 窗口本体复用顶栏那套 webview（WEB_AI 里 hidden 的 snowluma 条目），不另造一套窗口/登录态。
+  if (head && head.appendChild) {
+    var bridgeBtn = document.createElement('button');
+    bridgeBtn.className = 'file-refresh';
+    bridgeBtn.textContent = '⚙ 桥接';
+    bridgeBtn.title = '打开 SnowLuma 桥接控制台（QQ 个人号通道）：起来没起来 → 没起就先拉起 → 再开窗口。'
+      + '控制台是本地页面（127.0.0.1:5099），随工作台启动，关工作台时一起收。';
+    bridgeBtn.addEventListener('click', function () {
+      var api = window.app && window.app.bridge;
+      bridgeBtn.disabled = true;
+      var prep = (api && typeof api.snowlumaStart === 'function')
+        ? api.snowlumaStart()
+        : Promise.resolve({ ok: false, error: '需重启一次工作台：主进程/preload 还是旧的（没有 bridge.snowlumaStart）' });
+      Promise.resolve(prep).then(function (r) {
+        if (!r || r.ok === false) {
+          toast('桥接没起来：' + ((r && r.error) || '未知原因') + '（细节见 外壳\\data\\桥接\\snowluma.log）', true);
+          return;
+        }
+        try {
+          if (typeof window.__kunWebAiOpen === 'function') window.__kunWebAiOpen('snowluma', true);
+          else toast('开窗失败：网页窗口组件还没就绪（点右上角 ⟳ 刷新一次界面再点）', true);
+        } catch (e) { toast('开窗失败：' + String((e && e.message) || e), true); }
+        if (r.starting) toast('桥接在启动，控制台 1~2 秒后出现', false, 4000);
+        // 控制台是本地服务，登录只有 admin 一个账号：首次点开提示一次密码（来自本机配置，不写进界面）
+        if (r.passwordHint && !window.__slHinted) {
+          window.__slHinted = true;
+          toast('桥接控制台账号 admin，密码 ' + r.passwordHint + '（可在控制台「设置」里改）', false, 8000);
+        }
+      }).catch(function (e) {
+        toast('桥接启动失败：' + String((e && e.message) || e), true);
+      }).then(function () { bridgeBtn.disabled = false; });
+    });
+    head.appendChild(bridgeBtn);
+  }
+
+  // ---------- 小工具 ----------
+  // 清空容器：真 DOM 里 textContent='' 连子节点一起清；渲染自检的假 DOM 只清字符串、children 还留着，
+  // 所以补一句「children 是数组时也清掉」（真 DOM 的 children 是 HTMLCollection，不是数组，走不到这句）。
+  function clearAll(n) {
+    if (!n) return;
+    n.textContent = '';
+    if (Array.isArray(n.children) && n.children.length) n.children.length = 0;
+  }
+
+  function hhmm(ms) {
+    var d = new Date(Number(ms) || 0);
+    if (!ms) return '';
+    var p = function (n) { return (n < 10 ? '0' : '') + n; };
+    return p(d.getHours()) + ':' + p(d.getMinutes());
+  }
+
+  function badge(state) {
+    if (state === 'ok') return '通';
+    if (state === 'warn') return '待';
+    return '无';
+  }
+
+  function toast(msg, bad) {
+    try { if (typeof window.__tbsToast === 'function') window.__tbsToast(msg, !!bad, bad ? 8000 : 3000); } catch (e) { /* ignore */ }
+  }
+
+  // ---------- 画通道 ----------
+  // 1. 一条通道一颗胶囊：名字 + 状态字（通 / 待 / 无），完整原因挂在 title 上（鼠标悬停可读）
+  function drawChips() {
+    clearAll(chips);
+    if (st.err && !st.channels.length) {
+      var e1 = document.createElement('span');
+      e1.className = 'mf-chip is-off';
+      e1.textContent = st.err;
+      chips.appendChild(e1);
+      return;
+    }
+    st.channels.forEach(function (c) {
+      var n = document.createElement('span');
+      n.className = 'mf-chip is-' + (c.state === 'ok' ? 'ok' : (c.state === 'warn' ? 'warn' : 'off'));
+      n.title = c.detail || '';
+      var a = document.createElement('span');
+      a.className = 'mf-chip-name';
+      a.textContent = c.label || c.key || '';
+      var b = document.createElement('span');
+      b.className = 'mf-chip-state';
+      b.textContent = badge(c.state);
+      n.appendChild(a);
+      n.appendChild(b);
+      chips.appendChild(n);
+    });
+    if (st.at) {
+      var t = document.createElement('span');
+      t.className = 'mf-chip-time';
+      t.textContent = '更新 ' + hhmm(st.at);
+      chips.appendChild(t);
+    }
+  }
+
+  // ---------- 画消息 ----------
+  // 2. 一条一行：「她」靠右、「对面」靠左；上方是时间 + 说话人，下方是正文（换行保留）
+  function drawList() {
+    clearAll(list);
+    if (st.err) {
+      var e2 = document.createElement('div');
+      e2.className = 'mf-empty';
+      e2.textContent = st.err;
+      list.appendChild(e2);
+      return;
+    }
+    if (!st.messages.length) {
+      var e3 = document.createElement('div');
+      e3.className = 'mf-empty';
+      e3.textContent = st.found
+        ? '还没有消息。通道接上后，对面发进来的话会出现在这里。'
+        : '场景会话的转录没找到（可能刚换过会话）：' + (meta.sessionId || '未绑定 sessionId');
+      list.appendChild(e3);
+      return;
+    }
+    st.messages.forEach(function (m) {
+      var row = document.createElement('div');
+      row.className = 'mf-row ' + (m.role === 'her' ? 'is-her' : 'is-them');
+      var top = document.createElement('div');
+      top.className = 'mf-meta';
+      var who = document.createElement('span');
+      who.className = 'mf-who';
+      who.textContent = m.role === 'her' ? '她' : '对面';
+      var tm = document.createElement('span');
+      tm.className = 'mf-time';
+      tm.textContent = hhmm(m.at);
+      top.appendChild(who);
+      top.appendChild(tm);
+      var txt = document.createElement('div');
+      txt.className = 'mf-text';
+      txt.textContent = m.text;
+      row.appendChild(top);
+      row.appendChild(txt);
+      list.appendChild(row);
+    });
+    // 滚到底：新消息在末尾 ⇒ 默认看最新一句（用户手动上翻时不打断）
+    try {
+      var near = list.scrollHeight - list.scrollTop - list.clientHeight < 80;
+      if (near || !list.__seen) list.scrollTop = list.scrollHeight;
+      list.__seen = true;
+    } catch (e) { /* ignore */ }
+  }
+
+  // ---------- 取数 ----------
+  function load() {
+    if (st.busy) return;
+    var api = window.app && window.app.social;
+    if (!api || typeof api.flow !== 'function') {
+      st.err = '需重启一次工作台：主进程/preload 还是旧的（没有 social.flow）';
+      drawChips(); drawList();
+      return;
+    }
+    st.busy = true;
+    Promise.resolve(api.flow({
+      sessionId: String(meta.sessionId || ''),
+      sessionTitle: String(meta.sessionTitle || ''),
+      limit: 40
+    })).then(function (r) {
+      st.busy = false;
+      if (!r || r.ok === false) {
+        st.err = '取不到消息流：' + ((r && r.error) || '主进程没返回数据');
+        if (!st.toasted) { st.toasted = true; toast(st.err, true); }
+        drawChips(); drawList();
+        return;
+      }
+      st.err = '';
+      st.toasted = false;
+      st.channels = r.channels || [];
+      st.messages = r.messages || [];
+      st.at = r.at || Date.now();
+      st.title = (r.session && r.session.title) || '';
+      st.found = !!(r.session && r.session.found);
+      drawChips(); drawList();
+    }).catch(function (e) {
+      st.busy = false;
+      st.err = '取不到消息流：' + String((e && e.message) || e);
+      if (!st.toasted) { st.toasted = true; toast(st.err, true); }
+      drawChips(); drawList();
+    });
+  }
+
+  drawChips();
+  drawList();
+  load();
+  // 3. 轮询：窗口看不见时不发请求（省得后台白跑）
+  var timer = setInterval(function () {
+    try { if (document.hidden) return; } catch (e) { /* ignore */ }
+    load();
+  }, POLL_MS);
+  return function () { clearInterval(timer); };
+};
+
 // ============ embed：把"本机自带的网页工具"整页内嵌进面板（<webview>） ============
 // 首个用户：视频工作流 窗口1 = ComfyUI 控制台（http://127.0.0.1:8189/，bridge.py 起的本地页面）。
 // 为什么用 <webview> 而不是 iframe：与 harness / 官网预览一致，guest view 独立进程更稳，
@@ -11645,6 +11860,15 @@ var WEB_AI = [
     url: 'https://chatglm.cn/main/alltoolsdetail' },
   { key: 'kimi', name: 'Kimi', icon: 'assets/webai/kimi.png', fallback: 'K',
     url: 'https://www.kimi.com/' },
+  // ---- SnowLuma 桥接控制台（2026-11-13）----
+  // 本机服务（不是外网站点）：QQ 个人号协议端的 WebUI，端口跟 外壳\data\桥接.json 走（默认 5099）。
+  // **hidden: true** ⇒ 不进顶栏那排图标：用户要求它"作为设置按钮才打开，不是常驻入口"，
+  //   入口在「社交」场景 `so-msg` 面板标题右边的 ⚙ 桥接 按钮（见 renderers.msgflow）。
+  // noWarm ⇒ 不预热：壳刚起时 SnowLuma 可能还在拉起来，预热只会请求到一个"拒绝连接"。
+  // 同一个 webview 分区 `persist:webai-snowluma` ⇒ 登录一次，之后点开就是登录好的。
+  { key: 'snowluma', name: 'SnowLuma 桥接', icon: 'assets/webai/snowluma.png', fallback: 'S',
+    url: 'http://127.0.0.1:5099/', noWarm: true, hidden: true,
+    tip: 'QQ 个人号桥接控制台（本机 5099，随工作台启动）' },
 ];
 
 // ★状态为什么挂在 window 上★ ⟳ 会**重新求值本文件**却**不重建 DOM**（同一个页面上下文）：
@@ -12039,6 +12263,7 @@ function decorateWebAi() {
       brand.parentNode.insertBefore(strip, brand.nextSibling);   // ★紧跟品牌字段之后
     }
     WEB_AI.forEach(function (site, i) {
+      if (site.hidden) return;   // hidden 的站点（如 snowluma 桥接）只走面板按钮，不占顶栏图标位
       let btn = strip.querySelector('.webai-btn[data-key="' + site.key + '"]');
       if (!btn) {
         btn = document.createElement('button');
