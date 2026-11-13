@@ -5,7 +5,7 @@
 //
 // 用法：
 //   node 12-源码照搬\工具\消息流.mjs --标题 社交 --条数 20
-//   node 12-源码照搬\工具\消息流.mjs --会话 session-f0e4192d-… --json
+//   node 12-源码照搬\工具\消息流.mjs --会话 session-xxxxxxxx-… --json
 //   node 12-源码照搬\工具\消息流.mjs --标题 社交 --json > 流.json
 //
 // 参数：
