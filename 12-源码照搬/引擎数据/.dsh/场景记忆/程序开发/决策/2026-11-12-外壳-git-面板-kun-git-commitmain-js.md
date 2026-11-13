@@ -4,6 +4,7 @@ description: 2026-11-12（提交约束·跨项目）：外壳 git 面板 `kun:gi
 date: 2026-11-12
 tags: [决策, 提交约束·跨项目]
 source: 场景私有记忆.md §五（2026-11-13 拆分）
+consolidated_into: 定论/git.md
 ---
 
 # 外壳 git 面板 `kun:git:commit`（main.js 里那段正则）拦截的是用户手写的提交信息

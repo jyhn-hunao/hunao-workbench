@@ -4,6 +4,7 @@ description: 2026-11-11（工具坑·跨项目）：PowerShell 调 Maven/git 时
 date: 2026-11-11
 tags: [坑, 工具坑·跨项目]
 source: 场景私有记忆.md §五（2026-11-13 拆分）
+consolidated_into: 定论/git.md
 ---
 
 # PowerShell 调 Maven/git 时 `-D`、`-m` 位置要小心

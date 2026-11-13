@@ -4,6 +4,7 @@ description: 2026-11-12（环境坑·本机）：改完提交时 `git add` 报 `
 date: 2026-11-12
 tags: [坑, 环境坑·本机]
 source: 场景私有记忆.md §五（2026-11-13 拆分）
+consolidated_into: 定论/git.md
 ---
 
 # 改完提交时 `git add` 报 `index.lock: Permission denied`

@@ -1,7 +1,7 @@
 {
   "version": 1,
   "scene": "程序开发",
-  "generatedAt": "2026-11-13T07:34:06.587Z",
+  "generatedAt": "2026-11-13T08:16:05.411Z",
   "entries": [
     {
       "path": "决策\\2026-11-13-社交场景消息流面板落地.md",
@@ -15,6 +15,8 @@
       "evidence": [
         "12-源码照搬\\外壳\\renderer\\renderers.js::renderers.msgflow = function"
       ],
+      "expires": "",
+      "consolidatedInto": "",
       "size": 702
     },
     {
@@ -29,7 +31,9 @@
       "evidence": [
         "12-源码照搬/插件/社交通道/说明.md::微信个人号：生态里没有现成方案"
       ],
-      "size": 560
+      "expires": "",
+      "consolidatedInto": "定论/个人号.md",
+      "size": 600
     },
     {
       "path": "决策\\2026-11-13-SnowLuma-随壳启停-控制台由社交面板按钮按需打开.md",
@@ -45,6 +49,8 @@
         "12-源码照搬\\外壳\\main.js::bridgeService.autoStart",
         "12-源码照搬\\外壳\\renderer\\renderers.js::⚙ 桥接"
       ],
+      "expires": "",
+      "consolidatedInto": "",
       "size": 1041
     },
     {
@@ -59,6 +65,8 @@
       "evidence": [
         "12-源码照搬\\插件\\社交通道\\说明.md::## 10. SnowLuma：源码自建跑通"
       ],
+      "expires": "",
+      "consolidatedInto": "",
       "size": 803
     },
     {
@@ -73,7 +81,9 @@
       "evidence": [
         "12-源码照搬/插件/社交通道/说明.md::已装进 `profiles/web`"
       ],
-      "size": 604
+      "expires": "",
+      "consolidatedInto": "定论/个人号.md",
+      "size": 644
     },
     {
       "path": "决策\\2026-11-13-IM-通道给的是-bot-身份而非个人号.md",
@@ -87,7 +97,9 @@
       "evidence": [
         "12-源码照搬/插件/社交通道/说明.md::结论：官方通道给的是「可被找到的 bot 入口」，不是「一个正常微信号」。"
       ],
-      "size": 600
+      "expires": "",
+      "consolidatedInto": "定论/个人号.md",
+      "size": 640
     },
     {
       "path": "坑\\2026-11-13-壳外重启引擎会导致白屏.md",
@@ -101,6 +113,8 @@
       "evidence": [
         "12-源码照搬/外壳/main.js::引擎在外部重启后旧 token 立刻失效"
       ],
+      "expires": "",
+      "consolidatedInto": "",
       "size": 490
     },
     {
@@ -115,6 +129,8 @@
       "evidence": [
         "12-源码照搬/插件/社交通道/说明.md::访问 GitHub releases 的 `NapCat.Shell.zip` 直链返回 404"
       ],
+      "expires": "",
+      "consolidatedInto": "",
       "size": 479
     },
     {
@@ -128,10 +144,12 @@
       ],
       "distinct": [],
       "evidence": [
-        "D:/codeData/myself/luanyujia-workbench/12-源码照搬/引擎数据/.dsh/场景记忆/程序开发/决策/2026-11-12-外壳-git-面板-kun-git-commitmain-js.md::外壳 git 面",
-        "D:/codeData/myself/luanyujia-workbench/12-源码照搬/引擎数据/.dsh/场景记忆/程序开发/坑/2026-11-12-改完提交时-git-add-报-index-lock.md::改完提交时 `g"
+        "D:/codeData/myself/luanyujia-workbench/12-源码照搬/引擎数据/.dsh/场景记忆/程序开发/决策/2026-11-12-外壳-git-面板-kun-git-commitmain-js.md::2026-11-12（提交约束·跨项目）：外壳 git 面板 `kun:git:commit`（main.js 里那段正",
+        "D:/codeData/myself/luanyujia-workbench/12-源码照搬/引擎数据/.dsh/场景记忆/程序开发/坑/2026-11-12-改完提交时-git-add-报-index-lock.md::2026-11-12（环境坑·本机）：改完提交时 `git add` 报 `index.lock: Permission"
       ],
-      "size": 2630
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 2786
     },
     {
       "path": "定论\\个人号.md",
@@ -144,10 +162,12 @@
       ],
       "distinct": [],
       "evidence": [
-        "D:/codeData/myself/luanyujia-workbench/12-源码照搬/引擎数据/.dsh/场景记忆/程序开发/决策/2026-11-13-个人号只有-QQ-一条路.md::个人号只有 QQ",
-        "D:/codeData/myself/luanyujia-workbench/12-源码照搬/引擎数据/.dsh/场景记忆/程序开发/决策/2026-11-13-QQ-个人号通道已装-dsh-onebot.md::QQ 个人号通道"
+        "D:/codeData/myself/luanyujia-workbench/12-源码照搬/引擎数据/.dsh/场景记忆/程序开发/决策/2026-11-13-个人号只有-QQ-一条路.md::dsh-im 5.10.0 无 onebot/napcat 适配器，飞书/微信/QQ 全是 bot 身份",
+        "D:/codeData/myself/luanyujia-workbench/12-源码照搬/引擎数据/.dsh/场景记忆/程序开发/决策/2026-11-13-QQ-个人号通道已装-dsh-onebot.md::命令：dsh plugin --profile web add dsh-onebot-channel，装成 0.15.2"
       ],
-      "size": 2144
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 2258
     },
     {
       "path": "定论\\换会话.md",
@@ -160,10 +180,12 @@
       ],
       "distinct": [],
       "evidence": [
-        "D:/codeData/myself/luanyujia-workbench/12-源码照搬/引擎数据/.dsh/场景记忆/程序开发/决策/2026-11-12-第一次真换失败在-换不到-cookie.md::第一次真换失败在",
-        "D:/codeData/myself/luanyujia-workbench/12-源码照搬/引擎数据/.dsh/场景记忆/程序开发/决策/2026-11-12-派发-mjs-加-project-项目名-别称-只认-共享记忆.md::① `派发.mj"
+        "D:/codeData/myself/luanyujia-workbench/12-源码照搬/引擎数据/.dsh/场景记忆/程序开发/决策/2026-11-12-第一次真换失败在-换不到-cookie.md::2026-11-12（换会话实测·跨项目）：第一次真换失败在 `✗ 换不到 cookie` —— 不是引擎，是 `ses",
+        "D:/codeData/myself/luanyujia-workbench/12-源码照搬/引擎数据/.dsh/场景记忆/程序开发/决策/2026-11-12-派发-mjs-加-project-项目名-别称-只认-共享记忆.md::2026-11-12（工具修·派发/换会话）：① `派发.mjs` 加 `--project \"<项目名/别称>\"`：只"
       ],
-      "size": 5824
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 6014
     },
     {
       "path": "定论\\程序开发.md",
@@ -176,10 +198,12 @@
       ],
       "distinct": [],
       "evidence": [
-        "D:/codeData/myself/luanyujia-workbench/12-源码照搬/引擎数据/.dsh/场景记忆/程序开发/决策/2026-11-12-程序开发-程序开发场景私有记忆-md.md::`程序开发\\程序",
-        "D:/codeData/myself/luanyujia-workbench/12-源码照搬/引擎数据/.dsh/场景记忆/程序开发/决策/2026-11-11-程序开发-一个场景-两块-AI-面板.md::程序开发 = 一"
+        "D:/codeData/myself/luanyujia-workbench/12-源码照搬/引擎数据/.dsh/场景记忆/程序开发/决策/2026-11-12-程序开发-程序开发场景私有记忆-md.md::2026-11-12（清理·目录）：`程序开发\\程序开发场景私有记忆.md` 按设计应是正本的**兼容硬链接**（`场景",
+        "D:/codeData/myself/luanyujia-workbench/12-源码照搬/引擎数据/.dsh/场景记忆/程序开发/决策/2026-11-11-程序开发-一个场景-两块-AI-面板.md::2026-11-11（决策·场景结构）：**程序开发 = 一个场景 + 两块 AI 面板** —— `cd-ai-hom"
       ],
-      "size": 3177
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 3381
     },
     {
       "path": "决策\\2026-11-12-顶栏-技能-工具面板是空的-但按钮在-面板代码也在.md",
@@ -192,6 +216,8 @@
       ],
       "distinct": [],
       "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
       "size": 1603
     },
     {
@@ -205,7 +231,9 @@
       ],
       "distinct": [],
       "evidence": [],
-      "size": 1253
+      "expires": "",
+      "consolidatedInto": "定论/换会话.md",
+      "size": 1293
     },
     {
       "path": "决策\\2026-11-12-程序开发-程序开发场景私有记忆-md.md",
@@ -218,7 +246,9 @@
       ],
       "distinct": [],
       "evidence": [],
-      "size": 1277
+      "expires": "",
+      "consolidatedInto": "定论/程序开发.md",
+      "size": 1320
     },
     {
       "path": "决策\\2026-11-12-派活是单向-session-prompt.md",
@@ -231,6 +261,8 @@
       ],
       "distinct": [],
       "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
       "size": 1740
     },
     {
@@ -244,7 +276,9 @@
       ],
       "distinct": [],
       "evidence": [],
-      "size": 1461
+      "expires": "",
+      "consolidatedInto": "定论/换会话.md",
+      "size": 1501
     },
     {
       "path": "决策\\2026-11-12-按钮换会话把-mlw-建到了-工作区.md",
@@ -257,7 +291,9 @@
       ],
       "distinct": [],
       "evidence": [],
-      "size": 884
+      "expires": "",
+      "consolidatedInto": "定论/换会话.md",
+      "size": 924
     },
     {
       "path": "决策\\2026-11-12-按钮先写交接再换15-48-那轮-10-秒就结束了.md",
@@ -270,7 +306,9 @@
       ],
       "distinct": [],
       "evidence": [],
-      "size": 1311
+      "expires": "",
+      "consolidatedInto": "定论/换会话.md",
+      "size": 1351
     },
     {
       "path": "决策\\2026-11-12-工具不是一张要人维护的-json.md",
@@ -283,6 +321,8 @@
       ],
       "distinct": [],
       "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
       "size": 958
     },
     {
@@ -296,7 +336,9 @@
       ],
       "distinct": [],
       "evidence": [],
-      "size": 1213
+      "expires": "",
+      "consolidatedInto": "定论/git.md",
+      "size": 1247
     },
     {
       "path": "决策\\2026-11-12-场景记忆-mjs-两处缺陷已修.md",
@@ -309,6 +351,8 @@
       ],
       "distinct": [],
       "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
       "size": 951
     },
     {
@@ -322,6 +366,8 @@
       ],
       "distinct": [],
       "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
       "size": 834
     },
     {
@@ -335,7 +381,9 @@
       ],
       "distinct": [],
       "evidence": [],
-      "size": 1215
+      "expires": "",
+      "consolidatedInto": "定论/换会话.md",
+      "size": 1255
     },
     {
       "path": "坑\\2026-11-12-改完提交时-git-add-报-index-lock.md",
@@ -348,7 +396,9 @@
       ],
       "distinct": [],
       "evidence": [],
-      "size": 966
+      "expires": "",
+      "consolidatedInto": "定论/git.md",
+      "size": 1000
     },
     {
       "path": "决策\\2026-11-11-项目记忆从单文件全量载入改成薄卡.md",
@@ -361,6 +411,8 @@
       ],
       "distinct": [],
       "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
       "size": 1270
     },
     {
@@ -374,6 +426,8 @@
       ],
       "distinct": [],
       "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
       "size": 1167
     },
     {
@@ -387,6 +441,8 @@
       ],
       "distinct": [],
       "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
       "size": 932
     },
     {
@@ -400,7 +456,9 @@
       ],
       "distinct": [],
       "evidence": [],
-      "size": 1244
+      "expires": "",
+      "consolidatedInto": "定论/程序开发.md",
+      "size": 1287
     },
     {
       "path": "决策\\2026-11-11-用户画像迁入规范本体.md",
@@ -413,6 +471,8 @@
       ],
       "distinct": [],
       "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
       "size": 946
     },
     {
@@ -426,6 +486,8 @@
       ],
       "distinct": [],
       "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
       "size": 978
     },
     {
@@ -439,6 +501,8 @@
       ],
       "distinct": [],
       "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
       "size": 681
     },
     {
@@ -452,7 +516,9 @@
       ],
       "distinct": [],
       "evidence": [],
-      "size": 1869
+      "expires": "",
+      "consolidatedInto": "定论/程序开发.md",
+      "size": 1912
     },
     {
       "path": "决策\\2026-11-11-开新会话要一步到位.md",
@@ -465,6 +531,8 @@
       ],
       "distinct": [],
       "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
       "size": 1039
     },
     {
@@ -478,6 +546,8 @@
       ],
       "distinct": [],
       "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
       "size": 1230
     },
     {
@@ -491,6 +561,8 @@
       ],
       "distinct": [],
       "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
       "size": 836
     },
     {
@@ -504,7 +576,9 @@
       ],
       "distinct": [],
       "evidence": [],
-      "size": 1183
+      "expires": "",
+      "consolidatedInto": "定论/换会话.md",
+      "size": 1223
     },
     {
       "path": "坑\\2026-11-11-换会话-mjs-sessions-mjs-把记忆根写成-工作台.md",
@@ -517,7 +591,9 @@
       ],
       "distinct": [],
       "evidence": [],
-      "size": 1282
+      "expires": "",
+      "consolidatedInto": "定论/换会话.md",
+      "size": 1322
     },
     {
       "path": "坑\\2026-11-11-内联写死深色常量-浅色默认主题下白字白底.md",
@@ -530,6 +606,8 @@
       ],
       "distinct": [],
       "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
       "size": 1190
     },
     {
@@ -543,7 +621,9 @@
       ],
       "distinct": [],
       "evidence": [],
-      "size": 897
+      "expires": "",
+      "consolidatedInto": "定论/git.md",
+      "size": 931
     },
     {
       "path": "决策\\2026-11-10-规范分三处放.md",
@@ -556,6 +636,8 @@
       ],
       "distinct": [],
       "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
       "size": 570
     },
     {
@@ -569,6 +651,8 @@
       ],
       "distinct": [],
       "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
       "size": 1061
     },
     {
@@ -582,6 +666,8 @@
       ],
       "distinct": [],
       "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
       "size": 736
     },
     {
@@ -595,7 +681,225 @@
       ],
       "distinct": [],
       "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
       "size": 686
+    },
+    {
+      "path": "归档\\mlw-mnemon-2026-11-11.md",
+      "kind": "归档",
+      "title": "MLW · 旧记忆引擎（.mnemon）原始档案（2026-11-11 迁移）",
+      "date": "",
+      "tags": [],
+      "distinct": [],
+      "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 238399
+    },
+    {
+      "path": "归档\\冲突副本-程序开发场景私有记忆-2026-11-12T08-02-21.md",
+      "kind": "归档",
+      "title": "程序开发 · 场景私有记忆",
+      "date": "",
+      "tags": [],
+      "distinct": [],
+      "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 19871
+    },
+    {
+      "path": "归档\\冲突副本-程序开发场景私有记忆-2026-11-12T08-21-25.md",
+      "kind": "归档",
+      "title": "程序开发 · 场景私有记忆",
+      "date": "",
+      "tags": [],
+      "distinct": [],
+      "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 24207
+    },
+    {
+      "path": "归档\\冲突副本-程序开发场景私有记忆-2026-11-12T09-33-01.md",
+      "kind": "归档",
+      "title": "程序开发 · 场景私有记忆",
+      "date": "",
+      "tags": [],
+      "distinct": [],
+      "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 25546
+    },
+    {
+      "path": "归档\\场景私有记忆-202611111747-05b703.md",
+      "kind": "归档",
+      "title": "程序开发 · 场景私有记忆",
+      "date": "",
+      "tags": [],
+      "distinct": [],
+      "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 13874
+    },
+    {
+      "path": "归档\\场景私有记忆-202611121103-f28099.md",
+      "kind": "归档",
+      "title": "程序开发 · 场景私有记忆",
+      "date": "",
+      "tags": [],
+      "distinct": [],
+      "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 19871
+    },
+    {
+      "path": "归档\\场景私有记忆-202611121602-f28099.md",
+      "kind": "归档",
+      "title": "程序开发 · 场景私有记忆",
+      "date": "",
+      "tags": [],
+      "distinct": [],
+      "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 23383
+    },
+    {
+      "path": "归档\\场景私有记忆-202611121604-f28099.md",
+      "kind": "归档",
+      "title": "程序开发 · 场景私有记忆",
+      "date": "",
+      "tags": [],
+      "distinct": [],
+      "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 24642
+    },
+    {
+      "path": "归档\\场景私有记忆-202611121605-f28099.md",
+      "kind": "归档",
+      "title": "程序开发 · 场景私有记忆",
+      "date": "",
+      "tags": [],
+      "distinct": [],
+      "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 23445
+    },
+    {
+      "path": "归档\\场景私有记忆-202611121606-f28099.md",
+      "kind": "归档",
+      "title": "程序开发 · 场景私有记忆",
+      "date": "",
+      "tags": [],
+      "distinct": [],
+      "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 24207
+    },
+    {
+      "path": "归档\\场景私有记忆-202611121621-f28099.md",
+      "kind": "归档",
+      "title": "程序开发 · 场景私有记忆",
+      "date": "",
+      "tags": [],
+      "distinct": [],
+      "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 25548
+    },
+    {
+      "path": "归档\\场景私有记忆-202611121627-e49834.md",
+      "kind": "归档",
+      "title": "程序开发 · 场景私有记忆",
+      "date": "",
+      "tags": [],
+      "distinct": [],
+      "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 25459
+    },
+    {
+      "path": "归档\\场景私有记忆-202611121733-ca13be.md",
+      "kind": "归档",
+      "title": "程序开发 · 场景私有记忆",
+      "date": "",
+      "tags": [],
+      "distinct": [],
+      "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 23890
+    },
+    {
+      "path": "归档\\场景私有记忆-202611121740-ca13be.md",
+      "kind": "归档",
+      "title": "程序开发 · 场景私有记忆",
+      "date": "",
+      "tags": [],
+      "distinct": [],
+      "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 23890
+    },
+    {
+      "path": "归档\\场景私有记忆-202611130923-拆分前.md",
+      "kind": "归档",
+      "title": "程序开发 · 场景私有记忆",
+      "date": "",
+      "tags": [],
+      "distinct": [],
+      "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 24195
+    },
+    {
+      "path": "归档\\场景私有记忆-§五-搬迁-20261112.md",
+      "kind": "归档",
+      "title": "场景私有记忆-§五-搬迁-20261112",
+      "date": "",
+      "tags": [],
+      "distinct": [],
+      "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 2180
+    },
+    {
+      "path": "归档\\工作台定制-场景私有记忆-2026-11-10.md",
+      "kind": "归档",
+      "title": "工作台定制 · 场景私有记忆",
+      "date": "",
+      "tags": [],
+      "distinct": [],
+      "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 6983
+    },
+    {
+      "path": "归档\\程序开发场景私有记忆-旧名残留-20261112.md",
+      "kind": "归档",
+      "title": "程序开发 · 场景私有记忆",
+      "date": "",
+      "tags": [],
+      "distinct": [],
+      "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 16202
     }
   ]
 }

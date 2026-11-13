@@ -4,6 +4,7 @@ description: 2026-11-11（工具坑·跨项目）：`换会话.mjs` / `sessions.
 date: 2026-11-11
 tags: [坑, 工具坑·跨项目]
 source: 场景私有记忆.md §五（2026-11-13 拆分）
+consolidated_into: 定论/换会话.md
 ---
 
 # `换会话.mjs` / `sessions.mjs` 把记忆根写成 `<工作台>\引擎\场景记忆`（公开模板里不存在，真

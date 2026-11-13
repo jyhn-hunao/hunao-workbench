@@ -4,6 +4,7 @@ date: 2026-11-13
 tags: [决策]
 evidence:
   - 12-源码照搬/插件/社交通道/说明.md::已装进 `profiles/web`
+consolidated_into: 定论/个人号.md
 ---
 
 # QQ 个人号通道已装 dsh-onebot-channel

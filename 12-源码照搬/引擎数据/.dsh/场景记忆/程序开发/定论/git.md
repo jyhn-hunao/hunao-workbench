@@ -12,8 +12,8 @@ sources:
   - 坑/2026-11-12-改完提交时-git-add-报-index-lock.md
   - 坑/2026-11-11-PowerShell-调-Maven-git-时-D-m.md
 evidence:
-  - D:/codeData/myself/luanyujia-workbench/12-源码照搬/引擎数据/.dsh/场景记忆/程序开发/决策/2026-11-12-外壳-git-面板-kun-git-commitmain-js.md::外壳 git 面
-  - D:/codeData/myself/luanyujia-workbench/12-源码照搬/引擎数据/.dsh/场景记忆/程序开发/坑/2026-11-12-改完提交时-git-add-报-index-lock.md::改完提交时 `g
+  - D:/codeData/myself/luanyujia-workbench/12-源码照搬/引擎数据/.dsh/场景记忆/程序开发/决策/2026-11-12-外壳-git-面板-kun-git-commitmain-js.md::2026-11-12（提交约束·跨项目）：外壳 git 面板 `kun:git:commit`（main.js 里那段正
+  - D:/codeData/myself/luanyujia-workbench/12-源码照搬/引擎数据/.dsh/场景记忆/程序开发/坑/2026-11-12-改完提交时-git-add-报-index-lock.md::2026-11-12（环境坑·本机）：改完提交时 `git add` 报 `index.lock: Permission
 ---
 # git
 

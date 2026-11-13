@@ -4,6 +4,7 @@ description: 2026-11-12（工具修·派发/换会话）：① `派发.mjs` 加 
 date: 2026-11-12
 tags: [决策, 工具修·派发/换会话]
 source: 场景私有记忆.md §五（2026-11-13 拆分）
+consolidated_into: 定论/换会话.md
 ---
 
 # ① `派发.mjs` 加 `--project "<项目名/别称>"`：只认 `_共享记忆\项目.json` 的 nam
