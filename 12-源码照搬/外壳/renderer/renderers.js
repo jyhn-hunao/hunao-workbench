@@ -20213,7 +20213,8 @@ window.openPetSettings = function () {
     navBtn('ov', '概览');
     kv(ovC, '人格名', persona.name || '胡闹的大肥鱼');
     kv(ovC, '绑定会话', (sess.sessionTitle || '（未绑定）') + (sess.sessionId ? ' · ' + String(sess.sessionId).slice(0, 12) + '…' : ''));
-    kv(ovC, '参数文件', files.data ? String(files.data).replace(/.*[\\/]/, '…\\') : '外壳\\data\\pet\\设置.json（本机，不进仓库）');
+    var dataFile = String(files['运行值'] || files.data || '');
+    kv(ovC, '参数文件', dataFile ? dataFile.replace(/^.*[\\/]/, '…\\') + '（本机，不进仓库）' : '外壳\\data\\pet\\设置.json（本机，不进仓库）');
     kv(ovC, '通道', 'QQ / 飞书等平台卡片在「社交」场景；这里只管她的脾气与权限');
 
     // 4. ② 主动性：三选一，按钮组比下拉直观
