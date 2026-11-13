@@ -14,6 +14,7 @@ const crypto = require('crypto');
 const projectSwitch = require('./项目切换');   // 程序开发场景「项目下拉」的数据面（可单测：scripts\项目切换自检.mjs）
 const socialSvc = require('./社交');           // 社交场景「消息流」的数据面（只读 transcript + 探 OneBot 端口；可单测：工具\消息流.mjs）
 const bridgeSvc = require('./桥接');           // QQ 个人号桥接（SnowLuma）的进程面：随壳启动/退出、面板按钮按需打开
+const petSvc = require('./桌宠设置');          // 桌宠层的机器可读设置 + 路由打分 + 派发日志（面板与 工具\桌宠.mjs 共用）
 
 const DSH_PORT = String(process.env.DSH_PORT || '3083');
 const BASE = 'http://127.0.0.1:' + DSH_PORT;
@@ -4335,6 +4336,17 @@ const bridgeService = bridgeSvc.createService();
 ipcMain.handle('bridge:snowluma-status', () => bridgeService.status());
 ipcMain.handle('bridge:snowluma-start', () => bridgeService.start());
 ipcMain.handle('bridge:snowluma-stop', () => bridgeService.stop());
+
+// ---- 桌宠设置（胡闹的大肥鱼，2026-11-13）----
+// 用户要求：桌宠不是一堆散文件，要有一个可看可改的面板。参数落在 外壳\data\pet\设置.json（本机不入库），
+//   默认值在 外壳\pet\设置.默认.json；这里只做读写 + 展示最近派发记录，不碰引擎、不启停通道。
+ipcMain.handle('pet:settings-get', () => ({
+  settings: petSvc.getSettings(),
+  files: { 默认值: petSvc.DEFAULT_FILE, 运行值: petSvc.DATA_FILE },
+  session: petSvc.petSession(),
+}));
+ipcMain.handle('pet:settings-set', (e, patch) => petSvc.setSettings(patch || {}));
+ipcMain.handle('pet:log-tail', (e, n) => ({ file: petSvc.logPath(), rows: petSvc.tailLog(n) }));
 
 // ② 谁在等我：共用定位卡 §六 未办结行 + 各场景记忆 §〇 的「卡点」
 ipcMain.handle('topbar:pending', () => {

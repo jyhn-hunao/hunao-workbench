@@ -84,6 +84,13 @@ contextBridge.exposeInMainWorld('app', {
     snowlumaStart: () => ipcRenderer.invoke('bridge:snowluma-start'),
     snowlumaStop: () => ipcRenderer.invoke('bridge:snowluma-stop')
   },
+  // ---- 桌宠设置（胡闹的大肥鱼，2026-11-13）----
+  // 缺这个命名空间 = preload 还是旧的 ⇒ petset 面板显示「重启一次工作台」，不假装能存。
+  pet: {
+    settingsGet: () => ipcRenderer.invoke('pet:settings-get'),
+    settingsSet: (patch) => ipcRenderer.invoke('pet:settings-set', patch),
+    logTail: (n) => ipcRenderer.invoke('pet:log-tail', n)
+  },
   // ---- 设置：读取 / 打开 Harness 配置文件 ----
   settings: {
     list: () => ipcRenderer.invoke('settings:list'),

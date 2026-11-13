@@ -19980,3 +19980,269 @@ renderers.git = function (body, meta) {
     wrap.removeEventListener('contextmenu', onRepoMenu);
   };
 };
+// ============ petset：桌宠设置面板（2026-11-13）============
+// 为什么有它：人格参数原来全散在文件里（AGENTS 口径 / 场景记忆 / qq-bridge 配置），用户没法看、没法改。
+//   这一格把「机器读的那份」集中到一个表单：白名单、审批级别、打扰控制、路由表、最近派发。
+// 数据面：主进程 pet:settings-get / pet:settings-set / pet:log-tail → 外壳\data\pet\设置.json（本机不入库）。
+// 只存参数：人格正文仍在 场景记忆\胡闹的大肥鱼\，通道凭据仍在 %USERPROFILE%\.dsh\qq-bridge.config.json。
+// 缺命名空间（window.app.pet 不存在）= preload 还是旧的 ⇒ 明说「重启一次工作台」，不假装能存。
+renderers.petset = function (body, meta, head) {
+  body.classList.add('pset-panel');
+  var api = window.app && window.app.pet;
+  var st = { s: null, files: null, session: null, err: '', logs: [], saving: false };
+
+  if (!api || typeof api.settingsGet !== 'function') {
+    var miss = document.createElement('div');
+    miss.className = 'pset-empty';
+    miss.textContent = '桌宠设置没接上：主进程/preload 还是旧的，重启一次工作台就能用。';
+    body.appendChild(miss);
+    return;
+  }
+
+  function toast(msg, bad) {
+    try { if (typeof window.__tbsToast === 'function') window.__tbsToast(msg, !!bad, bad ? 8000 : 3000); } catch (e) { /* ignore */ }
+  }
+  function row(label, node, hint) {
+    var r = document.createElement('div');
+    r.className = 'pset-row';
+    var l = document.createElement('div');
+    l.className = 'pset-label';
+    l.textContent = label;
+    var v = document.createElement('div');
+    v.className = 'pset-ctl';
+    v.appendChild(node);
+    r.appendChild(l); r.appendChild(v);
+    if (hint) {
+      var h = document.createElement('div');
+      h.className = 'pset-hint';
+      h.textContent = hint;
+      r.appendChild(h);
+    }
+    return r;
+  }
+  function sel(opts, cur) {
+    var s = document.createElement('select');
+    s.className = 'pset-input';
+    opts.forEach(function (o) {
+      var op = document.createElement('option');
+      op.value = o[0]; op.textContent = o[1];
+      if (String(cur) === String(o[0])) op.selected = true;
+      s.appendChild(op);
+    });
+    return s;
+  }
+  function txt(val, ph) {
+    var i = document.createElement('input');
+    i.className = 'pset-input';
+    i.type = 'text';
+    i.value = val == null ? '' : String(val);
+    if (ph) i.placeholder = ph;
+    return i;
+  }
+  function num(val, min, max) {
+    var i = document.createElement('input');
+    i.className = 'pset-input';
+    i.type = 'number';
+    i.min = String(min); i.max = String(max);
+    i.value = val == null ? '' : String(val);
+    return i;
+  }
+
+  // 1. 画表单：读一次配置，出错就把错误原文放正文（不画空壳）
+  function draw() {
+    body.textContent = '';
+    if (st.err) {
+      var e1 = document.createElement('div');
+      e1.className = 'pset-empty is-bad';
+      e1.textContent = st.err;
+      body.appendChild(e1);
+      return;
+    }
+    var s = st.s || {};
+    var persona = s.persona || {};
+    var tools = s.tools || {};
+    var approval = s.approval || {};
+    var quiet = s.quiet || {};
+    var memory = s.memory || {};
+    var routes = Array.isArray(s.routes) ? s.routes : [];
+
+    // 标题区：人格名 + 会话 + 文件
+    var top = document.createElement('div');
+    top.className = 'pset-top';
+    var nm = document.createElement('span');
+    nm.className = 'pset-name';
+    nm.textContent = persona.name || '人格';
+    var sid = st.session && st.session.sessionId ? String(st.session.sessionId) : '';
+    var s1 = document.createElement('span');
+    s1.className = 'pset-sid';
+    s1.textContent = sid ? ('会话 ' + sid.slice(0, 15) + '…') : '会话未绑定';
+    s1.title = sid || 'pet.json 里 pet-ai 没有 sessionId';
+    top.appendChild(nm); top.appendChild(s1);
+    body.appendChild(top);
+
+    // 2. 人格
+    var actSel = sel([['low', '低（不主动开口）'], ['normal', '中（有事才说）'], ['high', '高（会主动搭话）']], persona.proactive);
+    body.appendChild(row('主动性', actSel, '主动搭话会受下面「免打扰」时段与频率上限约束'));
+
+    // 3. 工具白名单
+    var allowI = txt((tools.allow || []).join(', '), 'scene_memory_read, dispatch, receipt');
+    body.appendChild(row('允许的工具', allowI, '逗号分隔。deny 优先于 allow'));
+    var denyI = txt((tools.deny || []).join(', '), 'shell, git_push, http_post');
+    body.appendChild(row('拉黑的工具', denyI, '默认拉黑 shell / git_push / http_post'));
+
+    // 4. 审批级别
+    var AP = [['auto', '直接做'], ['ask', '先问我'], ['never', '一律不做']];
+    var apR = document.createElement('div');
+    apR.className = 'pset-grid2';
+    [['read', '只读'], ['write_mem', '写记忆'], ['write_code', '改代码'], ['outbound', '对外发消息']].forEach(function (k) {
+      var g = document.createElement('div');
+      g.className = 'pset-cell';
+      var t = document.createElement('div');
+      t.className = 'pset-cell-t';
+      t.textContent = k[1];
+      var ss = sel(AP, approval[k[0]] || 'ask');
+      ss.dataset.key = k[0];
+      ss.classList.add('pset-ap');
+      g.appendChild(t); g.appendChild(ss);
+      apR.appendChild(g);
+    });
+    body.appendChild(row('审批级别', apR, '从 QQ/飞书 来的指令整体降一级（硬规则）'));
+
+    // 5. 免打扰
+    var qR = document.createElement('div');
+    qR.className = 'pset-grid3';
+    var qFrom = txt(quiet.from || '23:30'); qFrom.classList.add('pset-q-from');
+    var qTo = txt(quiet.to || '08:00'); qTo.classList.add('pset-q-to');
+    var qMax = num(quiet.proactiveMaxPerHour == null ? 2 : quiet.proactiveMaxPerHour, 0, 60); qMax.classList.add('pset-q-max');
+    [['起', qFrom], ['止', qTo], ['次/时', qMax]].forEach(function (p) {
+      var g = document.createElement('div');
+      g.className = 'pset-cell';
+      var t = document.createElement('div');
+      t.className = 'pset-cell-t';
+      t.textContent = p[0];
+      g.appendChild(t); g.appendChild(p[1]);
+      qR.appendChild(g);
+    });
+    body.appendChild(row('免打扰', qR, '这段时间不主动开口；频率上限防半夜刷屏'));
+
+    // 6. 记忆策略
+    var memR = document.createElement('div');
+    memR.className = 'pset-checks';
+    function chk(label, on, cls) {
+      var w = document.createElement('label');
+      w.className = 'pset-check';
+      var c = document.createElement('input');
+      c.type = 'checkbox'; c.checked = !!on; c.classList.add(cls);
+      w.appendChild(c);
+      var tx = document.createElement('span');
+      tx.textContent = label;
+      w.appendChild(tx);
+      return w;
+    }
+    memR.appendChild(chk('写长期记忆', memory.writeLongTerm, 'pset-m-long'));
+    memR.appendChild(chk('写对话流水', memory.writeDialog, 'pset-m-dialog'));
+    memR.appendChild(chk('写前确认', memory.confirmBeforeWrite, 'pset-m-confirm'));
+    body.appendChild(row('记忆', memR));
+
+    // 7. 路由表（只读展示；关键词要批量改就直接改 JSON，避免在窄面板里做表格编辑器）
+    var rt = document.createElement('div');
+    rt.className = 'pset-routes';
+    if (!routes.length) {
+      rt.textContent = '（路由表是空的：桌宠不知道该把话派给哪个场景，会直接列候选问你）';
+    } else {
+      routes.forEach(function (r) {
+        var line = document.createElement('div');
+        line.className = 'pset-route';
+        var k = document.createElement('span');
+        k.className = 'pset-route-k';
+        k.textContent = (r.keywords || []).join('/');
+        var arr = document.createElement('span');
+        arr.className = 'pset-route-arr';
+        arr.textContent = ' → ';
+        var t2 = document.createElement('span');
+        t2.className = 'pset-route-t';
+        t2.textContent = r.to + '';
+        var lv = document.createElement('span');
+        lv.className = 'pset-route-lv is-' + (r.level || 'confirm');
+        lv.textContent = r.level === 'read' ? '只读' : (r.level === 'never' ? '不做' : '要确认');
+        line.appendChild(k); line.appendChild(arr); line.appendChild(t2); line.appendChild(lv);
+        rt.appendChild(line);
+      });
+    }
+    body.appendChild(row('路由表', rt, '关键词命中就派给该会话；改关键词直接编辑 JSON 后点「重新读取」'));
+
+    // 8. 最近派发（来自 场景记忆\胡闹的大肥鱼\派发日志.md）
+    var lg = document.createElement('div');
+    lg.className = 'pset-logs';
+    if (!st.logs.length) lg.textContent = '（还没有派发记录）';
+    else {
+      st.logs.slice(-4).forEach(function (x) {
+        var d = document.createElement('div');
+        d.className = 'pset-log';
+        d.textContent = String(x).replace(/^-\s*/, '').replace(/\s*·\s*/g, ' · ');
+        lg.appendChild(d);
+      });
+    }
+    body.appendChild(row('最近派发', lg, '时间 · 原话 · 派给谁 · 结果 · 耗时'));
+
+    // 9. 动作
+    var act = document.createElement('div');
+    act.className = 'pset-actions';
+    var save = document.createElement('button');
+    save.className = 'pset-btn is-primary';
+    save.textContent = '保存';
+    save.addEventListener('click', function () {
+      if (st.saving) return;
+      st.saving = true; save.disabled = true;
+      var patch = {
+        persona: { proactive: actSel.value },
+        tools: { allow: allowI.value.split(',').map(function (x) { return x.trim(); }).filter(Boolean),
+                 deny: denyI.value.split(',').map(function (x) { return x.trim(); }).filter(Boolean) },
+        approval: {},
+        quiet: { from: qFrom.value.trim(), to: qTo.value.trim(), proactiveMaxPerHour: Number(qMax.value) || 0 },
+        memory: { writeLongTerm: memR.children[0].children[0].checked,
+                  writeDialog: memR.children[1].children[0].checked,
+                  confirmBeforeWrite: memR.children[2].children[0].checked }
+      };
+      Array.prototype.forEach.call(body.querySelectorAll('.pset-ap'), function (x) { patch.approval[x.dataset.key] = x.value; });
+      Promise.resolve(api.settingsSet(patch)).then(function (r) {
+        st.saving = false; save.disabled = false;
+        if (!r || r.ok === false) { toast('保存失败：' + ((r && r.error) || '未知原因'), true); return; }
+        st.s = r.settings;
+        toast('已保存（外壳\\data\\pet\\设置.json）', false);
+        refresh();
+      }).catch(function (e) { st.saving = false; save.disabled = false; toast('保存失败：' + String((e && e.message) || e), true); });
+    });
+    var reread = document.createElement('button');
+    reread.className = 'pset-btn';
+    reread.textContent = '重新读取';
+    reread.addEventListener('click', function () { refresh(); });
+    act.appendChild(save); act.appendChild(reread);
+    body.appendChild(act);
+
+    var fp = document.createElement('div');
+    fp.className = 'pset-foot';
+    fp.textContent = (st.files && st.files.运行值 ? '运行值：' + String(st.files.运行值).replace(/^.*\\外壳\\/, '外壳\\') : '')
+      + (st.files && st.files.默认值 ? ' · 默认值：' + String(st.files.默认值).replace(/^.*\\外壳\\/, '外壳\\') : '');
+    body.appendChild(fp);
+  }
+
+  // 2. 刷新：一次读配置 + 一次读派发日志
+  function refresh() {
+    return Promise.all([
+      Promise.resolve(api.settingsGet()),
+      Promise.resolve(api.logTail(6)).catch(function () { return { rows: [] }; })
+    ]).then(function (a) {
+      var r = a[0] || {};
+      st.s = r.settings || {}; st.files = r.files || {}; st.session = r.session || {};
+      st.logs = (a[1] && a[1].rows) || [];
+      st.err = '';
+      draw();
+    }).catch(function (e) {
+      st.err = '读设置失败：' + String((e && e.message) || e) + '\n（配置在 外壳\\data\\pet\\设置.json，默认值在 外壳\\pet\\设置.默认.json）';
+      draw();
+    });
+  }
+
+  refresh();
+};
