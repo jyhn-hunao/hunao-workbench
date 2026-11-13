@@ -1,0 +1,172 @@
+{
+  "version": 1,
+  "scene": "命令",
+  "generatedAt": "2026-11-13T07:38:41.805Z",
+  "entries": [
+    {
+      "path": "决策\\2026-11-13-记忆体系规范-v3-L0-L7-分层-四条不变式.md",
+      "kind": "决策",
+      "title": "记忆体系规范 v3：L0–L7 分层 + 四条不变式 + 场景矩阵",
+      "date": "2026-11-13",
+      "tags": [
+        "决策"
+      ],
+      "distinct": [],
+      "evidence": [
+        "doc/记忆体系规范.md::## 0. 四条不变式",
+        "doc/记忆体系规范.md::## 8. 现有场景的落地矩阵"
+      ],
+      "size": 518
+    },
+    {
+      "path": "决策\\2026-11-13-联想层升级为主题节点-让关联从一对一变成一对多.md",
+      "kind": "决策",
+      "title": "联想层升级为主题节点：让关联从一对一变成一对多/多对一",
+      "date": "2026-11-13",
+      "tags": [
+        "决策"
+      ],
+      "distinct": [],
+      "evidence": [
+        "12-源码照搬/外壳/renderer/renderers.js::function lcsOf",
+        "12-源码照搬/外壳/renderer/renderers.js::kind: 'topic'"
+      ],
+      "size": 474
+    },
+    {
+      "path": "决策\\2026-11-13-神经元加联想层-场景自动进图-共享主题词连边.md",
+      "kind": "决策",
+      "title": "神经元加联想层：场景自动进图 + 共享主题词连边 + 新鲜度",
+      "date": "2026-11-13",
+      "tags": [
+        "决策"
+      ],
+      "distinct": [],
+      "evidence": [
+        "12-源码照搬/外壳/renderer/renderers.js::function buildAssociations",
+        "12-源码照搬/工具/场景记忆.mjs::function cmdIndex"
+      ],
+      "size": 562
+    },
+    {
+      "path": "决策\\2026-11-13-收工命令-索引-近期记忆-check.md",
+      "kind": "决策",
+      "title": "收工命令：索引+近期记忆+check 一条跑完",
+      "date": "2026-11-13",
+      "tags": [
+        "决策"
+      ],
+      "distinct": [],
+      "evidence": [
+        "12-源码照搬/工具/场景记忆.mjs::function cmdFinish"
+      ],
+      "size": 369
+    },
+    {
+      "path": "决策\\2026-11-13-场景记忆分条化-一条一个文件.md",
+      "kind": "决策",
+      "title": "场景记忆分条化：一条一个文件",
+      "date": "2026-11-13",
+      "tags": [
+        "决策",
+        "记忆机制",
+        "分条",
+        "工具"
+      ],
+      "distinct": [],
+      "evidence": [
+        "12-源码照搬/工具/场景记忆.mjs::function cmdSplit",
+        "12-源码照搬/工具/场景记忆.mjs::const KIND_SIZE = 2048"
+      ],
+      "size": 1586
+    },
+    {
+      "path": "决策\\2026-11-13-写入闸门与你确认制-相似拒写-待确认队列-distinct.md",
+      "kind": "决策",
+      "title": "写入闸门与你确认制：相似拒写-待确认队列-distinct 消歧",
+      "date": "2026-11-13",
+      "tags": [
+        "决策"
+      ],
+      "distinct": [],
+      "evidence": [
+        "12-源码照搬/工具/场景记忆.mjs::function cmdConfirm",
+        "12-源码照搬/外壳/renderer/renderers.js::distinct: ds"
+      ],
+      "size": 487
+    },
+    {
+      "path": "决策\\2026-11-13-五个场景-根因-oaApi-filesLocal.md",
+      "kind": "决策",
+      "title": "五个场景-根因-oaApi-filesLocal-全仓零命中",
+      "date": "2026-11-13",
+      "tags": [
+        "决策",
+        "神经元",
+        "场景目录",
+        "IPC"
+      ],
+      "distinct": [],
+      "evidence": [
+        "12-源码照搬\\外壳\\renderer\\renderers.js::场景目录.json",
+        "12-源码照搬\\工具\\场景记忆.mjs::cmdIndexAll"
+      ],
+      "size": 842
+    },
+    {
+      "path": "坑\\2026-11-13-证据闸门上线-近30天决策坑必须能自证.md",
+      "kind": "坑",
+      "title": "证据闸门上线：近30天决策坑必须能自证",
+      "date": "2026-11-13",
+      "tags": [
+        "坑"
+      ],
+      "distinct": [],
+      "evidence": [
+        "12-源码照搬/工具/记忆.mjs::近 30 天的决策/坑缺证据"
+      ],
+      "size": 1208
+    },
+    {
+      "path": "定论\\场景记忆.md",
+      "kind": "定论",
+      "title": "场景记忆",
+      "date": "2026-11-13",
+      "tags": [
+        "定论",
+        "场景记忆"
+      ],
+      "distinct": [],
+      "evidence": [
+        "D:/codeData/myself/luanyujia-workbench/12-源码照搬/引擎数据/.dsh/场景记忆/命令/决策/2026-11-13-场景记忆分条化-一条一个文件.md::场景记忆分条化：",
+        "D:/codeData/myself/luanyujia-workbench/12-源码照搬/引擎数据/.dsh/场景记忆/命令/决策/2026-11-11-职责定界-命令场景只做记忆管理场景记忆-项目记忆的体检-交接.md::职责定界：命令场"
+      ],
+      "size": 3035
+    },
+    {
+      "path": "决策\\2026-11-11-职责定界-命令场景只做记忆管理场景记忆-项目记忆的体检-交接.md",
+      "kind": "决策",
+      "title": "职责定界：命令场景只做记忆管理（场景记忆 + 项目记忆的体检、交接、归档、召回、索引），不做代码、不改面板与会话",
+      "date": "2026-11-11",
+      "tags": [
+        "决策",
+        "场景记忆 + 项目记忆的体检、交接、归档、召回、索引"
+      ],
+      "distinct": [],
+      "evidence": [],
+      "size": 1004
+    },
+    {
+      "path": "决策\\2026-11-11-发现-场景记忆-mjs-check-的会话检查按旧布局找.md",
+      "kind": "决策",
+      "title": "发现：`场景记忆.mjs check` 的会话检查按旧布局找 `.dsh\\sessions\\<ws>\\<id>\\sess",
+      "date": "2026-11-11",
+      "tags": [
+        "决策"
+      ],
+      "distinct": [],
+      "evidence": [],
+      "size": 810
+    }
+  ]
+}
