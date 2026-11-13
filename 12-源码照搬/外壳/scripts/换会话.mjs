@@ -25,6 +25,8 @@
 //      （不重盖章的话，check 立刻报"卡指纹过期"，下一轮 AI 会以为记忆坏了）
 //   ⑦ 自证：读 §〇 里本面板那行指针，验证它指的文件真的存在（相对路径曾在这里死过链）
 //   ⑧ 机器可读输出 NEWID / OLDID；GUI 模式下由渲染层自己 reload 本面板（不再广播 all）
+//   ⑨ 项目记忆体检（2026-11-13 B 批②）：按「会话 cwd → pinTarget → 场景唯一」三级解析出面板所属项目根，
+//      再跑 `记忆.mjs 体检`（✗ 拦、⚠ 只提示）；解析不到唯一项目就明确跳过，不凭目录名猜项目。
 //
 // 交接文件路径不再靠硬编码表：默认按场景 json 的 `name` 解析
 //   `<引擎数据>\.dsh\场景记忆\<场景名>\场景私有记忆.md`，表里登记过的优先（用于非标路径）。
@@ -39,6 +41,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));      // …\工作台
 const GUI = path.resolve(here, '..');                            // …\工作台外壳
 const DSH_HOME = process.env.DSH_HOME || path.resolve(GUI, '..', '引擎数据', '.dsh');
 const MEM_TOOL = path.resolve(GUI, '..', '工具', '场景记忆.mjs');   // 场景记忆结构闸用的工具
+const PROJ_TOOL = path.resolve(GUI, '..', '工具', '记忆.mjs');       // 项目层体检用的工具（2026-11-13 B 批②）
 const SESSIONS = path.join(here, 'sessions.mjs');
 const ARCHIVE = path.join(here, '归档会话.mjs');
 const BASE = process.env.DSH_GUI_BASE || process.env.DSH_WEB_URL || ('http://127.0.0.1:' + (process.env.DSH_PORT || '3083'));
@@ -76,6 +79,66 @@ function handoffOf(scene, panelId) {
   const name = String((scene && (scene.name || scene.id)) || '').trim();
   if (!name) return '';
   return path.join(DSH_HOME, '场景记忆', name, '场景私有记忆.md');
+}
+
+/** 某个会话的工作目录（引擎 projcache 里的 identity.cwd）。读不到返回空。 */
+function cwdOf(sessionId) {
+  if (!sessionId) return '';
+  const base = path.join(DSH_HOME, 'storages');
+  if (!fs.existsSync(base)) return '';
+  for (const d of fs.readdirSync(base)) {
+    const f = path.join(base, d, 'sessions', String(sessionId) + '.json');
+    if (!fs.existsSync(f)) continue;
+    try {
+      const c = JSON.parse(fs.readFileSync(f, 'utf8')).record?.identity?.cwd;
+      if (c) return String(c);
+    } catch (e) { /* 读不到就换下一个 storage */ }
+  }
+  return '';
+}
+
+/**
+ * 场景 → 项目根（2026-11-13 B 批②：换会话前要过项目层体检，先得知道"这个面板在哪个项目"）。
+ * 三级解析，**任一级唯一才采用**，都不唯一就返回空（⇒ 只跑场景层 check，不误拦）：
+ *   ① 面板当前会话的 cwd 落在某项目 `paths` 下——最准，换会话换的就是这个项目的工作；
+ *   ② 面板 `pinTarget[0]` 命中项目 `name` / `aliases`（工作区面板（cd-ai-home）走这条）；
+ *   ③ 该场景在注册表里只有一个 active 项目、且它真有 `memory\`。
+ * 程序开发场景挂了 3 个项目（工作台本体 / mlw / ai-compilation-specifications），所以不能只按场景认。
+ */
+function projectRootOf(scene, panel, sessionId) {
+  const reg = path.join(DSH_HOME, '场景记忆', '_共享记忆', '项目.json');
+  if (!fs.existsSync(reg)) return '';
+  let j = null;
+  try { j = JSON.parse(fs.readFileSync(reg, 'utf8')); } catch (e) { return ''; }
+  const norm = (s) => String(s || '').replace(/[\\/]+$/, '').toLowerCase();
+  const usable = (j && j.projects || []).filter((p) => {
+    const root = String(p && (p.memoryRoot || (p.paths || [])[0]) || '');
+    return root && (!p.status || p.status === 'active') && fs.existsSync(path.join(root, 'memory'));
+  });
+  if (!usable.length) return '';
+
+  // ① 会话 cwd
+  const cwd = norm(cwdOf(sessionId));
+  if (cwd) {
+    const byCwd = usable.filter((p) => (p.paths || []).some((x) => {
+      const px = norm(x);
+      return px && (cwd === px || cwd.startsWith(px + path.sep.toLowerCase()) || cwd.startsWith(px + '/'));
+    }));
+    if (byCwd.length === 1) return String(byCwd[0].memoryRoot || byCwd[0].paths[0]);
+  }
+  // ② pinTarget
+  const pin = String((panel && Array.isArray(panel.pinTarget) ? panel.pinTarget[0] : '') || '');
+  if (pin) {
+    const byPin = usable.filter((p) => p.name === pin || (p.aliases || []).includes(pin));
+    if (byPin.length === 1) return String(byPin[0].memoryRoot || byPin[0].paths[0]);
+  }
+  // ③ 场景唯一
+  const sceneName = String((scene && (scene.name || scene.id)) || '');
+  if (sceneName) {
+    const byOwner = usable.filter((p) => p.owner === sceneName);
+    if (byOwner.length === 1) return String(byOwner[0].memoryRoot || byOwner[0].paths[0]);
+  }
+  return '';
 }
 
 /** 面板当前的压力：读引擎 projcache（数字是引擎上次落盘的，活跃会话可能落后几分钟）。 */
@@ -254,6 +317,32 @@ if (st && !st.stale && st.pct < 50) say('\n（提示：这条才 ' + st.pct + '%
         const detail = out.split(/\r?\n/).filter((x) => x.includes('✗')).slice(0, 6).join('；');
         problems.push('场景记忆结构闸没过（' + sceneDir + '）：' + (detail || '检查失败') + ' ⇒ 先跑 `node "' + MEM_TOOL + '" 交接 --场景 ' + sceneDir + '`');
       }
+    }
+  }
+}
+
+// ★ 项目层闸（2026-11-13 B 批②）：换会话是记忆接力点，项目记忆腐化就不该接力。
+//   以前只验场景层（场景里面的文件结构），项目层 `memory\` 坏了照样换过去。
+//   解析不到项目根（多项目场景 / 没注册）⇒ 明确跳过，绝不误拦。
+{
+  const projRoot = projectRootOf(hit.scene, hit.p, hit.p.sessionId);
+  if (!projRoot) {
+    say('\n· 项目记忆体检：跳过（这个面板的项目根解析不到唯一答案，只跑了场景层 check）');
+  } else if (!fs.existsSync(PROJ_TOOL)) {
+    say('\n⚠ 项目记忆体检跳过：没找到 ' + PROJ_TOOL);
+  } else {
+    let ok = true, out = '';
+    try {
+      out = runNode(PROJ_TOOL, ['体检', '--project', projRoot, '--noscene']);
+    } catch (e) {
+      ok = false;
+      out = String(e.stdout || '') + String(e.stderr || '');
+    }
+    const warn = out.split(/\r?\n/).filter((x) => x.includes('⚠')).slice(0, 2).join('；');
+    if (ok) say('\n· 项目记忆体检：✓ 通过（' + projRoot + '）' + (warn ? '（提醒：' + warn.slice(0, 120) + '）' : ''));
+    else {
+      const detail = out.split(/\r?\n/).filter((x) => x.includes('✗')).slice(0, 6).join('；');
+      problems.push('项目记忆体检没过（' + projRoot + '）：' + (detail || '体检失败') + ' ⇒ 先跑 `node "' + PROJ_TOOL + '" 体检 --project "' + projRoot + '"` 修完再换');
     }
   }
 }
