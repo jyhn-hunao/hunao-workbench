@@ -720,14 +720,19 @@ function cmdWrite(root, flags) {
 
 // ---------- 体检（一层的总闸门） ----------
 
-/** 证据复核：`路径::片段` 里的文件要在、片段要对得上；只给路径就只查存在 */
+/** 证据复核：`路径::片段` 里的文件要在、片段要对得上；只给路径就只查存在。
+//  2026-11-13：证据文件按 BOM 认编码再读（UTF-16 的 .vbs/.ps1 按 UTF-8 读是乱码，真证据会被判假失效） */
 function verifyEvidence(root, ref) {
   const i = String(ref).indexOf('::')
   const relPath = i < 0 ? String(ref) : String(ref).slice(0, i)
   const needle = i < 0 ? '' : String(ref).slice(i + 2)
   const abs = path.isAbsolute(relPath) ? relPath : path.join(root, relPath)
   if (!fs.existsSync(abs)) return { ok: false, why: '文件不存在：' + relPath }
-  if (needle && !readText(abs).includes(needle)) return { ok: false, why: '文件里找不到「' + needle + '」' }
+  const buf = fs.readFileSync(abs)
+  let txt = buf.toString('utf8')
+  if (buf.length >= 2 && buf[0] === 0xff && buf[1] === 0xfe) txt = buf.toString('utf16le')
+  if (buf.length >= 2 && buf[0] === 0xfe && buf[1] === 0xff) txt = buf.subarray(2).swap16().toString('utf16le')
+  if (needle && !txt.includes(needle)) return { ok: false, why: '文件里找不到「' + needle + '」' }
   return { ok: true }
 }
 

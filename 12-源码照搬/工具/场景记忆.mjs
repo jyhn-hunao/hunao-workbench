@@ -20,11 +20,13 @@
  *                              # 一条一个文件：自动 frontmatter + 登记索引 + 同轮 check
  *                              # 拿不准加 --不确定 "要问用户的疑问" ⇒ 进 _待确认.md，不生效；用户点头后 确认 --序号 N
  *                              # 和已有条目像但不是一回事：--不是同一条 "词：区别" ⇒ 写进 distinct，联想层不再用该词连边
+ *                              # 取代/过期/逻辑多归属：--取代 "<场景>/<类>/<日期>-<标题>.md" --过期 YYYY-MM-DD --相关 <场景id,…>
  *   node 场景记忆.mjs 待确认  --场景 刷抖音       # 列出 _待确认.md 队列（编号用于 确认）
  *   node 场景记忆.mjs 确认    --场景 刷抖音 --序号 N [--放弃]  # 转正 / 丢掉一条待确认
- *   node 场景记忆.mjs 收工    --场景 刷抖音       # 索引 + 近期记忆 + check + 待确认计数（exit 0 才算收工）
+ *   node 场景记忆.mjs 收工    --场景 刷抖音       # 索引 + 近期记忆 + 沉淀定论 + check + 待确认计数（exit 0 才算收工）
  *   node 场景记忆.mjs 拆      --场景 刷抖音 [--dry]   # 把 §五 存量条目拆成 决策\/坑\ 分条，原文整份进 归档\
- *   node 场景记忆.mjs 整理    --场景 刷抖音 [--days 180] [--dry]  # 旧条目搬 归档\，§五 下标重算
+ *   node 场景记忆.mjs 整理    --场景 刷抖音 [--days 180] [--dry]  # 旧条目搬 归档\（被 定论/证据 引用的不搬，--强搬 强制），§五 下标重算
+ *   node 场景记忆.mjs 召回    --场景 刷抖音 --词 "关键词" [--条 8] [--含归档]  # 场景级检索；归档条目默认不召回，--含归档 按 ×0.3 降权并标注
  *
  * --场景 可传目录名（刷抖音）或场景 id（douyin）。
  */
@@ -681,6 +683,87 @@ function cmdCheck(name) {
     // 标签整句：联想层会把这些词当主题词连边，越连越糊（用户 2026-11-13 要求防「词像义不同」）
     if (longTagN) warns.push('标签像整句/超长 ' + longTagN + ' 处：收敛成 ≤12 字的主题词（新写入已被 写 拦住）')
   }
+  // 索引与文件一致（2026-11-14）：派生索引过期/损坏，以前靠"写/沉淀会顺手重建"的纪律兜底，现在直接查
+  {
+    const idxPath = path.join(dir, '_索引.json')
+    if (!fs.existsSync(idxPath)) problems.push('缺 _索引.json（跑 索引 --场景 ' + name + '）')
+    else {
+      let rows = []
+      try { rows = (JSON.parse(fs.readFileSync(idxPath, 'utf8')).entries || []) } catch { problems.push('_索引.json 解析失败：跑 索引 --场景 ' + name) }
+      const files = KINDS.flatMap((k) => kindFiles(dir, k).map((f) => k + '\\' + f))
+      for (const extra of ['记忆', DISTILL_DIR, '归档']) {
+        const sub = path.join(dir, extra)
+        if (fs.existsSync(sub)) files.push(...fs.readdirSync(sub).filter((x) => x.endsWith('.md')).map((f) => extra + '\\' + f))
+      }
+      const have = new Set(rows.map((r) => String(r.path || '')))
+      const missing = files.filter((f) => !have.has(f))
+      const gone = rows.map((r) => String(r.path || '')).filter((p) => p && !files.includes(p))
+      if (missing.length) problems.push('索引缺 ' + missing.length + ' 个文件（' + missing.slice(0, 3).join('、') + '…）：跑 索引 --场景 ' + name)
+      if (gone.length) problems.push('索引有 ' + gone.length + ' 个已不存在文件（' + gone.slice(0, 3).join('、') + '…）：跑 索引 --场景 ' + name)
+    }
+  }
+  // 定论断链 + 定论证据（2026-11-14）：整理/删源都会让定论的 sources 悬空；证据失效说明来源条目变了，以前都没人查
+  {
+    const disDir = path.join(dir, DISTILL_DIR)
+    if (fs.existsSync(disDir)) {
+      for (const f of fs.readdirSync(disDir).filter((x) => x.endsWith('.md'))) {
+        const dp = path.join(disDir, f)
+        const txt = fs.readFileSync(dp, 'utf8')
+        for (const ref of evidenceOf(txt)) {
+          const why = verifyEvidence(ref)
+          if (why) problems.push('定论证据失效 ' + DISTILL_DIR + '\\' + f + ' → ' + ref.slice(0, 50) + '…（' + why + '；跑 沉淀 --场景 ' + name + ' --force 重算）')
+        }
+        for (const s of sourcesOfDistill(dp)) {
+          if (fs.existsSync(path.join(dir, s.replace(/\//g, path.sep)))) continue
+          if (fs.existsSync(path.join(dir, '归档', path.basename(s)))) problems.push('定论 ' + f + ' 的来源已进归档（' + s + '）：把条目搬回，或 沉淀 --force 重算')
+          else problems.push('定论 ' + f + ' 的来源不存在（' + s + '）：来源已丢，跑 沉淀 --force 重算')
+        }
+      }
+    }
+  }
+  // 取代/过期/回链（2026-11-14）：写 现在能写这三个字段，check 就得能验它们不悬空
+  {
+    const regIds = readSceneReg().scenes.map((s) => String(s.id || '')).filter(Boolean)
+    for (const k of KINDS) for (const f of kindFiles(dir, k)) {
+      const fm = fmOfText(fs.readFileSync(path.join(dir, k, f), 'utf8'))
+      const sup = ((fm.match(/^supersedes:[ \t]*([^\r\n]+)/m) || [])[1] || '').trim()
+      if (sup && !fs.existsSync(path.join(MEMROOT, sup.replace(/\//g, path.sep)))) problems.push(k + '\\' + f + ' 的 supersedes 指向不存在：' + sup)
+      const exp = ((fm.match(/^expires:[ \t]*(\d{4}-\d{2}-\d{2})/m) || [])[1] || '')
+      if (exp && exp < dayStr()) warns.push(k + '\\' + f + ' 已过期（expires ' + exp + '）：临时约定该收尾了，删掉或延长')
+      const ci = ((fm.match(/^consolidated_into:[ \t]*([^\r\n]+)/m) || [])[1] || '').trim()
+      if (ci && !fs.existsSync(path.join(dir, ci.replace(/\//g, path.sep)))) problems.push(k + '\\' + f + ' 的 consolidated_into 指向不存在（定论被删/改名？）：' + ci)
+      const rel = ((fm.match(/^relate:[ \t]*\[?([^\]\r\n]*)\]?$/m) || [])[1] || '').split(/[,，]/).map((s) => s.trim()).filter(Boolean)
+      const bad = rel.filter((r) => !regIds.includes(r))
+      if (bad.length) warns.push(k + '\\' + f + ' 的 relate 指向未知场景 id（' + bad.join('、') + '）：先 索引 --all 让场景进目录')
+    }
+  }
+  // 同证据不同条目（2026-11-14）：两条都活、证据指向同一处、结论却是两条 ⇒ 可能一条旧一条新/一条对一条错，去 冲突.md 裁决
+  {
+    const byEv = new Map()
+    for (const k of KINDS) for (const f of kindFiles(dir, k)) {
+      const txt = fs.readFileSync(path.join(dir, k, f), 'utf8')
+      for (const ref of evidenceOf(txt)) {
+        if (!byEv.has(ref)) byEv.set(ref, [])
+        byEv.get(ref).push(k + '\\' + f)
+      }
+    }
+    const dup = [...byEv.entries()].filter(([, v]) => new Set(v).size >= 2)
+    if (dup.length) warns.push('同证据不同条目 ' + dup.length + ' 组（如 ' + dup[0][1].join(' 与 ') + ' 都引 ' + dup[0][0].slice(0, 40) + '…）：可能结论矛盾，去 _共享记忆\\冲突.md 裁决')
+  }
+  // 项目薄卡 ↔ 项目根 memory 对账（2026-11-14）：薄卡说"正文在 memory\"，项目根却没建过 ⇒ 指针空转
+  {
+    const pmDir = path.join(dir, '项目记忆')
+    const projByName = new Map(readProjects().map((p) => [String(p.name || ''), p]))
+    for (const f of fs.existsSync(pmDir) ? fs.readdirSync(pmDir).filter((x) => x.endsWith('.md')) : []) {
+      const nm = f.replace(/\.md$/, '')
+      const p = projByName.get(nm)
+      if (!p) { warns.push('项目薄卡 ' + f + ' 没在 _共享记忆\\项目.json 登记（薄卡成孤岛）'); continue }
+      const root = p.memoryRoot
+      if (!root) { warns.push('项目 ' + nm + ' 在 项目.json 里没登记 memoryRoot：补上才能对账'); continue }
+      if (!fs.existsSync(path.join(root, 'memory'))) warns.push('项目 ' + nm + ' 的项目根没有 memory\\ 目录：跑 记忆.mjs init --project "' + root + '"')
+      else if (!fs.existsSync(p.memoryIndex || path.join(root, 'memory', '_索引.json'))) warns.push('项目 ' + nm + ' 缺 memory 索引：跑 记忆.mjs index --project "' + root + '"')
+    }
+  }
   // 待确认队列：不确定的东西不许无限期挂着
   {
     const blocks = readPending(dir)
@@ -820,6 +903,15 @@ function vals(k) {
 /** 证据复核：文件在、片段对得上
  *  路径先按工作台根解析；找不到再往上找一层——两种写法都常见：`工具\x.mjs`（相对工作台）
  *  与 `12-源码照搬/工具/x.mjs`（相对仓根）。2026-11-13：只认前者时前者写法里的仓根路径全被误报失效。 */
+/** 证据文件按编码读：UTF-8 / UTF-16LE / UTF-16BE。
+//  2026-11-13 修：.vbs/.ps1 常是 UTF-16，按 UTF-8 读全是乱码 ⇒ 真证据被判"找不到片段"（假失效） */
+function readEvidenceText(abs) {
+  const buf = fs.readFileSync(abs)
+  if (buf.length >= 2 && buf[0] === 0xff && buf[1] === 0xfe) return buf.toString('utf16le')
+  if (buf.length >= 2 && buf[0] === 0xfe && buf[1] === 0xff) return buf.subarray(2).swap16().toString('utf16le')
+  return buf.toString('utf8')
+}
+
 function verifyEvidence(ref) {
   const i = String(ref).indexOf('::')
   const rel = i < 0 ? String(ref) : String(ref).slice(0, i)
@@ -829,7 +921,7 @@ function verifyEvidence(ref) {
     ? (fs.existsSync(rel) ? rel : '')
     : bases.map((b) => path.join(b, rel)).find((p) => fs.existsSync(p))
   if (!abs) return '文件不存在：' + rel + '（已试 ' + (path.isAbsolute(rel) ? '绝对路径' : bases.join(' / ')) + '）'
-  if (needle && !fs.readFileSync(abs, 'utf8').includes(needle)) return '文件里找不到「' + needle + '」'
+  if (needle && !readEvidenceText(abs).includes(needle)) return '文件里找不到「' + needle + '」'
   return ''
 }
 
@@ -837,6 +929,28 @@ function verifyEvidence(ref) {
 function kindFiles(dir, kind) {
   const d = path.join(dir, kind)
   return fs.existsSync(d) ? fs.readdirSync(d).filter((f) => f.endsWith('.md')).sort().reverse() : []
+}
+
+/* 2026-11-14 审计新项的三个小助手：索引一致 / 定论断链 / 薄卡对账（调用见 cmdCheck） */
+
+/** frontmatter 原文（不含首尾 --- 行） */
+function fmOfText(txt) {
+  return (txt.match(/^---\r?\n([\s\S]*?)\r?\n---/) || [])[1] || ''
+}
+
+/** 定论文件的 sources（相对路径数组，保留 / 写法由调用方归一） */
+function sourcesOfDistill(file) {
+  const txt = fs.readFileSync(file, 'utf8')
+  return ((txt.match(/^sources:\r?\n((?:[ \t]*-[^\r\n]*\r?\n?)+)/m) || [])[1] || '')
+    .split(/\r?\n/).map((s) => s.replace(/^[ \t]*-[ \t]*/, '').trim()).filter(Boolean)
+}
+
+/** 项目登记表（_共享记忆\项目.json）：薄卡对账的数据源 */
+function readProjects() {
+  try {
+    const j = JSON.parse(fs.readFileSync(path.join(MEMROOT, '_共享记忆', '项目.json'), 'utf8'))
+    return Array.isArray(j.projects) ? j.projects : []
+  } catch { return [] }
 }
 
 /** 文件标题：优先 frontmatter title，其次首个 `# ` */
@@ -987,11 +1101,15 @@ function appendPending(dir, o) {
 /* --------------------------------------------------- 写一条（唯一入口） */
 
 /** 真正落盘：frontmatter + 索引 + 文件索引（不跑 check，调用方决定） */
-function doWrite(name, kind, title, body, ev, tags, d, distinct) {
+function doWrite(name, kind, title, body, ev, tags, d, distinct, extra = {}) {
   const dir = path.join(MEMROOT, name)
   const fm = ['---', 'title: ' + title, 'date: ' + d, 'tags: [' + [kind].concat(tags).join(', ') + ']']
   if (distinct.length) fm.push('distinct: [' + distinct.join(', ') + ']')
   if (ev.length) fm.push('evidence:', ...ev.map((e) => '  - ' + e))
+  // 2026-11-14：取代/过期/相关 三个字段终于能写进去了（以前只在规范里，代码零实现）
+  if (extra.supersedes) fm.push('supersedes: ' + extra.supersedes)
+  if (extra.expires) fm.push('expires: ' + extra.expires)
+  if (extra.relate && extra.relate.length) fm.push('relate: [' + extra.relate.join(', ') + ']')
   fm.push('---')
   const sub = path.join(dir, kind)
   fs.mkdirSync(sub, { recursive: true })
@@ -1067,6 +1185,25 @@ function cmdWrite(arg) {
     }).join('\r\n')
   }
 
+  // 3.6 取代 / 过期 / 逻辑多归属（2026-11-14 落地）：先能写进去，check 再盯住它们不悬空
+  const extra = {
+    supersedes: (val('--取代') || '').trim(),
+    expires: (val('--过期') || '').trim(),
+    relate: vals('--相关'),
+  }
+  if (extra.expires) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(extra.expires)) { console.error('✗ --过期 必须是 YYYY-MM-DD：' + extra.expires); return 2 }
+    if (extra.expires <= dayStr()) console.log('⚠ --过期 不晚于今天（' + extra.expires + '）：写出来即过期，召回/注入会跳过它')
+  }
+  if (extra.supersedes && !fs.existsSync(path.join(MEMROOT, extra.supersedes.replace(/\//g, path.sep)))) {
+    console.log('⚠ --取代 的目标现在不存在（' + extra.supersedes + '）：允许写，check 会盯着它')
+  }
+  if (extra.relate.length) {
+    const ids = readSceneReg().scenes.map((s) => String(s.id || '')).filter(Boolean)
+    const unknown = extra.relate.filter((r) => !ids.includes(r))
+    if (unknown.length) console.log('⚠ --相关 里的场景 id 不在场景目录（' + unknown.join('、') + '）：先 索引 --all 再补')
+  }
+
   // 4. 拿不准就问：只进待确认队列，不落正式条目（用户点头后 `确认 --序号 N`）
   const question = (val('--不确定') || val('--待确认') || '').trim()
   if (question) {
@@ -1076,11 +1213,13 @@ function cmdWrite(arg) {
   if (flagOn('--dry')) { console.log('[dry] 将写：' + kind + '\\' + d + '-' + slugOf(title) + '.md（' + Buffer.byteLength(body) + ' B 正文）'); return 0 }
 
   // 5. 同轮收尾：落盘（doWrite 内含索引）→ 跑 check；check 不过就说「已写入但没完成」
-  const r = doWrite(name, kind, title, body, ev, tags, d, distinct)
+  const r = doWrite(name, kind, title, body, ev, tags, d, distinct, extra)
   console.log('✓ 已写入：' + kind + '\\' + r.file + '（' + Buffer.byteLength(r.text) + ' B）')
   if (Buffer.byteLength(r.text) > KIND_SIZE) console.log('⚠ 超 2 KB：一条只写结论，细节进 归档\\ 或留在会话')
   if (!ev.length) console.log('⚠ 没写 --证据：这条以后没法自动判「还成不成立」')
   if (cmdCheck(name) !== 0) { console.error('✗ 已写入但自检未过 → 按上面的条目修完才算完成'); return 1 }
+  // 6. 巩固不依赖"人记得收工"（2026-11-14）：写成功且 check 过后，顺手静默沉淀本场景
+  try { const st = {}; cmdDistill(name, { quiet: true, stats: st }); if (st.made) console.log('· 巩固：新落 定论 ×' + st.made + '（结论待归纳，见 ' + name + '\\定论\\）') } catch {}
   return 0
 }
 
@@ -1178,6 +1317,9 @@ function entryOf(file, kind) {
     tags: tagsOf(text),
     distinct: distinctOfText(text),
     evidence: evidenceOf(text),
+    // 2026-11-14：expires/consolidated_into 进索引——召回凭前者过滤过期，check 凭后者查回链断掉
+    expires: ((fm.match(/^expires:[ \t]*(\d{4}-\d{2}-\d{2})/m) || [])[1] || ''),
+    consolidatedInto: ((fm.match(/^consolidated_into:[ \t]*([^\r\n]+)/m) || [])[1] || '').trim(),
     size: fs.statSync(file).size,
   }
 }
@@ -1249,6 +1391,11 @@ function cmdIndex(arg, quiet) {
   const disDir = path.join(dir, DISTILL_DIR)
   if (fs.existsSync(disDir)) {
     for (const f of fs.readdirSync(disDir).filter((x) => x.endsWith('.md')).sort()) entries.push(entryOf(path.join(disDir, f), DISTILL_DIR))
+  }
+  // 「归档\」也进索引（2026-11-14）：不再"搬进归档=全忘"——不注入、不默认召回，但机器仍看得到（半记得）
+  const arcDir = path.join(dir, '归档')
+  if (fs.existsSync(arcDir)) {
+    for (const f of fs.readdirSync(arcDir).filter((x) => x.endsWith('.md')).sort()) entries.push(entryOf(path.join(arcDir, f), '归档'))
   }
   entries.sort((a, b) => String(b.date).localeCompare(String(a.date)))
   const out = { version: 1, scene: path.basename(dir), generatedAt: new Date().toISOString(), entries }
@@ -1417,6 +1564,15 @@ function cmdDistill(arg, opts = {}) {
         return { date: e.date, title: e.title, rel: e.path, gist: gist.slice(0, 140) }
       })
       if (dry) { log(`[dry] ${name} → 定论\\${file}（${g.length} 条来源 · ${pick.length} 条共识）`); continue }
+      // 证据用源条目要点原文（verifyEvidence 的 includes 能命中），不再拿标题前 8 个字当摆设（2026-11-14）
+      //   只取第一行、原样截断：跨行拼接的片段在文件里找不到，会造成"假失效"
+      const evRefs = []
+      for (const s of srcs.slice(0, 2)) {
+        const sp = path.join(dir, s.rel)
+        if (!fs.existsSync(sp)) continue
+        const bl = bulletsOfFile(sp)[0]
+        evRefs.push('  - ' + sp.replace(/\\/g, '/') + '::' + (bl ? bl.split(/\r?\n/)[0].trim().slice(0, 60) : s.title))
+      }
       fs.mkdirSync(outDir, { recursive: true })
       const lines = [
         '---',
@@ -1431,7 +1587,7 @@ function cmdDistill(arg, opts = {}) {
         'sources:',
         ...srcs.map((s) => '  - ' + s.rel.replace(/\\/g, '/')),
         'evidence:',
-        ...srcs.slice(0, 2).map((s) => '  - ' + path.join(dir, s.rel).replace(/\\/g, '/') + '::' + s.title.slice(0, 8)),
+        ...evRefs,
         '---',
         '# ' + topic,
         '',
@@ -1454,6 +1610,18 @@ function cmdDistill(arg, opts = {}) {
         '',
       ]
       fs.writeFileSync(abs, lines.join('\r\n'), 'utf8')
+      // 巩固回链（2026-11-14）：给源条目写 consolidated_into ⇒ 整理/check 凭它发现"还被定论引用"，
+      //   定论被手删/改名时 check 也能靠回链报断链
+      for (const s of g) {
+        const sp = path.join(dir, String(s.path || ''))
+        if (!/\.md$/i.test(sp) || !fs.existsSync(sp)) continue
+        const st = fs.readFileSync(sp, 'utf8')
+        if (/^consolidated_into:/m.test(st)) continue
+        const fmM = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(st)
+        if (!fmM) continue
+        const rel = (DISTILL_DIR + '/' + file).replace(/\\/g, '/')
+        fs.writeFileSync(sp, '---\r\n' + fmM[1].replace(/\s*$/, '') + '\r\nconsolidated_into: ' + rel + '\r\n---\r\n' + st.slice(fmM[0].length), 'utf8')
+      }
       made++
       log(`✓ 沉淀：${name}\\定论\\${file}（${g.length} 条来源 → ${pick.length} 条结论）`)
     }
@@ -1467,9 +1635,11 @@ function cmdDistill(arg, opts = {}) {
 /* --------------------------------------------------- 召回（按需检索，2026-11-13）
 //  场景层原来只能 `读 --节 §〇`，85 条分条没有检索入口；heat 只亮不排。
 //  `召回` 在标题（×3）/标签（×2）/正文（×1）上算命中，叠 IDF 与 45 天热度，输出前 N 条。
+//  2026-11-14：归档条目默认不召回（搬进归档≠全忘，--含归档 按 ×0.3 降权并标注）；expires 已过的条目不再召回。
 */
 function cmdRecall(arg) {
   const all = process.argv.slice(2).includes('--all')
+  const withArchive = flagOn('--含归档')
   const q = (val('--词') || val('--query') || '').trim()
   if (!q) { console.error('✗ 缺 --词 "<关键词>"（如 召回 --场景 命令 --词 "场景目录"）'); return 2 }
   const limit = Number(val('--条')) || 8
@@ -1487,6 +1657,11 @@ function cmdRecall(arg) {
     let entries = []
     try { entries = (JSON.parse(fs.readFileSync(path.join(dir, '_索引.json'), 'utf8')).entries || []) } catch {}
     for (const e of entries) {
+      // 归档默认不召回；--含归档 时 ×0.3 降权并标注（2026-11-14：半记得 ≠ 和活条目同权）
+      const isArc = String(e.kind) === '归档'
+      if (isArc && !withArchive) continue
+      // 过期条目（expires 已过）不再召回：临时约定该失效了
+      if (e.expires && String(e.expires) < dayStr()) continue
       const title = String(e.title || '')
       const tags = (Array.isArray(e.tags) ? e.tags : []).map(String)
       const file = path.join(dir, String(e.path || ''))
@@ -1500,7 +1675,7 @@ function cmdRecall(arg) {
       if (!hit) continue
       const days = e.date ? Math.max(0, (Date.now() - Date.parse(e.date)) / 86400000) : 60
       const heat = Math.exp(-days / 45)
-      rows.push({ scene: name, kind: String(e.kind || ''), title, date: e.date || '', path: file, rel: e.path, score: hit + 0.6 * heat })
+      rows.push({ scene: name, kind: String(e.kind || ''), title, date: e.date || '', path: file, rel: e.path, score: (hit + 0.6 * heat) * (isArc ? 0.3 : 1), archived: isArc })
     }
   }
   rows.sort((a, b) => b.score - a.score)
@@ -1508,7 +1683,7 @@ function cmdRecall(arg) {
   if (!top.length) { console.log(`· 召回「${q}」：0 条命中（场景 ${names.join('/')}）`); return 0 }
   console.log(`召回「${q}」· 命中 ${rows.length} 条，取前 ${top.length}：`)
   top.forEach((r, i) => {
-    console.log(`  ${String(i + 1).padStart(2)}. [${r.score.toFixed(1)}] ${r.date} ${r.scene}/${r.kind} · ${r.title}`)
+    console.log(`  ${String(i + 1).padStart(2)}. [${r.score.toFixed(1)}] ${r.date} ${r.scene}/${r.kind} · ${r.title}` + (r.archived ? '（归档，降权）' : ''))
     console.log(`      ${r.path}`)
   })
   // 记账：召回有没有被真的调用，事后可查（不写进正文）
@@ -1579,6 +1754,34 @@ function cmdSplit(arg) {
 
 /* --------------------------------------------------- 整理（旧条目搬 归档\） */
 
+/* 2026-11-14（防断链）：整理搬归档前先算"被引用集合"——
+//  ① 定论\*.md 的 sources 指向的条目；② 活条目 evidence 指向本场景记忆文件本身的引用。
+//  被引用的旧条目不搬：一搬，定论来源/证据立刻悬空（归档只进不改，回退还得手搬）。
+//  真要连它们一起归档：先改写引用，或加 --强搬（check 会把悬空的定论来源报出来）。 */
+function refsOfScene(dir) {
+  const refs = new Set()
+  const disDir = path.join(dir, DISTILL_DIR)
+  if (fs.existsSync(disDir)) {
+    for (const f of fs.readdirSync(disDir).filter((x) => x.endsWith('.md'))) {
+      const txt = fs.readFileSync(path.join(disDir, f), 'utf8')
+      const srcs = ((txt.match(/^sources:\r?\n((?:[ \t]*-[^\r\n]*\r?\n?)+)/m) || [])[1] || '')
+        .split(/\r?\n/).map((s) => s.replace(/^[ \t]*-[ \t]*/, '').trim()).filter(Boolean)
+      for (const s of srcs) refs.add(path.resolve(path.join(dir, s.replace(/\//g, path.sep))))
+    }
+  }
+  for (const k of KINDS) for (const f of kindFiles(dir, k)) {
+    const txt = fs.readFileSync(path.join(dir, k, f), 'utf8')
+    for (const ref of evidenceOf(txt)) {
+      const p = String(ref).split('::')[0]
+      const abs = path.isAbsolute(p)
+        ? p
+        : [WORKBENCH_ROOT, path.resolve(WORKBENCH_ROOT, '..')].map((b) => path.join(b, p)).find((x) => fs.existsSync(x))
+      if (abs && path.resolve(abs).startsWith(path.resolve(dir) + path.sep)) refs.add(path.resolve(abs))
+    }
+  }
+  return refs
+}
+
 function cmdTidy(arg) {
   const name = findSceneDir(arg) || arg
   const dir = path.join(MEMROOT, name)
@@ -1595,12 +1798,28 @@ function cmdTidy(arg) {
   console.log('\n' + name + '：' + days + ' 天前（<' + cut + '）' + moved.length + ' 篇待搬 归档\\')
   moved.forEach((m) => console.log('  ' + m.k + '\\' + m.f))
   if (!moved.length) return 0
-  if (flagOn('--dry')) { console.log('[dry] 未搬。确认后去掉 --dry 重跑。'); return 0 }
+  // 1. 搬前查引用：被 定论.sources / 他条 evidence 引用的不搬（--强搬 连它们一起搬，断链后果 check 会报）
+  const refs = refsOfScene(dir)
+  const skip = []
+  const go = []
   for (const m of moved) {
+    const abs = path.resolve(path.join(dir, m.k, m.f))
+    if (refs.has(abs) && !flagOn('--强搬')) skip.push(m.k + '\\' + m.f)
+    else go.push(m)
+  }
+  if (skip.length) {
+    console.log('\n⏸ ' + skip.length + ' 篇被 定论.sources / 他条 evidence 引用，不搬（一搬就断链）：')
+    skip.forEach((s) => console.log('  ' + s))
+    console.log('   要么先改写引用再整理，要么加 --强搬 连它们一起归档（悬空的定论来源会被 check 报出来）')
+  }
+  if (flagOn('--dry')) { console.log('[dry] 将搬 ' + go.length + ' 篇、跳过 ' + skip.length + ' 篇。确认后去掉 --dry 重跑。'); return 0 }
+  if (!go.length) { console.log('\n· 全部被引用、一篇未搬：先处理引用再整理'); return 0 }
+  // 2. 搬剩余的 + 登记 + 重写 §五 下标 + 重建索引 + 自检
+  for (const m of go) {
     fs.renameSync(path.join(dir, m.k, m.f), path.join(dir, '归档', m.f))
     indexAdd(dir, '归档\\' + m.f, '旧条目（自动整理搬入）', '留档')
   }
-  const pointer = renderPointerSec(dir, '旧条目已搬 `归档\\`（<' + cut + '，' + moved.length + ' 篇）。')
+  const pointer = renderPointerSec(dir, '旧条目已搬 `归档\\`（<' + cut + '，' + go.length + ' 篇' + (skip.length ? '；' + skip.length + ' 篇被引用未搬' : '') + '）。')
   const text = fs.readFileSync(path.join(dir, '场景私有记忆.md'), 'utf8')
   const sec = sectionOf(text, '五|坑与决策')
   if (sec) {
@@ -1608,7 +1827,7 @@ function cmdTidy(arg) {
     fs.writeFileSync(path.join(dir, '场景私有记忆.md'), lines.slice(0, sec.start).join('\r\n') + '\r\n' + pointer + lines.slice(sec.end).join('\r\n'), 'utf8')
   }
   cmdIndex(name, true)
-  console.log('✓ 已搬 ' + moved.length + ' 篇进 归档\\，§五 下标已重算')
+  console.log('✓ 已搬 ' + go.length + ' 篇进 归档\\，§五 下标已重算')
   if (cmdCheck(name) !== 0) { console.error('✗ 已整理但自检未过'); return 1 }
   return 0
 }
@@ -1617,12 +1836,6 @@ function cmdTidy(arg) {
 
 const argv = process.argv.slice(2)
 const cmd = argv[0]
-if (cmd === 'audit') {
-  if (!fs.existsSync(AUDIT)) { console.log('暂无写入日志'); process.exit(0) }
-  const lines = fs.readFileSync(AUDIT, 'utf8').trim().split(/\r?\n/).slice(-30)
-  lines.forEach((l) => { try { const x = JSON.parse(l); console.log(x.ts, x.by, x.action, x.scene, x.archive || x.card || '') } catch {} })
-  process.exit(0)
-}
 const val = (k) => { const i = argv.indexOf(k); return i >= 0 ? argv[i + 1] : '' }
 const arg = val('--场景') || val('--scene') || ''
 
