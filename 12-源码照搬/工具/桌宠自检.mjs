@@ -73,6 +73,12 @@ const { spawnSync } = await import('node:child_process');
 const syncRun = spawnSync(process.execPath, [path.join(ROOT, '工具', '同步人格引用.mjs'), '--check'], { encoding: 'utf8' });
 t('场景 json 与 QQ 路由都指向同一条人格会话', syncRun.status === 0, (syncRun.stdout || '').trim().split('\n')[0] || ('exit ' + syncRun.status));
 
+// 5. 场景表：让她「去工作台记忆里找」时有准确名字，而不是猜目录名
+const scRun = spawnSync(process.execPath, [path.join(ROOT, '工具', '桌宠.mjs'), '场景', '--json'], { encoding: 'utf8' });
+let scRows = [];
+try { scRows = JSON.parse(scRun.stdout || '[]'); } catch (e) { scRows = []; }
+t('场景表能列出场景与可派会话', scRun.status === 0 && scRows.length >= 3 && scRows.some((x) => x.titles && x.titles.length), '场景数=' + scRows.length);
+
 // 5. 报告
 rows.forEach((r) => console.log((r.ok ? '✓ ' : '✗ ') + r.name + (r.detail ? ' — ' + r.detail : '')));
 const bad = rows.filter((r) => !r.ok).length;

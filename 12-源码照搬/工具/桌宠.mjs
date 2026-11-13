@@ -154,9 +154,99 @@ function cmdRemember() {
   return r.status === 0 ? 0 : (r.status || 4);
 }
 
-const table = { 路由: cmdRoute, 派: cmdDispatch, 日志: cmdLog, 设置: cmdSettings, 桥接同步: cmdSync, 能主动吗: cmdProactive, 记: cmdRemember };
+// 8. 场景：一张表列出「有哪些场景 / 绑哪条会话 / 记忆有多少 / 最近记了什么」
+//    为什么：她要「去工作台记忆里找某个场景的事」，不能靠猜目录名；先看这张表，再按名字读 §〇。
+function memStatOf(dirName) {
+  const md = path.join(pet.DSH_HOME, '场景记忆', dirName);
+  const out = { dir: dirName, ok: fs.existsSync(md), sec: 0, long: 0, last: '', todo: 0, recent: false, note: '' };
+  if (!out.ok) return out;
+  const f = path.join(md, '场景私有记忆.md');
+  if (fs.existsSync(f)) out.sec = fs.statSync(f).size;
+  // 长期知识可能落在 记忆\、决策\、坑\ 三处（老场景只有决策/坑），一起数，别只看一个目录
+  const dirs3 = ['记忆', '决策', '坑'].map((d) => path.join(md, d)).filter((d) => fs.existsSync(d));
+  const files = [];
+  for (const d of dirs3) fs.readdirSync(d).filter((x) => x.endsWith('.md') && !x.startsWith('_')).forEach((x) => files.push(x));
+  out.long = files.length;
+  out.last = files.map((x) => (/^\d{4}-\d{2}-\d{2}/.exec(x) || [''])[0]).filter(Boolean).sort().slice(-1)[0] || '';
+  out.recent = fs.existsSync(path.join(md, '_近期.md'));
+  const td = path.join(md, '_待办.md');
+  if (fs.existsSync(td)) out.todo = (fs.readFileSync(td, 'utf8').match(/^- \[ \]/gm) || []).length;
+  if (!out.sec) out.note = '还没有场景记忆骨架（先 init）';
+  return out;
+}
+function cmdScenes() {
+  const dir = path.join(ROOT, '外壳', 'scenarios');
+  let files = [];
+  try { files = fs.readdirSync(dir).filter((f) => f.endsWith('.json') && !f.startsWith('_')); } catch (e) { say('✗ 读不到场景目录'); return 2; }
+  // 一个场景一行：同一场景的多个面板合并显示，她要找的是「哪个场景能干活、记忆有多少」
+  const rowsOut = [];
+  for (const f of files) {
+    let j = null;
+    try { j = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')); } catch (e) { continue; }
+    if (!j || !Array.isArray(j.panels)) continue;
+    const name = String(j.name || j.id || f);
+    const id = String(j.id || '');
+    let st = memStatOf(name);
+    if (!st.ok && id && id !== name) st = memStatOf(id);
+    const titles = [];
+    let loops = 0;
+    for (const p of j.panels) {
+      if (!p) continue;
+      const title = String(p.sessionTitle || '');
+      if (title && titles.indexOf(title) < 0) titles.push(title);   // 同一场景多张卡片指同一条会话时只报一次
+      if (String(p.type) === 'harness') loops += 1;
+    }
+    rowsOut.push({ scene: name, id, titles, st, canDispatch: titles.length > 0, harness: loops });
+  }
+  if (has('--json')) { say(JSON.stringify(rowsOut, null, 2)); return 0; }
+  say('场景 | 能派给谁 | §〇 | 长期记忆 | 最近一条 | 待办 | 有近期摘要');
+  for (const r of rowsOut) {
+    const s2 = r.st;
+    say([r.scene, r.titles.length ? r.titles.join(' / ') : '（无 AI 面板）',
+      s2.ok ? (s2.sec + ' B') : '无记忆骨架',
+      s2.ok ? (s2.long + ' 条') : '—',
+      s2.last || '—',
+      s2.ok ? (s2.todo + ' 项') : '—',
+      s2.recent ? '✓' : '—'].join(' | '));
+    if (s2.note) say('    ⚠ ' + s2.note);
+  }
+  say('\n读某个场景的记忆：node 12-源码照搬\\工具\\场景记忆.mjs 读 --场景 "<上面第一列的场景名>" --节 §〇');
+  say('本场景（人格）的长期记忆：node 12-源码照搬\\工具\\桌宠.mjs 记 读 --词 "关键词"');
+  return 0;
+}
+
+// 9. 收尾：一轮活干完 / 换会话前跑一次，把记忆闭环补齐（重建近期摘要 → 对齐引用 → 过场景记忆闸门）
+//    为什么做成一条命令：这三步原来分散在三个工具里，人只会漏；漏一步就会出现「记忆写了、开场没带上」。
+function cmdWrap() {
+  let bad = 0;
+  say('① 记忆体检 + 重建近期摘要');
+  const d = spawnSync(process.execPath || 'node', [MEMTOOL, '体检'], { cwd: ROOT, encoding: 'utf8', timeout: 90000, maxBuffer: 4 * 1024 * 1024 });
+  String((d.stdout || '') + (d.stderr || '')).trim().split('\n').filter((x) => x.trim()).forEach((x) => say('   ' + x.trim()));
+  if (d.status !== 0) bad += 1;
+
+  say('② 人格引用一致性（场景卡片 + QQ 路由）');
+  const c = spawnSync(process.execPath || 'node', [SYNC, '--check'], { cwd: ROOT, encoding: 'utf8', timeout: 30000 });
+  if (c.status === 0) say('   ✓ 已是最新');
+  else {
+    say('   ⚠ 有引用不一致 ⇒ 自动对齐');
+    const s = spawnSync(process.execPath || 'node', [SYNC], { cwd: ROOT, encoding: 'utf8', timeout: 30000 });
+    String((s.stdout || '') + (s.stderr || '')).trim().split('\n').forEach((x) => say('   ' + x.trim()));
+    if (s.status !== 0) bad += 1;
+  }
+
+  say('③ 场景记忆闸门');
+  const g = spawnSync(process.execPath || 'node', [path.join(ROOT, '工具', '场景记忆.mjs'), 'check', '--all'], { cwd: ROOT, encoding: 'utf8', timeout: 60000, maxBuffer: 4 * 1024 * 1024 });
+  const gl = String((g.stdout || '') + (g.stderr || '')).split('\n').filter((x) => x.includes('✗') || x.includes('全部通过'));
+  gl.slice(0, 6).forEach((x) => say('   ' + x.trim()));
+  if (g.status !== 0) bad += 1;
+
+  say(bad ? '✗ 收尾没全过（' + bad + ' 步失败，看上面）' : '✓ 收尾完成：近期摘要已重建、引用已对齐、记忆闸门通过');
+  return bad ? 4 : 0;
+}
+
+const table = { 路由: cmdRoute, 派: cmdDispatch, 日志: cmdLog, 设置: cmdSettings, 桥接同步: cmdSync, 能主动吗: cmdProactive, 记: cmdRemember, 场景: cmdScenes, 收尾: cmdWrap };
 if (!table[cmd]) {
-  say('用法：node 12-源码照搬\\工具\\桌宠.mjs <路由|派|日志|设置|桥接同步|能主动吗|记> [参数]');
+  say('用法：node 12-源码照搬\\工具\\桌宠.mjs <路由|派|日志|设置|桥接同步|能主动吗|记|场景|收尾> [参数]');
   process.exit(2);
 }
 process.exit(table[cmd]());

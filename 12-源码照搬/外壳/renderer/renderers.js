@@ -12531,6 +12531,9 @@ function highlightEngineMismatch(on) {
 // ── 场景标签图标（外壳 renderer.js 里 ICONS 的"热更新版"）────────────────────
 // 为什么放这里：`renderer.js` 是外壳，改它要重启应用；本文件随标题栏「⟳ 刷新」重载并重建。
 // 这里按场景 id 覆写标签图标 ⇒ 换图标立刻生效，不必重启，两边写法保持一致即可。
+// ⚠ 2026-11-13 起：这张表只放**需要品牌感 / 官方 logo**的手绘图（同花顺、B站、抖音、Blender…）。
+//   常规场景图标不要再往这里加 —— 去 renderer\scene-icons.js 登记（图标本体在 renderer\assets\icons\，
+//   由 scripts\图标库.mjs 从 Lucide 抓取），三层取用规则见下面的 decorateScenarioIcons。
 // oa-ops：服务器机柜（两片机架 + 绿色指示灯 + 插槽），比原来的云朵更贴合"OA 运维"。
 var SCENARIO_ICONS = {
   // 命令（command，2026-10-26）：与 renderer.js 的 NEURON_SVG 同一份
@@ -12907,20 +12910,42 @@ renderers['pc-ledger'] = (body) => {
   return () => stop();
 };
 
+// ── 场景标签图标：三层取用 + 撞车自检（2026-11-13 重写）──────────────────────────
+// 原来只遍历 SCENARIO_ICONS 的键 ⇒ **没登记的场次外壳会一律画成 🧩**，「胡闹的大肥鱼」和「社交」
+// 就顶上了同一枚图标。现在改成遍历**所有标签**，按三层取：
+//   ① renderers.js 的 SCENARIO_ICONS（手绘 SVG / 官方 logo，带品牌感的都在这儿，优先）
+//   ② renderer\scene-icons.js 的登记表（→ renderer\assets\icons\*.svg，Lucide 图标库）
+//   ③ 兜底池：没登记的场次领一个**没被占用**的库图标（两枚图绝不撞）
+// 三层都没有才保留外壳画的 emoji（不留空白位）。幂等仍按"比对内容"：内容变了才重写。
 function decorateScenarioIcons() {
   try {
-    Object.keys(SCENARIO_ICONS).forEach(function (id) {
-      const ico = document.querySelector('#scenario-tabs .tab[data-sc-id="' + id + '"] .tab-ico');
-      if (!ico) return;
+    var lib = window.WB_SCENE_ICONS;
+    var taken = {};   // 本次已被占用的库图标名（先把登记表里的全算上 ⇒ 兜底结果与标签顺序无关）
+    if (lib && lib.map) Object.keys(lib.map).forEach(function (k) { if (lib.map[k]) taken[lib.map[k]] = true; });
+    var hasOwn = Object.prototype.hasOwnProperty;
+    var tabs = document.querySelectorAll('#scenario-tabs .tab');
+    for (var i = 0; i < tabs.length; i++) {
+      var ico = tabs[i].querySelector('.tab-ico');
+      if (!ico) continue;
+      var id = tabs[i].dataset ? tabs[i].dataset.scId : '';
+      var html = (id && hasOwn.call(SCENARIO_ICONS, id)) ? SCENARIO_ICONS[id] : '';
+      if (!html && lib) html = lib.markupOf ? lib.markupOf(id) : '';
+      if (!html && lib && lib.pickUnused) {
+        // 只有"还没画过图标"的标签才领兜底：外壳已经画上去的 <img>（引擎那条的鲸鱼、
+        // Blender / 抖音这些官方 logo）不能被兜底冲掉，否则一 ⟳ 就把品牌图标换没了。
+        if (ico.querySelector('img, svg')) continue;
+        var pick = lib.pickUnused(taken);
+        if (pick) { taken[pick] = true; html = lib.markup(pick); }
+      }
+      if (!html) continue;
       // 幂等靠"比对内容"：原来只记一个 'svg' 标记 ⇒ 同一个 id 换了新图标（新 SVG / 换成图片）后，
       // ⟳ 会被这个标记挡住、永远不更新（用户换了图标却看不见变化）。现在把上次写进去的内容存在
       // data-icon 里，内容变了才重写 —— 既幂等（重复调用不闪），又能跟着改。
-      const html = SCENARIO_ICONS[id];
-      if (ico.getAttribute('data-icon') === html) return;
+      if (ico.getAttribute('data-icon') === html) continue;
       ico.innerHTML = html;
       ico.setAttribute('data-icon', html);
       ico.style.opacity = '1';   // emoji 那套 14px / opacity .85 的样式对 SVG/图片不适用
-    });
+    }
   } catch (e) { /* 换图标失败不影响功能 */ }
 }
 
@@ -17825,13 +17850,14 @@ renderers.neuron = (body, meta, head) => {
     'wb-ai': 'content', 'oa-ai': 'content', 'vw-ai': 'content', 'bv-ai': 'content', 'bl-ai': 'content',
     'mk-chat': 'content', 'sr-ai': 'content', 'pc-ai': 'ops'
   };
-  const COLOR = { core: '#7fe3ff', engine: '#8fb4ff', ui: '#f0a35e', code: '#b79bff', content: '#3ddc84', ops: '#e5484d', skill: '#6f8fd6', doc: '#c9d4e6', project: '#2dd4bf', memory: '#dfe7ff', source: '#8f9bb3', chain: '#ffcf6b' };
+  // 2026-11-13：归口色对齐设计令牌（--warn / --ok / --err），不再用自己调的一套近似色
+  const COLOR = { core: '#7fe3ff', engine: '#8fb4ff', ui: '#e5b355', code: '#b79bff', content: '#34c98f', ops: '#ef5d6d', skill: '#6f8fd6', doc: '#c9d4e6', project: '#2dd4bf', memory: '#dfe7ff', source: '#8f9bb3', chain: '#e5b355' };
   // ===== 2026-11-10：神经元改成「两套配色」——浅色主题下画在纸上、深色主题下仍是星空 =====
   //   ⚠ 画布颜色全在这里，别在绘制代码里再写死 rgb：浅色下那些为深底调的高亮色（#7fe3ff 一类）
   //     在白底上等于没有。图例小圆点也用同一份，切换主题时由 paintLegend() 重刷。
   const COLOR_LIGHT = {
-    core: '#0070f3', engine: '#2563eb', ui: '#d97706', code: '#7c3aed', content: '#059669',
-    ops: '#dc2626', skill: '#4f46e5', doc: '#64748b', project: '#0d9488', memory: '#475569',
+    core: '#2563eb', engine: '#2563eb', ui: '#b45309', code: '#7c3aed', content: '#128a5b',
+    ops: '#d92d20', skill: '#4f46e5', doc: '#64748b', project: '#0d9488', memory: '#475569',
     source: '#94a3b8', chain: '#b45309'
   };
   // 绘制用到的全部"环境色"：浅色=纸面（无背景填充、无暗角、标签白底深字），深色=原星空
@@ -17967,6 +17993,7 @@ renderers.neuron = (body, meta, head) => {
   let nodes = [];        // {id,label,kind,group,path,size,x,y,z,r,deg,hover}
   let edges = [];        // {a,b,kind}
   let ry = -0.35, rx = 0.18, zoom = 1.42;
+  var fitZoom = 1.42;   // 力导向布置算出的「铺满面板」焦距（复位按它，不再写死 1.42）
   let hover = null, sel = null, auto = true, disposed = false, raf = 0, last = 0;
   let drill = null, savedView = null;   // drill = 当前下钻的项目节点 id（null = 全局视图）
   var ownerSkill = {};   // skill 节点 id → 面板 id（layout 贴 owner 用）
@@ -18320,101 +18347,147 @@ renderers.neuron = (body, meta, head) => {
     });
   }
 
-  // ---------- 3D 布置 ----------
+  // ---------- 3D 布置：力导向（2026-11-13 重做） ----------
+  //   旧版是「内核居中 → 场景一圈 → 技能一圈 → 卫星外挂」的同心摆位，看着就是一棵树；
+  //   现在改成 3D 受力布局：全局斥力把点摊开、连线当弹簧把相关节点拉成簇、最后再硬推一遍碰撞分离。
+  //   · 种子固定（黄金角球面）⇒ 每次重读形态一致，不会"随机跳"
+  //   · 布置完按包围球算 fitZoom 铺满面板；节点多时形态仍是网，不是同心环
   function layout() {
-    var areas = nodes.filter(function (n) { return n.kind === 'area'; });
-    var areaByLabel = {};
-    areas.forEach(function (a) { areaByLabel[a.label] = a; });
-    var skills = nodes.filter(function (n) { return n.kind === 'skill'; });
-    var docs = nodes.filter(function (n) { return n.kind === 'doc'; });
-    var projects = nodes.filter(function (n) { return n.kind === 'project'; });
-    var mems = nodes.filter(function (n) { return n.kind === 'memory'; });
-    var srcs = nodes.filter(function (n) { return n.kind === 'source'; });
-    var chains = nodes.filter(function (n) { return n.kind === 'chain'; });
-    var R1 = 430, R2 = 700, R0 = 150;
-    areas.forEach(function (n, i) {
-      var t = (i / Math.max(1, areas.length)) * Math.PI * 2;
-      var ring = (i % 2 === 0) ? 1 : 0.86;                 // 错开两层，看起来像神经元簇
-      n.x = Math.cos(t) * R1 * ring;
-      n.y = Math.sin(t * 2) * 52 * ring;                    // 上下起伏，避免一张平面
-      n.z = Math.sin(t) * R1 * ring;
-      n.r = 9 + Math.min(9, Math.sqrt(n.size / 700));
+    var n = nodes.length;
+    if (!n) return;
+    var R_KIND = { core: 13, area: 10, project: 6.6, memory: 5.2, skill: 4.8, source: 4.8, chain: 4.2, doc: 7, shareddoc: 6.4 };
+    var TIER = { core: 0, doc: 120, source: 170, area: 285, project: 350, memory: 380, skill: 445, chain: 475, shareddoc: 320, memcat: 150, memdoc: 285, drillproj: 0 };
+    var W_KIND = { area: 0.24, source: 0.30, skill: 0.55, project: 0.80, memory: 0.85, dep: 1.0, chain: 0.45, doc: 0.40 };
+    // 1. 半径：场景按正文体量；其余按节点类型
+    nodes.forEach(function (x) {
+      if (x.kind === 'area') x.r = 9 + Math.min(6, Math.sqrt((x.size || 0) / 900));
+      else x.r = R_KIND[x.kind] || 5;
     });
-    // 技能：仍在外圈（两条壳）——标签要铺开才读得清；归属靠连线（→ owner 场景）
-    skills.forEach(function (n, i) {
-      n.r = 5 + Math.min(4, Math.sqrt(n.size / 2200));
-      var t = (i / Math.max(1, skills.length)) * Math.PI * 2 + 0.5;
-      var ring = (i % 2 === 0) ? 1 : 0.8;
-      n.x = Math.cos(t) * R2 * ring;
-      n.y = Math.cos(t * 1.7) * 210 + (i % 2 ? 46 : -46);
-      n.z = Math.sin(t) * R2 * ring;
+    // 2. 初值：黄金角球面（确定性），层级只给初始半径，最终形态交给力
+    var GA = Math.PI * (3 - Math.sqrt(5));
+    nodes.forEach(function (x, i) {
+      if (x.kind === 'core' || x.kind === 'drillproj') { x.x = 0; x.y = 0; x.z = 0; return; }
+      var rr = (TIER[x.kind] != null ? TIER[x.kind] : 285) || 1;
+      var yy = 1 - (2 * (i + 0.5)) / n;
+      var rad = Math.sqrt(Math.max(0, 1 - yy * yy));
+      var t = i * GA;
+      x.x = Math.cos(t) * rad * rr;
+      x.y = yy * rr * 0.82;
+      x.z = Math.sin(t) * rad * rr;
     });
-    // 数据源：内核外面一小圈（靠里，表示"我的家底"）
-    srcs.forEach(function (n, i) {
-      var t = (i / Math.max(1, srcs.length)) * Math.PI * 2 + 0.2;
-      var rr = 168;
-      n.x = Math.cos(t) * rr; n.z = Math.sin(t) * rr; n.y = (i % 2 ? 14 : -14);
-      n.r = 5.2;
+    // 3. 弹簧：只认真实存在的边；core 那头当"背景骨"，权重压低，别把图拉成星形
+    var byId = {}, idxById = {};
+    nodes.forEach(function (x, i) { byId[x.id] = x; idxById[x.id] = i; });
+    var springs = edges.filter(function (e) { return byId[e.a] && byId[e.b]; }).map(function (e) {
+      return {
+        ia: idxById[e.a], ib: idxById[e.b], w: W_KIND[e.kind] || 0.5,
+        rest: (e.a === 'core' || e.b === 'core') ? 300 : 96
+      };
     });
-
-    // 提交链：再外一圈（1.52 倍、反向偏角），像"笔记外面的年表"
-    chains.forEach(function (n) {
-      var own = areaByLabel[n.panel];
-      if (!own) return;
-      var ang = Math.atan2(own.z, own.x) - 0.13;
-      var rad = Math.hypot(own.x, own.z) * 1.52;
-      n.x = Math.cos(ang) * rad; n.z = Math.sin(ang) * rad;
-      n.y = own.y - 22; n.r = 4.4;
-    });
-
-    // 私有记忆：贴在场景**外侧**（1.34 倍、同角度偏一点），像场景的"随身笔记"
-    mems.forEach(function (n, i) {
-      var own = areaByLabel[n.ownerPanel];
-      if (!own) return;
-      var ang = Math.atan2(own.z, own.x) + 0.11;
-      var rad = Math.hypot(own.x, own.z) * 1.34;
-      n.x = Math.cos(ang) * rad; n.z = Math.sin(ang) * rad;
-      n.y = own.y + 26; n.r = 4.6;
-    });
-
-    // 2026-10-26：项目不再是"一圈"，而是**贴着它的 owner 场景**摆（径向 0.6 倍、同角度）⇒ 一眼看出"这项目归谁"
-    projects.forEach(function (n, i) {
-      var own = n.owner ? areaByLabel[n.owner] : null;
-      if (own) {
-        var ang = Math.atan2(own.z, own.x);
-        var rad = Math.hypot(own.x, own.z) * 0.72 + (i % 2 ? 22 : -22);
-        n.x = Math.cos(ang) * rad + Math.cos(ang + 1.57) * ((i % 2 ? 14 : -14));
-        n.z = Math.sin(ang) * rad + Math.sin(ang + 1.57) * ((i % 2 ? 14 : -14));
-        n.y = own.y * 0.5 + (i % 2 ? 10 : -10);
-      } else {
-        var t = (i / Math.max(1, projects.length)) * Math.PI * 2 + 0.32;
-        var rp = 168 + (i % 2 ? 16 : 0);
-        n.x = Math.cos(t) * rp; n.y = Math.sin(t * 1.4) * 34; n.z = Math.sin(t) * rp;
+    // 4. 受力迭代：斥力 + 弹簧 + 向心，FR 式退火（温度往下走，不会抖）
+    var ITER = 260, K2 = 118 * 118;
+    var fX = new Array(n), fY = new Array(n), fZ = new Array(n);
+    var it, i, j;
+    for (it = 0; it < ITER; it++) {
+      var temp = 240 * (1 - it / ITER) + 8;
+      for (i = 0; i < n; i++) { fX[i] = 0; fY[i] = 0; fZ[i] = 0; }
+      // 斥力：两两推开；比"最小间距"还近的额外加一档
+      for (i = 0; i < n; i++) {
+        var a = nodes[i];
+        for (j = i + 1; j < n; j++) {
+          var b = nodes[j];
+          var dx = a.x - b.x, dy = a.y - b.y, dz = a.z - b.z;
+          var d2 = dx * dx + dy * dy + dz * dz;
+          if (d2 < 1) { d2 = 1; dx += 0.01 * (j - i); dy -= 0.01 * (j - i); }
+          var d = Math.sqrt(d2), ux = dx / d, uy = dy / d, uz = dz / d;
+          var minD = a.r + b.r + 24;
+          var f = Math.min(620, K2 / d2);
+          if (d < minD) f += (minD - d) * 8;
+          fX[i] += ux * f; fY[i] += uy * f; fZ[i] += uz * f;
+          fX[j] -= ux * f; fY[j] -= uy * f; fZ[j] -= uz * f;
+        }
       }
-      n.r = 5.4;
-    });
-    // 2026-11-11：开发场景的共享记忆（编码规范/通用规则）贴着 cd-ai 区域外侧摆，
-    //   不能跟待办/通知/冲突同用 kind='doc'——否则 layout 里按 [0,2.1,4.2] 三个角度取模，会正好压住待办/通知。
-    var shareds = nodes.filter(function (n) { return n.kind === 'shareddoc'; });
-    shareds.forEach(function (n, i) {
-      var own = areaByLabel['cd-ai'];
-      if (own) {
-        var ang = Math.atan2(own.z, own.x) + 0.22 + i * 0.16;
-        var rad = Math.hypot(own.x, own.z) * 1.22;
-        n.x = Math.cos(ang) * rad; n.z = Math.sin(ang) * rad;
-        n.y = own.y + 20 + i * 14; n.r = 6.5;
-      } else {
-        var t = 0.6 + i * 0.5;
-        n.x = Math.cos(t) * 190; n.z = Math.sin(t) * 190; n.y = i ? 18 : -18; n.r = 6.5;
+      // 弹簧：把有关系的节点拉成簇
+      for (var si = 0; si < springs.length; si++) {
+        var sp = springs[si], na = nodes[sp.ia], nb = nodes[sp.ib];
+        var sdx = nb.x - na.x, sdy = nb.y - na.y, sdz = nb.z - na.z;
+        var sd = Math.sqrt(sdx * sdx + sdy * sdy + sdz * sdz) || 1;
+        var sf = (sd - sp.rest) * 0.055 * sp.w;
+        var sx = sdx / sd * sf, sy = sdy / sd * sf, sz = sdz / sd * sf;
+        fX[sp.ia] += sx; fY[sp.ia] += sy; fZ[sp.ia] += sz;
+        fX[sp.ib] -= sx; fY[sp.ib] -= sy; fZ[sp.ib] -= sz;
       }
+      // 向心 + 位移（单步不超过当前温度）
+      for (i = 0; i < n; i++) {
+        var p = nodes[i];
+        var gx = fX[i] - p.x * 0.012, gy = fY[i] - p.y * 0.010, gz = fZ[i] - p.z * 0.012;
+        var mag = Math.sqrt(gx * gx + gy * gy + gz * gz);
+        if (!mag || !isFinite(mag)) continue;
+        var step = Math.min(mag, temp);
+        p.x += gx / mag * step; p.y += gy / mag * step; p.z += gz / mag * step;
+      }
+    }
+    // 5. 碰撞分离：力跑完再硬推一遍，保证任何角度都不叠点
+    for (var pass = 0; pass < 22; pass++) {
+      for (var p1 = 0; p1 < n; p1++) {
+        for (var p2 = p1 + 1; p2 < n; p2++) {
+          var A = nodes[p1], B = nodes[p2];
+          var ddx = B.x - A.x, ddy = B.y - A.y, ddz = B.z - A.z;
+          var dd = Math.sqrt(ddx * ddx + ddy * ddy + ddz * ddz) || 1;
+          var need = (A.r + B.r) * 1.9 + 14;
+          if (dd >= need) continue;
+          var push = (need - dd) * 0.5;
+          A.x -= ddx / dd * push; A.y -= ddy / dd * push; A.z -= ddz / dd * push;
+          B.x += ddx / dd * push; B.y += ddy / dd * push; B.z += ddz / dd * push;
+        }
+      }
+    }
+    // 6. 归一 + 定焦距：缩到包围球能铺满面板（z 略压扁，远处的点别缩成点）
+    var extXZ = 1, extY = 1;
+    nodes.forEach(function (x) {
+      if (x.kind === 'core') return;
+      extXZ = Math.max(extXZ, Math.hypot(x.x, x.z));
+      extY = Math.max(extY, Math.abs(x.y));
     });
-    docs.forEach(function (n, i) {
-      var t = [0, 2.1, 4.2][i % 3];
-      n.x = Math.cos(t) * R0; n.y = Math.sin(t) * 30; n.z = Math.sin(t) * R0; n.r = 8;
-    });
-    nodes.filter(function (n) { return n.kind === 'core'; }).forEach(function (n) { n.x = 0; n.y = 0; n.z = 0; });
+    // 横向多给一点（面板多半比高宽），竖向收一点：图才铺得满而不是挤在中轴
+    var k = Math.min(520 / extXZ, 300 / extY);
+    nodes.forEach(function (x) { x.x *= k * 1.45; x.y *= k * 0.92; x.z *= k * 1.35; });
+    // 7. 屏幕空间再分一次：投影到当前视角后，把看得见的重叠硬推开（只动 x/y，不动 z）
+    for (var sr = 0; sr < 12; sr++) {
+      var anyOver = false;
+      var pj = nodes.map(function (x) { return projectAt(x, 1); });
+      for (var u = 0; u < n; u++) {
+        for (var v = u + 1; v < n; v++) {
+          var du = pj[v].x - pj[u].x, dv = pj[v].y - pj[u].y;
+          var dist = Math.hypot(du, dv) || 1;
+          var needP = (nodes[u].r + nodes[v].r) * pj[u].s * 2.1 + 4;
+          if (dist >= needP) continue;
+          anyOver = true;
+          var psh = (needP - dist) * 0.5;
+          var nx2 = du / dist, ny2 = dv / dist;
+          nodes[u].x -= nx2 * psh / Math.max(0.2, pj[u].s);
+          nodes[u].y -= ny2 * psh / Math.max(0.2, pj[u].s);
+          nodes[v].x += nx2 * psh / Math.max(0.2, pj[v].s);
+          nodes[v].y += ny2 * psh / Math.max(0.2, pj[v].s);
+        }
+      }
+      if (!anyOver) break;
+    }
+    refitZoom();
   }
 
+  // 焦距：按当前节点位置算包围球，让图铺满面板（重读 / 复位 / 改窗口大小都走这里）
+  function refitZoom() {
+    if (!nodes.length) return;
+    var mx = 1, my = 1;
+    nodes.forEach(function (x) {
+      var pp = projectAt(x, 1);
+      mx = Math.max(mx, Math.abs(pp.x - W / 2));
+      my = Math.max(my, Math.abs(pp.y - H / 2));
+    });
+    fitZoom = Math.max(0.45, Math.min(2.4, Math.min((W * 0.46) / mx, (H * 0.42) / my)));
+    zoom = fitZoom;
+  }
   // ---------- 画布 ----------
   function fit() {
     dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
@@ -18432,8 +18505,10 @@ renderers.neuron = (body, meta, head) => {
     cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
     cv.style.width = W + 'px'; cv.style.height = H + 'px';
     makeStars();
+    if (nodes.length) refitZoom();   // 窗口尺寸变了就重新铺满（节点位置不动）
   }
-  function project(n) {
+  // 投影：projectAt 吃外部焦距；project 用当前 zoom（布置时要按 zoom=1 量包围球）
+  function projectAt(n, zz) {
     var cy = Math.cos(ry), sy = Math.sin(ry);
     var x1 = n.x * cy - n.z * sy;
     var z1 = n.x * sy + n.z * cy;
@@ -18441,9 +18516,10 @@ renderers.neuron = (body, meta, head) => {
     var y1 = n.y * cx0 - z1 * sx0;
     var z2 = n.y * sx0 + z1 * cx0;
     var f = 820;
-    var s = (f / (f + z2 + 420)) * zoom;
+    var s = (f / (f + z2 + 420)) * zz;
     return { x: W / 2 + x1 * s, y: H / 2 + y1 * s, s: s, z: z2 };
   }
+  function project(n) { return projectAt(n, zoom); }
   function draw() {
     var ctx = cv.getContext('2d');
     try { drawInner(ctx); } catch (e) {
@@ -18566,17 +18642,27 @@ renderers.neuron = (body, meta, head) => {
       var lc = (s.e.kind === 'memory') ? C.edge.memory
         : (s.e.kind === 'project') ? C.edge.project
         : (s.e.kind === 'dep') ? C.edge.dep : C.edge.other;
-      var core = hot ? 1.7 : (s.e.kind === 'dep' ? 1.15 : 0.85);
+      var core = hot ? 1.7 : (s.e.kind === 'dep' ? 1.15 : 0.9);
+      var backbone = (s.e.kind === 'area' || s.e.kind === 'source');
+      if (backbone) { core = 0.8; alpha *= 0.5; }
       var ex2 = s.pb.x, ey2 = s.pb.y;
       if (gp < 1) { ex2 = s.pa.x + (s.pb.x - s.pa.x) * gp; ey2 = s.pa.y + (s.pb.y - s.pa.y) * gp; }
+      // 曲线：中点沿法线偏一点 ⇒ 像突触而不是树杈；偏向由两端 id 定，形态稳定
+      var ddx = ex2 - s.pa.x, ddy = ey2 - s.pa.y;
+      var len = Math.hypot(ddx, ddy) || 1;
+      var bend = Math.min(40, len * 0.18) * (((s.e.a.length + s.e.b.length) % 2) ? 1 : -1);
+      var cx4 = (s.pa.x + ex2) / 2 - (ddy / len) * bend;
+      var cy4 = (s.pa.y + ey2) / 2 + (ddx / len) * bend;
       ctx.beginPath();
       ctx.moveTo(s.pa.x, s.pa.y);
-      ctx.lineTo(ex2, ey2);
+      ctx.quadraticCurveTo(cx4, cy4, ex2, ey2);
       if (fx && (hot || active)) {              // 悬停/选中：跑虚线流光
         ctx.setLineDash([5, 6]);
         ctx.lineDashOffset = -(tt * 26) % 11;
+      } else if (backbone) {
+        ctx.setLineDash([3, 8]);                // 骨线走虚线：不再像"从中心发散的一棵树"
       }
-      if (fx) {                                 // 霓虹光晕（宽、淡）；浅色下只是极柔的一层，不能糊成色块
+      if (fx && !backbone) {                    // 霓虹光晕（宽、淡）；浅色下只是极柔的一层
         ctx.strokeStyle = 'rgba(' + lc + ',' + (alpha * C.edgeGlowK) + ')';
         ctx.lineWidth = core * 2.8;
         ctx.stroke();
@@ -18584,8 +18670,7 @@ renderers.neuron = (body, meta, head) => {
       ctx.strokeStyle = 'rgba(' + lc + ',' + alpha + ')';
       ctx.lineWidth = core;
       ctx.stroke();
-      ctx.setLineDash([]);
-      if (introOn && gp < 1) {                     // 生长头：亮点把线"推"出来
+      ctx.setLineDash([]);      if (introOn && gp < 1) {                     // 生长头：亮点把线"推"出来
         ctx.beginPath();
         ctx.arc(ex2, ey2, 2.4 + 1.8 * (1 - gp), 0, 6.2832);
         ctx.fillStyle = 'rgba(' + C.growA + ',' + (0.55 + 0.4 * (1 - gp)) + ')';
@@ -18681,8 +18766,8 @@ renderers.neuron = (body, meta, head) => {
       }
     }
 
-    var labelBoxes = [];
-    // 再画节点（按深度排序）
+    // 再画节点（按深度排序）；标签只收集不画，等所有节点画完再统一避让、落笔
+    var labelItems = [];
     var list = nodes.filter(keep).map(function (n) { return { n: n, p: project(n) }; }).sort(function (a, b) { return a.p.z - b.p.z; });
     list.forEach(function (it) {
       var n = it.n, p = it.p;
@@ -18695,35 +18780,42 @@ renderers.neuron = (body, meta, head) => {
         nring = np2 < 1 ? (1 - np2) : 0;
       }
       var r = safeR(n, p.s) * (fx ? (0.55 + 0.45 * kk) : 1) * (introOn ? (0.5 + 0.5 * np2) : 1);
-
       var alpha = dimmed(n) ? 0.18 : Math.max(0.35, 1 - p.z / 1500);
       if (introOn) alpha *= 0.25 + 0.75 * np2;
       var c = col(n.group);
       if (n.kind === 'project') { if (n.status === 'delivery') c = C.delivery; else if (n.status === 'archived' || n.status === 'parked') c = C.archived; }
-      // 光晕（浅色下收得很紧：白底上大范围彩色光晕会糊成脏块）
+      // 外晕：只负责"发光"，不做球面高光 —— 旧版的糖果球在浅色主题下像脏点
       var g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, r * C.glowR);
       g.addColorStop(0, hexA(c, C.glowK1 * alpha));
       g.addColorStop(0.45, hexA(c, C.glowK2 * alpha));
       g.addColorStop(1, hexA(c, 0));
       ctx.fillStyle = g;
       ctx.beginPath(); ctx.arc(p.x, p.y, r * C.glowR, 0, Math.PI * 2); ctx.fill();
-      // 核：球面渐变（左上亮、右下暗）+ 细内描边
-      var ng = ctx.createRadialGradient(p.x - r * 0.35, p.y - r * 0.38, r * 0.15, p.x, p.y, r * 1.15);
-      ng.addColorStop(0, hexA('#ffffff', C.nodeHi * alpha));
-      ng.addColorStop(0.35, hexA(c, 0.95 * alpha));
-      ng.addColorStop(1, hexA(c, 0.72 * alpha));
+      // 胞体：实心圆 + 一圈细膜 + 中心核点；远看也是"节点"而不是"糊块"
       ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
-      ctx.fillStyle = ng;
+      ctx.fillStyle = hexA(c, 0.94 * alpha);
       ctx.fill();
-      ctx.beginPath(); ctx.arc(p.x, p.y, Math.max(0.5, r - 0.6), 0, Math.PI * 2);
-      ctx.lineWidth = 0.8;
+      ctx.beginPath(); ctx.arc(p.x, p.y, Math.max(0.6, r - 0.85), 0, Math.PI * 2);
+      ctx.lineWidth = 0.9;
       ctx.strokeStyle = hexA('#ffffff', C.nodeEdgeA * alpha);
       ctx.stroke();
-      // 高光：左上一点亮，球体感
-      ctx.beginPath();
-      ctx.arc(p.x - r * 0.32, p.y - r * 0.34, Math.max(0.9, r * 0.34), 0, 6.2832);
-      ctx.fillStyle = 'rgba(255,255,255,' + (C.glossA * alpha) + ')';
+      ctx.beginPath(); ctx.arc(p.x - r * 0.24, p.y - r * 0.26, Math.max(0.8, r * 0.24), 0, 6.2832);
+      ctx.fillStyle = hexA('#ffffff', 0.5 * alpha);
       ctx.fill();
+      // 场景节点：外一圈缓慢自转的虚线轨道（神经元的"树突环"，也是场景唯一的身份标记）
+      if (n.kind === 'area') {
+        ctx.save();
+        ctx.translate(p.x, p.y);
+        if (fx) ctx.rotate(tt * 0.10 + (n.id.length % 5) * 0.5);
+        ctx.beginPath();
+        ctx.setLineDash([2, 6]);
+        ctx.arc(0, 0, r + 9, 0, 6.2832);
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = hexA(c, 0.40 * alpha);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.restore();
+      }
       if (nring > 0) {                             // 点亮瞬间：一圈光环扩散出去
         ctx.beginPath();
         ctx.arc(p.x, p.y, r + 4 + 26 * (1 - nring), 0, 6.2832);
@@ -18763,7 +18855,7 @@ renderers.neuron = (body, meta, head) => {
         ctx.strokeStyle = hexA(C.ringSel, 0.75);
         ctx.stroke();
       }
-      // 标签：内核 / 悬停 / 选中 / 搜索命中 / 大节点
+      // 标签候选：悬停 / 选中 / 搜索命中永远要，其余按模式给
       var show = false;
       if (labelMode === 2) show = n.kind === 'core' || (hoverN && n.id === hoverN.id) || (selN && n.id === selN.id);
       else if (labelMode === 1) show = true;
@@ -18771,59 +18863,84 @@ renderers.neuron = (body, meta, head) => {
         || (q && !dimmed(n)) || (n.kind === 'area' && p.s > 0.55)
         || (n.kind === 'project' && (n.id === sel || n.id === hover || (p.s > 1.05 && n.deg > 0)));
       if (show) {
-        var fsz = n.kind === 'core' ? 13 : (n.kind === 'area' ? 11 : (n.kind === 'project' ? 10 : 9));
-        ctx.font = (n.kind === 'core' ? '700 13px' : (n.kind === 'area' ? '600 11px' : '500 ' + fsz + 'px')) + ' ui-sans-serif, "Microsoft YaHei", system-ui';
-        var lbl = String(n.label || '');
-        if (n.kind === 'skill' && lbl.length > 15) lbl = lbl.slice(0, 14) + '…';
-        var tw = ctx.measureText(lbl).width;
-        var force = (hoverN && n.id === hoverN.id) || (selN && n.id === selN.id) || (q && !dimmed(n));
-        // 四向候选：上 → 下 → 右 → 左，挑第一个不撞的；都撞就照画（宿主：所有点都要有标签）
-        // 记忆/链/数据源这类"卫星":先试右边（免得压住它贴着的主场景标签）；场景/项目先试上方
-        var rightFirst = (n.kind === 'memory' || n.kind === 'chain' || n.kind === 'source');
-        var cands = rightFirst
-          ? [{ lx: p.x + r + 7, ly: p.y + 4, align: 'left' },
-             { lx: p.x, ly: p.y - r - 7, align: 'center' },
-             { lx: p.x, ly: p.y + r + 13, align: 'center' },
-             { lx: p.x - r - 7, ly: p.y + 4, align: 'right' }]
-          : [{ lx: p.x, ly: p.y - r - 7, align: 'center' },
-             { lx: p.x, ly: p.y + r + 13, align: 'center' },
-             { lx: p.x + r + 7, ly: p.y + 4, align: 'left' },
-             { lx: p.x - r - 7, ly: p.y + 4, align: 'right' }];
-        var pick = cands[0], clash = false;
-        for (var ci = 0; ci < cands.length; ci++) {
-          var cd = cands[ci];
-          var x1 = cd.align === 'left' ? cd.lx : (cd.align === 'right' ? cd.lx - tw : cd.lx - tw / 2);
-          var bx0 = { x1: x1 - 2, x2: x1 + tw + 2, y1: cd.ly - 10, y2: cd.ly + 3 };
-          var hit2 = false;
-          for (var bi = 0; bi < labelBoxes.length; bi++) {
-            var bb = labelBoxes[bi];
-            if (bx0.x1 < bb.x2 && bx0.x2 > bb.x1 && bx0.y1 < bb.y2 && bx0.y2 > bb.y1) { hit2 = true; break; }
-          }
-          if (!hit2) { pick = cd; clash = false; break; }
-          pick = cd; clash = true;
-        }
-        var ly = pick.ly, alignMode = pick.align;
-        var box = { x1: (alignMode === 'left' ? pick.lx : (alignMode === 'right' ? pick.lx - tw : pick.lx - tw / 2)) - 2,
-                    x2: (alignMode === 'left' ? pick.lx + tw : (alignMode === 'right' ? pick.lx : pick.lx + tw / 2)) + 2,
-                    y1: ly - 10, y2: ly + 3 };
-        if (!clash || force || labelMode !== 2) {
-          labelBoxes.push(box);
-          // 底片：深色半透明圆角，压住后面的线和星点（"更清晰"主要靠它）
-          var bx = box.x1 - 3, by = box.y1, bw = (box.x2 - box.x1) + 6, bh = (box.y2 - box.y1) + 1;
-          ctx.beginPath();
-          if (ctx.roundRect) { ctx.roundRect(bx, by, bw, bh, 4); }
-          else { ctx.rect(bx, by, bw, bh); }
-          ctx.fillStyle = 'rgba(' + C.labelBg + ',' + (force ? C.labelBgForceA : C.labelBgA) + ')';
-          ctx.fill();
-          ctx.fillStyle = dimmed(n) ? C.labelDim : C.labelFg;
-          ctx.fillStyle = force ? C.labelFgForce : ctx.fillStyle;
-          ctx.textAlign = alignMode;
-          ctx.fillText(lbl, pick.lx, ly);
-        }
+        labelItems.push({
+          node: n, p: p, r: r, dim: dimmed(n),
+          force: !!(hoverN && n.id === hoverN.id) || !!(selN && n.id === selN.id) || !!(q && !dimmed(n))
+        });
       }
     });
+    drawLabels(labelItems, list);
   }
-  function hexA(hex, a) {
+
+  // ---------- 标签：第二遍统一摆位（先场景、后卫星；撞满就让位，悬停/选中的最后画在最上层） ----------
+  function drawLabels(items, list) {
+    if (!items.length) return;
+    var ctx = cv.getContext('2d');
+    var C = kpal();
+    var PRI = { core: 0, drillproj: 0, area: 1, project: 2, memory: 3, chain: 4, shareddoc: 5, memcat: 5, skill: 6, source: 7, doc: 8, memdoc: 9 };
+    // 已占位方框：节点胞体全算（标签不许压住别的节点），HUD 那条也留出来
+    var boxes = [{ x1: -1, x2: W, y1: -1, y2: 44 }];
+    list.forEach(function (it) {
+      if (it.p.s <= 0.42) return;
+      boxes.push({ id: it.n.id, x1: it.p.x - it.r - 2, x2: it.p.x + it.r + 2, y1: it.p.y - it.r - 2, y2: it.p.y + it.r + 2 });
+    });
+    function clash(box, selfId) {
+      for (var bi = 0; bi < boxes.length; bi++) {
+        var b = boxes[bi];
+        if (b.id && b.id === selfId) continue;
+        if (box.x1 < b.x2 && box.x2 > b.x1 && box.y1 < b.y2 && box.y2 > b.y1) return true;
+      }
+      return false;
+    }
+    items.sort(function (a, b) {
+      if (a.force !== b.force) return a.force ? 1 : -1;              // 悬停/选中最后画，永远在最上层
+      return (PRI[a.node.kind] || 9) - (PRI[b.node.kind] || 9);
+    });
+    items.forEach(function (it) {
+      var n = it.node, p = it.p, r = it.r;
+      var fsz = n.kind === 'core' ? 13 : (n.kind === 'area' ? 11 : (n.kind === 'project' ? 10 : 9));
+      ctx.font = (n.kind === 'core' ? '700 13px' : (n.kind === 'area' ? '600 11px' : '500 ' + fsz + 'px')) + ' ui-sans-serif, "Microsoft YaHei", system-ui';
+      var lbl = String(n.label || '');
+      if (n.kind === 'skill' && lbl.length > 15) lbl = lbl.slice(0, 14) + '…';
+      var tw = ctx.measureText(lbl).width;
+      var d = r + 8;
+      // 八向候选：上 / 下 / 右 / 左 / 四角，挑第一个不撞的
+      var cands = [
+        { lx: p.x, ly: p.y - d, align: 'center' },
+        { lx: p.x, ly: p.y + d + 5, align: 'center' },
+        { lx: p.x + d, ly: p.y + 4, align: 'left' },
+        { lx: p.x - d, ly: p.y + 4, align: 'right' },
+        { lx: p.x + d * 0.72, ly: p.y - d * 0.72, align: 'left' },
+        { lx: p.x - d * 0.72, ly: p.y - d * 0.72, align: 'right' },
+        { lx: p.x + d * 0.72, ly: p.y + d * 0.72 + 5, align: 'left' },
+        { lx: p.x - d * 0.72, ly: p.y + d * 0.72 + 5, align: 'right' }
+      ];
+      var pick = null, pickBox = null;
+      for (var ci = 0; ci < cands.length; ci++) {
+        var cd = cands[ci];
+        var x1 = cd.align === 'left' ? cd.lx : (cd.align === 'right' ? cd.lx - tw : cd.lx - tw / 2);
+        var box = { id: n.id, x1: x1 - 2, x2: x1 + tw + 2, y1: cd.ly - 10, y2: cd.ly + 3 };
+        if (!clash(box, n.id)) { pick = cd; pickBox = box; break; }
+      }
+      if (!pick) {
+        if (!it.force) return;                     // 撞满就让位（悬停/选中/搜索命中仍要画）
+        var cd0 = cands[0];
+        var x0 = cd0.lx - tw / 2;
+        pick = cd0;
+        pickBox = { id: n.id, x1: x0 - 2, x2: x0 + tw + 2, y1: cd0.ly - 10, y2: cd0.ly + 3 };
+      }
+      boxes.push(pickBox);
+      var bx = pickBox.x1 - 3, by = pickBox.y1, bw = (pickBox.x2 - pickBox.x1) + 6, bh = (pickBox.y2 - pickBox.y1) + 1;
+      ctx.beginPath();
+      if (ctx.roundRect) { ctx.roundRect(bx, by, bw, bh, 4); }
+      else { ctx.rect(bx, by, bw, bh); }
+      ctx.fillStyle = 'rgba(' + C.labelBg + ',' + (it.force ? C.labelBgForceA : C.labelBgA) + ')';
+      ctx.fill();
+      ctx.fillStyle = it.force ? C.labelFgForce : (it.dim ? C.labelDim : C.labelFg);
+      ctx.textAlign = pick.align;
+      ctx.fillText(lbl, pick.lx, pick.ly);
+    });
+  }  function hexA(hex, a) {
     var h = hex.replace('#', '');
     var r = parseInt(h.slice(0, 2), 16), g = parseInt(h.slice(2, 4), 16), b = parseInt(h.slice(4, 6), 16);
     return 'rgba(' + r + ',' + g + ',' + b + ',' + a + ')';
@@ -19084,7 +19201,7 @@ renderers.neuron = (body, meta, head) => {
     bRot.classList.toggle('on', auto);
   });
   bReset.addEventListener('click', function () {
-    ry = -0.35; rx = 0.18; zoom = 1.42; sel = null; hover = null; detail.classList.remove('on');
+    ry = -0.35; rx = 0.18; zoom = fitZoom || 1.42; sel = null; hover = null; detail.classList.remove('on');
   });
   bReload.addEventListener('click', function () {
     introBoot = true;                 // 2026-10-27：重读 = 重读数据 + 重播一次入场动画
@@ -20029,39 +20146,82 @@ window.openPetSettings = function () {
     var approval = s.approval || {};
     var quiet = s.quiet || {};
     var memory = s.memory || {};
+    var sess = r.session || {};
+    var files = r.files || {};
     var rows = (Array.isArray(s.routes) ? s.routes : []).map(function (x) {
       return { keywords: (x.keywords || []).slice(), to: String(x.to || ''), level: String(x.level || 'confirm') };
     });
     var logs = (a[1] && a[1].rows) || [];
 
-    // 1. 遮罩 + 对话框（点遮罩/X/Esc 关闭；打开期间不阻塞背后面板，只是浮在最上层）
+    // 1. 外壳：遮罩 + 对话框 + 标题栏（点遮罩 / X / Esc 关闭）
     var mask = mk('div', 'psed-mask');
     var dlg = mk('div', 'psed-dlg');
     dlg.setAttribute('role', 'dialog');
+    dlg.setAttribute('aria-label', '桌宠设置');
     var headRow = mk('div', 'psed-head');
-    var hT = mk('div', 'psed-title', '桌宠设置 · ' + (persona.name || '人格'));
+    var hWrap = mk('div', 'psed-hw');
+    var hT = mk('div', 'psed-title', '桌宠设置');
+    var hS = mk('div', 'psed-sub', (persona.name || '人格') + ' · 改完点保存即生效，不用碰任何 JSON');
+    hWrap.appendChild(hT); hWrap.appendChild(hS);
     var closeBtn = mk('button', 'psed-x', '✕');
     closeBtn.title = '关闭';
-    headRow.appendChild(hT); headRow.appendChild(closeBtn);
+    headRow.appendChild(hWrap); headRow.appendChild(closeBtn);
     dlg.appendChild(headRow);
 
     var body = mk('div', 'psed-body');
+
+    // 2. 顶部分区块导航：点哪个跳哪段
+    var navBar = mk('div', 'psed-nav');
+    var secsWrap = mk('div', 'psed-secs');
+    var jumpMap = {};
+    body.appendChild(navBar);
+    body.appendChild(secsWrap);
     dlg.appendChild(body);
 
-    function group(title, hint) {
-      var g = mk('div', 'psed-group');
-      g.appendChild(mk('div', 'psed-gt', title));
-      if (hint) g.appendChild(mk('div', 'psed-gh', hint));
-      var c = mk('div', 'psed-gc');
-      g.appendChild(c);
-      body.appendChild(g);
-      return c;
+    function section(key, num, title, hint) {
+      var sec = mk('div', 'psed-sec');
+      sec.id = 'psed-sec-' + key;
+      var h = mk('div', 'psed-hdr');
+      var n = mk('span', 'psed-num', String(num));
+      var tw = mk('div', 'psed-hdrtx');
+      tw.appendChild(mk('div', 'psed-hdr-t', title));
+      if (hint) tw.appendChild(mk('div', 'psed-hdr-h', hint));
+      h.appendChild(n); h.appendChild(tw);
+      var b = mk('div', 'psed-sec-b');
+      sec.appendChild(h); sec.appendChild(b);
+      secsWrap.appendChild(sec);
+      jumpMap[key] = sec;
+      return b;
+    }
+    function navBtn(key, label) {
+      var b = mk('button', 'psed-navbtn', label);
+      b.addEventListener('click', function () {
+        var t = jumpMap[key];
+        if (t && t.scrollIntoView) t.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+      navBar.appendChild(b);
+    }
+    function kv(parent, k, v) {
+      var row = mk('div', 'psed-kvrow');
+      row.appendChild(mk('div', 'psed-kvk', k));
+      row.appendChild(mk('div', 'psed-kvv', v == null || v === '' ? '—' : String(v)));
+      parent.appendChild(row);
     }
 
-    // 2. 主动性：三选一（按钮组，不进下拉，扫一眼就懂）
-    var actC = group('她主动吗', '只在「有事才说」以上才会主动开口；「少吭声」就是只答不说');
+    // 3. ① 概览：只读，告诉她现在绑在哪、参数存在哪（省得人去翻文件）
+    var ovC = section('ov', 1, '现在是谁、绑在哪', '这一段是只读的：人格只有一个，换会话请走「换会话」流程，别在这里改');
+    navBtn('ov', '概览');
+    kv(ovC, '人格名', persona.name || '胡闹的大肥鱼');
+    kv(ovC, '绑定会话', (sess.sessionTitle || '（未绑定）') + (sess.sessionId ? ' · ' + String(sess.sessionId).slice(0, 12) + '…' : ''));
+    kv(ovC, '参数文件', files.data ? String(files.data).replace(/.*[\\/]/, '…\\') : '外壳\\data\\pet\\设置.json（本机，不进仓库）');
+    kv(ovC, '通道', 'QQ / 飞书等平台卡片在「社交」场景；这里只管她的脾气与权限');
+
+    // 4. ② 主动性：三选一，按钮组比下拉直观
+    var actC = section('act', 2, '她主动吗', '「少吭声」= 只答不说；「有事才说」起才会主动开口，仍受下一段免打扰约束');
+    navBtn('act', '主动性');
     var actCur = String(persona.proactive || 'low');
     var actBtns = [];
+    var actWrap = mk('div', 'psed-segbar');
     [['low', '少吭声'], ['normal', '有事才说'], ['high', '会主动找我']].forEach(function (o) {
       var b = mk('button', 'psed-seg', o[1]);
       b.dataset.v = o[0];
@@ -20070,14 +20230,37 @@ window.openPetSettings = function () {
         actCur = o[0];
         actBtns.forEach(function (x) { x.classList.toggle('is-on', x.dataset.v === actCur); });
       });
-      actBtns.push(b); actC.appendChild(b);
+      actBtns.push(b); actWrap.appendChild(b);
     });
+    actC.appendChild(actWrap);
 
-    // 3. 允许她做什么：勾选 = 允许；默认拉黑的几项单列在「永远不许」
-    var allowC = group('她可以做什么', '勾上的才会被执行；灰着的会直接拒绝并说明原因');
+    // 5. ③ 节奏：免打扰 + 每小时上限
+    var qC = section('quiet', 3, '什么时候别烦你', '这段时间不主动开口（跨零点也算）；「每小时最多几次」防她一小时刷好几遍');
+    navBtn('quiet', '节奏');
+    var qRow = mk('div', 'psed-inline');
+    var qFrom = document.createElement('input'); qFrom.type = 'time'; qFrom.className = 'psed-input'; qFrom.value = String(quiet.from || '23:30');
+    var qTo = document.createElement('input'); qTo.type = 'time'; qTo.className = 'psed-input'; qTo.value = String(quiet.to || '08:00');
+    var qMax = document.createElement('input'); qMax.type = 'number'; qMax.min = '0'; qMax.max = '60'; qMax.className = 'psed-input psed-num'; qMax.value = String(quiet.proactiveMaxPerHour == null ? 2 : quiet.proactiveMaxPerHour);
+    qRow.appendChild(mk('span', 'psed-vs', '从')); qRow.appendChild(qFrom);
+    qRow.appendChild(mk('span', 'psed-vs', '到')); qRow.appendChild(qTo);
+    qRow.appendChild(mk('span', 'psed-vs', '· 每小时最多')); qRow.appendChild(qMax); qRow.appendChild(mk('span', 'psed-vs', '次'));
+    qC.appendChild(qRow);
+
+    // 6. ④ 能力：左边「允许」右边「永远不许」，两列分开（未勾 ≠ 永远不许）
+    var capC = section('cap', 4, '她可以做什么', '左列勾上才会执行；右列是安全底线，勾了就算你口头同意也不做。两列互不影响');
+    navBtn('cap', '能力');
+    var cols = mk('div', 'psed-cols');
+    var allowBox = mk('div', 'psed-col');
+    allowBox.appendChild(mk('div', 'psed-col-t', '允许她做'));
+    var denyBox = mk('div', 'psed-col');
+    denyBox.appendChild(mk('div', 'psed-col-t', '永远不许'));
+    cols.appendChild(allowBox); cols.appendChild(denyBox);
+    capC.appendChild(cols);
+
     var ALLOW_LIST = PET_TOOLS.slice(0, 6);
     var DENY_LIST = PET_TOOLS.slice(6);
-    var chkMap = {};
+    var chkAllow = {};   // 勾 = 允许她做（未勾不再等于「永远不许」）
+    var chkDeny = {};    // 勾 = 永远不许（安全底线，跟「允许」互不影响）
     function chk(parent, id, label, on) {
       var w = mk('label', 'psed-check');
       var c = document.createElement('input');
@@ -20089,16 +20272,17 @@ window.openPetSettings = function () {
     }
     var allowNow = (tools.allow || []).slice();
     var denyNow = (tools.deny || []).slice();
-    ALLOW_LIST.forEach(function (t) { chkMap[t[0]] = chk(allowC, t[0], t[1], allowNow.indexOf(t[0]) >= 0 && denyNow.indexOf(t[0]) < 0); });
-    var denyC = group('永远不许她做', '这几项就算你说「可以」也不做（安全底线，建议保持勾满）');
-    DENY_LIST.forEach(function (t) { chkMap[t[0]] = chk(denyC, t[0], t[1], denyNow.indexOf(t[0]) >= 0 || allowNow.indexOf(t[0]) < 0); });
+    ALLOW_LIST.forEach(function (t) { chkAllow[t[0]] = chk(allowBox, t[0], t[1], allowNow.indexOf(t[0]) >= 0); });
+    DENY_LIST.forEach(function (t) { chkDeny[t[0]] = chk(denyBox, t[0], t[1], denyNow.indexOf(t[0]) >= 0); });
 
-    // 4. 什么必须先问你：四行四选一
-    var apC = group('什么必须先问你', '「改代码 / 对外发消息」建议保持「先问我」；从 QQ、飞书 来的指令一律自动降一级');
+    // 7. ⑤ 审批：四类各一行，两列排开
+    var apC = section('ap', 5, '什么必须先问你', '「改代码 / 对外发消息」建议保持「先问我」；从 QQ、飞书 来的指令会自动降一级');
+    navBtn('ap', '审批');
+    var apGrid = mk('div', 'psed-grid2');
     var apSel = {};
-    [['read', '只看资料'], ['write_mem', '记下事情'], ['write_code', '改代码/仓库'], ['outbound', '对外发消息']].forEach(function (o) {
-      var rowEl = mk('div', 'psed-row');
-      rowEl.appendChild(mk('div', 'psed-rl', o[1]));
+    [['read', '只看资料'], ['write_mem', '记下事情'], ['write_code', '改代码 / 仓库'], ['outbound', '对外发消息']].forEach(function (o) {
+      var cell = mk('div', 'psed-field');
+      cell.appendChild(mk('div', 'psed-fl', o[1]));
       var sel = document.createElement('select');
       sel.className = 'psed-input';
       PET_LEVELS.forEach(function (lv) {
@@ -20108,28 +20292,24 @@ window.openPetSettings = function () {
         sel.appendChild(op);
       });
       apSel[o[0]] = sel;
-      rowEl.appendChild(sel);
-      apC.appendChild(rowEl);
+      cell.appendChild(sel);
+      apGrid.appendChild(cell);
     });
+    apC.appendChild(apGrid);
 
-    // 5. 免打扰
-    var qC = group('什么时候别烦你', '这段时间不主动开口；「最多几次」防她一小时刷好几遍');
-    var qRow = mk('div', 'psed-inline');
-    var qFrom = document.createElement('input'); qFrom.type = 'time'; qFrom.className = 'psed-input'; qFrom.value = String(quiet.from || '23:30');
-    var qTo = document.createElement('input'); qTo.type = 'time'; qTo.className = 'psed-input'; qTo.value = String(quiet.to || '08:00');
-    var qMax = document.createElement('input'); qMax.type = 'number'; qMax.min = '0'; qMax.max = '60'; qMax.className = 'psed-input psed-num'; qMax.value = String(quiet.proactiveMaxPerHour == null ? 2 : quiet.proactiveMaxPerHour);
-    qRow.appendChild(qFrom); qRow.appendChild(mk('span', 'psed-vs', '到')); qRow.appendChild(qTo);
-    qRow.appendChild(mk('span', 'psed-vs', '· 每小时最多')); qRow.appendChild(qMax); qRow.appendChild(mk('span', 'psed-vs', '次'));
-    qC.appendChild(qRow);
+    // 8. ⑥ 记忆：三开关 + 一句「写到哪、谁在维护」
+    var memC = section('mem', 6, '她怎么记事', '长期的事进 记忆\\，聊过什么进 对话\\，未办的事进 待办；每写完一条自动重建「近期记忆」，开场就带上');
+    navBtn('mem', '记忆');
+    var memCol = mk('div', 'psed-stack');
+    var mLong = chk(memCol, 'm-long', '记住长期的事（你的事、约定、偏好）', memory.writeLongTerm !== false);
+    var mDlg = chk(memCol, 'm-dialog', '记下聊过什么（谁来找我、说了什么）', memory.writeDialog !== false);
+    var mCfm = chk(memCol, 'm-confirm', '写之前先问我（每条都确认，麻烦但稳）', !!memory.confirmBeforeWrite);
+    memC.appendChild(memCol);
+    memC.appendChild(mk('div', 'psed-note', '提示：记忆写入统一走「桌宠 → 记住」工具，写完自动过场景记忆闸门；长任务结束前可以让她跑一次「收尾」把近期摘要重建、旧条目归档。'));
 
-    // 6. 记忆
-    var memC = group('她怎么记事', '长期的事写在 场景记忆\胡闹的大肥鱼\记忆\；聊天流水写在 对话\；两者都属于本机，不进仓库');
-    var mLong = chk(memC, 'm-long', '记住长期的事（你的事、答应过的事）', memory.writeLongTerm !== false);
-    var mDlg = chk(memC, 'm-dialog', '记下聊过什么（谁来找我、说了什么）', memory.writeDialog !== false);
-    var mCfm = chk(memC, 'm-confirm', '写之前先问我', !!memory.confirmBeforeWrite);
-
-    // 7. 场景路由：一行一条「说到这些词 → 交给谁 → 要不要先问」，可加可删
-    var rtC = group('哪句话该交给谁', '你说到左边的词，她就去右边的场景干活；右边只列真实存在的会话，选错了派不进去');
+    // 9. ⑦ 场景互通：一行一条「说到这些词 → 交给谁 → 要不要先问」，可加可删
+    var rtC = section('rt', 7, '哪句话该交给谁', '你说到左边的词，她就去右边的场景干活；右边只列真实存在的会话，选错了派不进去。认不出会先问你，不会猜');
+    navBtn('rt', '场景互通');
     var rtList = mk('div', 'psed-routes');
     rtC.appendChild(rtList);
     function sceneOptions(sel, cur) {
@@ -20143,7 +20323,7 @@ window.openPetSettings = function () {
         if (sc.title === cur) { o.selected = true; found = true; }
         sel.appendChild(o);
       });
-      if (cur && !found) { var o2 = document.createElement('option'); o2.value = cur; o2.textContent = cur + '（找不到这个会话）'; o2.selected = true; sel.appendChild(o2); }
+      if (cur && !found) { var o2 = document.createElement('option'); o2.value = cur; o2.textContent = cur + '（当前找不到这个会话）'; o2.selected = true; sel.appendChild(o2); }
     }
     function drawRoutes() {
       rtList.textContent = '';
@@ -20151,7 +20331,7 @@ window.openPetSettings = function () {
       rows.forEach(function (row, i) {
         var line = mk('div', 'psed-route');
         var kw = document.createElement('input');
-        kw.className = 'psed-input psed-kw'; kw.value = row.keywords.join('，'); kw.placeholder = '关键词，用逗号隔开';
+        kw.className = 'psed-input psed-kw'; kw.value = row.keywords.join('，'); kw.placeholder = '关键词，逗号隔开';
         kw.addEventListener('input', function () { rows[i].keywords = kw.value.split(/[，,、\s]+/).filter(Boolean); });
         var sc = document.createElement('select');
         sc.className = 'psed-input psed-sc';
@@ -20173,26 +20353,26 @@ window.openPetSettings = function () {
     }
     drawRoutes();
 
-    // 8. 最近派发
-    var logC = group('最近派了什么活', '每次派发自动记一笔（时间 / 原话 / 交给谁 / 结果 / 耗时）');
+    // 10. ⑧ 最近派发：只看不改
+    var logC = section('log', 8, '最近派了什么活', '每次派发自动记一笔（时间 / 原话 / 交给谁 / 结果 / 耗时），完整日志在 场景记忆\\胡闹的大肥鱼\\派发日志.md');
+    navBtn('log', '日志');
     if (!logs.length) logC.appendChild(mk('div', 'psed-empty', '（还没有派过）'));
     else logs.slice(-5).forEach(function (x) { logC.appendChild(mk('div', 'psed-log', String(x).replace(/^-\s*/, ''))); });
 
-    // 9. 底部：保存 / 取消 / 恢复默认
+    // 11. 底部：保存 / 取消 / 恢复默认（恢复默认不动路由表，避免冲掉人自建的规则）
     var foot = mk('div', 'psed-foot');
     var hint = mk('div', 'psed-fh', '参数存在本机，不进仓库；保存后下一轮对话即生效');
     var cancel = mk('button', 'psed-btn', '取消');
     var save = mk('button', 'psed-btn is-primary', '保存');
     var reset = mk('button', 'psed-btn', '恢复默认');
+    reset.title = '只重置上面的开关与时段，保留你自建的场景路由';
     foot.appendChild(hint); foot.appendChild(reset); foot.appendChild(cancel); foot.appendChild(save);
     dlg.appendChild(foot);
 
     function collect() {
       var allow = [], deny = [];
-      Object.keys(chkMap).forEach(function (k) {
-        var on = chkMap[k].checked;
-        if (on) allow.push(k); else deny.push(k);
-      });
+      Object.keys(chkAllow).forEach(function (k) { if (chkAllow[k].checked) allow.push(k); });
+      Object.keys(chkDeny).forEach(function (k) { if (chkDeny[k].checked) deny.push(k); });
       return {
         persona: { proactive: actCur },
         tools: { allow: allow, deny: deny },
@@ -20216,16 +20396,15 @@ window.openPetSettings = function () {
 
     reset.addEventListener('click', function () {
       var sure = true;
-      try { sure = window.confirm('恢复默认？会丢掉这次改的所有参数（不会动记忆和聊天记录）。'); } catch (e) { /* ignore */ }
+      try { sure = window.confirm('恢复默认？会重置主动性、免打扰、允许项、审批和记忆开关；你自建的场景路由会保留。'); } catch (e) { /* ignore */ }
       if (!sure) return;
       Promise.resolve(api.settingsSet({ persona: { proactive: 'low' }, tools: { allow: ['scene_memory_read', 'memory_recall', 'memory_write', 'dispatch', 'receipt', 'file_read'], deny: ['shell', 'git_push', 'http_post'] },
         approval: { read: 'auto', write_mem: 'auto', write_code: 'ask', outbound: 'ask' },
         quiet: { from: '23:30', to: '08:00', proactiveMaxPerHour: 2 },
-        memory: { writeLongTerm: true, writeDialog: true, confirmBeforeWrite: false },
-        routes: [{ keywords: ['B站', '视频', '弹幕'], to: 'B站', level: 'read' }]
+        memory: { writeLongTerm: true, writeDialog: true, confirmBeforeWrite: false }
       })).then(function (rr) {
         if (!rr || rr.ok === false) { toast('恢复默认失败：' + ((rr && rr.error) || '未知原因'), true); return; }
-        toast('已恢复默认参数', false);
+        toast('已恢复默认参数（路由表保留）', false);
         close();
         try { if (typeof window.openPetSettings === 'function') window.openPetSettings(); } catch (e) { /* ignore */ }
       }).catch(function (e) { toast('恢复默认失败：' + String((e && e.message) || e), true); });

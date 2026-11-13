@@ -9,7 +9,7 @@
  *   2) IPC 对齐：preload.js 声明的通道 ↔ main.js 的实现，双向都不得缺失或悬空
  *   3) 场景面板类型覆盖：scenarios/*.json 里每个 panel.type 都必须在 renderers.js 注册
  *   4) 渲染器定时器：凡用 setInterval 的渲染器必须返回 cleanup（切场景不泄漏）
- *   5) 场景图标：renderer.js 的 ICONS 是否覆盖所有场景 id；图片路径是否存在
+ *   5) 场景图标：每个场景都得有图标（手绘图 / 图标库登记表 / 三选一），且两个场景不许撞同一枚
  *
  * 退出码：0 = 全绿；1 = 有 FAIL（warning 不影响退出码）
  */
@@ -31,7 +31,7 @@ const head = (m) => console.log('\n== ' + m + ' ==');
 
 // ---------- 1) 语法 ----------
 head('1. JS 语法');
-for (const f of ['main.js', 'preload.js', 'renderer/renderer.js', 'renderer/renderers.js', 'stock-store.js', 'oa-store.js', 'oa-ssh.js']) {
+for (const f of ['main.js', 'preload.js', 'renderer/renderer.js', 'renderer/renderers.js', 'renderer/scene-icons.js', 'stock-store.js', 'oa-store.js', 'oa-ssh.js']) {
   if (!exists(f)) { warn(f + ' 不存在，跳过'); continue; }
   const r = spawnSync(process.execPath, ['--check', path.join(ROOT, f)], { encoding: 'utf8' });
   if (r.status === 0) ok(f);
@@ -108,18 +108,29 @@ for (let i = 0; i < defs.length; i++) {
 if (!timerBad) ok('所有含 setInterval 的渲染器都返回了 cleanup');
 
 // ---------- 5) 场景图标 ----------
-head('5. 场景图标（ICONS）');
-const rjs = read('renderer/renderer.js');
-const iconBlock = (rjs.match(/const ICONS = \{[\s\S]*?\};/) || [''])[0];
+head('5. 场景图标（登记表 scene-icons.js + 手绘图 SCENARIO_ICONS）');
+// 2026-11-13 改：原来只查 renderer.js 的 ICONS，没登记的场次只是 warning ⇒ 两个场景顶着同一枚
+// 默认 🧩 也照样"全绿"。现在三层取用的口径都查：「确实有图标 / 图标文件在 / 两个场景不许撞」。
+const icoSrc = read('renderer/scene-icons.js');
+const libMap = {};   // 场景 id → 库图标名
+const mapBlock = (icoSrc.match(/var MAP = \{[\s\S]*?\};/) || [''])[0];
+for (const m of mapBlock.matchAll(/'([^']+)'\s*:\s*'([^']+)'/g)) libMap[m[1]] = m[2];
+const customIds = new Set();   // 手绘图 / 官方 logo（renderers.js 的 SCENARIO_ICONS）
+const customBlock = (renderersSrc.match(/var SCENARIO_ICONS = \{[\s\S]*?\n\};/) || [''])[0];
+for (const m of customBlock.matchAll(/^ {2,6}'([^']+)':/gm)) customIds.add(m[1]);
+const owner = {};   // 图标名 → 先用它的场景 id（撞车就报出来）
 for (const id of sceneIds) {
-  const re = new RegExp(`'${id}'\\s*:\\s*'([^']+)'`);
-  const m = iconBlock.match(re);
-  if (!m) { warn(`ICONS 里没有 '${id}'（会退回默认 🧩）`); continue; }
-  const icon = m[1];
-  if (icon.endsWith('.png')) {
-    if (exists(path.join('renderer', icon))) ok(`${id} → ${icon}`);
-    else bad(`${id} 图标文件不存在：renderer/${icon}`);
-  } else ok(`${id} → ${icon}（emoji）`);
+  if (customIds.has(id)) { ok(`${id} → 手绘/官方图标（renderers.js 的 SCENARIO_ICONS）`); continue; }
+  const n = libMap[id];
+  if (!n) { bad(`${id} 没登记图标 → 会落到兜底池（到 renderer/scene-icons.js 的 MAP 里加一条）`); continue; }
+  if (owner[n]) { bad(`${id} 与 ${owner[n]} 撞了同一枚图标「${n}」—— 换一个`); continue; }
+  owner[n] = id;
+  const f = path.join('renderer', 'assets', 'icons', n + '.svg');
+  if (exists(f)) ok(`${id} → ${n}.svg`);
+  else bad(`${id} 图标文件不存在：${f}（跑 node scripts\\图标库.mjs）`);
+}
+for (const id of Object.keys(libMap)) {
+  if (!sceneIds.includes(id)) warn(`scene-icons.js 登记了「${id}」，但 scenarios/ 里没有这个场景（陈旧项？）`);
 }
 
 // ---------- 6) 场景隔离：渲染器只能访问自己场景的命名空间 ----------
@@ -241,6 +252,7 @@ for (const [file, re, label] of GUARDS) {
 }
 
 // 7.y 拖进来的文件不能把窗口导航走（全局 drop 兜底）
+const rjs = read('renderer/renderer.js');   // 第 5 项拆掉了旧的 ICONS 正则，但下面还要查外壳源码
 if (/addEventListener\('drop'[\s\S]{0,120}preventDefault/.test(rjs)) ok('渲染层有全局 drop 兜底（拖入不跳转）');
 else bad('renderer.js 缺少全局 drop 兜底：把文件拖进窗口会把界面导航走（观感像闪退）');
 
@@ -372,12 +384,18 @@ for (const s of ['scripts/check-injected.mjs', 'scripts/sessions.mjs']) {
 //   10.6 引擎侧扩展点结构正确：技能必须有 SKILL.md；插件目录要有开发约定
 head('10. 目录契约（哪里放什么 · 防乱建）');
 
-const ALLOWED_DIRS = ['renderer', 'scenarios', 'scripts', 'data', 'captures', 'node_modules', '.git', 'GUI改造的项目信息'];   // 2026-10-16：归档并进 scenarios\归档，顶层不再有 归档
+const ALLOWED_DIRS = ['renderer', 'scenarios', 'scripts', 'data', 'captures', 'node_modules', '.git', 'GUI改造的项目信息', 'pet', 'pet3d', '.idea'];   // .idea = 本机 IDE 缓存（不入库）   // 2026-11-13：pet = 桌宠参数与运行时快照，pet3d = 3D 接口约定（未实现，留位）
 const ALLOWED_FILES = [
   'main.js', 'preload.js', 'stock-store.js', 'oa-store.js', 'oa-ssh.js', 'updater.js', 'crash.js',
   '项目切换.js',   // 2026-11-11：程序开发「项目下拉」的数据面（main.js require；单测见 scripts\项目切换自检.mjs）
+  '桌宠设置.js',   // 2026-11-13：桌宠参数 + 审批策略 + 主动闸门（main.js require；工具\桌宠.mjs 也 require）
+  '桥接.js',       // 2026-11-13：SnowLuma 桥接进程（main.js require）
+  '社交.js',       // 2026-11-13：社交通道消息流数据面（main.js require）
+  '用量.js',       // 2026-11-13：用量统计数据面（main.js require）
+  '工具清单.js',   // 2026-11-13：工具白名单元数据（渲染层取名字用）
   'package.json', 'package-lock.json', 'start.vbs', 'icon.ico', 'icon.png',
   'server.log', 'server.log.prev', '.gitignore', '项目信息.md', 'GUI改造私有记忆.md', '官方能力搬迁计划.md', '迁移手册.md',
+  'pnpm-lock.yaml', 'pnpm-workspace.yaml',   // 本机包管理器残留（入库与否看 .gitignore，别当源码收进来）
 ];
 // 这些名字出现在 GUI 根目录 = 放错地方（技能/插件属于引擎侧，见 §18）
 const WRONG_PLACE_DIRS = ['skills', 'skill', 'plugins', 'plugin', 'extensions', 'extension',

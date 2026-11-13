@@ -5355,6 +5355,14 @@ html[data-theme] .tab .tab-ico-img {
   box-shadow: 0 0 0 1px var(--line-2);
 }
 html[data-theme] .tab.active .tab-ico-img { box-shadow: 0 0 0 1px var(--line-2); }
+/* 图标库图标（renderer\assets\icons\*.svg，2026-11-13）：这批是**线图标**，不是"应用图标"，
+   不要外层那圈圆角方底和描边 —— 细线鱼身上套个方框，看着像坏图。
+   未激活的去色压暗仍走上一条规则（filter 不看类名），不用重复写。 */
+html[data-theme] .tab .tab-ico-img.tab-ico-svg,
+.tab .tab-ico-img.tab-ico-svg {
+  border-radius: 0;
+  box-shadow: none;
+}
 html[data-theme] .tab-dragging {
   background: var(--bg-panel) !important;
   border: 0 !important;
@@ -6489,3 +6497,35 @@ html[data-theme="light"] .kneu-btn { border-color: var(--line-2); }
 .psed-btn:hover { border-color: var(--accent); }
 .psed-btn.is-primary { background: var(--accent); border-color: var(--accent); color: var(--bg); font-weight: 600; }
 .psed-btn:disabled { opacity: .6; cursor: default; }
+/* 以下为 2026-11-13 弹窗重做的分区卡片样式 */
+/* ── 桌宠设置弹窗 · 分区卡片（2026-11-13 重做） ──
+   目标：每段一块独立卡片（编号 + 标题 + 一句说明），顶部有跳转条，
+   不用在一屏里找字段；只用设计令牌，不写死颜色。 */
+.psed-dlg { width: min(880px, 94vw); max-height: 88vh; }
+.psed-hw { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+.psed-sub { font-size: 11.5px; color: var(--text-dim); }
+.psed-body { padding: 0; display: flex; flex-direction: column; overflow: auto; }
+.psed-nav { position: sticky; top: 0; z-index: 2; display: flex; gap: 6px; flex-wrap: wrap; padding: 10px 16px; background: var(--bg-panel); border-bottom: 1px solid var(--border); }
+.psed-navbtn { font-size: 12px; padding: 4px 10px; border-radius: 999px; background: var(--bg); color: var(--text-dim); border: 1px solid var(--border); cursor: pointer; }
+.psed-navbtn:hover { color: var(--text); border-color: var(--accent); }
+.psed-secs { display: flex; flex-direction: column; gap: 12px; padding: 14px 16px 16px; }
+.psed-sec { border: 1px solid var(--border); border-radius: 10px; background: var(--bg-panel); padding: 12px 14px 14px; display: flex; flex-direction: column; gap: 10px; }
+.psed-hdr { display: flex; align-items: flex-start; gap: 8px; }
+.psed-num { flex: none; width: 18px; height: 18px; border-radius: 5px; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600; color: var(--accent); background: var(--bg); border: 1px solid var(--border); }
+.psed-hdrtx { display: flex; flex-direction: column; gap: 2px; }
+.psed-hdr-t { font-size: 13px; font-weight: 600; color: var(--text); }
+.psed-hdr-h { font-size: 11.5px; line-height: 1.5; color: var(--text-dim); }
+.psed-sec-b { display: flex; flex-direction: column; gap: 10px; }
+.psed-kvrow { display: flex; gap: 10px; align-items: baseline; font-size: 12.5px; }
+.psed-kvk { flex: none; width: 72px; color: var(--text-dim); }
+.psed-kvv { color: var(--text); word-break: break-all; }
+.psed-segbar { display: flex; gap: 8px; flex-wrap: wrap; }
+.psed-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.psed-col { border: 1px solid var(--border); border-radius: 8px; padding: 10px; display: flex; flex-direction: column; gap: 8px; background: var(--bg); }
+.psed-col-t { font-size: 12.5px; font-weight: 600; }
+.psed-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.psed-field { display: flex; flex-direction: column; gap: 6px; }
+.psed-fl { font-size: 12px; color: var(--text-dim); }
+.psed-stack { display: flex; flex-direction: column; gap: 8px; }
+.psed-note { font-size: 11.5px; line-height: 1.6; color: var(--text-dim); background: var(--bg); border: 1px dashed var(--border); border-radius: 8px; padding: 8px 10px; }
+@media (max-width: 720px) { .psed-cols, .psed-grid2 { grid-template-columns: 1fr; } }
