@@ -16,6 +16,8 @@
   <header id="titlebar">
     <div class="titlebar-drag">
       <span class="brand">
+        <!-- 2026-11-13：这个 .brand-dot 现在是「工作台标识」——22px 圆形头像（assets/workbench-avatar.png），
+             不再是原来的小圆点；id 保留是因为 renderers.js 用它在引擎版本不一致时打 brand-dot-warn（外环转琥珀）。 -->
         <span class="brand-dot" id="brand-dot"></span>
         <span class="brand-name">DSH 引擎 · 胡闹的工作台</span>
         <!-- 悬停左上角品牌区显示的版本信息卡（内容由 renderer.js 从 main.js 的 app:version 填入）

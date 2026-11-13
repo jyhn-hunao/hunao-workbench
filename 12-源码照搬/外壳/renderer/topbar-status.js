@@ -1198,12 +1198,230 @@
     if (ENV.rows.length) box.appendChild(el('div', 'tbs-pop-hint', '新机器上的会话必须重建：命令行 node 外壳\\scripts\\环境适配.mjs --rotate（会归档旧会话，所以界面不给这个按钮）。'));
   }
 
+  // ⑥ 引擎更新（2026-11-13）：版本级 —— 查最新 / 下载装配 / 换入 / 退回某一版。
+  //    与「回退（界面/引擎）」「环境适配」的区别：那两块管"能不能起来"，这块管"引擎本身换了个版本"。
+  //    ⛔ 不写死版本号：界面显示的都是 registry 当下回的 latest，官方以后怎么发版都走这一套。
+  var UPD = { state: 'idle', data: null, err: '', busy: false, timer: null, at: 0, auto: null, booted: false };
+
+  function updPhase() {
+    var st = (UPD.data && UPD.data.state) || null;
+    return (st && st.phase) ? st : null;
+  }
+  function updBusy() {
+    var st = updPhase();
+    return !!(st && (st.phase === 'preparing' || st.phase === 'applying'));
+  }
+  function updHead() {
+    if (UPD.state === 'loading' && !UPD.data) return '读取中…';
+    if (UPD.state === 'error' && !UPD.data) return '读不到：' + (UPD.err || '脚本没回话');
+    var d = UPD.data || {};
+    var st = updPhase();
+    if (st && st.phase === 'preparing') return '正在装配 ' + (st.target || '') + ' ' + (st.pct || 0) + '%';
+    if (st && st.phase === 'applying') return '正在换引擎 ' + (st.pct || 0) + '%';
+    if (d.staged && d.staged.length) return d.staged[0] + ' 已装好，点「立即更新」换上';
+    if (d.newer) return '有新版本 ' + (d.latest || '') + '（本地 ' + (d.local || '') + '）';
+    if (d.local) return '已是最新 ' + d.local;
+    // 还没查过 status，但壳启动时自动查过一次 —— 不点按钮也先告诉用户有没有新版
+    var a = UPD.auto;
+    if (a && a.localVersion) {
+      if (a.hasUpdate) return '有新版本 ' + (a.remoteVersion || '') + '（本地 ' + a.localVersion + '）· 点开看';
+      return '已是最新 ' + a.localVersion;
+    }
+    return '点开查一次';
+  }
+  // 壳在启动后自己查过一次并落了 check.json；这里只读那份结果，不额外联网（联网由壳按 24h 节奏跑）
+  function updBootstrap() {
+    if (!TB || typeof TB.updateLast !== 'function') return;
+    Promise.resolve().then(function () { return TB.updateLast(); }).then(function (r) {
+      if (r && r.ok && r.check) { UPD.auto = r.check; repaint('more', buildMore); }
+    }).catch(function () { /* 没查过就不显示，展开后照样会查 */ });
+  }
+  function updGot(r) {
+    var d = (r && r.ok && r.data) ? r.data : null;
+    if (d) { UPD.data = d; UPD.err = ''; UPD.state = 'ok'; }
+    else { UPD.err = (r && r.error) || '脚本没回话'; UPD.state = 'error'; }
+    UPD.at = Date.now();
+  }
+  // 装配/替换是长动作，靠轮询 state.json 拿进度（不额外开事件通道，少一处可能坏的地方）
+  function updTick() {
+    if (UPD.timer) { clearTimeout(UPD.timer); UPD.timer = null; }
+    var st = updPhase();
+    if (!st || !updBusy() || (typeof TB.updateStatus !== 'function')) return;
+    UPD.timer = setTimeout(function () {
+      if (MORE.open !== 'engineupdate') return;
+      Promise.resolve().then(function () { return TB.updateStatus(); }).then(function (r) {
+        updGot(r); repaint('more', buildMore); updTick();
+      }).catch(function () { updTick(); });
+    }, 1600);
+  }
+  function refreshUpdate() {
+    if (!TB || typeof TB.updateStatus !== 'function') return;
+    UPD.state = UPD.data ? 'ok' : 'loading';
+    if (!UPD.data) repaint('more', buildMore);
+    Promise.resolve().then(function () { return TB.updateStatus(); }).then(function (r) {
+      updGot(r); repaint('more', buildMore); updTick();
+    }).catch(function (e) {
+      UPD.state = 'error'; UPD.err = String((e && e.message) || e); repaint('more', buildMore);
+    });
+  }
+  // 跑一次长动作（prepare 要几分钟）：按钮置忙 → 轮询进度 → 回来刷新
+  function updGo(label, call) {
+    if (UPD.busy) return;
+    UPD.busy = true;
+    repaint('more', buildMore);
+    toast(label + '…', false, 5000);
+    updTick();
+    call().then(function (r) {
+      UPD.busy = false;
+      if (r && r.ok) toast(label + '完成 ✓', false, 8000);
+      else toast(label + '没成：' + ((r && r.error) || '未知原因'), true, 9000);
+      if (r && r.willRestart) toast('工作台马上关掉去换引擎，验收通过会自动重开；没过会自动退回旧引擎。', false, 12000);
+      refreshUpdate();
+    }).catch(function (e) {
+      UPD.busy = false;
+      toast(label + '出错：' + String((e && e.message) || e), true, 9000);
+      refreshUpdate();
+    });
+  }
+
+  function buildUpdate(box) {
+    var d = UPD.data || {};
+    var st = updPhase();
+    if (UPD.state === 'error' && !UPD.data) {
+      box.appendChild(el('div', 'tbs-pop-hint', '读不到：' + UPD.err));
+    } else if (!UPD.data) {
+      var a0 = UPD.auto;
+      if (a0 && a0.localVersion) {
+        box.appendChild(el('div', 'tbs-pop-hint', '本地 ' + a0.localVersion + '　→　最新 ' + (a0.remoteVersion || '查不到') + (a0.hasUpdate ? '（有新版本）' : '（已是最新）')));
+        box.appendChild(el('div', 'tbs-pop-hint', '壳启动时自动查过一次，正在向 registry 复查…'));
+      } else {
+        box.appendChild(el('div', 'tbs-pop-hint', '读取中…'));
+      }
+      return;
+    }
+    // 1. 版本行：本地 → 最新（版本号全部来自 registry，不写死）
+    var line = el('div', 'tbs-pop-hint', '本地 ' + (d.local || '?') + '　→　最新 ' + (d.latest || '查不到'));
+    if (d.tags && d.tags.next) line.title = 'dist-tags：latest ' + d.tags.latest + ' / next ' + d.tags.next + '（界面只跟 latest）';
+    box.appendChild(line);
+    // 2. 前置条件三行
+    var cond = [
+      ['Node', d.node ? (String(d.node).split(/[\\/]/).pop() + ' ✓') : '找不到（要设 DSH_NODE）', !!d.node],
+      ['端口 ' + (d.enginePort || 3083), d.engineBusy ? '被占（工作台在跑，换之前要先退出）' : '空闲', !d.engineBusy],
+      ['磁盘', (d.freeMB >= 0 ? ('剩 ' + Math.round(d.freeMB / 1024) + ' GB') : '读不到') + '（要 ' + Math.round((d.needFreeMB || 1300) / 1024) + ' GB）', d.freeMB >= (d.needFreeMB || 1300)]
+    ];
+    cond.forEach(function (c) {
+      var row = el('div', 'tbs-env-row');
+      row.appendChild(el('span', 'tbs-env-dot ' + (c[2] ? 'ok' : 'warn'), c[2] ? '·' : '△'));
+      var mid = el('div', 'tbs-env-mid');
+      mid.appendChild(el('div', 'tbs-env-t', c[0]));
+      mid.appendChild(el('div', 'tbs-env-s', c[1]));
+      row.appendChild(mid);
+      box.appendChild(row);
+    });
+    // 3. 进度条（装配 / 替换时）
+    if (updBusy()) {
+      var bar = el('div', 'tbs-bar');
+      var fill = el('div', 'tbs-bar-f ' + ((st.phase === 'applying') ? 'warn' : 'ok'));
+      fill.style.width = Math.max(2, Math.min(100, st.pct || 2)) + '%';
+      bar.appendChild(fill);
+      box.appendChild(bar);
+      box.appendChild(el('div', 'tbs-pop-hint', (st.text || '') + '　' + (st.pct || 0) + '%'));
+    }
+    // 4. 按钮组
+    var foot = el('div', 'tbs-pop-f');
+    var bChk = el('button', 'tbs-btn', '检查更新');
+    bChk.type = 'button';
+    bChk.addEventListener('click', function () {
+      if (UPD.busy) return;
+      UPD.busy = true; bChk.textContent = '查着…'; repaint('more', buildMore);
+      // 走壳的 updateAuto(true)：跟开机自动检查同一套，顺手把结果落进 check.json（下次开机不用再等网络）
+      var call = (typeof TB.updateAuto === 'function')
+        ? function () { return TB.updateAuto(true); }
+        : function () { return TB.updateCheck(); };
+      Promise.resolve().then(call).then(function (r) {
+        UPD.busy = false;
+        var c = (r && r.check) || {};
+        UPD.auto = (r && r.ok && c.localVersion) ? c : UPD.auto;
+        if (r && r.ok) toast(c.hasUpdate ? ('有新版本 ' + c.remoteVersion + '（本地 ' + c.localVersion + '）') : ('已是最新 ' + (c.localVersion || '')), !c.hasUpdate, 8000);
+        else toast('检查没成：' + ((r && r.error) || '未知原因'), true, 9000);
+        refreshUpdate();
+      }).catch(function (e) { UPD.busy = false; toast('检查出错：' + String((e && e.message) || e), true, 9000); refreshUpdate(); });
+    });
+    foot.appendChild(bChk);
+    if (d.newer && d.latest) {
+      var bPrep = el('button', 'tbs-btn', d.staged && d.staged.indexOf(d.latest) >= 0 ? '重新装配' : '下载并准备');
+      bPrep.type = 'button';
+      bPrep.title = '把 ' + d.latest + ' 的完整依赖树装到 引擎更新\\staging-*，自证通过才算就绪；不影响当前在跑的引擎';
+      bPrep.addEventListener('click', function () { updGo('装配 ' + d.latest, function () { return TB.updatePrepare(); }); });
+      foot.appendChild(bPrep);
+      var bApply = el('button', 'tbs-btn danger', '立即更新（会重启）');
+      bApply.type = 'button';
+      bApply.disabled = !(d.staged && d.staged.indexOf(d.latest) >= 0);
+      bApply.title = '备份当前引擎 → 换入 ' + d.latest + ' → 环境适配 → 探活；不合格自动退回旧引擎';
+      bApply.addEventListener('click', function () { updGo('换引擎', function () { return TB.updateApply(d.latest); }); });
+      foot.appendChild(bApply);
+    }
+    box.appendChild(foot);
+    // 5. 版本回退（整目录级，和上面「回退（界面/引擎）」的配置级回退不是一件事）
+    var bks = (d.backups || []).filter(function (x) { return /^backup-/.test(x.name); });
+    if (bks.length) {
+      box.appendChild(el('div', 'tbs-pop-h', '版本回退（备份 ' + bks.length + ' 份）'));
+      var lst = el('div', 'tbs-pop-list');
+      bks.slice(0, 5).forEach(function (x, i) {
+        var r0 = el('div', 'tbs-row');
+        r0.appendChild(el('span', 'tbs-dot ' + (i === 0 ? 'ok' : '')));
+        var mid = el('div', 'tbs-row-mid');
+        mid.appendChild(el('div', 'tbs-row-t', '引擎 ' + (x.version || '?') + (i === 0 ? '（最近一份）' : '')));
+        mid.appendChild(el('div', 'tbs-row-s', tstr(x.at)));
+        r0.appendChild(mid);
+        var gb2 = el('button', 'tbs-btn danger', '回到这一版');
+        gb2.type = 'button';
+        gb2.addEventListener('click', function (e) {
+          e.stopPropagation();
+          if (UPD.busy) return;
+          UPD.busy = true; gb2.textContent = '回退中…';
+          TB.updateRollback(x.name).then(function (r) {
+            UPD.busy = false; gb2.textContent = '回到这一版';
+            if (r && r.ok === false) toast('回退没成：' + (r.error || '已取消'), true, 9000);
+            else if (r && r.willRestart) toast('工作台马上关掉去回退，验收通过会自动重开。', false, 12000);
+          }).catch(function (err) { UPD.busy = false; toast('回退出错：' + String((err && err.message) || err), true, 9000); });
+        });
+        r0.appendChild(gb2);
+        lst.appendChild(r0);
+      });
+      box.appendChild(lst);
+      if (bks.length > 2) {
+        var foot2 = el('div', 'tbs-pop-f');
+        var bClean = el('button', 'tbs-btn', '清理旧备份（留 2 份）');
+        bClean.type = 'button';
+        bClean.title = '每份约 500 MB；只留最近两份，删掉的拿不回来';
+        bClean.addEventListener('click', function () {
+          if (UPD.busy) return;
+          TB.updateClean(2).then(function (r) {
+            toast((r && r.ok) ? ('已清掉 ' + (((r.data && r.data.removed) || []).length) + ' 份旧备份 ✓') : ('清理没成：' + ((r && r.error) || '未知')), !(r && r.ok), 8000);
+            refreshUpdate();
+          });
+        });
+        foot2.appendChild(bClean);
+        box.appendChild(foot2);
+      }
+    }
+    // 6. 上次结果
+    if (st && st.phase && st.text) {
+      var bad = !!(st.error || st.phase === 'failed');
+      box.appendChild(el('div', 'tbs-pop-hint', (bad ? '⚠ 上次：' : '上次：') + st.text));
+    }
+    box.appendChild(el('div', 'tbs-pop-hint', UPD.at ? ('读于 ' + new Date(UPD.at).toLocaleTimeString('zh-CN', { hour12: false })) : ''));
+  }
 
   var MORE = { open: '' };
   var mPill = el('button', 'tbs-pill');
   mPill.type = 'button';
   mPill.innerHTML = '<span class="tbs-more">⋯</span>';
   mPill.title = '更多：磁盘余量 / 今天体检 / 搜文件脚本 / 打开常用文件夹';
+
+  var MORE = { open: '' };
+
   mPill.addEventListener('click', function () { MORE.open = ''; openPop(mPill, 'more', buildMore); });
 
   function accHead(box, key, icon, title, hint, onOpen) {
@@ -1261,6 +1479,13 @@
     if (TB && typeof TB.envCheck === 'function') {
       accHead(box, 'env', '🧭', '环境适配', envHead(), function () { refreshEnv(function () { return TB.envCheck(); }); });
       if (MORE.open === 'env') { var ew = el('div', 'tbs-acc'); buildEnv(ew); box.appendChild(ew); }
+    }
+    // 2026-11-13：引擎更新（版本级 —— 查最新 / 下载装配 / 换入 / 退回某一版）
+    if (TB && typeof TB.updateStatus === 'function') {
+      // 先读壳自动查过的结果：不点按钮也知道有没有新版（联网节奏由壳控制，这里不重复打）
+      if (!UPD.booted && TB && typeof TB.updateLast === 'function') { UPD.booted = true; updBootstrap(); }
+      accHead(box, 'engineupdate', '⇪', '引擎更新', updHead(), function () { refreshUpdate(); });
+      if (MORE.open === 'engineupdate') { var uw = el('div', 'tbs-acc'); buildUpdate(uw); box.appendChild(uw); }
     }
 
 
