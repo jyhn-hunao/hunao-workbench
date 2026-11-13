@@ -109,9 +109,30 @@ function petSession() {
   return { sessionId: String(p.sessionId || ''), sessionTitle: String(p.sessionTitle || '') };
 }
 
+// 5.5 可派活的场景清单：给设置弹窗的「派给谁」下拉用，免去手写会话标题（2026-11-13）
+//     只收有 sessionTitle 的 AI 面板；人格自己那条排除掉（自己派给自己没意义）。
+function listScenes() {
+  const dir = path.join(SHELL, 'scenarios');
+  const out = [];
+  let files = [];
+  try { files = fs.readdirSync(dir).filter((f) => f.endsWith('.json') && !f.startsWith('_')); } catch (e) { return out; }
+  for (const f of files) {
+    const j = readJson(path.join(dir, f));
+    if (!j || !Array.isArray(j.panels)) continue;
+    for (const p of j.panels) {
+      if (!p || !p.sessionTitle) continue;
+      if (String(j.id) === 'pet') continue;
+      if (String(p.type) === 'chan') continue;          // 通道卡片不是人，别出现在下拉里
+      out.push({ scene: String(j.name || j.id || f), panelId: String(p.id || ''), title: String(p.sessionTitle) });
+    }
+  }
+  const seen = {};
+  return out.filter((x) => (seen[x.title] ? false : (seen[x.title] = true)));
+}
+
 module.exports = {
   DEFAULT_FILE, DATA_FILE, DSH_HOME,
   getSettings, setSettings, resolveRoute,
   logPath, logDispatch, tailLog,
-  petSession
+  petSession, listScenes
 };

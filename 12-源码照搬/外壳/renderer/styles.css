@@ -6451,40 +6451,41 @@ html[data-theme="light"] .kneu-btn { border-color: var(--line-2); }
 .ch-empty { color: var(--text-dim); font-size: 13px; line-height: 1.6; padding: 4px 0; }
 .ch-foot { margin-top: auto; font-size: 12px; color: var(--text-dim); }
 
-/* ============ petset：桌宠设置面板（2026-11-13）============ */
-/* 窄格（1 列）里的表单：标签左、控件右，长文本自动换行；只用设计令牌，⛔ 不写死颜色。 */
-.pset-panel { padding: 10px 12px; overflow: auto; display: flex; flex-direction: column; gap: 8px; }
-.pset-top { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
-.pset-name { font-size: 15px; font-weight: 600; color: var(--text); }
-.pset-sid { font-size: 12px; color: var(--text-dim); font-family: ui-monospace, Consolas, monospace; }
-.pset-empty { padding: 12px; font-size: 12.5px; color: var(--text-dim); background: var(--bg-panel); border: 1px solid var(--border); border-radius: 8px; white-space: pre-wrap; }
-.pset-empty.is-bad { color: var(--err); border-color: var(--err); }
-.pset-row { display: grid; grid-template-columns: 64px 1fr; gap: 4px 8px; align-items: start; padding-bottom: 8px; border-bottom: 1px dashed var(--border); }
-.pset-label { font-size: 12px; color: var(--text-dim); padding-top: 5px; }
-.pset-ctl { min-width: 0; }
-.pset-hint { grid-column: 1 / -1; font-size: 11.5px; color: var(--text-dim); line-height: 1.5; }
-.pset-input { width: 100%; box-sizing: border-box; font-size: 12px; color: var(--text); background: var(--bg-input, var(--bg-panel)); border: 1px solid var(--border); border-radius: 6px; padding: 4px 6px; outline: none; }
-.pset-input:focus { border-color: var(--accent); }
-.pset-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
-.pset-grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; }
-.pset-cell { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.pset-cell-t { font-size: 11.5px; color: var(--text-dim); }
-.pset-checks { display: flex; flex-direction: column; gap: 4px; }
-.pset-check { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text); cursor: pointer; }
-.pset-routes { display: flex; flex-direction: column; gap: 3px; }
-.pset-route { font-size: 12px; color: var(--text); line-height: 1.6; display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
-.pset-route-k { color: var(--text-dim); }
-.pset-route-arr { color: var(--text-dim); }
-.pset-route-t { color: var(--text); }
-.pset-route-lv { font-size: 11px; padding: 0 5px; border-radius: 4px; border: 1px solid var(--border); color: var(--text-dim); }
-.pset-route-lv.is-read { color: var(--ok); border-color: var(--ok); }
-.pset-route-lv.is-confirm { color: var(--warn); border-color: var(--warn); }
-.pset-route-lv.is-never { color: var(--err); border-color: var(--err); }
-.pset-logs { display: flex; flex-direction: column; gap: 3px; }
-.pset-log { font-size: 11.5px; color: var(--text-dim); line-height: 1.55; word-break: break-all; }
-.pset-actions { display: flex; gap: 8px; padding-top: 4px; }
-.pset-btn { font-size: 12.5px; color: var(--text); background: var(--bg-panel); border: 1px solid var(--border); border-radius: 6px; padding: 5px 12px; cursor: pointer; }
-.pset-btn:hover { border-color: var(--accent); }
-.pset-btn.is-primary { color: var(--bg); background: var(--accent); border-color: var(--accent); font-weight: 600; }
-.pset-btn:disabled { opacity: .6; cursor: default; }
-.pset-foot { font-size: 11px; color: var(--text-dim); line-height: 1.5; word-break: break-all; padding-top: 4px; border-top: 1px solid var(--border); }
+/* ============ psed：桌宠设置弹窗（2026-11-13）============ */
+/* 标题栏「⚙ 设置」点开的浮层：遮罩 + 居中对话框；只在令牌内取色，浅色主题下也能读。 */
+.psed-mask { position: fixed; inset: 0; z-index: 9000; background: var(--mask, rgba(0, 0, 0, .45)); display: flex; align-items: center; justify-content: center; padding: 24px; }
+.psed-dlg { width: min(720px, 92vw); max-height: 86vh; display: flex; flex-direction: column; background: var(--bg-panel); color: var(--text); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--sh-2, 0 12px 40px rgba(0, 0, 0, .35)); overflow: hidden; }
+.psed-head { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--border); }
+.psed-title { flex: 1; font-size: 14.5px; font-weight: 600; }
+.psed-x { width: 26px; height: 26px; flex: none; font-size: 13px; color: var(--text-dim); background: transparent; border: 1px solid transparent; border-radius: 6px; cursor: pointer; }
+.psed-x:hover { color: var(--text); border-color: var(--border); }
+.psed-body { padding: 14px 16px; overflow: auto; display: flex; flex-direction: column; gap: 16px; }
+.psed-group { display: flex; flex-direction: column; gap: 6px; }
+.psed-gt { font-size: 13px; font-weight: 600; color: var(--text); }
+.psed-gh { font-size: 11.5px; color: var(--text-dim); line-height: 1.5; }
+.psed-gc { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.psed-seg { font-size: 12.5px; padding: 5px 14px; border: 1px solid var(--border); border-radius: 999px; background: var(--bg); color: var(--text-dim); cursor: pointer; }
+.psed-seg.is-on { color: var(--bg); background: var(--accent); border-color: var(--accent); font-weight: 600; }
+.psed-check { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--text); cursor: pointer; padding: 3px 8px; border: 1px solid var(--border); border-radius: 6px; }
+.psed-row { display: flex; align-items: center; gap: 10px; }
+.psed-rl { width: 108px; flex: none; font-size: 12.5px; color: var(--text-dim); }
+.psed-inline { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12.5px; color: var(--text-dim); }
+.psed-vs { color: var(--text-dim); }
+.psed-input { font-size: 12.5px; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; outline: none; }
+.psed-input:focus { border-color: var(--accent); }
+.psed-num { width: 64px; }
+.psed-routes { display: flex; flex-direction: column; gap: 8px; width: 100%; }
+.psed-route { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.psed-kw { flex: 1 1 200px; min-width: 160px; }
+.psed-sc { flex: 0 1 220px; min-width: 160px; }
+.psed-lv { flex: none; width: 120px; }
+.psed-add { align-self: flex-start; font-size: 12.5px; padding: 5px 12px; border: 1px dashed var(--border); border-radius: 6px; background: transparent; color: var(--text-dim); cursor: pointer; }
+.psed-add:hover { color: var(--text); border-color: var(--accent); }
+.psed-empty { font-size: 12px; color: var(--text-dim); }
+.psed-log { font-size: 11.5px; color: var(--text-dim); line-height: 1.55; word-break: break-all; }
+.psed-foot { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-top: 1px solid var(--border); }
+.psed-fh { flex: 1; font-size: 11.5px; color: var(--text-dim); }
+.psed-btn { font-size: 12.5px; padding: 6px 16px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); color: var(--text); cursor: pointer; }
+.psed-btn:hover { border-color: var(--accent); }
+.psed-btn.is-primary { background: var(--accent); border-color: var(--accent); color: var(--bg); font-weight: 600; }
+.psed-btn:disabled { opacity: .6; cursor: default; }

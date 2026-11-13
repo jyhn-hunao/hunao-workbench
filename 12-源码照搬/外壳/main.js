@@ -4344,6 +4344,7 @@ ipcMain.handle('pet:settings-get', () => ({
   settings: petSvc.getSettings(),
   files: { 默认值: petSvc.DEFAULT_FILE, 运行值: petSvc.DATA_FILE },
   session: petSvc.petSession(),
+  scenes: petSvc.listScenes()      // 设置弹窗「派给谁」下拉用：真实存在的场景会话，别手写标题
 }));
 ipcMain.handle('pet:settings-set', (e, patch) => petSvc.setSettings(patch || {}));
 ipcMain.handle('pet:log-tail', (e, n) => ({ file: petSvc.logPath(), rows: petSvc.tailLog(n) }));

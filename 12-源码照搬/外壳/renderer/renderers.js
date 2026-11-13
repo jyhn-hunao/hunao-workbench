@@ -14661,6 +14661,18 @@ renderers.harness = (body, meta, head) => {
       });
       acts.appendChild(rot);
     }
+    // 桌宠设置：人格面板标题栏挂一个「⚙ 设置」——点开弹窗改参数，不常驻一格面板（2026-11-13）
+    if (meta.settingsBtn === 'pet') {
+      const setBtn = el('button', 'file-refresh', '⚙ 设置');
+      setBtn.title = '桌宠参数：她主动吗、能做什么、什么要先问你、什么时候别烦你、哪句话交给谁、最近派了什么活';
+      setBtn.addEventListener('click', () => {
+        setBtn.disabled = true;
+        Promise.resolve(window.openPetSettings ? window.openPetSettings() : null)
+          .catch((e) => { try { window.__tbsToast('设置弹窗打不开：' + String((e && e.message) || e), true, 8000); } catch (x) { /* ignore */ } })
+          .then(() => { setBtn.disabled = false; });
+      });
+      acts.appendChild(setBtn);
+    }
     head.appendChild(acts);
     // 程序开发场景：标题栏再加一个「项目」按钮（换项目 = 换会话 + 换 Git 仓库 + 文件面板跟过去）
     if (meta.projectSwitch) switchCleanup = mountProjectSwitch(meta, acts);
@@ -19980,269 +19992,259 @@ renderers.git = function (body, meta) {
     wrap.removeEventListener('contextmenu', onRepoMenu);
   };
 };
-// ============ petset：桌宠设置面板（2026-11-13）============
-// 为什么有它：人格参数原来全散在文件里（AGENTS 口径 / 场景记忆 / qq-bridge 配置），用户没法看、没法改。
-//   这一格把「机器读的那份」集中到一个表单：白名单、审批级别、打扰控制、路由表、最近派发。
-// 数据面：主进程 pet:settings-get / pet:settings-set / pet:log-tail → 外壳\data\pet\设置.json（本机不入库）。
-// 只存参数：人格正文仍在 场景记忆\胡闹的大肥鱼\，通道凭据仍在 %USERPROFILE%\.dsh\qq-bridge.config.json。
-// 缺命名空间（window.app.pet 不存在）= preload 还是旧的 ⇒ 明说「重启一次工作台」，不假装能存。
-renderers.petset = function (body, meta, head) {
-  body.classList.add('pset-panel');
+
+// ============ 桌宠设置弹窗（2026-11-13）============
+// 用户要求：设置不要常驻一格面板（已删掉 pet-set），改成人格面板标题栏的「⚙ 设置」按钮点开弹窗；
+//   里面一律「能选就选、能填就填」，不让人去改 JSON。
+// 数据面：window.app.pet.settingsGet/Set/logTail（主进程 pet:*）；配置仍落 外壳\data\pet\设置.json（本机，不入库）。
+// 人格正文（我是谁/语气）与通道凭据不在这里，弹窗只管「参数」。
+var PET_TOOLS = [
+  ['scene_memory_read', '读各场景记忆（只读）'],
+  ['memory_recall', '翻项目记忆'],
+  ['memory_write', '记下该记的事'],
+  ['dispatch', '派活给别的场景'],
+  ['receipt', '回收执'],
+  ['file_read', '读本地文件'],
+  ['shell', '跑命令行'],
+  ['git_push', '推送代码'],
+  ['http_post', '对外发请求']
+];
+var PET_LEVELS = [['read', '只读，不打扰'], ['confirm', '先问我'], ['never', '禁止']];
+
+window.openPetSettings = function () {
   var api = window.app && window.app.pet;
-  var st = { s: null, files: null, session: null, err: '', logs: [], saving: false };
-
   if (!api || typeof api.settingsGet !== 'function') {
-    var miss = document.createElement('div');
-    miss.className = 'pset-empty';
-    miss.textContent = '桌宠设置没接上：主进程/preload 还是旧的，重启一次工作台就能用。';
-    body.appendChild(miss);
-    return;
+    try { if (typeof window.__tbsToast === 'function') window.__tbsToast('设置弹窗没接上：主进程/preload 还是旧的，重启一次工作台就能用。', true, 8000); } catch (e) { /* ignore */ }
+    return Promise.resolve(null);
   }
+  function mk(tag, cls, text) { var n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; }
+  function toast(msg, bad) { try { if (typeof window.__tbsToast === 'function') window.__tbsToast(msg, !!bad, bad ? 8000 : 3000); } catch (e) { /* ignore */ } }
 
-  function toast(msg, bad) {
-    try { if (typeof window.__tbsToast === 'function') window.__tbsToast(msg, !!bad, bad ? 8000 : 3000); } catch (e) { /* ignore */ }
-  }
-  function row(label, node, hint) {
-    var r = document.createElement('div');
-    r.className = 'pset-row';
-    var l = document.createElement('div');
-    l.className = 'pset-label';
-    l.textContent = label;
-    var v = document.createElement('div');
-    v.className = 'pset-ctl';
-    v.appendChild(node);
-    r.appendChild(l); r.appendChild(v);
-    if (hint) {
-      var h = document.createElement('div');
-      h.className = 'pset-hint';
-      h.textContent = hint;
-      r.appendChild(h);
-    }
-    return r;
-  }
-  function sel(opts, cur) {
-    var s = document.createElement('select');
-    s.className = 'pset-input';
-    opts.forEach(function (o) {
-      var op = document.createElement('option');
-      op.value = o[0]; op.textContent = o[1];
-      if (String(cur) === String(o[0])) op.selected = true;
-      s.appendChild(op);
-    });
-    return s;
-  }
-  function txt(val, ph) {
-    var i = document.createElement('input');
-    i.className = 'pset-input';
-    i.type = 'text';
-    i.value = val == null ? '' : String(val);
-    if (ph) i.placeholder = ph;
-    return i;
-  }
-  function num(val, min, max) {
-    var i = document.createElement('input');
-    i.className = 'pset-input';
-    i.type = 'number';
-    i.min = String(min); i.max = String(max);
-    i.value = val == null ? '' : String(val);
-    return i;
-  }
-
-  // 1. 画表单：读一次配置，出错就把错误原文放正文（不画空壳）
-  function draw() {
-    body.textContent = '';
-    if (st.err) {
-      var e1 = document.createElement('div');
-      e1.className = 'pset-empty is-bad';
-      e1.textContent = st.err;
-      body.appendChild(e1);
-      return;
-    }
-    var s = st.s || {};
+  return Promise.all([Promise.resolve(api.settingsGet()), Promise.resolve(api.logTail(8)).catch(function () { return { rows: [] }; })]).then(function (a) {
+    var r = a[0] || {};
+    var s = r.settings || {};
+    var scenes = Array.isArray(r.scenes) ? r.scenes : [];
     var persona = s.persona || {};
     var tools = s.tools || {};
     var approval = s.approval || {};
     var quiet = s.quiet || {};
     var memory = s.memory || {};
-    var routes = Array.isArray(s.routes) ? s.routes : [];
-
-    // 标题区：人格名 + 会话 + 文件
-    var top = document.createElement('div');
-    top.className = 'pset-top';
-    var nm = document.createElement('span');
-    nm.className = 'pset-name';
-    nm.textContent = persona.name || '人格';
-    var sid = st.session && st.session.sessionId ? String(st.session.sessionId) : '';
-    var s1 = document.createElement('span');
-    s1.className = 'pset-sid';
-    s1.textContent = sid ? ('会话 ' + sid.slice(0, 15) + '…') : '会话未绑定';
-    s1.title = sid || 'pet.json 里 pet-ai 没有 sessionId';
-    top.appendChild(nm); top.appendChild(s1);
-    body.appendChild(top);
-
-    // 2. 人格
-    var actSel = sel([['low', '低（不主动开口）'], ['normal', '中（有事才说）'], ['high', '高（会主动搭话）']], persona.proactive);
-    body.appendChild(row('主动性', actSel, '主动搭话会受下面「免打扰」时段与频率上限约束'));
-
-    // 3. 工具白名单
-    var allowI = txt((tools.allow || []).join(', '), 'scene_memory_read, dispatch, receipt');
-    body.appendChild(row('允许的工具', allowI, '逗号分隔。deny 优先于 allow'));
-    var denyI = txt((tools.deny || []).join(', '), 'shell, git_push, http_post');
-    body.appendChild(row('拉黑的工具', denyI, '默认拉黑 shell / git_push / http_post'));
-
-    // 4. 审批级别
-    var AP = [['auto', '直接做'], ['ask', '先问我'], ['never', '一律不做']];
-    var apR = document.createElement('div');
-    apR.className = 'pset-grid2';
-    [['read', '只读'], ['write_mem', '写记忆'], ['write_code', '改代码'], ['outbound', '对外发消息']].forEach(function (k) {
-      var g = document.createElement('div');
-      g.className = 'pset-cell';
-      var t = document.createElement('div');
-      t.className = 'pset-cell-t';
-      t.textContent = k[1];
-      var ss = sel(AP, approval[k[0]] || 'ask');
-      ss.dataset.key = k[0];
-      ss.classList.add('pset-ap');
-      g.appendChild(t); g.appendChild(ss);
-      apR.appendChild(g);
+    var rows = (Array.isArray(s.routes) ? s.routes : []).map(function (x) {
+      return { keywords: (x.keywords || []).slice(), to: String(x.to || ''), level: String(x.level || 'confirm') };
     });
-    body.appendChild(row('审批级别', apR, '从 QQ/飞书 来的指令整体降一级（硬规则）'));
+    var logs = (a[1] && a[1].rows) || [];
+
+    // 1. 遮罩 + 对话框（点遮罩/X/Esc 关闭；打开期间不阻塞背后面板，只是浮在最上层）
+    var mask = mk('div', 'psed-mask');
+    var dlg = mk('div', 'psed-dlg');
+    dlg.setAttribute('role', 'dialog');
+    var headRow = mk('div', 'psed-head');
+    var hT = mk('div', 'psed-title', '桌宠设置 · ' + (persona.name || '人格'));
+    var closeBtn = mk('button', 'psed-x', '✕');
+    closeBtn.title = '关闭';
+    headRow.appendChild(hT); headRow.appendChild(closeBtn);
+    dlg.appendChild(headRow);
+
+    var body = mk('div', 'psed-body');
+    dlg.appendChild(body);
+
+    function group(title, hint) {
+      var g = mk('div', 'psed-group');
+      g.appendChild(mk('div', 'psed-gt', title));
+      if (hint) g.appendChild(mk('div', 'psed-gh', hint));
+      var c = mk('div', 'psed-gc');
+      g.appendChild(c);
+      body.appendChild(g);
+      return c;
+    }
+
+    // 2. 主动性：三选一（按钮组，不进下拉，扫一眼就懂）
+    var actC = group('她主动吗', '只在「有事才说」以上才会主动开口；「少吭声」就是只答不说');
+    var actCur = String(persona.proactive || 'low');
+    var actBtns = [];
+    [['low', '少吭声'], ['normal', '有事才说'], ['high', '会主动找我']].forEach(function (o) {
+      var b = mk('button', 'psed-seg', o[1]);
+      b.dataset.v = o[0];
+      if (o[0] === actCur) b.classList.add('is-on');
+      b.addEventListener('click', function () {
+        actCur = o[0];
+        actBtns.forEach(function (x) { x.classList.toggle('is-on', x.dataset.v === actCur); });
+      });
+      actBtns.push(b); actC.appendChild(b);
+    });
+
+    // 3. 允许她做什么：勾选 = 允许；默认拉黑的几项单列在「永远不许」
+    var allowC = group('她可以做什么', '勾上的才会被执行；灰着的会直接拒绝并说明原因');
+    var ALLOW_LIST = PET_TOOLS.slice(0, 6);
+    var DENY_LIST = PET_TOOLS.slice(6);
+    var chkMap = {};
+    function chk(parent, id, label, on) {
+      var w = mk('label', 'psed-check');
+      var c = document.createElement('input');
+      c.type = 'checkbox'; c.checked = !!on; c.dataset.id = id;
+      w.appendChild(c);
+      w.appendChild(mk('span', null, label));
+      parent.appendChild(w);
+      return c;
+    }
+    var allowNow = (tools.allow || []).slice();
+    var denyNow = (tools.deny || []).slice();
+    ALLOW_LIST.forEach(function (t) { chkMap[t[0]] = chk(allowC, t[0], t[1], allowNow.indexOf(t[0]) >= 0 && denyNow.indexOf(t[0]) < 0); });
+    var denyC = group('永远不许她做', '这几项就算你说「可以」也不做（安全底线，建议保持勾满）');
+    DENY_LIST.forEach(function (t) { chkMap[t[0]] = chk(denyC, t[0], t[1], denyNow.indexOf(t[0]) >= 0 || allowNow.indexOf(t[0]) < 0); });
+
+    // 4. 什么必须先问你：四行四选一
+    var apC = group('什么必须先问你', '「改代码 / 对外发消息」建议保持「先问我」；从 QQ、飞书 来的指令一律自动降一级');
+    var apSel = {};
+    [['read', '只看资料'], ['write_mem', '记下事情'], ['write_code', '改代码/仓库'], ['outbound', '对外发消息']].forEach(function (o) {
+      var rowEl = mk('div', 'psed-row');
+      rowEl.appendChild(mk('div', 'psed-rl', o[1]));
+      var sel = document.createElement('select');
+      sel.className = 'psed-input';
+      PET_LEVELS.forEach(function (lv) {
+        var op = document.createElement('option');
+        op.value = lv[0]; op.textContent = lv[1];
+        if (String(approval[o[0]] || 'ask') === lv[0]) op.selected = true;
+        sel.appendChild(op);
+      });
+      apSel[o[0]] = sel;
+      rowEl.appendChild(sel);
+      apC.appendChild(rowEl);
+    });
 
     // 5. 免打扰
-    var qR = document.createElement('div');
-    qR.className = 'pset-grid3';
-    var qFrom = txt(quiet.from || '23:30'); qFrom.classList.add('pset-q-from');
-    var qTo = txt(quiet.to || '08:00'); qTo.classList.add('pset-q-to');
-    var qMax = num(quiet.proactiveMaxPerHour == null ? 2 : quiet.proactiveMaxPerHour, 0, 60); qMax.classList.add('pset-q-max');
-    [['起', qFrom], ['止', qTo], ['次/时', qMax]].forEach(function (p) {
-      var g = document.createElement('div');
-      g.className = 'pset-cell';
-      var t = document.createElement('div');
-      t.className = 'pset-cell-t';
-      t.textContent = p[0];
-      g.appendChild(t); g.appendChild(p[1]);
-      qR.appendChild(g);
-    });
-    body.appendChild(row('免打扰', qR, '这段时间不主动开口；频率上限防半夜刷屏'));
+    var qC = group('什么时候别烦你', '这段时间不主动开口；「最多几次」防她一小时刷好几遍');
+    var qRow = mk('div', 'psed-inline');
+    var qFrom = document.createElement('input'); qFrom.type = 'time'; qFrom.className = 'psed-input'; qFrom.value = String(quiet.from || '23:30');
+    var qTo = document.createElement('input'); qTo.type = 'time'; qTo.className = 'psed-input'; qTo.value = String(quiet.to || '08:00');
+    var qMax = document.createElement('input'); qMax.type = 'number'; qMax.min = '0'; qMax.max = '60'; qMax.className = 'psed-input psed-num'; qMax.value = String(quiet.proactiveMaxPerHour == null ? 2 : quiet.proactiveMaxPerHour);
+    qRow.appendChild(qFrom); qRow.appendChild(mk('span', 'psed-vs', '到')); qRow.appendChild(qTo);
+    qRow.appendChild(mk('span', 'psed-vs', '· 每小时最多')); qRow.appendChild(qMax); qRow.appendChild(mk('span', 'psed-vs', '次'));
+    qC.appendChild(qRow);
 
-    // 6. 记忆策略
-    var memR = document.createElement('div');
-    memR.className = 'pset-checks';
-    function chk(label, on, cls) {
-      var w = document.createElement('label');
-      w.className = 'pset-check';
-      var c = document.createElement('input');
-      c.type = 'checkbox'; c.checked = !!on; c.classList.add(cls);
-      w.appendChild(c);
-      var tx = document.createElement('span');
-      tx.textContent = label;
-      w.appendChild(tx);
-      return w;
-    }
-    memR.appendChild(chk('写长期记忆', memory.writeLongTerm, 'pset-m-long'));
-    memR.appendChild(chk('写对话流水', memory.writeDialog, 'pset-m-dialog'));
-    memR.appendChild(chk('写前确认', memory.confirmBeforeWrite, 'pset-m-confirm'));
-    body.appendChild(row('记忆', memR));
+    // 6. 记忆
+    var memC = group('她怎么记事', '长期的事写在 场景记忆\胡闹的大肥鱼\记忆\；聊天流水写在 对话\；两者都属于本机，不进仓库');
+    var mLong = chk(memC, 'm-long', '记住长期的事（你的事、答应过的事）', memory.writeLongTerm !== false);
+    var mDlg = chk(memC, 'm-dialog', '记下聊过什么（谁来找我、说了什么）', memory.writeDialog !== false);
+    var mCfm = chk(memC, 'm-confirm', '写之前先问我', !!memory.confirmBeforeWrite);
 
-    // 7. 路由表（只读展示；关键词要批量改就直接改 JSON，避免在窄面板里做表格编辑器）
-    var rt = document.createElement('div');
-    rt.className = 'pset-routes';
-    if (!routes.length) {
-      rt.textContent = '（路由表是空的：桌宠不知道该把话派给哪个场景，会直接列候选问你）';
-    } else {
-      routes.forEach(function (r) {
-        var line = document.createElement('div');
-        line.className = 'pset-route';
-        var k = document.createElement('span');
-        k.className = 'pset-route-k';
-        k.textContent = (r.keywords || []).join('/');
-        var arr = document.createElement('span');
-        arr.className = 'pset-route-arr';
-        arr.textContent = ' → ';
-        var t2 = document.createElement('span');
-        t2.className = 'pset-route-t';
-        t2.textContent = r.to + '';
-        var lv = document.createElement('span');
-        lv.className = 'pset-route-lv is-' + (r.level || 'confirm');
-        lv.textContent = r.level === 'read' ? '只读' : (r.level === 'never' ? '不做' : '要确认');
-        line.appendChild(k); line.appendChild(arr); line.appendChild(t2); line.appendChild(lv);
-        rt.appendChild(line);
+    // 7. 场景路由：一行一条「说到这些词 → 交给谁 → 要不要先问」，可加可删
+    var rtC = group('哪句话该交给谁', '你说到左边的词，她就去右边的场景干活；右边只列真实存在的会话，选错了派不进去');
+    var rtList = mk('div', 'psed-routes');
+    rtC.appendChild(rtList);
+    function sceneOptions(sel, cur) {
+      var opt = document.createElement('option');
+      opt.value = ''; opt.textContent = '（选一个场景会话）';
+      sel.appendChild(opt);
+      var found = false;
+      scenes.forEach(function (sc) {
+        var o = document.createElement('option');
+        o.value = sc.title; o.textContent = sc.scene + ' · ' + sc.title;
+        if (sc.title === cur) { o.selected = true; found = true; }
+        sel.appendChild(o);
       });
+      if (cur && !found) { var o2 = document.createElement('option'); o2.value = cur; o2.textContent = cur + '（找不到这个会话）'; o2.selected = true; sel.appendChild(o2); }
     }
-    body.appendChild(row('路由表', rt, '关键词命中就派给该会话；改关键词直接编辑 JSON 后点「重新读取」'));
-
-    // 8. 最近派发（来自 场景记忆\胡闹的大肥鱼\派发日志.md）
-    var lg = document.createElement('div');
-    lg.className = 'pset-logs';
-    if (!st.logs.length) lg.textContent = '（还没有派发记录）';
-    else {
-      st.logs.slice(-4).forEach(function (x) {
-        var d = document.createElement('div');
-        d.className = 'pset-log';
-        d.textContent = String(x).replace(/^-\s*/, '').replace(/\s*·\s*/g, ' · ');
-        lg.appendChild(d);
+    function drawRoutes() {
+      rtList.textContent = '';
+      if (!rows.length) { rtList.appendChild(mk('div', 'psed-empty', '还没有规则：她听不出该找谁时会直接问你')); }
+      rows.forEach(function (row, i) {
+        var line = mk('div', 'psed-route');
+        var kw = document.createElement('input');
+        kw.className = 'psed-input psed-kw'; kw.value = row.keywords.join('，'); kw.placeholder = '关键词，用逗号隔开';
+        kw.addEventListener('input', function () { rows[i].keywords = kw.value.split(/[，,、\s]+/).filter(Boolean); });
+        var sc = document.createElement('select');
+        sc.className = 'psed-input psed-sc';
+        sceneOptions(sc, row.to);
+        sc.addEventListener('change', function () { rows[i].to = sc.value; });
+        var lv = document.createElement('select');
+        lv.className = 'psed-input psed-lv';
+        PET_LEVELS.forEach(function (x) { var o = document.createElement('option'); o.value = x[0]; o.textContent = x[1]; if (x[0] === row.level) o.selected = true; lv.appendChild(o); });
+        lv.addEventListener('change', function () { rows[i].level = lv.value; });
+        var del = mk('button', 'psed-x', '✕');
+        del.title = '删掉这条规则';
+        del.addEventListener('click', function () { rows.splice(i, 1); drawRoutes(); });
+        line.appendChild(kw); line.appendChild(sc); line.appendChild(lv); line.appendChild(del);
+        rtList.appendChild(line);
       });
+      var add = mk('button', 'psed-add', '＋ 再加一条');
+      add.addEventListener('click', function () { rows.push({ keywords: [], to: '', level: 'confirm' }); drawRoutes(); });
+      rtList.appendChild(add);
     }
-    body.appendChild(row('最近派发', lg, '时间 · 原话 · 派给谁 · 结果 · 耗时'));
+    drawRoutes();
 
-    // 9. 动作
-    var act = document.createElement('div');
-    act.className = 'pset-actions';
-    var save = document.createElement('button');
-    save.className = 'pset-btn is-primary';
-    save.textContent = '保存';
-    save.addEventListener('click', function () {
-      if (st.saving) return;
-      st.saving = true; save.disabled = true;
-      var patch = {
-        persona: { proactive: actSel.value },
-        tools: { allow: allowI.value.split(',').map(function (x) { return x.trim(); }).filter(Boolean),
-                 deny: denyI.value.split(',').map(function (x) { return x.trim(); }).filter(Boolean) },
-        approval: {},
-        quiet: { from: qFrom.value.trim(), to: qTo.value.trim(), proactiveMaxPerHour: Number(qMax.value) || 0 },
-        memory: { writeLongTerm: memR.children[0].children[0].checked,
-                  writeDialog: memR.children[1].children[0].checked,
-                  confirmBeforeWrite: memR.children[2].children[0].checked }
+    // 8. 最近派发
+    var logC = group('最近派了什么活', '每次派发自动记一笔（时间 / 原话 / 交给谁 / 结果 / 耗时）');
+    if (!logs.length) logC.appendChild(mk('div', 'psed-empty', '（还没有派过）'));
+    else logs.slice(-5).forEach(function (x) { logC.appendChild(mk('div', 'psed-log', String(x).replace(/^-\s*/, ''))); });
+
+    // 9. 底部：保存 / 取消 / 恢复默认
+    var foot = mk('div', 'psed-foot');
+    var hint = mk('div', 'psed-fh', '参数存在本机，不进仓库；保存后下一轮对话即生效');
+    var cancel = mk('button', 'psed-btn', '取消');
+    var save = mk('button', 'psed-btn is-primary', '保存');
+    var reset = mk('button', 'psed-btn', '恢复默认');
+    foot.appendChild(hint); foot.appendChild(reset); foot.appendChild(cancel); foot.appendChild(save);
+    dlg.appendChild(foot);
+
+    function collect() {
+      var allow = [], deny = [];
+      Object.keys(chkMap).forEach(function (k) {
+        var on = chkMap[k].checked;
+        if (on) allow.push(k); else deny.push(k);
+      });
+      return {
+        persona: { proactive: actCur },
+        tools: { allow: allow, deny: deny },
+        approval: { read: apSel.read.value, write_mem: apSel.write_mem.value, write_code: apSel.write_code.value, outbound: apSel.outbound.value },
+        quiet: { from: (qFrom.value || '23:30'), to: (qTo.value || '08:00'), proactiveMaxPerHour: Math.max(0, Number(qMax.value) || 0) },
+        memory: { writeLongTerm: mLong.checked, writeDialog: mDlg.checked, confirmBeforeWrite: mCfm.checked },
+        routes: rows.filter(function (x) { return x.keywords.length && x.to; }).map(function (x) { return { keywords: x.keywords, to: x.to, level: x.level }; })
       };
-      Array.prototype.forEach.call(body.querySelectorAll('.pset-ap'), function (x) { patch.approval[x.dataset.key] = x.value; });
-      Promise.resolve(api.settingsSet(patch)).then(function (r) {
-        st.saving = false; save.disabled = false;
-        if (!r || r.ok === false) { toast('保存失败：' + ((r && r.error) || '未知原因'), true); return; }
-        st.s = r.settings;
-        toast('已保存（外壳\\data\\pet\\设置.json）', false);
-        refresh();
-      }).catch(function (e) { st.saving = false; save.disabled = false; toast('保存失败：' + String((e && e.message) || e), true); });
+    }
+
+    function close() {
+      try { mask.remove(); } catch (e) { /* ignore */ }
+      document.removeEventListener('keydown', onEsc, true);
+    }
+    function onEsc(e) { if (e.key === 'Escape') { e.stopPropagation(); close(); } }
+
+    closeBtn.addEventListener('click', close);
+    cancel.addEventListener('click', close);
+    mask.addEventListener('click', function (e) { if (e.target === mask) close(); });
+    document.addEventListener('keydown', onEsc, true);
+
+    reset.addEventListener('click', function () {
+      var sure = true;
+      try { sure = window.confirm('恢复默认？会丢掉这次改的所有参数（不会动记忆和聊天记录）。'); } catch (e) { /* ignore */ }
+      if (!sure) return;
+      Promise.resolve(api.settingsSet({ persona: { proactive: 'low' }, tools: { allow: ['scene_memory_read', 'memory_recall', 'memory_write', 'dispatch', 'receipt', 'file_read'], deny: ['shell', 'git_push', 'http_post'] },
+        approval: { read: 'auto', write_mem: 'auto', write_code: 'ask', outbound: 'ask' },
+        quiet: { from: '23:30', to: '08:00', proactiveMaxPerHour: 2 },
+        memory: { writeLongTerm: true, writeDialog: true, confirmBeforeWrite: false },
+        routes: [{ keywords: ['B站', '视频', '弹幕'], to: 'B站', level: 'read' }]
+      })).then(function (rr) {
+        if (!rr || rr.ok === false) { toast('恢复默认失败：' + ((rr && rr.error) || '未知原因'), true); return; }
+        toast('已恢复默认参数', false);
+        close();
+        try { if (typeof window.openPetSettings === 'function') window.openPetSettings(); } catch (e) { /* ignore */ }
+      }).catch(function (e) { toast('恢复默认失败：' + String((e && e.message) || e), true); });
     });
-    var reread = document.createElement('button');
-    reread.className = 'pset-btn';
-    reread.textContent = '重新读取';
-    reread.addEventListener('click', function () { refresh(); });
-    act.appendChild(save); act.appendChild(reread);
-    body.appendChild(act);
 
-    var fp = document.createElement('div');
-    fp.className = 'pset-foot';
-    fp.textContent = (st.files && st.files.运行值 ? '运行值：' + String(st.files.运行值).replace(/^.*\\外壳\\/, '外壳\\') : '')
-      + (st.files && st.files.默认值 ? ' · 默认值：' + String(st.files.默认值).replace(/^.*\\外壳\\/, '外壳\\') : '');
-    body.appendChild(fp);
-  }
-
-  // 2. 刷新：一次读配置 + 一次读派发日志
-  function refresh() {
-    return Promise.all([
-      Promise.resolve(api.settingsGet()),
-      Promise.resolve(api.logTail(6)).catch(function () { return { rows: [] }; })
-    ]).then(function (a) {
-      var r = a[0] || {};
-      st.s = r.settings || {}; st.files = r.files || {}; st.session = r.session || {};
-      st.logs = (a[1] && a[1].rows) || [];
-      st.err = '';
-      draw();
-    }).catch(function (e) {
-      st.err = '读设置失败：' + String((e && e.message) || e) + '\n（配置在 外壳\\data\\pet\\设置.json，默认值在 外壳\\pet\\设置.默认.json）';
-      draw();
+    save.addEventListener('click', function () {
+      var patch = collect();
+      if (!patch.routes.length) toast('路由表是空的：她以后听不出该找谁（可以先留一条再保存）', true, 6000);
+      save.disabled = true;
+      Promise.resolve(api.settingsSet(patch)).then(function (rr) {
+        save.disabled = false;
+        if (!rr || rr.ok === false) { toast('保存失败：' + ((rr && rr.error) || '未知原因'), true); return; }
+        toast('已保存：' + patch.routes.length + ' 条路由 / 允许 ' + patch.tools.allow.length + ' 项工具', false);
+        close();
+      }).catch(function (e) { save.disabled = false; toast('保存失败：' + String((e && e.message) || e), true); });
     });
-  }
 
-  refresh();
+    mask.appendChild(dlg);
+    document.body.appendChild(mask);
+    return null;
+  });
 };
