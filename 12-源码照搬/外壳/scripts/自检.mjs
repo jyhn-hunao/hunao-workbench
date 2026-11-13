@@ -28,10 +28,25 @@ for (const port of [DSH_PORT, SITE_PORT, 9876]) {
 }
 
 // 1) Node（引擎要求 >=24.9，外壳自身 18+，整体按取严）
-const major = Number(process.versions.node.split('.')[0]);
-const minor = Number(process.versions.node.split('.')[1]);
+//    2026-11-13 修：原来只量「当前跑自检的这个进程」（往往是 22.x 的系统 node），
+//    而工作台真正拉起引擎用的是 机器配置.json 的 nodeExe ⇒ 判据改成先量 nodeExe，量不到才退回本进程。
+let nodeVer = String(process.versions.node || '0.0.0');
+let nodeSrc = '当前进程';
+try {
+  const cfgFile = path.join(ROOT, '引擎数据', '.dsh', '机器配置.json');
+  if (fs.existsSync(cfgFile)) {
+    const cfg = JSON.parse(fs.readFileSync(cfgFile, 'utf8'));
+    if (cfg && cfg.nodeExe && fs.existsSync(cfg.nodeExe)) {
+      const { execFileSync } = await import('node:child_process');
+      const v = String(execFileSync(cfg.nodeExe, ['-v'], { encoding: 'utf8' }) || '').trim().replace(/^v/i, '');
+      if (/^\d+\.\d+/.test(v)) { nodeVer = v; nodeSrc = '机器配置 nodeExe'; }
+    }
+  }
+} catch (e) { /* 读不到就按本进程算，不因配置缺失误判 */ }
+const major = Number(nodeVer.split('.')[0]);
+const minor = Number(nodeVer.split('.')[1]);
 const nodeOk = (major > 24) || (major === 24 && minor >= 9);
-check('Node 版本', nodeOk, '当前进程 ' + process.versions.node + '（引擎要求 >=24.9；工作台启动用的是 机器配置.json 里 nodeExe 那个）');
+check('Node 版本', nodeOk, nodeVer + '（来源：' + nodeSrc + '；引擎要求 >=24.9）');
 
 // 2) 引擎（三态：有本包引擎 / 复用外部已跑引擎 / 都没有）
 // 2026-11-12 修（配置体检发现）：原来只认源码版布局 `引擎\apps\cli\lib\bin.js`，
