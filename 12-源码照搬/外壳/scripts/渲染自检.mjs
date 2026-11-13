@@ -134,6 +134,7 @@ const R = win.APP_RENDERERS
 ok('加载后 window.APP_RENDERERS 存在', !!R)
 ok('renderers.neuron 是函数', !!(R && typeof R.neuron === 'function'))
 ok('renderers.harness / git 仍在', !!(R && typeof R.harness === 'function' && typeof R.git === 'function'))
+ok('renderers.msgflow 已注册（社交场景消息流）', !!(R && typeof R.msgflow === 'function'))
 
 // 2. 真调 neuron（假 body）
 let cleanup = null
@@ -170,6 +171,44 @@ const esc = (win._h.keydown || [])[0]
 if (esc) esc({ key: 'Escape' })
 await tick(30)
 ok('ESC 退出下钻', !!(crumb && crumb.style.display === 'none'), crumb && crumb.style.display)
+
+// 5. 社交场景消息流（msgflow）：真调一次，断言通道胶囊与消息行都画出来了
+//    为什么要这一条：这个面板的数据来自主进程 IPC（social:flow），渲染层出问题时表现是「空格子」，
+//    在界面里只能看到空白、看不出是没数据还是没渲染 —— 这里用假数据把链路钉住。
+const mfBody = new El('div')
+const mfHead = new El('div')
+win.app.social = {
+  flow: () => Promise.resolve({
+    ok: true, at: Date.now(),
+    session: { id: 's-demo', title: '社交', found: true, events: 22 },
+    channels: [
+      { key: 'qq', label: 'QQ', state: 'warn', detail: '桥接插件已装，协议端未起' },
+      { key: 'feishu', label: '飞书', state: 'off', detail: 'dsh-im 未装' }
+    ],
+    messages: [
+      { at: 1794535133557, role: 'them', text: '在吗' },
+      { at: 1794535134634, role: 'her', text: '在' }
+    ]
+  })
+}
+let mfClean = null
+try {
+  mfClean = R.msgflow(mfBody, { id: 'so-msg', sessionId: 's-demo', sessionTitle: '社交' }, mfHead)
+  await tick(60)
+  const chips = mfBody.children.find(c => c.className === 'mf-chips')
+  const list = mfBody.children.find(c => c.className === 'mf-list')
+  ok('msgflow 可执行', mfBody.children.length >= 2, 'children=' + mfBody.children.length)
+  ok('通道胶囊画出来了', !!(chips && chips.children.length === 3), chips ? 'chips=' + chips.children.length : 'no chips')
+  ok('QQ 通道没通时画成 warn（不是绿的）', !!(chips && chips.children[0] && /is-warn/.test(chips.children[0].className)))
+  ok('消息行画出来了', !!(list && list.children.length === 2), list ? 'rows=' + list.children.length : 'no list')
+  ok('她回的那句靠右（is-her）', !!(list && list.children[1] && /is-her/.test(list.children[1].className)))
+  // 桥接控制台（SnowLuma）不常驻面板：入口就是标题栏这颗按钮（2026-11-13 用户要求「设置按钮才打开」）
+  ok('标题栏「⚙ 桥接」按钮挂上了', mfHead.children.some(c => c.tagName === 'BUTTON' && /桥接/.test(c.textContent)),
+    mfHead.children.map(c => c.tagName + ':' + c.textContent).join('|'))
+} catch (e) {
+  ok('msgflow 可执行', false, (e && e.stack) || String(e))
+}
+if (typeof mfClean === 'function') mfClean()
 
 if (typeof cleanup === 'function') cleanup()
 console.log('渲染自检：' + pass + ' 项通过，' + fail + ' 项失败')
