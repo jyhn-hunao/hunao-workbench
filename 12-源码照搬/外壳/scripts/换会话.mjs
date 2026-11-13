@@ -451,7 +451,22 @@ if (!flags.has('--go')) {
     } catch (e) { /* 自检失败不影响换会话结果 */ }
   }
 
-  // ⑦ 重载：GUI 模式由渲染层自己 reload 本面板（只动这一块）；
+  // ⑦ 桥接路由：换的是人格面板时，QQ 插件的 routes.private[*].sessionId 必须跟着改，
+  //    否则对方发来的消息会投进刚归档的旧会话（实测踩过）。脚本自带判断：不指向人格会话就只报「已是最新」。
+  try {
+    const syncScript = path.join(GUI, '..', '工具', '同步桥接路由.mjs');
+    if (fs.existsSync(syncScript)) {
+      const out = String(execFileSync(process.execPath, [syncScript], { encoding: 'utf8' }) || '').trim();
+      out.split('\n').filter(Boolean).forEach((l) => say('  ' + l));
+    } else {
+      say('  ⚠ 找不到 工具\\同步桥接路由.mjs；人格面板有 QQ 通道时要手动改 routes');
+    }
+  } catch (e) {
+    say('  ⚠ 桥接路由同步没成功：' + ((e && e.stdout) ? String(e.stdout).trim() : ((e && e.message) || e)));
+    say('    ⇒ 手动跑 node 工具\\同步桥接路由.mjs，再重启整壳');
+  }
+
+  // ⑧ 重载：GUI 模式由渲染层自己 reload 本面板（只动这一块）；
   //    命令行模式没有渲染层，才写 reload-panels.cmd 让壳帮忙（此时才用 all）。
   if (process.env.DSH_ROTATE_SELF_RELOAD === '0') {
     say('\n✅ 已换。新会话 ' + newId + '（GUI 会自己重载本面板）');

@@ -1,0 +1,41 @@
+{
+  "persona": {
+    "name": "胡闹的大肥鱼",
+    "proactive": "low",
+    "selfIntro": "我是 AI 助理"
+  },
+  "tools": {
+    "allow": ["scene_memory_read", "memory_recall", "dispatch", "receipt"],
+    "deny": ["shell", "git_push", "http_post"]
+  },
+  "routes": [
+    { "keywords": ["B站", "视频", "弹幕", "up主"], "to": "B站", "level": "read" },
+    { "keywords": ["项目", "bug", "需求", "代码", "仓库"], "to": "程序开发·工作区", "level": "confirm" },
+    { "keywords": ["清理", "磁盘", "C盘", "垃圾"], "to": "本地电脑", "level": "confirm" },
+    { "keywords": ["复盘", "这周", "总结一下"], "to": "自我复盘", "level": "read" },
+    { "keywords": ["记忆", "体检", "交接", "归档"], "to": "命令", "level": "confirm" }
+  ],
+  "approval": {
+    "read": "auto",
+    "write_mem": "auto",
+    "write_code": "ask",
+    "outbound": "ask"
+  },
+  "channels": {
+    "qq": { "panel": "ch-qq", "autoSyncRoute": true },
+    "feishu": { "panel": "ch-feishu", "autoSyncRoute": true }
+  },
+  "memory": {
+    "writeLongTerm": true,
+    "writeDialog": true,
+    "confirmBeforeWrite": false
+  },
+  "quiet": {
+    "from": "23:30",
+    "to": "08:00",
+    "proactiveMaxPerHour": 2
+  },
+  "log": {
+    "dispatchLog": "场景记忆\\胡闹的大肥鱼\\派发日志.md"
+  }
+}
