@@ -1,0 +1,341 @@
+{
+  "version": 1,
+  "scene": "自我复盘",
+  "generatedAt": "2026-11-13T07:34:06.643Z",
+  "entries": [
+    {
+      "path": "定论\\dom.md",
+      "kind": "定论",
+      "title": "dom",
+      "date": "2026-11-13",
+      "tags": [
+        "定论",
+        "dom"
+      ],
+      "distinct": [],
+      "evidence": [
+        "D:/codeData/myself/luanyujia-workbench/12-源码照搬/引擎数据/.dsh/场景记忆/自我复盘/决策/2026-11-11-用户说卡住时-先拿到那一屏截图-boot-state-快照.md::用户说\"卡住\"时",
+        "D:/codeData/myself/luanyujia-workbench/12-源码照搬/引擎数据/.dsh/场景记忆/自我复盘/决策/2026-11-11-本次现在这一轮也命中竞态是推断依据日志顺序-上一轮的截图.md::本次\"现在这一轮"
+      ],
+      "size": 3498
+    },
+    {
+      "path": "定论\\git.md",
+      "kind": "定论",
+      "title": "git",
+      "date": "2026-11-13",
+      "tags": [
+        "定论",
+        "git"
+      ],
+      "distinct": [],
+      "evidence": [
+        "D:/codeData/myself/luanyujia-workbench/12-源码照搬/引擎数据/.dsh/场景记忆/自我复盘/决策/2026-11-11-这次能-30-秒恢复-靠的是之前把第二轮改动-git-add.md::这次能 30 秒",
+        "D:/codeData/myself/luanyujia-workbench/12-源码照搬/引擎数据/.dsh/场景记忆/自我复盘/决策/2026-11-11-纯-CRLF-文件上用-git-c-core-autocrlf.md::纯 CRLF 文"
+      ],
+      "size": 2874
+    },
+    {
+      "path": "定论\\renderers.md",
+      "kind": "定论",
+      "title": "renderers",
+      "date": "2026-11-13",
+      "tags": [
+        "定论",
+        "renderers"
+      ],
+      "distinct": [],
+      "evidence": [
+        "D:/codeData/myself/luanyujia-workbench/12-源码照搬/引擎数据/.dsh/场景记忆/自我复盘/决策/2026-11-11-刷新面板-mjs-只热更-renderers-js-改.md::`刷新面板.mj",
+        "D:/codeData/myself/luanyujia-workbench/12-源码照搬/引擎数据/.dsh/场景记忆/自我复盘/决策/2026-11-11-fs-writeFileSync-直接对-1-1MB-的.md::`fs.writ"
+      ],
+      "size": 2761
+    },
+    {
+      "path": "决策\\2026-11-11-这次能-30-秒恢复-靠的是之前把第二轮改动-git-add.md",
+      "kind": "决策",
+      "title": "这次能 30 秒恢复，靠的是之前把第二轮改动 `git add` 过（`git checkout --` 回到暂存版），",
+      "date": "2026-11-11",
+      "tags": [
+        "决策",
+        "回滚基线"
+      ],
+      "distinct": [],
+      "evidence": [],
+      "size": 894
+    },
+    {
+      "path": "决策\\2026-11-11-讲机制先破用户最可能的错误前提.md",
+      "kind": "决策",
+      "title": "讲机制先破用户最可能的错误前提",
+      "date": "2026-11-11",
+      "tags": [
+        "决策",
+        "先破错误前提"
+      ],
+      "distinct": [],
+      "evidence": [],
+      "size": 889
+    },
+    {
+      "path": "决策\\2026-11-11-记忆里的当前状态区-的待办-表格要逐行替换.md",
+      "kind": "决策",
+      "title": "记忆里的「当前状态区」（§〇 的待办 / 表格）要逐行替换，别整段重写",
+      "date": "2026-11-11",
+      "tags": [
+        "决策",
+        "改记忆"
+      ],
+      "distinct": [],
+      "evidence": [],
+      "size": 898
+    },
+    {
+      "path": "决策\\2026-11-11-给壳加省-token-提示时-12-源码照搬.md",
+      "kind": "决策",
+      "title": "给壳加\"省 token 提示\"时，`12-源码照搬\\*` 下的任何写入（`Set-Content`、`node fs.w",
+      "date": "2026-11-11",
+      "tags": [
+        "决策",
+        "沙箱只放行仓库根·别急着改 ACL"
+      ],
+      "distinct": [],
+      "evidence": [],
+      "size": 1289
+    },
+    {
+      "path": "决策\\2026-11-11-纯-CRLF-文件上用-git-c-core-autocrlf.md",
+      "kind": "决策",
+      "title": "纯 CRLF 文件上用 `git -c core.autocrlf=false diff --cached --nums",
+      "date": "2026-11-11",
+      "tags": [
+        "决策",
+        "numstat 会骗人"
+      ],
+      "distinct": [],
+      "evidence": [],
+      "size": 798
+    },
+    {
+      "path": "决策\\2026-11-11-第一版用原生-select-做项目下拉-紧挨-webview.md",
+      "kind": "决策",
+      "title": "第一版用原生 `<select>` 做项目下拉，紧挨 `<webview>` 时被 guest 抢焦点顶掉（用户实测\"一",
+      "date": "2026-11-11",
+      "tags": [
+        "决策",
+        "原生控件 × webview"
+      ],
+      "distinct": [],
+      "evidence": [],
+      "size": 970
+    },
+    {
+      "path": "决策\\2026-11-11-用户说卡住时-先拿到那一屏截图-boot-state-快照.md",
+      "kind": "决策",
+      "title": "用户说\"卡住\"时，先拿到那一屏（截图 / `boot:state` 快照 / DOM 探针），再回日志找判据",
+      "date": "2026-11-11",
+      "tags": [
+        "决策",
+        "现象先行"
+      ],
+      "distinct": [],
+      "evidence": [],
+      "size": 1060
+    },
+    {
+      "path": "决策\\2026-11-11-没按-code-dev-技能第-1.md",
+      "kind": "决策",
+      "title": "没按 `code-dev` 技能第 1 步的顺序认现场",
+      "date": "2026-11-11",
+      "tags": [
+        "决策",
+        "认现场·最该记的一条"
+      ],
+      "distinct": [],
+      "evidence": [],
+      "size": 1185
+    },
+    {
+      "path": "决策\\2026-11-11-本次现在这一轮也命中竞态是推断依据日志顺序-上一轮的截图.md",
+      "kind": "决策",
+      "title": "本次\"现在这一轮也命中竞态\"是推断（依据日志顺序 + 上一轮的截图），不是直接观测（我看不到那屏）",
+      "date": "2026-11-11",
+      "tags": [
+        "决策",
+        "证据与推断分开写"
+      ],
+      "distinct": [],
+      "evidence": [],
+      "size": 1060
+    },
+    {
+      "path": "决策\\2026-11-11-改混合行尾的大文件-编辑工具会按主导行尾重写-CRLF.md",
+      "kind": "决策",
+      "title": "改混合行尾的大文件，编辑工具会按主导行尾重写，CRLF 段被统一成 LF ⇒ 1 行改动变 242/242",
+      "date": "2026-11-11",
+      "tags": [
+        "决策",
+        "行尾"
+      ],
+      "distinct": [],
+      "evidence": [],
+      "size": 1007
+    },
+    {
+      "path": "决策\\2026-11-11-改共享入口函数前先-grep-出全部调用点再改.md",
+      "kind": "决策",
+      "title": "改共享入口函数前先 `grep` 出全部调用点再改",
+      "date": "2026-11-11",
+      "tags": [
+        "决策",
+        "调用点"
+      ],
+      "distinct": [],
+      "evidence": [],
+      "size": 874
+    },
+    {
+      "path": "决策\\2026-11-11-把当日-6-个会话的-assistant-message.md",
+      "kind": "决策",
+      "title": "把当日 6 个会话的 `assistant/message.usage` 全量累了一遍，294.9M tokens 里 ",
+      "date": "2026-11-11",
+      "tags": [
+        "决策",
+        "token 账·长会话才是主成本"
+      ],
+      "distinct": [],
+      "evidence": [],
+      "size": 1545
+    },
+    {
+      "path": "决策\\2026-11-11-我拿不到工作台窗口的-DOM-截图-却连续做视觉层改动.md",
+      "kind": "决策",
+      "title": "我拿不到工作台窗口的 DOM/截图，却连续做视觉层改动，等于让用户当测试机",
+      "date": "2026-11-11",
+      "tags": [
+        "决策",
+        "看不见就别做视觉改动"
+      ],
+      "distinct": [],
+      "evidence": [],
+      "size": 918
+    },
+    {
+      "path": "决策\\2026-11-11-开工先扫上一轮的残留物.md",
+      "kind": "决策",
+      "title": "开工先扫上一轮的残留物",
+      "date": "2026-11-11",
+      "tags": [
+        "决策",
+        "现场残留"
+      ],
+      "distinct": [],
+      "evidence": [],
+      "size": 810
+    },
+    {
+      "path": "决策\\2026-11-11-刷新面板-返回-热更新结果-ok-只证明-script-元素.md",
+      "kind": "决策",
+      "title": "`刷新面板` 返回 `热更新结果: ok` 只证明 `<script>` 元素 load 了，不证明执行完成",
+      "date": "2026-11-11",
+      "tags": [
+        "决策",
+        "热更新的\"ok\"是假阳性"
+      ],
+      "distinct": [],
+      "evidence": [],
+      "size": 1022
+    },
+    {
+      "path": "决策\\2026-11-11-刷新面板-mjs-只热更-renderers-js-改.md",
+      "kind": "决策",
+      "title": "`刷新面板.mjs` / ⟳ 只热更 `renderers.js`，改 `index.html` 的标签不算\"热更\"，要",
+      "date": "2026-11-11",
+      "tags": [
+        "决策",
+        "新增 `<script>` 标签必须重启"
+      ],
+      "distinct": [],
+      "evidence": [],
+      "size": 895
+    },
+    {
+      "path": "决策\\2026-11-11-先-commit-看-git-show-stat-与-git.md",
+      "kind": "决策",
+      "title": "先 commit，看 `git show --stat` 与 `git diff --numstat`，确认干净再 pu",
+      "date": "2026-11-11",
+      "tags": [
+        "决策",
+        "提交与推送分步"
+      ],
+      "distinct": [],
+      "evidence": [],
+      "size": 903
+    },
+    {
+      "path": "决策\\2026-11-11-node-check-只证明语法.md",
+      "kind": "决策",
+      "title": "`node --check` 只证明语法",
+      "date": "2026-11-11",
+      "tags": [
+        "决策",
+        "能跑\"的判据"
+      ],
+      "distinct": [],
+      "evidence": [],
+      "size": 820
+    },
+    {
+      "path": "决策\\2026-11-11-fs-writeFileSync-直接对-1-1MB-的.md",
+      "kind": "决策",
+      "title": "`fs.writeFileSync` 直接对 1.1MB 的 `renderers.js` 截断重写，正在运行的工作台若",
+      "date": "2026-11-11",
+      "tags": [
+        "决策",
+        "写盘要原子"
+      ],
+      "distinct": [],
+      "evidence": [],
+      "size": 824
+    },
+    {
+      "path": "决策\\2026-11-11-fixesc-用-split-join-批量改-replace.md",
+      "kind": "决策",
+      "title": "`fixesc` 用 `split/join` 批量改 `.replace(/^\\/([A-Za-z]:)/…)`，本意",
+      "date": "2026-11-11",
+      "tags": [
+        "决策",
+        "批量替换·这次直接造成整页白屏"
+      ],
+      "distinct": [],
+      "evidence": [],
+      "size": 1170
+    },
+    {
+      "path": "决策\\2026-11-11-10-08-10-10-三分钟内热替换三次原生下拉-自绘菜单.md",
+      "kind": "决策",
+      "title": "10:08–10:10 三分钟内热替换三次（原生下拉→自绘菜单、文件面板跟随、对话链接桥），每轮都带新风险",
+      "date": "2026-11-11",
+      "tags": [
+        "决策",
+        "一次一个主题"
+      ],
+      "distinct": [],
+      "evidence": [],
+      "size": 1042
+    },
+    {
+      "path": "坑\\2026-11-11-renderers-js-的-blob-是-CRLF-为主.md",
+      "kind": "坑",
+      "title": "`renderers.js` 的 blob 是 CRLF 为主 + 242 行 LF",
+      "date": "2026-11-11",
+      "tags": [
+        "坑",
+        "混合行尾又踩"
+      ],
+      "distinct": [],
+      "evidence": [],
+      "size": 735
+    }
+  ]
+}
