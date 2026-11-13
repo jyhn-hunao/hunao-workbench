@@ -12,8 +12,8 @@ sources:
   - 决策/2026-11-11-纯-CRLF-文件上用-git-c-core-autocrlf.md
   - 决策/2026-11-11-先-commit-看-git-show-stat-与-git.md
 evidence:
-  - D:/codeData/myself/luanyujia-workbench/12-源码照搬/引擎数据/.dsh/场景记忆/自我复盘/决策/2026-11-11-这次能-30-秒恢复-靠的是之前把第二轮改动-git-add.md::这次能 30 秒
-  - D:/codeData/myself/luanyujia-workbench/12-源码照搬/引擎数据/.dsh/场景记忆/自我复盘/决策/2026-11-11-纯-CRLF-文件上用-git-c-core-autocrlf.md::纯 CRLF 文
+  - D:/codeData/myself/luanyujia-workbench/12-源码照搬/引擎数据/.dsh/场景记忆/自我复盘/决策/2026-11-11-这次能-30-秒恢复-靠的是之前把第二轮改动-git-add.md::2026-11-11（回滚基线）：这次能 30 秒恢复，靠的是之前把第二轮改动 `git add` 过（`git che
+  - D:/codeData/myself/luanyujia-workbench/12-源码照搬/引擎数据/.dsh/场景记忆/自我复盘/决策/2026-11-11-纯-CRLF-文件上用-git-c-core-autocrlf.md::2026-11-11（numstat 会骗人）：纯 CRLF 文件上用 `git -c core.autocrlf=fa
 ---
 # git
 

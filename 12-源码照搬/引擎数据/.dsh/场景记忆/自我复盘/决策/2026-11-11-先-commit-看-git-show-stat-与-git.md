@@ -4,6 +4,7 @@ description: 2026-11-11（提交与推送分步）：**先 commit，看 `git sho
 date: 2026-11-11
 tags: [决策, 提交与推送分步]
 source: 场景私有记忆.md §五（2026-11-13 拆分）
+consolidated_into: 定论/git.md
 ---
 
 # 先 commit，看 `git show --stat` 与 `git diff --numstat`，确认干净再 pu

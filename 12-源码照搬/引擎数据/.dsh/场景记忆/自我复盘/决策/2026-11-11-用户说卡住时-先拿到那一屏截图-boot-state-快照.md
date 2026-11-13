@@ -4,6 +4,7 @@ description: 2026-11-11（现象先行）：用户说"卡住"时，**先拿到�
 date: 2026-11-11
 tags: [决策, 现象先行]
 source: 场景私有记忆.md §五（2026-11-13 拆分）
+consolidated_into: 定论/dom.md
 ---
 
 # 用户说"卡住"时，先拿到那一屏（截图 / `boot:state` 快照 / DOM 探针），再回日志找判据

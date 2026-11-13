@@ -1,7 +1,7 @@
 {
   "version": 1,
   "scene": "自我复盘",
-  "generatedAt": "2026-11-13T07:34:06.643Z",
+  "generatedAt": "2026-11-13T08:16:05.470Z",
   "entries": [
     {
       "path": "定论\\dom.md",
@@ -14,10 +14,12 @@
       ],
       "distinct": [],
       "evidence": [
-        "D:/codeData/myself/luanyujia-workbench/12-源码照搬/引擎数据/.dsh/场景记忆/自我复盘/决策/2026-11-11-用户说卡住时-先拿到那一屏截图-boot-state-快照.md::用户说\"卡住\"时",
-        "D:/codeData/myself/luanyujia-workbench/12-源码照搬/引擎数据/.dsh/场景记忆/自我复盘/决策/2026-11-11-本次现在这一轮也命中竞态是推断依据日志顺序-上一轮的截图.md::本次\"现在这一轮"
+        "D:/codeData/myself/luanyujia-workbench/12-源码照搬/引擎数据/.dsh/场景记忆/自我复盘/决策/2026-11-11-用户说卡住时-先拿到那一屏截图-boot-state-快照.md::2026-11-11（现象先行）：用户说\"卡住\"时，**先拿到那一屏**（截图 / `boot:state` 快照 /",
+        "D:/codeData/myself/luanyujia-workbench/12-源码照搬/引擎数据/.dsh/场景记忆/自我复盘/决策/2026-11-11-本次现在这一轮也命中竞态是推断依据日志顺序-上一轮的截图.md::2026-11-11（证据与推断分开写）：本次\"现在这一轮也命中竞态\"是**推断**（依据日志顺序 + 上一轮的截图），"
       ],
-      "size": 3498
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 3708
     },
     {
       "path": "定论\\git.md",
@@ -30,10 +32,12 @@
       ],
       "distinct": [],
       "evidence": [
-        "D:/codeData/myself/luanyujia-workbench/12-源码照搬/引擎数据/.dsh/场景记忆/自我复盘/决策/2026-11-11-这次能-30-秒恢复-靠的是之前把第二轮改动-git-add.md::这次能 30 秒",
-        "D:/codeData/myself/luanyujia-workbench/12-源码照搬/引擎数据/.dsh/场景记忆/自我复盘/决策/2026-11-11-纯-CRLF-文件上用-git-c-core-autocrlf.md::纯 CRLF 文"
+        "D:/codeData/myself/luanyujia-workbench/12-源码照搬/引擎数据/.dsh/场景记忆/自我复盘/决策/2026-11-11-这次能-30-秒恢复-靠的是之前把第二轮改动-git-add.md::2026-11-11（回滚基线）：这次能 30 秒恢复，靠的是之前把第二轮改动 `git add` 过（`git che",
+        "D:/codeData/myself/luanyujia-workbench/12-源码照搬/引擎数据/.dsh/场景记忆/自我复盘/决策/2026-11-11-纯-CRLF-文件上用-git-c-core-autocrlf.md::2026-11-11（numstat 会骗人）：纯 CRLF 文件上用 `git -c core.autocrlf=fa"
       ],
-      "size": 2874
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 3042
     },
     {
       "path": "定论\\renderers.md",
@@ -46,10 +50,12 @@
       ],
       "distinct": [],
       "evidence": [
-        "D:/codeData/myself/luanyujia-workbench/12-源码照搬/引擎数据/.dsh/场景记忆/自我复盘/决策/2026-11-11-刷新面板-mjs-只热更-renderers-js-改.md::`刷新面板.mj",
-        "D:/codeData/myself/luanyujia-workbench/12-源码照搬/引擎数据/.dsh/场景记忆/自我复盘/决策/2026-11-11-fs-writeFileSync-直接对-1-1MB-的.md::`fs.writ"
+        "D:/codeData/myself/luanyujia-workbench/12-源码照搬/引擎数据/.dsh/场景记忆/自我复盘/决策/2026-11-11-刷新面板-mjs-只热更-renderers-js-改.md::2026-11-11（新增 `<script>` 标签必须重启）：`刷新面板.mjs` / ⟳ 只热更 `rendere",
+        "D:/codeData/myself/luanyujia-workbench/12-源码照搬/引擎数据/.dsh/场景记忆/自我复盘/决策/2026-11-11-fs-writeFileSync-直接对-1-1MB-的.md::2026-11-11（写盘要原子）：`fs.writeFileSync` 直接对 1.1MB 的 `renderers."
       ],
-      "size": 2761
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 2919
     },
     {
       "path": "决策\\2026-11-11-这次能-30-秒恢复-靠的是之前把第二轮改动-git-add.md",
@@ -62,7 +68,9 @@
       ],
       "distinct": [],
       "evidence": [],
-      "size": 894
+      "expires": "",
+      "consolidatedInto": "定论/git.md",
+      "size": 928
     },
     {
       "path": "决策\\2026-11-11-讲机制先破用户最可能的错误前提.md",
@@ -75,6 +83,8 @@
       ],
       "distinct": [],
       "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
       "size": 889
     },
     {
@@ -88,6 +98,8 @@
       ],
       "distinct": [],
       "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
       "size": 898
     },
     {
@@ -101,6 +113,8 @@
       ],
       "distinct": [],
       "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
       "size": 1289
     },
     {
@@ -114,7 +128,9 @@
       ],
       "distinct": [],
       "evidence": [],
-      "size": 798
+      "expires": "",
+      "consolidatedInto": "定论/git.md",
+      "size": 832
     },
     {
       "path": "决策\\2026-11-11-第一版用原生-select-做项目下拉-紧挨-webview.md",
@@ -127,6 +143,8 @@
       ],
       "distinct": [],
       "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
       "size": 970
     },
     {
@@ -140,7 +158,9 @@
       ],
       "distinct": [],
       "evidence": [],
-      "size": 1060
+      "expires": "",
+      "consolidatedInto": "定论/dom.md",
+      "size": 1094
     },
     {
       "path": "决策\\2026-11-11-没按-code-dev-技能第-1.md",
@@ -153,6 +173,8 @@
       ],
       "distinct": [],
       "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
       "size": 1185
     },
     {
@@ -166,7 +188,9 @@
       ],
       "distinct": [],
       "evidence": [],
-      "size": 1060
+      "expires": "",
+      "consolidatedInto": "定论/dom.md",
+      "size": 1094
     },
     {
       "path": "决策\\2026-11-11-改混合行尾的大文件-编辑工具会按主导行尾重写-CRLF.md",
@@ -179,6 +203,8 @@
       ],
       "distinct": [],
       "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
       "size": 1007
     },
     {
@@ -192,6 +218,8 @@
       ],
       "distinct": [],
       "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
       "size": 874
     },
     {
@@ -205,6 +233,8 @@
       ],
       "distinct": [],
       "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
       "size": 1545
     },
     {
@@ -218,7 +248,9 @@
       ],
       "distinct": [],
       "evidence": [],
-      "size": 918
+      "expires": "",
+      "consolidatedInto": "定论/dom.md",
+      "size": 952
     },
     {
       "path": "决策\\2026-11-11-开工先扫上一轮的残留物.md",
@@ -231,6 +263,8 @@
       ],
       "distinct": [],
       "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
       "size": 810
     },
     {
@@ -244,6 +278,8 @@
       ],
       "distinct": [],
       "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
       "size": 1022
     },
     {
@@ -257,7 +293,9 @@
       ],
       "distinct": [],
       "evidence": [],
-      "size": 895
+      "expires": "",
+      "consolidatedInto": "定论/renderers.md",
+      "size": 935
     },
     {
       "path": "决策\\2026-11-11-先-commit-看-git-show-stat-与-git.md",
@@ -270,7 +308,9 @@
       ],
       "distinct": [],
       "evidence": [],
-      "size": 903
+      "expires": "",
+      "consolidatedInto": "定论/git.md",
+      "size": 937
     },
     {
       "path": "决策\\2026-11-11-node-check-只证明语法.md",
@@ -283,6 +323,8 @@
       ],
       "distinct": [],
       "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
       "size": 820
     },
     {
@@ -296,7 +338,9 @@
       ],
       "distinct": [],
       "evidence": [],
-      "size": 824
+      "expires": "",
+      "consolidatedInto": "定论/renderers.md",
+      "size": 864
     },
     {
       "path": "决策\\2026-11-11-fixesc-用-split-join-批量改-replace.md",
@@ -309,6 +353,8 @@
       ],
       "distinct": [],
       "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
       "size": 1170
     },
     {
@@ -322,6 +368,8 @@
       ],
       "distinct": [],
       "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
       "size": 1042
     },
     {
@@ -335,7 +383,21 @@
       ],
       "distinct": [],
       "evidence": [],
-      "size": 735
+      "expires": "",
+      "consolidatedInto": "定论/renderers.md",
+      "size": 775
+    },
+    {
+      "path": "归档\\场景私有记忆-202611130923-拆分前.md",
+      "kind": "归档",
+      "title": "自我复盘 · 场景私有记忆",
+      "date": "",
+      "tags": [],
+      "distinct": [],
+      "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 13228
     }
   ]
 }

@@ -4,6 +4,7 @@ description: 2026-11-11（写盘要原子）：`fs.writeFileSync` 直接对 1.1M
 date: 2026-11-11
 tags: [决策, 写盘要原子]
 source: 场景私有记忆.md §五（2026-11-13 拆分）
+consolidated_into: 定论/renderers.md
 ---
 
 # `fs.writeFileSync` 直接对 1.1MB 的 `renderers.js` 截断重写，正在运行的工作台若

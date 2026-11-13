@@ -12,8 +12,8 @@ sources:
   - 决策/2026-11-11-fs-writeFileSync-直接对-1-1MB-的.md
   - 坑/2026-11-11-renderers-js-的-blob-是-CRLF-为主.md
 evidence:
-  - D:/codeData/myself/luanyujia-workbench/12-源码照搬/引擎数据/.dsh/场景记忆/自我复盘/决策/2026-11-11-刷新面板-mjs-只热更-renderers-js-改.md::`刷新面板.mj
-  - D:/codeData/myself/luanyujia-workbench/12-源码照搬/引擎数据/.dsh/场景记忆/自我复盘/决策/2026-11-11-fs-writeFileSync-直接对-1-1MB-的.md::`fs.writ
+  - D:/codeData/myself/luanyujia-workbench/12-源码照搬/引擎数据/.dsh/场景记忆/自我复盘/决策/2026-11-11-刷新面板-mjs-只热更-renderers-js-改.md::2026-11-11（新增 `<script>` 标签必须重启）：`刷新面板.mjs` / ⟳ 只热更 `rendere
+  - D:/codeData/myself/luanyujia-workbench/12-源码照搬/引擎数据/.dsh/场景记忆/自我复盘/决策/2026-11-11-fs-writeFileSync-直接对-1-1MB-的.md::2026-11-11（写盘要原子）：`fs.writeFileSync` 直接对 1.1MB 的 `renderers.
 ---
 # renderers
 

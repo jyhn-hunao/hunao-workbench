@@ -4,6 +4,7 @@ description: 2026-11-11（numstat 会骗人）：纯 CRLF 文件上用 `git -c c
 date: 2026-11-11
 tags: [决策, numstat 会骗人]
 source: 场景私有记忆.md §五（2026-11-13 拆分）
+consolidated_into: 定论/git.md
 ---
 
 # 纯 CRLF 文件上用 `git -c core.autocrlf=false diff --cached --nums
