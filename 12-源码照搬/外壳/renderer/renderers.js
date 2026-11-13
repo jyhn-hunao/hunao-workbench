@@ -18940,7 +18940,9 @@ renderers.neuron = (body, meta, head) => {
       ctx.textAlign = pick.align;
       ctx.fillText(lbl, pick.lx, pick.ly);
     });
-  }  function hexA(hex, a) {
+  }
+
+  function hexA(hex, a) {
     var h = hex.replace('#', '');
     var r = parseInt(h.slice(0, 2), 16), g = parseInt(h.slice(2, 4), 16), b = parseInt(h.slice(4, 6), 16);
     return 'rgba(' + r + ',' + g + ',' + b + ',' + a + ')';
