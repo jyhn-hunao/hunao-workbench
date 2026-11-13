@@ -79,6 +79,10 @@ let scRows = [];
 try { scRows = JSON.parse(scRun.stdout || '[]'); } catch (e) { scRows = []; }
 t('场景表能列出场景与可派会话', scRun.status === 0 && scRows.length >= 3 && scRows.some((x) => x.titles && x.titles.length), '场景数=' + scRows.length);
 
+// 6. 通道记忆：能解出 QQ / 飞书 往来（干跑，不写文件）
+const chRun = spawnSync(process.execPath, [path.join(ROOT, '工具', '通道记忆.mjs'), '--dry'], { encoding: 'utf8' });
+t('通道往来能解出来（干跑不写）', chRun.status === 0, (chRun.stdout || '').trim().split('\\n')[0]);
+
 // 5. 报告
 rows.forEach((r) => console.log((r.ok ? '✓ ' : '✗ ') + r.name + (r.detail ? ' — ' + r.detail : '')));
 const bad = rows.filter((r) => !r.ok).length;

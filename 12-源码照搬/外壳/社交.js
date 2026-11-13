@@ -92,6 +92,20 @@ function messagesOf(events, limit) {
   const out = [];
   for (const e of events || []) {
     if (!e || !e.type) continue;
+    // 通道消息（QQ / 飞书）不走 user/message，而是由桥接插件以 agent/inbox/spliced 投递进来；
+    // 不认这一支，面板与「通道记忆」都会漏掉真正聊过的内容（2026-11-13 修）。
+    if (e.type === 'agent/inbox/spliced') {
+      const ins = (e.data && e.data.inserted) || [];
+      for (const it of ins) {
+        if (!it) continue;
+        const rk = (it.role === 'assistant' || it.role === 'agent') ? 'her' : 'them';
+        if (rk === 'them' && !(it.source && it.source.kind === 'user')) continue;
+        const t1 = textOf(it.content || (it.message && it.message.content));
+        if (!t1) continue;
+        out.push({ at: Number(it.time || e.time) || 0, role: rk, key: platformOf(t1), text: t1.length > 420 ? t1.slice(0, 420) + '…' : t1 });
+      }
+      continue;
+    }
     let role = '';
     let content = null;
     if (e.type === 'user/message') {
@@ -144,8 +158,10 @@ function readJson(file) {
 // 6.5 消息归平台：桥接插件在正文前加前缀（QQ 路由前缀「（QQ 私聊）」），据此把消息分到各平台卡片。
 //     认不出前缀的统一进 other，不硬猜（宁可显示「未标来源」也不把飞书的消息算给 QQ）。
 const PLATFORM_TAG = [
-  { key: 'qq', re: /^（QQ/ },
-  { key: 'feishu', re: /^（飞书/ },
+  // 通道消息的真实形态是「（关于他：…）\n（时间）…（QQ 私聊·用户本人 QQ 2310468741）内容」——
+  // 前缀不一定在开头，所以按「任意位置出现」认，别只认行首（2026-11-13 修）。
+  { key: 'qq', re: /（QQ|QQ\s*私聊|QQ 群聊|\[QQ/ },
+  { key: 'feishu', re: /（飞书|飞书\s*私聊|\[飞书/ },
 ];
 function platformOf(text) {
   const t = String(text || '');

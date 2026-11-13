@@ -219,6 +219,11 @@ function cmdScenes() {
 //    为什么做成一条命令：这三步原来分散在三个工具里，人只会漏；漏一步就会出现「记忆写了、开场没带上」。
 function cmdWrap() {
   let bad = 0;
+  say('⓪ 通道往来归档（QQ / 飞书 的对话 → 人格「对话」记忆）');
+  const ch = spawnSync(process.execPath || 'node', [path.join(ROOT, '工具', '通道记忆.mjs')], { cwd: ROOT, encoding: 'utf8', timeout: 90000, maxBuffer: 4 * 1024 * 1024 });
+  String((ch.stdout || '') + (ch.stderr || '')).trim().split('\n').filter((x) => x.trim()).slice(0, 4).forEach((x) => say('   ' + x.trim()));
+  if (ch.status !== 0 && ch.status !== 3) bad += 1;
+  if (ch.status === 3) say('   ⚠ 设置要求写前确认 ⇒ 通道往来这批先没记');
   say('① 记忆体检 + 重建近期摘要');
   const d = spawnSync(process.execPath || 'node', [MEMTOOL, '体检'], { cwd: ROOT, encoding: 'utf8', timeout: 90000, maxBuffer: 4 * 1024 * 1024 });
   String((d.stdout || '') + (d.stderr || '')).trim().split('\n').filter((x) => x.trim()).forEach((x) => say('   ' + x.trim()));
