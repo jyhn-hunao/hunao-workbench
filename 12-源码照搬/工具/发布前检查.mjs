@@ -160,6 +160,25 @@ portability()
   }
 }
 
+// ⑥ 桌宠策略闸门（2026-11-13 加）：审批 / 主动 / 人格引用一致性。
+//   用 桌宠自检.mjs 的行为用例，外加 同步人格引用.mjs --check（场景 json 与 QQ routes 必须同一个人格会话）；
+//   两者都不碰本机运行时数据（主动闸门用临时 stateFile），新克隆只会在「没有 QQ 配置」时少一项，不误红。
+{
+  const t = path.join(ROOT, '工具', '桌宠自检.mjs')
+  if (!fs.existsSync(t)) {
+    console.log('⚠ 找不到 桌宠自检.mjs ⇒ 跳过桌宠策略闸门')
+  } else {
+    const r = spawnSync(process.execPath, [t], { cwd: ROOT, encoding: 'utf8' })
+    const bad = String((r.stdout || '') + (r.stderr || '')).split(/\r?\n/).filter((l) => l.includes('✗'))
+    if (r.status === 0) console.log('✓ 桌宠策略闸门：审批 / 主动 / 引用一致性 通过')
+    else {
+      hits += bad.length || 1
+      console.log('✗ 桌宠策略闸门：桌宠自检没过（' + (bad[0] || '见上方输出').trim() + '）')
+      bad.slice(1, 4).forEach((l) => console.log('   ' + l.trim()))
+    }
+  }
+}
+
 console.log('')
 if (hits) { console.log('命中 ' + hits + ' 处红线 ⇒ 不出包'); process.exit(1) }
 console.log('✓ 红线检查通过（0 命中）')

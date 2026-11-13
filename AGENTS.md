@@ -53,6 +53,7 @@
 | 干完回执给派发方 | `node 12-源码照搬\工具\回执.mjs --ticket <派发单id> --summary "<结论>"` | `12-源码照搬/工具/回执.mjs:1` |
 | 查派发/回执台账 | `12-源码照搬\引擎数据\.dsh\派发\回执日志.md` + 同目录 `*.json` 单子 | `12-源码照搬/工具/派发-公共.mjs:1` |
 | 发布前检查（红线 + 本机路径 + 可移植性 + **场景记忆闸门**） | `node 12-源码照搬\工具\发布前检查.mjs` | `12-源码照搬/工具/发布前检查.mjs:4` |
+| 桌宠策略自检（审批 / 主动闸门 / 人格引用一致性，13 项行为用例） | `node 12-源码照搬\工具\桌宠自检.mjs` | `12-源码照搬/工具/桌宠自检.mjs:1` |
 | 环境适配（换机器/换盘符后重算本机路径 + 私有插件落位；`--check` 只读、`--apply` 幂等、`--rotate` 重建会话） | `node 12-源码照搬\外壳\scripts\环境适配.mjs --apply` | `12-源码照搬/外壳/scripts/环境适配.mjs:1` |
 | 规则落地复核 | `powershell -File ~/.dsh/standards/install/verify.ps1 -Segment project,drift -Project D:\codeData\myself\luanyujia-workbench` | `~/.dsh/standards/install/verify.ps1` |
 
