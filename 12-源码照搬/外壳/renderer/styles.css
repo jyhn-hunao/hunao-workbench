@@ -6426,3 +6426,27 @@ html[data-theme="light"] .kneu-btn { border-color: var(--line-2); }
 .mf-who { font-weight: 600; color: var(--text); }
 .mf-text { white-space: pre-wrap; word-break: break-word; color: var(--text); }
 .mf-empty { color: var(--text-dim); font-size: 13px; line-height: 1.6; padding: 10px 2px; }
+
+/* ---- 社交 · 平台卡片面板（chan，2026-11-13）----
+   一个平台一格卡片：加平台 = social.json 里多一个 type:"chan" 面板，不用改渲染代码。
+   同样只用设计令牌；状态三档只用文字（通 / 待 / 无），不靠颜色单独表意。 */
+.ch-panel { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+.ch-card { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; height: 100%;
+  border: 1px solid var(--border); border-radius: 10px; background: var(--bg-panel); min-height: 0; overflow-y: auto; }
+.ch-head { display: flex; align-items: center; gap: 8px; }
+.ch-name { font-size: 15px; font-weight: 600; color: var(--text); }
+.ch-state { font-size: 12px; font-weight: 600; line-height: 18px; padding: 0 7px; border-radius: 999px;
+  border: 1px solid var(--border); color: var(--text-dim); }
+.ch-state.is-ok { border-color: var(--ok); color: var(--ok); }
+.ch-state.is-warn { border-color: var(--warn); color: var(--warn); }
+.ch-console { margin-left: auto; }
+.ch-account { font-size: 13px; color: var(--text); }
+.ch-detail { font-size: 12px; line-height: 1.5; color: var(--text-dim); }
+.ch-stats { font-size: 12px; color: var(--text-dim); padding-top: 2px; border-top: 1px solid var(--border); }
+.ch-recent { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; padding: 6px 8px;
+  border-radius: 8px; border: 1px solid var(--border); background: var(--bg); font-size: 13px; line-height: 1.5; }
+.ch-who { font-weight: 600; color: var(--text); }
+.ch-time { font-size: 12px; color: var(--text-dim); }
+.ch-text { color: var(--text); word-break: break-word; }
+.ch-empty { color: var(--text-dim); font-size: 13px; line-height: 1.6; padding: 4px 0; }
+.ch-foot { margin-top: auto; font-size: 12px; color: var(--text-dim); }

@@ -2,7 +2,7 @@
 
 - 场景 id：`social`
 - 一句话：**只做通道，不做人格**。这个场景没有 AI 会话；消息流的来源是「胡闹的大肥鱼」人格场景的会话，QQ / 飞书的回复也由那边生成。
-- 面板：`外壳\scenarios\social.json`（一格：`so-msg`「消息」= `msgflow` 消息流 + 通道状态，标题栏带「⚙ 桥接」）
+- 面板：`外壳\scenarios\social.json` —— **一个平台一格卡片**：`ch-qq`（`type:"chan"`, `channel:"qq"`，右上带「⚙ 控制台」）、`ch-feishu`（`channel:"feishu"`）；右侧 `so-msg`「全部消息」保留合并流用于对时。加平台 = 再加一个 `chan` 面板（`channel` 写新 key，并在 `外壳\社交.js` 的 `channelStates` 里补一条状态来源）
 - 桥接控制台：SnowLuma（QQ 个人号协议端）随工作台一起启动、一起退出；控制台**不常驻面板**，入口是 `so-msg` 标题栏的「⚙ 桥接」按钮（点开才起窗口）。配置在 `外壳\data\桥接.json`（本机，gitignored）
 - 记忆：`引擎数据\.dsh\场景记忆\社交\` 只放**通道参数与排障口径**；人格与对话记忆在 `场景记忆\胡闹的大肥鱼\`（`记忆\` 长期、`对话\` 流水）
 - 通道：`@xmanrui/dsh-im 5.10.0`（飞书，装在本机 web profile）+ `dsh-onebot-channel 0.15.2`（QQ 个人号，协议端用 SnowLuma 自建、已随壳启停），接法与验证清单见 `插件\社交通道\说明.md` §6.1

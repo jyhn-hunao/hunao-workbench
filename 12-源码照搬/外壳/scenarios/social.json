@@ -1,15 +1,42 @@
 {
   "id": "social",
   "name": "社交",
-  "description": "社交：只做通道。这里没有 AI 会话——消息流的来源是「胡闹的大肥鱼」人格场景的会话；本场景只显示消息流与通道状态，并在标题栏放「⚙ 桥接」按需打开 SnowLuma 控制台。通道参数与排障口径记在 场景记忆\\社交\\，人格与对话记忆归 场景记忆\\胡闹的大肥鱼\\",
+  "description": "社交：只做通道。这里没有 AI 会话——消息流的来源是「胡闹的大肥鱼」人格场景的会话。面板按平台分格：每个平台一格卡片（type:chan，meta.channel 指定平台），加平台 = 再加一个 chan 面板；右侧「全部消息」保留合并流用于对时。通道参数与排障口径记在 场景记忆\\社交\\，人格与对话记忆归 场景记忆\\胡闹的大肥鱼\\",
   "layout": "grid",
   "theme": "dark",
   "cols": 4,
   "panels": [
     {
+      "id": "ch-qq",
+      "title": "QQ",
+      "sub": "卡片 · 状态 / 账号 / 今日条数 / 最后一条",
+      "type": "chan",
+      "channel": "qq",
+      "console": "snowluma",
+      "sessionTitle": "胡闹的大肥鱼",
+      "sessionId": "session-861de8a2-9bf1-4251-ac21-441240d1e0bd",
+      "col": 1,
+      "row": 1,
+      "w": 1,
+      "h": 6
+    },
+    {
+      "id": "ch-feishu",
+      "title": "飞书",
+      "sub": "卡片 · 未绑时显示「待」与原因",
+      "type": "chan",
+      "channel": "feishu",
+      "sessionTitle": "胡闹的大肥鱼",
+      "sessionId": "session-861de8a2-9bf1-4251-ac21-441240d1e0bd",
+      "col": 2,
+      "row": 1,
+      "w": 1,
+      "h": 6
+    },
+    {
       "id": "so-msg",
-      "title": "消息",
-      "sub": "通道管道 · 消息来自「胡闹的大肥鱼」人格会话",
+      "title": "全部消息",
+      "sub": "合并流 · 按时间倒序看所有平台",
       "type": "msgflow",
       "sessionTitle": "胡闹的大肥鱼",
       "sessionId": "session-861de8a2-9bf1-4251-ac21-441240d1e0bd",
@@ -17,9 +44,9 @@
         "胡闹的大肥鱼"
       ],
       "expand": true,
-      "col": 1,
+      "col": 3,
       "row": 1,
-      "w": 4,
+      "w": 2,
       "h": 6
     }
   ],

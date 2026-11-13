@@ -17,12 +17,14 @@
 'use strict';
 
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const zlib = require('zlib');
 const net = require('net');
 
 const ZSTD_MAGIC = Buffer.from([0x28, 0xb5, 0x2f, 0xfd]);
-const NOISE = ['<system-reminder', '<permission', '<environment', '<agent', '<tool', '<workspace'];
+const NOISE = ['<system-reminder', '<permission', '<environment', '<agent', '<tool', '<workspace',
+  '【场景：'];   // 换会话时工具注入的开场消息（列记忆接力点 + 只回一句「已读交接」），不算聊天
 
 // 1. 解 transcript：引擎按「一次写一帧」追加，zstd 多帧拼接（只解第一帧会只剩几百字节）
 function unzstdAll(buf) {
@@ -103,6 +105,7 @@ function messagesOf(events, limit) {
     out.push({
       at: Number(e.time) || 0,
       role,
+      key: platformOf(t),
       text: t.length > 420 ? t.slice(0, 420) + '…' : t
     });
   }
@@ -138,11 +141,32 @@ function readJson(file) {
   try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e) { return null; }
 }
 
+// 6.5 消息归平台：桥接插件在正文前加前缀（QQ 路由前缀「（QQ 私聊）」），据此把消息分到各平台卡片。
+//     认不出前缀的统一进 other，不硬猜（宁可显示「未标来源」也不把飞书的消息算给 QQ）。
+const PLATFORM_TAG = [
+  { key: 'qq', re: /^（QQ/ },
+  { key: 'feishu', re: /^（飞书/ },
+];
+function platformOf(text) {
+  const t = String(text || '');
+  for (const p of PLATFORM_TAG) if (p.re.test(t)) return p.key;
+  return 'other';
+}
+
+// 桥接配置的真实位置：插件按 用户主目录\.dsh 落（lib\env.js 的 CONFIG_FILE），不在引擎 home 里。
+// 两处都找：引擎 home（换机器/自定义 DSH_HOME 的场景）优先，其次用户主目录。
+function bridgeConfigPath(home) {
+  const a = path.join(String(home || ''), 'qq-bridge.config.json');
+  if (fs.existsSync(a)) return a;
+  const b = path.join(os.homedir(), '.dsh', 'qq-bridge.config.json');
+  return fs.existsSync(b) ? b : a;
+}
+
 // 7. 通道状态：QQ 桥接（OneBot 端口 + 配置）· 飞书（插件是否装）
 //    state 只有三种：ok = 真在听/真能用；warn = 装了但没通；off = 没有/没听
 async function channelStates(dshHome) {
   const home = String(dshHome || '');
-  const cfg = readJson(path.join(home, 'qq-bridge.config.json'));
+  const cfg = readJson(bridgeConfigPath(home));
   const httpPort = portOf(cfg && cfg.onebotHttp, 3000);
   const wsPort = portOf(cfg && cfg.wsUrl, 3001);
   const httpOn = await probePort(httpPort);
@@ -162,13 +186,18 @@ async function channelStates(dshHome) {
         ? '协议端在听（HTTP ' + httpPort + (wsOn ? ' · WS ' + wsPort : '') + '）'
         : (hasOnebot
           ? '桥接插件已装，协议端未起（HTTP ' + httpPort + ' / WS ' + wsPort + ' 都没在听）'
-          : '桥接插件未装')
+          : '桥接插件未装'),
+      account: cfg && cfg.selfUin ? '小号 ' + cfg.selfUin : '未绑小号',
+      peer: cfg && cfg.peerUin ? String(cfg.peerUin) : '',
+      console: 'snowluma'
     },
     {
       key: 'feishu',
       label: '飞书',
       state: hasIm ? 'warn' : 'off',
-      detail: hasIm ? 'dsh-im 已装，凭据与白名单在「设置 → IM机器人」绑' : 'dsh-im 未装'
+      detail: hasIm ? 'dsh-im 已装，凭据与白名单在「设置 → IM机器人」绑' : 'dsh-im 未装',
+      account: hasIm ? '自建应用（凭据未绑）' : '未装',
+      peer: ''
     }
   ];
 }
@@ -221,6 +250,26 @@ function createService(opts) {
       }
       const events = file ? readEvents(file) : null;
       const messages = events ? messagesOf(events, limit) : [];
+      const channels = await channelStates(dshHome);
+
+      // 3) 按平台归堆：卡片面板要「这个平台今天几条、最后一条是谁说的什么」
+      //    口径：today 用本机日历日比；last 取该平台最后一条（role 用 them/her 原值）
+      const dayStart = new Date();
+      dayStart.setHours(0, 0, 0, 0);
+      const t0 = dayStart.getTime();
+      const byKey = {};
+      for (const m of messages) {
+        const k = m.key || 'other';
+        (byKey[k] = byKey[k] || []).push(m);
+      }
+      for (const c of channels) {
+        const arr = byKey[c.key] || [];
+        c.n = arr.length;
+        c.today = arr.filter((m) => m.at >= t0).length;
+        const last = arr.length ? arr[arr.length - 1] : null;
+        c.last = last ? { at: last.at, role: last.role, text: last.text } : null;
+      }
+      const other = byKey.other || [];
 
       return {
         ok: true,
@@ -232,11 +281,12 @@ function createService(opts) {
           resolvedBy,
           events: events ? events.length : 0
         },
-        channels: await channelStates(dshHome),
+        channels,
+        others: other.length,
         messages
       };
     }
   };
 }
 
-module.exports = { createService, unzstdAll, readEvents, transcriptOf, messagesOf, textOf, channelStates, probePort, resolveByTitle };
+module.exports = { createService, unzstdAll, readEvents, transcriptOf, messagesOf, textOf, channelStates, probePort, resolveByTitle, platformOf };

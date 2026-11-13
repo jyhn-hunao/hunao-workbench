@@ -6886,6 +6886,180 @@ renderers.msgflow = function (body, meta, head) {
   return function () { clearInterval(timer); };
 };
 
+// ============ chan：一个平台一格卡片（2026-11-13）============
+// 为什么有它：社交以后会接多个平台（QQ / 飞书 / 更多），一条大消息流会越长越难查；
+//   用户要「每个平台做一个面板，卡片类型」——加一个平台 = social.json 里再加一个 type:"chan" 面板。
+// 取数口径与 msgflow 完全同一套（window.app.social.flow），不新造接口：
+//   meta.channel      平台 key（qq / feishu / future），对应 flow().channels 里那一条
+//   meta.sessionId    人格会话（消息流的真源，与 msgflow 同值）
+//   meta.sessionTitle 换会话后按标题兜底重认
+//   meta.console      可选：'snowluma' ⇒ 卡片右上出现「⚙ 控制台」（走 bridge 那套按需开窗）
+// 三档口径照旧：ok = 真在听/真能用；warn = 装了没绑；off = 没有/没听。⛔ 不把「装了」画成「通了」。
+renderers.chan = function (body, meta, head) {
+  body.classList.add('ch-panel');
+  var POLL_MS = 4000;
+  var KEY = String(meta.channel || '');
+  var st = { ch: null, err: '', others: 0, at: 0, busy: false, toasted: false };
+
+  var card = document.createElement('div');
+  card.className = 'ch-card';
+  body.appendChild(card);
+
+  function hhmm(ms) {
+    if (!ms) return '';
+    var d = new Date(Number(ms) || 0);
+    var p = function (n) { return (n < 10 ? '0' : '') + n; };
+    return p(d.getHours()) + ':' + p(d.getMinutes());
+  }
+  function stateWord(s) { return s === 'ok' ? '通' : (s === 'warn' ? '待' : '无'); }
+  function toast(msg, bad) {
+    try { if (typeof window.__tbsToast === 'function') window.__tbsToast(msg, !!bad, bad ? 8000 : 3000); } catch (e) { /* ignore */ }
+  }
+
+  // ---------- 卡片右上「⚙ 控制台」：只在 meta.console 指定时出现，复用桥接那套（没起就先拉起）----------
+  function openConsole() {
+    var api = window.app && window.app.bridge;
+    var key = String(meta.console || '');
+    var prep = (api && typeof api.snowlumaStart === 'function')
+      ? api.snowlumaStart()
+      : Promise.resolve({ ok: false, error: '需重启一次工作台：主进程/preload 还是旧的（没有 bridge.snowlumaStart）' });
+    return Promise.resolve(prep).then(function (r) {
+      if (!r || r.ok === false) {
+        toast('控制台没起来：' + ((r && r.error) || '未知原因') + '（细节见 外壳\\data\\桥接\\snowluma.log）', true);
+        return;
+      }
+      if (typeof window.__kunWebAiOpen === 'function') window.__kunWebAiOpen(key, true);
+      else toast('开窗失败：网页窗口组件还没就绪（点右上角 ⟳ 刷新一次界面再点）', true);
+    }).catch(function (e) { toast('控制台启动失败：' + String((e && e.message) || e), true); });
+  }
+
+  // ---------- 画卡片 ----------
+  function draw() {
+    card.textContent = '';
+    if (Array.isArray(card.children) && card.children.length) card.children.length = 0;
+
+    var c = st.ch;
+    var head1 = document.createElement('div');
+    head1.className = 'ch-head';
+    var nm = document.createElement('span');
+    nm.className = 'ch-name';
+    nm.textContent = (c && c.label) || KEY || '通道';
+    var sw = document.createElement('span');
+    sw.className = 'ch-state is-' + ((c && c.state) || 'off');
+    sw.textContent = stateWord(c && c.state);
+    head1.appendChild(nm);
+    head1.appendChild(sw);
+    if (meta.console) {
+      var btn = document.createElement('button');
+      btn.className = 'file-refresh ch-console';
+      btn.textContent = '⚙ 控制台';
+      btn.title = '打开该平台的协议端控制台（本地页面，随工作台启停）';
+      btn.addEventListener('click', function () { btn.disabled = true; openConsole().then(function () { btn.disabled = false; }); });
+      head1.appendChild(btn);
+    }
+    card.appendChild(head1);
+
+    if (st.err) {
+      var e1 = document.createElement('div');
+      e1.className = 'ch-empty';
+      e1.textContent = st.err;
+      card.appendChild(e1);
+      return;
+    }
+
+    var acct = document.createElement('div');
+    acct.className = 'ch-account';
+    acct.textContent = (c && c.account) || '—';
+    card.appendChild(acct);
+
+    var detail = document.createElement('div');
+    detail.className = 'ch-detail';
+    detail.textContent = (c && c.detail) || '（还没有状态）';
+    card.appendChild(detail);
+
+    var stats = document.createElement('div');
+    stats.className = 'ch-stats';
+    stats.textContent = '今日 ' + ((c && c.today) || 0) + ' 条 · 近 40 条里共 ' + ((c && c.n) || 0) + ' 条'
+      + (st.at ? ' · 更新 ' + hhmm(st.at) : '');
+    card.appendChild(stats);
+
+    if (c && c.last) {
+      var recent = document.createElement('div');
+      recent.className = 'ch-recent';
+      var who = document.createElement('span');
+      who.className = 'ch-who';
+      who.textContent = c.last.role === 'her' ? '她' : '对面';
+      var tm = document.createElement('span');
+      tm.className = 'ch-time';
+      tm.textContent = hhmm(c.last.at);
+      var txt = document.createElement('span');
+      txt.className = 'ch-text';
+      var t = String(c.last.text || '');
+      txt.textContent = t.length > 90 ? t.slice(0, 90) + '…' : t;
+      recent.appendChild(who);
+      recent.appendChild(tm);
+      recent.appendChild(txt);
+      card.appendChild(recent);
+    } else {
+      var none = document.createElement('div');
+      none.className = 'ch-empty';
+      none.textContent = '这个平台还没有消息。';
+      card.appendChild(none);
+    }
+
+    if (st.others) {
+      var oth = document.createElement('div');
+      oth.className = 'ch-foot';
+      oth.textContent = '另有 ' + st.others + ' 条未标来源（老消息没带平台前缀，归到「全部消息」面板）';
+      card.appendChild(oth);
+    }
+  }
+
+  // ---------- 取数：与 msgflow 同一套 ----------
+  function load() {
+    if (st.busy) return;
+    var api = window.app && window.app.social;
+    if (!api || typeof api.flow !== 'function') {
+      st.err = '需重启一次工作台：主进程/preload 还是旧的（没有 social.flow）';
+      draw();
+      return;
+    }
+    st.busy = true;
+    Promise.resolve(api.flow({
+      sessionId: String(meta.sessionId || ''),
+      sessionTitle: String(meta.sessionTitle || ''),
+      limit: 40
+    })).then(function (r) {
+      st.busy = false;
+      if (!r || r.ok === false) {
+        st.err = '取不到通道数据：' + ((r && r.error) || '主进程没返回数据');
+        if (!st.toasted) { st.toasted = true; toast(st.err, true); }
+        draw();
+        return;
+      }
+      st.err = '';
+      st.toasted = false;
+      st.at = r.at || Date.now();
+      st.others = Number(r.others) || 0;
+      st.ch = (r.channels || []).filter(function (x) { return x && x.key === KEY; })[0] || null;
+      draw();
+    }).catch(function (e) {
+      st.busy = false;
+      st.err = '取不到通道数据：' + String((e && e.message) || e);
+      if (!st.toasted) { st.toasted = true; toast(st.err, true); }
+      draw();
+    });
+  }
+
+  draw();
+  load();
+  var timer = setInterval(function () {
+    try { if (document.hidden) return; } catch (e) { /* ignore */ }
+    load();
+  }, POLL_MS);
+  return function () { clearInterval(timer); };
+};
+
 // ============ embed：把"本机自带的网页工具"整页内嵌进面板（<webview>） ============
 // 首个用户：视频工作流 窗口1 = ComfyUI 控制台（http://127.0.0.1:8189/，bridge.py 起的本地页面）。
 // 为什么用 <webview> 而不是 iframe：与 harness / 官网预览一致，guest view 独立进程更稳，
