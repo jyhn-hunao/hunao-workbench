@@ -1,7 +1,7 @@
 {
   "version": 1,
   "scene": "命令",
-  "generatedAt": "2026-11-13T07:38:41.805Z",
+  "generatedAt": "2026-11-13T08:16:05.284Z",
   "entries": [
     {
       "path": "决策\\2026-11-13-记忆体系规范-v3-L0-L7-分层-四条不变式.md",
@@ -16,6 +16,8 @@
         "doc/记忆体系规范.md::## 0. 四条不变式",
         "doc/记忆体系规范.md::## 8. 现有场景的落地矩阵"
       ],
+      "expires": "",
+      "consolidatedInto": "",
       "size": 518
     },
     {
@@ -31,6 +33,8 @@
         "12-源码照搬/外壳/renderer/renderers.js::function lcsOf",
         "12-源码照搬/外壳/renderer/renderers.js::kind: 'topic'"
       ],
+      "expires": "",
+      "consolidatedInto": "",
       "size": 474
     },
     {
@@ -46,6 +50,8 @@
         "12-源码照搬/外壳/renderer/renderers.js::function buildAssociations",
         "12-源码照搬/工具/场景记忆.mjs::function cmdIndex"
       ],
+      "expires": "",
+      "consolidatedInto": "",
       "size": 562
     },
     {
@@ -60,6 +66,8 @@
       "evidence": [
         "12-源码照搬/工具/场景记忆.mjs::function cmdFinish"
       ],
+      "expires": "",
+      "consolidatedInto": "",
       "size": 369
     },
     {
@@ -78,7 +86,9 @@
         "12-源码照搬/工具/场景记忆.mjs::function cmdSplit",
         "12-源码照搬/工具/场景记忆.mjs::const KIND_SIZE = 2048"
       ],
-      "size": 1586
+      "expires": "",
+      "consolidatedInto": "定论/场景记忆.md",
+      "size": 1629
     },
     {
       "path": "决策\\2026-11-13-写入闸门与你确认制-相似拒写-待确认队列-distinct.md",
@@ -93,6 +103,8 @@
         "12-源码照搬/工具/场景记忆.mjs::function cmdConfirm",
         "12-源码照搬/外壳/renderer/renderers.js::distinct: ds"
       ],
+      "expires": "",
+      "consolidatedInto": "",
       "size": 487
     },
     {
@@ -111,6 +123,8 @@
         "12-源码照搬\\外壳\\renderer\\renderers.js::场景目录.json",
         "12-源码照搬\\工具\\场景记忆.mjs::cmdIndexAll"
       ],
+      "expires": "",
+      "consolidatedInto": "",
       "size": 842
     },
     {
@@ -125,6 +139,8 @@
       "evidence": [
         "12-源码照搬/工具/记忆.mjs::近 30 天的决策/坑缺证据"
       ],
+      "expires": "",
+      "consolidatedInto": "",
       "size": 1208
     },
     {
@@ -138,10 +154,12 @@
       ],
       "distinct": [],
       "evidence": [
-        "D:/codeData/myself/luanyujia-workbench/12-源码照搬/引擎数据/.dsh/场景记忆/命令/决策/2026-11-13-场景记忆分条化-一条一个文件.md::场景记忆分条化：",
-        "D:/codeData/myself/luanyujia-workbench/12-源码照搬/引擎数据/.dsh/场景记忆/命令/决策/2026-11-11-职责定界-命令场景只做记忆管理场景记忆-项目记忆的体检-交接.md::职责定界：命令场"
+        "D:/codeData/myself/luanyujia-workbench/12-源码照搬/引擎数据/.dsh/场景记忆/命令/决策/2026-11-13-场景记忆分条化-一条一个文件.md::场景记忆从「一个 25 KB 巨石」改成「一条一个文件」，由工具强制，不靠约定。",
+        "D:/codeData/myself/luanyujia-workbench/12-源码照搬/引擎数据/.dsh/场景记忆/命令/决策/2026-11-11-职责定界-命令场景只做记忆管理场景记忆-项目记忆的体检-交接.md::2026-11-11 职责定界：命令场景只做**记忆管理**（场景记忆 + 项目记忆的体检、交接、归档、召回、索引），不"
       ],
-      "size": 3035
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 3237
     },
     {
       "path": "决策\\2026-11-11-职责定界-命令场景只做记忆管理场景记忆-项目记忆的体检-交接.md",
@@ -154,7 +172,9 @@
       ],
       "distinct": [],
       "evidence": [],
-      "size": 1004
+      "expires": "",
+      "consolidatedInto": "定论/场景记忆.md",
+      "size": 1047
     },
     {
       "path": "决策\\2026-11-11-发现-场景记忆-mjs-check-的会话检查按旧布局找.md",
@@ -166,7 +186,21 @@
       ],
       "distinct": [],
       "evidence": [],
-      "size": 810
+      "expires": "",
+      "consolidatedInto": "定论/场景记忆.md",
+      "size": 853
+    },
+    {
+      "path": "归档\\场景私有记忆-202611130923-拆分前.md",
+      "kind": "归档",
+      "title": "命令 · 场景私有记忆",
+      "date": "",
+      "tags": [],
+      "distinct": [],
+      "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 3448
     }
   ]
 }
