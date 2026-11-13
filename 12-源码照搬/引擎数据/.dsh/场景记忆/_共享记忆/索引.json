@@ -39,6 +39,22 @@
    "memory": "场景记忆/程序开发",
    "file": "areas/code-dev.md",
    "panel": "cd-ai"
+  },
+  {
+   "id": "social",
+   "name": "社交",
+   "owner": "so-msg",
+   "memory": "场景记忆/社交",
+   "file": "areas/social.md",
+   "panel": "so-msg"
+  },
+  {
+   "id": "pet",
+   "name": "胡闹的大肥鱼",
+   "owner": "pet-ai",
+   "memory": "场景记忆/胡闹的大肥鱼",
+   "file": "areas/pet.md",
+   "panel": "pet-ai"
   }
  ]
 }

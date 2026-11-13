@@ -1,0 +1,113 @@
+{
+  "version": 1,
+  "scene": "胡闹的大肥鱼",
+  "generatedAt": "2026-11-13T07:34:06.608Z",
+  "entries": [
+    {
+      "path": "决策\\2026-11-13-设置改按钮弹窗-记忆一律走工具.md",
+      "kind": "决策",
+      "title": "设置改按钮弹窗-记忆一律走工具",
+      "date": "2026-11-13",
+      "tags": [
+        "决策"
+      ],
+      "distinct": [],
+      "evidence": [
+        "12-源码照搬\\外壳\\renderer\\renderers.js::window.openPetSettings = function",
+        "12-源码照搬\\工具\\桌宠.mjs::function cmdProactive",
+        "12-源码照搬\\工具\\人格记忆.mjs::function cmdWrite"
+      ],
+      "size": 995
+    },
+    {
+      "path": "决策\\2026-11-13-记忆闭环-近期摘要每轮必读.md",
+      "kind": "决策",
+      "title": "记忆闭环-近期摘要每轮必读",
+      "date": "2026-11-13",
+      "tags": [
+        "决策"
+      ],
+      "distinct": [],
+      "evidence": [
+        "12-源码照搬\\工具\\人格记忆.mjs::function rebuildRecent",
+        "12-源码照搬\\引擎数据\\.dsh\\AGENTS.md::开场先读人格卡与近期记忆"
+      ],
+      "size": 634
+    },
+    {
+      "path": "决策\\2026-11-13-桌宠五项一步到位-设置面板-路由表-派发查表-调度日志.md",
+      "kind": "决策",
+      "title": "桌宠五项一步到位：设置面板/路由表/派发查表/调度日志/换会话同步",
+      "date": "2026-11-13",
+      "tags": [
+        "决策"
+      ],
+      "distinct": [],
+      "evidence": [
+        "12-源码照搬\\外壳\\桌宠设置.js::function resolveRoute",
+        "12-源码照搬\\工具\\桌宠.mjs::const table = { 路由",
+        "12-源码照搬\\外壳\\scripts\\换会话.mjs::⑦ 桥接路由"
+      ],
+      "size": 1050
+    },
+    {
+      "path": "决策\\2026-11-13-审批与主动判定收敛到策略层-注入三段拼接.md",
+      "kind": "决策",
+      "title": "审批与主动判定收敛到策略层-注入三段拼接",
+      "date": "2026-11-13",
+      "tags": [
+        "决策"
+      ],
+      "distinct": [],
+      "evidence": [
+        "12-源码照搬\\外壳\\桌宠设置.js::dispatchPolicy",
+        "工具\\桌宠自检.mjs::通道来的 confirm ⇒ 升到 never"
+      ],
+      "size": 795
+    },
+    {
+      "path": "决策\\2026-11-13-人格唯一-独立成一个场景而不是散在共享记忆.md",
+      "kind": "决策",
+      "title": "人格唯一-独立成一个场景而不是散在共享记忆",
+      "date": "2026-11-13",
+      "tags": [
+        "决策"
+      ],
+      "distinct": [],
+      "evidence": [
+        "引擎数据\\.dsh\\AGENTS.md::人格唯一，记在"
+      ],
+      "size": 609
+    },
+    {
+      "path": "记忆\\2026-11-13-她说话不要端客服腔.md",
+      "kind": "记忆",
+      "title": "她说话不要端客服腔",
+      "date": "2026-11-13",
+      "tags": [],
+      "distinct": [],
+      "evidence": [],
+      "size": 156
+    },
+    {
+      "path": "记忆\\2026-11-13-设置要按钮弹窗-不常驻面板-不让人改JSON.md",
+      "kind": "记忆",
+      "title": "设置要按钮弹窗-不常驻面板-不让人改JSON",
+      "date": "2026-11-13",
+      "tags": [],
+      "distinct": [],
+      "evidence": [],
+      "size": 350
+    },
+    {
+      "path": "记忆\\_索引.md",
+      "kind": "记忆",
+      "title": "长期记忆 · 索引",
+      "date": "",
+      "tags": [],
+      "distinct": [],
+      "evidence": [],
+      "size": 915
+    }
+  ]
+}

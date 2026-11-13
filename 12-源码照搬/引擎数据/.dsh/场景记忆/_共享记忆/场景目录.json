@@ -1,0 +1,98 @@
+{
+  "version": 1,
+  "generatedAt": "2026-11-13T07:38:41.813Z",
+  "scenes": [
+    {
+      "name": "本地电脑",
+      "id": "pc-cleanup",
+      "panels": [
+        "pc-drives",
+        "pc-r1",
+        "pc-r2",
+        "pc-r3",
+        "pc-ai"
+      ],
+      "entries": 3,
+      "hasPrivate": true,
+      "hasIdentity": true,
+      "updatedAt": "2026-11-13T07:34:06.520Z"
+    },
+    {
+      "name": "程序开发",
+      "id": "code-dev",
+      "panels": [
+        "cd-view",
+        "cd-files",
+        "cd-git",
+        "cd-ai",
+        "cd-ai-home"
+      ],
+      "entries": 44,
+      "hasPrivate": true,
+      "hasIdentity": true,
+      "updatedAt": "2026-11-13T07:34:06.593Z"
+    },
+    {
+      "name": "胡闹的大肥鱼",
+      "id": "pet",
+      "panels": [
+        "pet-ai"
+      ],
+      "entries": 8,
+      "hasPrivate": true,
+      "hasIdentity": true,
+      "updatedAt": "2026-11-13T07:34:06.613Z"
+    },
+    {
+      "name": "命令",
+      "id": "command",
+      "panels": [
+        "cmd-neuron",
+        "cmd-chat"
+      ],
+      "entries": 11,
+      "hasPrivate": true,
+      "hasIdentity": true,
+      "updatedAt": "2026-11-13T07:38:41.812Z"
+    },
+    {
+      "name": "社交",
+      "id": "social",
+      "panels": [
+        "ch-qq",
+        "ch-feishu",
+        "so-msg"
+      ],
+      "entries": 2,
+      "hasPrivate": true,
+      "hasIdentity": true,
+      "updatedAt": "2026-11-13T07:34:06.536Z"
+    },
+    {
+      "name": "自我复盘",
+      "id": "self-review",
+      "panels": [
+        "sr-doc",
+        "sr-files",
+        "sr-site-bl",
+        "sr-ai"
+      ],
+      "entries": 25,
+      "hasPrivate": true,
+      "hasIdentity": true,
+      "updatedAt": "2026-11-13T07:34:06.648Z"
+    },
+    {
+      "name": "B站",
+      "id": "bilibili",
+      "panels": [
+        "bv-web",
+        "bv-ai"
+      ],
+      "entries": 0,
+      "hasPrivate": true,
+      "hasIdentity": true,
+      "updatedAt": "2026-11-13T07:34:06.467Z"
+    }
+  ]
+}
