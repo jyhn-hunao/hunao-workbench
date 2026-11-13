@@ -31,7 +31,7 @@ for (const port of [DSH_PORT, SITE_PORT, 9876]) {
 const major = Number(process.versions.node.split('.')[0]);
 const minor = Number(process.versions.node.split('.')[1]);
 const nodeOk = (major > 24) || (major === 24 && minor >= 9);
-check('Node 版本', nodeOk, '当前 ' + process.versions.node + '（引擎要求 >=24.9）');
+check('Node 版本', nodeOk, '当前进程 ' + process.versions.node + '（引擎要求 >=24.9；工作台启动用的是 机器配置.json 里 nodeExe 那个）');
 
 // 2) 引擎（三态：有本包引擎 / 复用外部已跑引擎 / 都没有）
 // 2026-11-12 修（配置体检发现）：原来只认源码版布局 `引擎\apps\cli\lib\bin.js`，
@@ -105,6 +105,16 @@ for (const f of scs) {
 }
 check('场景路径', !badPath.length,
   badPath.length ? badPath.length + ' 处指向本机不存在: ' + badPath.slice(0, 3).join('；') + '（跑 环境适配.mjs --apply）' : 'homeFolders / drives / repo 全部命中');
+
+// 8) 引擎更新提示（2026-11-13 新增）：只读 工具\引擎更新检查.mjs --notify 写的状态文件，**不联网**
+//    为什么不在自检里直接查 npm：自检要能离线秒过；联网判断归 引擎更新检查.mjs，自检只负责把结果摆出来
+const UPD_FILE = path.join(ROOT, '引擎数据', '.dsh', '引擎更新提示.json');
+const upd = readJ(UPD_FILE);
+check('引擎更新', true, upd
+  ? (upd.hasUpdate
+      ? '⚠ 有新版本 ' + upd.remoteVersion + '（本地 ' + upd.localVersion + '，检查于 ' + String(upd.checkedAt).slice(0, 16) + '）⇒ 见 doc\\引擎升级与版本兼容清单.md'
+      : '已最新（本地 ' + upd.localVersion + '，检查于 ' + String(upd.checkedAt).slice(0, 16) + '）')
+  : '未检查过（跑 node 工具\\引擎更新检查.mjs --notify）');
 
 // 输出
 let fail = 0;
