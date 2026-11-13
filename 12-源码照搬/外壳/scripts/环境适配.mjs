@@ -295,6 +295,30 @@ async function stepPorts(m) {
   add('端口', 'info', busy.length ? '已占用：' + busy.join('、') + '（工作台在跑属正常；换机器后若被别的程序占，改 机器配置.json 与 启动.vbs）' : '全部空闲')
 }
 
+// 8b. 场景记忆：换机器后身份卡/场景画像里的指纹必然过期（`.gitignore` 内、不进库）
+//      ⇒ `--apply` 逐场景补一次 stamp，别等人手动跑；只读模式只报过期不写盘。
+function stepSceneStamp() {
+  const tool = path.join(PROJECT, '工具', '场景记忆.mjs')
+  if (!fs.existsSync(tool)) { add('场景记忆', 'info', '找不到 工具\\场景记忆.mjs ⇒ 跳过盖章'); return }
+  let dirs = []
+  try {
+    dirs = fs.readdirSync(path.join(DSH_HOME, '场景记忆'), { withFileTypes: true })
+      .filter((e) => e.isDirectory() && fs.existsSync(path.join(DSH_HOME, '场景记忆', e.name, '场景私有记忆.md')))
+      .map((e) => e.name)
+  } catch { /* 还没有场景记忆 */ }
+  if (!dirs.length) { add('场景记忆', 'info', '还没有场景记忆目录'); return }
+  if (!APPLY) { add('场景记忆', 'info', dirs.length + ' 个场景（跑 --apply 会逐个 stamp 盖章）'); return }
+  const bad = []
+  for (const d of dirs) {
+    try {
+      execFileSync(process.execPath, [tool, 'stamp', '--场景', d], { cwd: PROJECT, stdio: 'pipe' })
+    } catch (e) {
+      bad.push(d + '（' + (e.message || '').split('\n')[0] + '）')
+    }
+  }
+  add('场景记忆', bad.length ? 'warn' : 'ok', bad.length ? '盖章失败：' + bad.join('、') : dirs.length + ' 个场景已重新盖章')
+}
+
 // 9. 主流程
 async function main() {
   if (!JSON_OUT) console.log('环境适配 · ' + (APPLY ? '--apply' : '--check') + '\n  工作台：' + PROJECT + '\n  机器配置：' + MACHINE_FILE + '\n')
@@ -303,6 +327,7 @@ async function main() {
   stepPlugins()
   stepBundles()
   stepSessions(sessionIds())
+  stepSceneStamp()
   await stepPorts(m)
 
   const fails = rows.filter((r) => r.level === 'fail')

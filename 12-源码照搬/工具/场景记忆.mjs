@@ -888,8 +888,8 @@ function cmdWrite(arg) {
   const d = val('--日期') || dayStr()
   const tags = (val('--标签') || '').split(/[,，]/).map((s) => s.trim()).filter(Boolean)
   const ev = vals('--证据').concat(vals('--evidence')).flatMap((s) => s.split(/[;；]/)).map((s) => s.trim()).filter(Boolean)
-  const desc = (body.split('\r\n').find((l) => l.trim() && !l.startsWith('#')) || '').replace(/^-\s*/, '').trim().slice(0, 120)
-  const fm = ['---', 'title: ' + title, 'description: ' + desc, 'date: ' + d, 'tags: [' + [kind].concat(tags).join(', ') + ']']
+  // 不写 description：标题已是一句话结论，再抄一遍正文首行只是白占 ~300 B/篇（60 篇 ≈ 9 KB）
+  const fm = ['---', 'title: ' + title, 'date: ' + d, 'tags: [' + [kind].concat(tags).join(', ') + ']']
   if (ev.length) fm.push('evidence:', ...ev.map((e) => '  - ' + e))
   fm.push('---')
   const sub = path.join(dir, kind)
@@ -948,7 +948,7 @@ function cmdSplit(arg) {
     let n = 1
     while (fs.existsSync(path.join(sub, file))) file = p.file.replace(/\.md$/, '-' + (++n) + '.md')
     wrote++
-    const fm = ['---', 'title: ' + p.title, 'description: ' + p.body.replace(/\r?\n/g, ' ').slice(0, 120), 'date: ' + p.date,
+    const fm = ['---', 'title: ' + p.title, 'date: ' + p.date,
       'tags: [' + [p.kind, p.tag].filter(Boolean).join(', ') + ']', 'source: 场景私有记忆.md §五（' + dayStr() + ' 拆分）']
     const ev = evidenceOf(p.body)
     if (ev.length) fm.push('evidence:', ...ev.map((e) => '  - ' + e))

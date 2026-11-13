@@ -29,8 +29,10 @@ function write(file, text) {
   fs.writeFileSync(file, text, 'utf8')
 }
 function read(file) { try { return fs.readFileSync(file, 'utf8') } catch { return '' } }
-function doc(title, desc, body) {
-  return '---\ntitle: ' + title + '\ndescription: ' + desc + '\n---\n\n# ' + title + '\n\n' + body + '\n'
+function doc(title, desc, body, ev) {
+  const fm = '---\ntitle: ' + title + '\ndescription: ' + desc
+    + (ev ? '\nevidence:\n  - ' + ev : '') + '\n---\n\n'
+  return fm + '# ' + title + '\n\n' + body + '\n'
 }
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mem-test-'))
@@ -59,10 +61,15 @@ r = run(['init', '--project', trackRoot, '--track'])
 ok('init --track 不写 .gitignore', r.code === 0 && !fs.existsSync(path.join(trackRoot, '.gitignore')))
 
 // 2. index / recall
+//    2026-11-13：决策/坑现在必须有 evidence（或 no_evidence），样本一律带锚点；
+//    锚点必须落在**临时项目内**（体检按 --project 解析路径）
+const EV_TARGET = path.join(root, 'src', 'app.mjs')
+write(EV_TARGET, 'export function doc(title) { return title }\n')
+const EV_SAMPLE = 'src/app.mjs::function doc('
 write(path.join(mem, 'pitfalls', '2026-11-11-窗口等级不能按时段判断.md'),
-  doc('窗口等级不能按时段判断', '等级来自约束日历，不是时段字段。', '## 现象\n按时段筛等级，结果为空。\n\n## 原因\n等级由 constraint_calendar 生成。'))
+  doc('窗口等级不能按时段判断', '等级来自约束日历，不是时段字段。', '## 现象\n按时段筛等级，结果为空。\n\n## 原因\n等级由 constraint_calendar 生成。', EV_SAMPLE))
 write(path.join(mem, 'decisions', '2026-11-11-记忆根定稿.md'),
-  doc('记忆根定稿', '统一放项目根 memory 目录，默认不入库。', '## 结论\nmemory/ 默认 ignore。'))
+  doc('记忆根定稿', '统一放项目根 memory 目录，默认不入库。', '## 结论\nmemory/ 默认 ignore。', EV_SAMPLE))
 r = run(['index', '--project', root])
 ok('index 退出 0', r.code === 0, r.out)
 const idx = JSON.parse(read(path.join(mem, '_索引.json')))
@@ -107,7 +114,7 @@ ok('card 刷新保留手写区', r.code === 0 && read(cardPath).includes('状态
 r = run(['check', '--project', root, '--card', cardPath])
 ok('check 通过', r.code === 0, r.out)
 
-write(path.join(mem, 'pitfalls', '2026-11-12-未索引.md'), doc('未索引的坑', '还没跑索引。', '正文'))
+write(path.join(mem, 'pitfalls', '2026-11-12-未索引.md'), doc('未索引的坑', '还没跑索引。', '正文', EV_SAMPLE))
 r = run(['check', '--project', root, '--card', cardPath])
 ok('未索引 → check 失败', r.code === 1 && r.out.includes('索引过期'), r.out)
 run(['index', '--project', root])
@@ -198,7 +205,41 @@ ok('空词表 → 体检失败', r.code === 1 && r.out.includes('词表'), r.out
 write(path.join(mem, '_词表.json'), JSON.stringify({ 换会话: ['交接'] }))
 run(['index', '--project', root])
 
-// 备份：目录生成 + 自动写 ignore + 只留最近 N 份
+// 7c. 证据闸门（2026-11-13 加）：近 30 天的决策/坑必须能自证，说不清就写明原因
+r = run(['写', '--project', root, '--类', 'decisions', '--标题', '缺证据的决策', '--要点', 'a|b', '--dry'])
+ok('决策不带证据 → 写 被拒', r.code === 1 && r.out.includes('必须能自证'), r.out)
+r = run(['写', '--project', root, '--类', 'decisions', '--标题', '有原因的决策', '--要点', 'a|b', '--无证据', '本机实测，无代码锚点', '--dry'])
+ok('--无证据 原因 → 写 放行', r.code === 0 && r.out.includes('[dry]'), r.out)
+r = run(['写', '--project', root, '--类', 'runbooks', '--标题', '手册不必带证据', '--要点', 'a', '--dry'])
+ok('非决策/坑类目不受证据闸门约束', r.code === 0 && r.out.includes('[dry]'), r.out)
+
+write(path.join(mem, 'decisions', '2026-11-13-裸决策.md'), '---\ntitle: 裸决策\ndate: 2026-11-13\n---\n\n# 裸决策\n\n正文\n')
+run(['index', '--project', root])
+r = run(['体检', '--project', root, '--noscene'])
+ok('近 30 天决策缺证据 → 体检失败', r.code === 1 && r.out.includes('近 30 天的决策/坑缺证据'), r.out)
+fs.rmSync(path.join(mem, 'decisions', '2026-11-13-裸决策.md'))
+
+write(path.join(mem, 'decisions', '2026-11-13-裸决策有交代.md'), '---\ntitle: 裸决策有交代\ndate: 2026-11-13\nno_evidence: 只在本机发生，无仓库锚点\n---\n\n# 裸决策有交代\n\n正文\n')
+run(['index', '--project', root])
+r = run(['体检', '--project', root, '--noscene'])
+ok('写了 no_evidence 就按已交代算', r.code === 0 && r.out.includes('缺证 0 篇'), r.out)
+
+// 新鲜度（2026-11-13 加）：提交比最新记忆还新只提醒、不阻断——近似判据，误报不能拦收工
+{
+  const repoRoot = path.join(root, 'gitrepo')
+  fs.mkdirSync(repoRoot, { recursive: true })
+  const g = (args) => spawnSync('git', ['-C', repoRoot].concat(args), { encoding: 'utf8' })
+  const hasGit = g(['--version']).status === 0
+  if (hasGit) {
+    g(['init', '-q']); g(['config', 'user.email', 't@t']); g(['config', 'user.name', 't'])
+    g(['commit', '-q', '--allow-empty', '-m', '空提交'])
+    r = run(['体检', '--project', root, '--noscene'])
+    ok('新鲜度不阻断收工（只 ⚠）', r.code === 0, r.out)
+    fs.rmSync(repoRoot, { recursive: true, force: true })
+  }
+}
+
+// 7d. 备份：目录生成 + 自动写 ignore + 只留最近 N 份
 r = run(['备份', '--project', root, '--keep', '2'])
 const bkRoot = path.join(root, '.memory-backup')
 const newestBk = fs.readdirSync(bkRoot).filter(x => /^memory-\d{8}-\d{6}$/.test(x)).sort().pop() || ''

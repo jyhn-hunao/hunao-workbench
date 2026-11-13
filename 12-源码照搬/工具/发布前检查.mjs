@@ -11,11 +11,15 @@
  *      ⇒ 109 处命中几乎全是假警。改成**优先只扫 git 跟踪的文件**（没装 git 才退回递归）。
  *   ③ 场景 json / 场景记忆 / 说明里的 sessionId 与项目路径是**设计上必须存在**的
  *      ⇒ 走白名单；模板占位符会话 id（session-00000000-…）也不算。
+ *
+ * 2026-11-13 加 ⑤：把 `场景记忆.mjs check --all` 挂进来当记忆闸门——
+ *   记忆腐化（§五 又攒正文、单篇超 2 KB、证据指空）在出包前就该拦住，而不是等下一次开工才发现。
+ *   只挂场景层（纯文件、不依赖本机 memory\），新机器克隆完也是绿的。
  */
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { execFileSync } from 'node:child_process'
+import { execFileSync, spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
@@ -136,6 +140,26 @@ if (list) {
 }
 
 portability()
+
+// ⑤ 记忆闸门（2026-11-13 加）：场景记忆的结构/体量/证据一起验。
+//   只跑 场景记忆.mjs check --all（纯场景层，不依赖本机 memory\），所以新机器克隆完也是绿的；
+//   ⛔ 别把它扩成「体验」，那会依赖 memory\，新克隆必然全红（同 portability 的理由）。
+{
+  const tool = path.join(ROOT, '工具', '场景记忆.mjs')
+  if (!fs.existsSync(tool)) {
+    console.log('⚠ 找不到 场景记忆.mjs ⇒ 跳过记忆闸门')
+  } else {
+    const r = spawnSync(process.execPath, [tool, 'check', '--all'], { cwd: ROOT, encoding: 'utf8' })
+    const bad = String((r.stdout || '') + (r.stderr || '')).split(/\r?\n/).filter((l) => l.includes('✗'))
+    if (r.status === 0) console.log('✓ 记忆闸门：场景记忆 check --all 通过')
+    else {
+      hits += bad.length || 1
+      console.log('✗ 记忆闸门：场景记忆 check --all 没过（' + (bad[0] || '见上方输出').trim() + '）')
+      bad.slice(1, 4).forEach((l) => console.log('   ' + l.trim()))
+    }
+  }
+}
+
 console.log('')
 if (hits) { console.log('命中 ' + hits + ' 处红线 ⇒ 不出包'); process.exit(1) }
 console.log('✓ 红线检查通过（0 命中）')

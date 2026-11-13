@@ -158,6 +158,8 @@ function parseDoc(file, mem) {
   const tags = Array.isArray(fm.tags) ? fm.tags : (fm.tags ? String(fm.tags).split(/[,，]/).map(s => s.trim()).filter(Boolean) : [])
   // evidence：这条记忆靠什么成立（`路径::文件里的片段`），体检时逐条复核；没有它就只能靠人记得「当时是这样」
   const evidence = Array.isArray(fm.evidence) ? fm.evidence.map(String) : (fm.evidence ? [String(fm.evidence)] : [])
+  // no_evidence：明说「这条为什么不需要证据」，体检把它当已交代（不给就等于漏登记，见体检第 3 项）
+  const noEv = String(fm.no_evidence || '').trim()
   const headings = [...body.matchAll(/^##+\s+(.+)$/gm)].map(m => stripMd(m[1]))
   const stat = fs.statSync(file)
   const dateMatch = String(fm.date || '').match(/^\d{4}-\d{2}-\d{2}/)
@@ -170,10 +172,12 @@ function parseDoc(file, mem) {
     description: stripMd(desc).slice(0, 240),
     tags,
     evidence,
+    noEv,
     headings,
     date,
     size: stat.size,
     mtime: new Date(stat.mtimeMs).toISOString(),
+    mtimeMs: stat.mtimeMs,
     body
   }
 }
@@ -644,7 +648,7 @@ const SLUG_BAD = /[\\/:*?"<>|\s]+/g
  * 写回一条记忆（2026-11-12 加）：把「结构对 + 索引新 + 自检过」三件事合成一步，
  * 免得人只写了正文、忘了 index，下次 check 才炸。
  *   node 记忆.mjs 写 --project <根> --类 <类目> --标题 <标题> [--正文 <md>|--要点 "a|b|c"]
- *                 [--描述 <一句话>] [--标签 a,b] [--证据 "<相对路径>::<片段>"] [--dry]
+ *                 [--描述 <一句话>] [--标签 a,b] [--证据 "<相对路径>::<片段>"] [--无证据 <原因>] [--dry]
  */
 function cmdWrite(root, flags) {
   // 1. 校验入参（类目白名单、标题唯一、未初始化直接报；中英参数名都认）
@@ -673,18 +677,27 @@ function cmdWrite(root, flags) {
   // 本仓文本约定是 CRLF，草稿可能是 LF：这里统一，别把混合换行写进正文
   inner = inner.replace(/\r?\n/g, '\r\n')
 
-  // 3. 补 frontmatter：描述取正文第一行；evidence 是「三个月后还能自证」的唯一凭据
-  const desc = String(flags.desc || flags['描述'] || '').trim()
-    || (inner.split(/\r?\n/).find(l => l.trim() && !l.startsWith('#')) || '').replace(/^-\s*/, '').trim().slice(0, 200)
+  // 3. 补 frontmatter：evidence 是「三个月后还能自证」的唯一凭据
+  //    2026-11-13：决策/坑默认必须有证据；说不出的就写 --无证据 "原因"，让「没有证据」也留痕
+  //    description 不再自动抄正文首行——解析时本来就回落到正文（parseDoc），写进文件只是白占 ~300 B/篇
+  const descGiven = String(flags.desc || flags['描述'] || '').trim()
   // 同名参数可能是数组（重复传 --证据 / --标签）
   const listOf = (x) => (Array.isArray(x) ? x.join(';') : String(x || ''))
   const tags = listOf(flags.tags || flags['标签']).split(/[,，;；]/).map(s => s.trim()).filter(Boolean)
   const ev = listOf(flags.evidence || flags['证据']).split(/[;；]/).map(s => s.trim()).filter(Boolean)
+  const noEv = String(flags['无证据'] || flags.no_evidence || '').trim()
+  const MUST_EV = ['decisions', 'pitfalls']
+  if (MUST_EV.includes(cat) && !ev.length && !noEv) {
+    throw new Error('决策/坑必须能自证：加 --证据 "<路径>::<片段>"；确实没有就写 --无证据 "原因"（会记进 frontmatter，体检按已交代算）')
+  }
   const d = new Date()
   const p = (n) => String(n).padStart(2, '0')
   const date = d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate())
-  const fm = ['---', 'title: ' + title, 'description: ' + desc, 'tags: [' + tags.join(', ') + ']', 'date: ' + date]
+  const fm = ['---', 'title: ' + title]
+  if (descGiven) fm.push('description: ' + descGiven.slice(0, 200))
+  fm.push('tags: [' + tags.join(', ') + ']', 'date: ' + date)
   if (ev.length) fm.push('evidence:', ...ev.map(e => '  - ' + e))
+  if (noEv) fm.push('no_evidence: ' + noEv)
   fm.push('---')
 
   // 4. 落盘：<类目>/<日期>-<标题>.md（标题直接进文件名，中文可读）
@@ -699,7 +712,7 @@ function cmdWrite(root, flags) {
   // 5. 同轮收尾：索引 + 自检；自检不过就说「已写入但没完成」，不说「已记录」
   console.log('✓ 已写入：' + rel + '（' + Buffer.byteLength(text) + ' B）')
   if (Buffer.byteLength(text) > 2048) console.log('⚠ 超 2 KB：写的是过程不是结论？压到 ≤10 行更有人读')
-  if (!ev.length) console.log('⚠ 没有 --证据：这篇以后没法自动判「还成不成立」')
+  if (!ev.length && noEv) console.log('· 已记「无证据」原因：' + noEv)
   cmdIndex(root, true)
   if (cmdCheck(root, {}) !== 0) { console.error('✗ 已写入但自检未过 → 按上面的条目修完才算完成'); return 1 }
   return 0
@@ -747,7 +760,7 @@ function cmdDoctor(root, flags) {
   if (!nLex) { lines.push('词表：✗ 空'); problems.push('memory\\_词表.json 是空的：同义词/别称扩展未生效') }
   else lines.push('词表：✓ ' + nLex + ' 组')
 
-  // 3. 证据：记忆说的东西还能不能在文件里指到
+  // 3. 证据：分两段判——近 30 天的决策/坑必须能自证（✗），存量只提醒补（⚠）
   const docs = scanDocs(root)
   const withEv = docs.filter(d => (d.evidence || []).length)
   const broken = []
@@ -755,9 +768,18 @@ function cmdDoctor(root, flags) {
     const r = verifyEvidence(root, ref)
     if (!r.ok) broken.push(d.path + ' → ' + ref + '（' + r.why + '）')
   }
+  const MUST_EV = ['decisions', 'pitfalls']
+  const evDocs = docs.filter(d => MUST_EV.includes(d.category))
+  const freshEv = evDocs.filter(d => daysSince(d.date) <= 30)
+  const bare = (d) => !(d.evidence || []).length && !d.noEv
+  const freshBare = freshEv.filter(bare)
+  const oldBare = evDocs.filter(d => daysSince(d.date) > 30).filter(bare)
   if (broken.length) problems.push('证据失效 ' + broken.length + ' 条：' + broken.slice(0, 3).join('；'))
+  if (freshBare.length) problems.push('近 30 天的决策/坑缺证据 ' + freshBare.length + ' 篇：' + freshBare.slice(0, 3).map(d => d.path).join('、') + '（补 --证据，或写 no_evidence 说明）')
+  if (oldBare.length) warns.push('存量 ' + oldBare.length + ' 篇决策/坑没有 evidence：有空补，不阻断')
   lines.push('证据：' + (withEv.length ? withEv.length + '/' + docs.length + ' 篇有声明' : '0 篇声明')
     + (broken.length ? ' · ✗ ' + broken.length + ' 条失效' : ' ✓'))
+  if (freshEv.length) lines.push('证据：近 30 天决策/坑 ' + freshEv.length + ' 篇 · 缺证 ' + freshBare.length + ' 篇')
   if (!withEv.length && docs.length) warns.push('没有任何记忆写 evidence：内容漂移发现不了（新记录请带 --证据）')
 
   // 4. 召回活性：流水在不在、是不是早就没人读了
@@ -788,7 +810,21 @@ function cmdDoctor(root, flags) {
   lines.push('体量：' + docs.length + ' 篇 · ' + (total / 1024).toFixed(1) + ' KB')
   if (big.length) warns.push(big.length + ' 篇超 12 KB：' + big.slice(0, 2).map(d => d.path).join('、'))
 
-  // 7. 场景层：另一份记忆（§〇 交接）也一起验，别只报一半
+  // 7. 新鲜度（2026-11-13 加）：最后一次提交比最新记忆还新 ⇒ 大概率「改完代码没写回」
+  //    只能做近似：提交可能只是改文档，所以判 ⚠ 不判 ✗，别让它拦收工。
+  {
+    const newest = docs.reduce((a, d) => (!a || d.mtimeMs > a.mtimeMs ? d : a), null)
+    const g = spawnSync('git', ['-C', root, 'log', '-1', '--format=%ct'], { encoding: 'utf8' })
+    const ts = g.status === 0 ? Number(String(g.stdout || '').trim()) * 1000 : 0
+    if (!ts || !newest) lines.push('新鲜度：跳过（不是 git 仓或没有记忆）')
+    else if (ts > newest.mtimeMs + 60000) {
+      lines.push('新鲜度：⚠ 提交比记忆新')
+      warns.push('最近一次提交（' + new Date(ts).toLocaleString('zh-CN', { hour12: false })
+        + '）晚于最新记忆（memory/' + newest.path + '）：这轮改了代码却没写回？')
+    } else lines.push('新鲜度：✓ 记忆不落后于提交')
+  }
+
+  // 8. 场景层：另一份记忆（§〇 交接）也一起验，别只报一半
   if (!flags.noscene) {
     const tool = path.join(TOOL_DIR, '场景记忆.mjs')
     if (fs.existsSync(tool)) {
@@ -799,7 +835,7 @@ function cmdDoctor(root, flags) {
     } else warns.push('找不到 场景记忆.mjs：场景层未体检')
   }
 
-  // 8. 结论：问题数决定退出码，提醒不影响
+  // 9. 结论：问题数决定退出码，提醒不影响
   console.log('[体检] ' + path.basename(root) + ' · ' + new Date().toLocaleString('zh-CN', { hour12: false }))
   lines.forEach(l => console.log('· ' + l))
   problems.forEach(p => console.log('✗ ' + p))
