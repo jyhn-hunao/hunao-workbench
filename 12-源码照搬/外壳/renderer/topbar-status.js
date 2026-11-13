@@ -1306,7 +1306,7 @@
     // 2. 前置条件三行
     var cond = [
       ['Node', d.node ? (String(d.node).split(/[\\/]/).pop() + ' ✓') : '找不到（要设 DSH_NODE）', !!d.node],
-      ['端口 ' + (d.enginePort || 3083), d.engineBusy ? '被占（工作台在跑，换之前要先退出）' : '空闲', !d.engineBusy],
+      ['端口 ' + (d.enginePort || '未知'), d.engineBusy ? '被占（工作台在跑，换之前要先退出）' : '空闲', !d.engineBusy],
       ['磁盘', (d.freeMB >= 0 ? ('剩 ' + Math.round(d.freeMB / 1024) + ' GB') : '读不到') + '（要 ' + Math.round((d.needFreeMB || 1300) / 1024) + ' GB）', d.freeMB >= (d.needFreeMB || 1300)]
     ];
     cond.forEach(function (c) {

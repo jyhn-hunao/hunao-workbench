@@ -64,7 +64,7 @@ async function hotReloadRenderers() {
   try {
     const css = document.querySelector('link[href*="styles.css"]');
     if (css) css.href = './styles.css?t=' + Date.now();
-  } catch (e) { /* ignore */ }
+  } catch (e) { wbWarn(e) }
   // 2026-11-04：行情数据不随公开版发布，热加载已移除。
   // 2026-11-13：图标登记表（scene-icons.js）也必须先重载 —— 改 MAP / 新加场景图标后 ⟳ 就生效，
   //   不用重启壳。顺序不能反：renderers.js 一加载就执行 decorateScenarioIcons，读的是 window.WB_SCENE_ICONS。
@@ -451,8 +451,8 @@ async function showRemoteAccess() {
 
       let wgImg = '';
       let qrImg = '';
-      try { wgImg = await window.app.remoteAccess.guideImage(); } catch (e) { /* 忽略 */ }
-      try { qrImg = await window.app.remoteAccess.qr(); } catch (e) { /* 忽略 */ }
+      try { wgImg = await window.app.remoteAccess.guideImage(); } catch (e) { wbWarn(e) }
+      try { qrImg = await window.app.remoteAccess.qr(); } catch (e) { wbWarn(e) }
 
       steps.appendChild(addStep(1, '手机装好 WireGuard，扫码导入隧道',
         '打开 WireGuard App → 右下角「+」→ 扫描二维码，扫下面这张。这是本机专用配置，只让 <内网IP>/24 的流量走隧道，不影响手机其它上网。', wgImg));
@@ -530,7 +530,7 @@ async function showSettings() {
         const INJECT = `(() => {
           try {
             const root = document.documentElement;
-            const show = () => { try { root.style.removeProperty('opacity'); } catch (e) { /* ignore */ } };
+            const show = () => { try { root.style.removeProperty('opacity'); } catch (e) { wbWarn(e) } };
             // 触发按钮：0.2.1-alpha.4 起 aria-label 走本地化 t('trigger')，写死的「设置」可能失配
             // ⇒ 三级退化：精确 label → 标签含"设置/Settings/偏好"的 → 任意 aria-haspopup=dialog 的按钮
             const pickTrigger = () => {
@@ -543,7 +543,7 @@ async function showSettings() {
               return hit[0] || all[0] || null;
             };
             const btn = pickTrigger();
-            if (btn && btn.getAttribute('aria-expanded') !== 'true') { try { btn.click(); } catch (e) { /* ignore */ } }
+            if (btn && btn.getAttribute('aria-expanded') !== 'true') { try { btn.click(); } catch (e) { wbWarn(e) } }
             // 设置面板：[role=dialog][aria-modal=true]，全视口 overlay 内居中
             const stretch = () => {
               const panel = document.querySelector('[role="dialog"][aria-modal="true"]');
@@ -572,7 +572,7 @@ async function showSettings() {
                 const ev = { key: ',', code: 'Comma', ctrlKey: true, bubbles: true };
                 document.dispatchEvent(new KeyboardEvent('keydown', ev));
                 window.dispatchEvent(new KeyboardEvent('keydown', ev));
-              } catch (e) { /* ignore */ }
+              } catch (e) { wbWarn(e) }
             };
             let n = 0;
             const t = setInterval(() => {
@@ -586,7 +586,7 @@ async function showSettings() {
         const tryInject = () => {
           try {
             if (wv && wv.executeJavaScript) wv.executeJavaScript(INJECT).catch(() => { /* ignore */ });
-          } catch (e) { /* ignore */ }
+          } catch (e) { wbWarn(e) }
         };
         wv.addEventListener('dom-ready', tryInject);
         // SPA 渲染侧栏需要时间，轮询注入最多 20 秒
@@ -709,7 +709,7 @@ function migrateThemeKey() {
     const next = (legacy === 'light' || legacy === 'system') ? legacy : 'light';
     if (!localStorage.getItem(THEME_KEY)) localStorage.setItem(THEME_KEY, next);
     localStorage.setItem(THEME_MIGRATE_KEY, '1');
-  } catch (e) { /* localStorage 不可用就一直用默认（浅色） */ }
+  } catch (e) { wbWarn(e) }
 }
 function currentThemeMode() {
   const v = localStorage.getItem(THEME_KEY);
@@ -730,7 +730,7 @@ function applyTheme(mode) {
     if (window.app.theme && window.app.theme.setWindowBg) {
       window.app.theme.setWindowBg(resolved === 'light' ? '#fafafa' : '#0a0a0a');
     }
-  } catch (e) { /* ignore */ }
+  } catch (e) { wbWarn(e) }
 }
 function initTheme() {
   const btn = document.getElementById('btn-theme');
@@ -922,7 +922,7 @@ async function forceEnterHarness() {
     if (window.__bootFinish) window.__bootFinish();
     const url = await window.app.getHarnessUrl();
     if (url) webview.setAttribute('src', url);
-  } catch (e) { /* ignore */ }
+  } catch (e) { wbWarn(e) }
 }
 
 // ---------- 启动加载页：引擎启动进度（分阶段 + 炫酷进度条 + 失败可重试） ----------
@@ -986,7 +986,7 @@ const soloSceneId = (function () {
     return q.get('solo') ? String(q.get('scene') || '') : '';
   } catch (e) { return ''; }
 })();
-if (soloSceneId) { try { document.body.classList.add('solo'); } catch (e) { /* ignore */ } }
+if (soloSceneId) { try { document.body.classList.add('solo'); } catch (e) { wbWarn(e) } }
 let detachedScenes = new Set();  // 已在独立窗口里跑的场景（主窗口据此不再重复渲染一份）
 let forceLocalScene = '';        // 用户点了「仍在此显示」的场景（临时解除上面的限制）
 let placeholderSceneId = '';     // 当前正显示「占位卡」的场景（那个独立窗口一关就自动恢复真身）
@@ -999,7 +999,7 @@ function detachedCard(sc) {
   card.appendChild(mkEl('div', 'detach-card-sub', '这个场景正在独立窗口里显示（多屏分开看的工作方式）。关掉那个窗口，它就会回到这里。'));
   const row = mkEl('div', 'detach-card-row');
   const b1 = mkEl('button', 'detach-btn primary', '切到那个窗口');
-  b1.addEventListener('click', () => { try { window.app.win.openScene(sc.id); } catch (e) { /* ignore */ } });
+  b1.addEventListener('click', () => { try { window.app.win.openScene(sc.id); } catch (e) { wbWarn(e) } });
   const b2 = mkEl('button', 'detach-btn', '仍在此显示');
   b2.addEventListener('click', () => {
     forceLocalScene = sc.id;
@@ -1012,7 +1012,7 @@ function detachedCard(sc) {
 }
 
 async function loadScenario(id) {
-  activeCleanups.forEach(fn => { try { fn(); } catch (e) { /* ignore */ } });
+  activeCleanups.forEach(fn => { try { fn(); } catch (e) { wbWarn(e) } });
   activeCleanups = [];
   const sc = await window.app.getScenario(id);
   if (!sc) return;
@@ -1042,9 +1042,9 @@ async function loadScenario(id) {
   }
   placeholderSceneId = '';   // 正常渲染 → 不再处于"占位"状态
   // 多公司模板：切场景即通知主进程切换到该公司配置（SSH / 服务名 / 同步映射 / 日志来源 / 网址清单）
-  try { if (window.app.oa && window.app.oa.setScenario) window.app.oa.setScenario(sc.id); } catch (e) { /* ignore */ }
+  try { if (window.app.oa && window.app.oa.setScenario) window.app.oa.setScenario(sc.id); } catch (e) { wbWarn(e) }
   // 若有面板处于「展开」状态：先收起，撤掉它的 resize/ESC 监听与占位格（否则重建后残留）
-  try { if (typeof collapsePanel === 'function') collapsePanel(); } catch (e) { /* ignore */ }
+  try { if (typeof collapsePanel === 'function') collapsePanel(); } catch (e) { wbWarn(e) }
   grid.innerHTML = '';
   const renderers = kRender();
   for (let i = 0; i < sc.panels.length; i++) {
@@ -1064,7 +1064,7 @@ async function loadScenario(id) {
   }
   // 纯自动流场景（json 里一个 col/row 都没写，如 oa-ops）：渲染完自己排格 + 拉伸补洞 ——
   // 否则"这块放不下就往下挪"会在半路留出一大块空洞，还把网格行数撑多、把所有面板一起压扁（2026-09-26 用户截图）。
-  try { if (kUtils().packAutoGrid) kUtils().packAutoGrid(grid); } catch (e) { /* ignore */ }
+  try { if (kUtils().packAutoGrid) kUtils().packAutoGrid(grid); } catch (e) { wbWarn(e) }
   applyBadges();
 }
 // 外部（renderers.js 里的项目下拉等）改完场景 json 后要整场重建：这里给出唯一入口，
@@ -1078,7 +1078,7 @@ window.APP_RELOAD_SCENE = function (sceneId) {
 // 渲染层兜底：任何一步失败都在界面上留痕，不出现"窗口开了但空白、还不知道为啥"
 function bootFail(where, err) {
   const msg = where + '：' + ((err && (err.message || err)) || '未知错误');
-  try { console.error('[init] ' + msg); } catch (e) { /* ignore */ }
+  try { console.error('[init] ' + msg); } catch (e) { wbWarn(e) }
   try {
     let box = document.getElementById('init-error');
     if (!box) {
@@ -1087,7 +1087,7 @@ function bootFail(where, err) {
       document.body.appendChild(box);
     }
     box.textContent = '⚠ 界面初始化部分失败 → ' + msg + '（按 F12 看控制台；完整日志见 server.log）';
-  } catch (e) { /* ignore */ }
+  } catch (e) { wbWarn(e) }
 }
 // 包一层：单步失败不影响其它步骤
 function safeStep(where, fn) {
@@ -1103,7 +1103,7 @@ async function init() {
         '常见原因：preload.js 语法错误 / 被 CSP 拦截 / Electron 启动参数异常。<br>' +
         '处理：查看 server.log，或从 data\\backups 恢复上一版源码后重启。' +
         '</div>';
-    } catch (e) { /* ignore */ }
+    } catch (e) { wbWarn(e) }
     return;
   }
   safeStep('标题栏', () => initTitlebar());
@@ -1140,14 +1140,14 @@ async function init() {
   if (soloSceneId) {
     const hit = list.filter(s => s.id === soloSceneId)[0];
     const winTitle = ((hit && hit.name) || soloSceneId) + ' · 胡闹的工作台';
-    try { document.title = winTitle; } catch (e) { /* ignore */ }
+    try { document.title = winTitle; } catch (e) { wbWarn(e) }
     const brand = document.querySelector('.brand-name');
     if (brand) brand.textContent = winTitle;
     let entered = false;
     const enterSolo = async () => {
       if (entered) return;
       entered = true;
-      try { if (window.__bootFinish) window.__bootFinish(); } catch (e) { /* ignore */ }
+      try { if (window.__bootFinish) window.__bootFinish(); } catch (e) { wbWarn(e) }
       showView('scenario');
       try { await loadScenario(soloSceneId); } catch (err) { bootFail('加载分离场景', err); }
     };
@@ -1173,24 +1173,6 @@ async function init() {
   }
 
   // 场景图标映射（按场景 id）—— 支持图片路径（.png）或 emoji
-  // <客户> OA 系统运维：服务器机柜（内联 SVG 转 data URI，改图标不必加二进制资源）
-  const SERVER_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 16 16" fill="none">' +
-    '<rect x="2" y="2.6" width="12" height="4.7" rx="1.2" fill="#8fb4ff"/>' +
-    '<rect x="2" y="8.7" width="12" height="4.7" rx="1.2" fill="#4f8cff"/>' +
-    '<circle cx="4.4" cy="4.95" r="1" fill="#3ddc84"/>' +
-    '<circle cx="4.4" cy="11.05" r="1" fill="#3ddc84"/>' +
-    '<rect x="6.6" y="4.45" width="5.4" height="1" rx=".5" fill="#0b1220" opacity=".5"/>' +
-    '<rect x="6.6" y="10.55" width="5.4" height="1" rx=".5" fill="#0b1220" opacity=".5"/></svg>';
-  // 视频工作流：胶片 + 播放三角（同样内联 SVG；renderers.js 的 SCENARIO_ICONS 里有同一份，⟳ 即可生效）
-  const FILM_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 16 16" fill="none">' +
-    '<rect x="2" y="2.4" width="12" height="11.2" rx="1.8" fill="#8fb4ff"/>' +
-    '<circle cx="4.7" cy="4.9" r=".8" fill="#0b1220" opacity=".55"/>' +
-    '<circle cx="8" cy="4.9" r=".8" fill="#0b1220" opacity=".55"/>' +
-    '<circle cx="11.3" cy="4.9" r=".8" fill="#0b1220" opacity=".55"/>' +
-    '<circle cx="4.7" cy="11.1" r=".8" fill="#0b1220" opacity=".55"/>' +
-    '<circle cx="8" cy="11.1" r=".8" fill="#0b1220" opacity=".55"/>' +
-    '<circle cx="11.3" cy="11.1" r=".8" fill="#0b1220" opacity=".55"/>' +
-    '<path d="M6.6 6.7l3.8 2.3-3.8 2.3z" fill="#0b1220" opacity=".8"/></svg>';
   // 自我复盘：环形箭头（复盘/回顾）+ 文档页（同样内联 SVG；renderers.js 的 SCENARIO_ICONS 里有同一份）
   const REVIEW_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 16 16" fill="none">' +
     '<path d="M13.1 8A5.1 5.1 0 1 1 11.4 4.1" stroke="#8fb4ff" stroke-width="1.5" stroke-linecap="round"/>' +
@@ -1198,27 +1180,6 @@ async function init() {
     '<rect x="5.6" y="5.9" width="4.8" height="6.2" rx="1" fill="#8fb4ff" opacity=".85"/>' +
     '<rect x="6.9" y="7.6" width="2.2" height=".9" rx=".45" fill="#0b1220" opacity=".5"/>' +
     '<rect x="6.9" y="9.4" width="2.2" height=".9" rx=".45" fill="#0b1220" opacity=".5"/></svg>';
-  // DSH·GUI改造：窗口 + 三块面板（右下那块用琥珀色高亮 = 正在改造的那块）。
-  // 原为"窗口 + 两条滑杆"，看着像"设置"而不是"改造界面"（2026-09-26 用户要求换）。
-  // renderers.js 的 SCENARIO_ICONS 里有同一份，⟳ 即可生效。
-  const PANELS_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 16 16" fill="none">' +
-    '<rect x="2" y="2.7" width="12" height="10.6" rx="1.6" fill="#4f8cff" opacity=".26"/>' +
-    '<rect x="2" y="2.7" width="12" height="10.6" rx="1.6" stroke="#8fb4ff" stroke-width="1.1"/>' +
-    '<rect x="2.6" y="4.5" width="10.8" height="1" fill="#8fb4ff" opacity=".45"/>' +
-    '<circle cx="4.15" cy="3.6" r=".5" fill="#8fb4ff" opacity=".85"/>' +
-    '<circle cx="5.85" cy="3.6" r=".5" fill="#8fb4ff" opacity=".85"/>' +
-    '<rect x="3.4" y="6.5" width="4.3" height="5.3" rx=".8" fill="#8fb4ff" opacity=".38"/>' +
-    '<rect x="8.7" y="6.5" width="4.1" height="2.2" rx=".8" fill="#8fb4ff" opacity=".38"/>' +
-    '<rect x="8.7" y="9.6" width="4.1" height="2.2" rx=".8" fill="#f0a35e"/></svg>';
-  // 设计杂活（design-misc）标签图标：钢笔笔尖 + 落笔曲线 —— "画/做设计"的意象（用户要"有设计感"，不要 emoji）。
-  // ⚠ 与 renderer\renderers.js 的 SCENARIO_ICONS['design-misc'] 是同一份，改一处必须同步改另一处。
-  // ⚠⚠ 必须有 xmlns：这里的图标是塞进 `<img src="data:image/svg+xml…">` 的（独立 SVG 文档），
-  //     少一个 xmlns 就一律渲染不出来 —— 标签上会显示成"破图"占位符（2026-09-26 实测踩到）。
-  const DESIGN_SVG =
-    '<svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 16 16" fill="none" aria-hidden="true">' +
-    '<path d="M1.8 13.6c0-5 2.8-8.4 6.8-8.4 2.3 0 3.5 1.2 3.5 2.8 0 2-1.7 3.1-3.9 3.1-1.9 0-3.2.7-4.1 1.9" stroke="#8fb4ff" stroke-width="1.4" stroke-linecap="round"/>' +
-    '<path d="M11.1 2.1 14 5l-3.3.9z" fill="#f0a35e"/>' +
-    '<circle cx="1.9" cy="13.4" r="1.15" fill="#f0a35e"/></svg>';
   // 本地电脑（原名电脑清理，2026-10-06）：用量环 —— 与 renderers.js 的 SCENARIO_ICONS['pc-cleanup'] 同一份，两边保持一致
   const CLEAN_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 16 16" fill="none" aria-hidden="true">'
     + '<circle cx="8" cy="8" r="5.4" stroke="#8fb4ff" stroke-width="1.7" opacity=".35"/>'
@@ -1230,25 +1191,14 @@ async function init() {
     '<path d="M5.2 4.1 2 8l3.2 3.9" stroke="#8fb4ff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>' +
     '<path d="M10.8 4.1 14 8l-3.2 3.9" stroke="#8fb4ff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>' +
     '<path d="M9.2 2.8 6.8 13.2" stroke="#f0a35e" stroke-width="1.5" stroke-linecap="round"/></svg>';
-  // 工作台定制（workbench-custom，2026-10-26）：蓝壳工作台 + 2×2 面板，右下琥珀块 = 可换/可拼装的那一块。
-  // ⚠ 与 renderer\renderers.js 的 SCENARIO_ICONS['workbench-custom'] 是同一份，改一处必须同步改另一处。
-  const WORKBENCH_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="2" y="2.4" width="12" height="11.2" rx="1.9" fill="#8fb4ff"/><circle cx="4.05" cy="3.5" r=".48" fill="#0b1220" opacity=".45"/><circle cx="5.6" cy="3.5" r=".48" fill="#0b1220" opacity=".45"/><rect x="3.5" y="4.9" width="4" height="3.2" rx=".7" fill="#0b1220" opacity=".55"/><rect x="8.5" y="4.9" width="4" height="3.2" rx=".7" fill="#0b1220" opacity=".55"/><rect x="3.5" y="8.6" width="4" height="3.2" rx=".7" fill="#0b1220" opacity=".55"/><rect x="8.72" y="8.28" width="4" height="3.2" rx=".7" fill="#f0a35e"/></svg>';
   // 命令（command，2026-10-26）：迷你神经元网（6 蓝节点 + 1 琥珀核心 + 连线）—— 与 renderers.js 的 SCENARIO_ICONS['command'] 同一份。
   const NEURON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3.7 4.5 8 2.9l4.4 1.7M3 8.4l.7-3.9M8 2.9l.4 5.2M12.4 4.6 8.4 8.1M8.4 8.1l3.8 3.4M8.4 8.1l-3.8 4.1M3 8.4l5.4-.3" stroke="#8fb4ff" stroke-width=".85" stroke-linecap="round" opacity=".6"/><circle cx="3.7" cy="4.5" r="1.45" fill="#8fb4ff"/><circle cx="8" cy="2.9" r="1.15" fill="#8fb4ff" opacity=".85"/><circle cx="12.4" cy="4.6" r="1.25" fill="#8fb4ff"/><circle cx="3" cy="8.4" r="1.05" fill="#8fb4ff" opacity=".8"/><circle cx="8.4" cy="8.1" r="1.85" fill="#f0a35e"/><circle cx="12.2" cy="11.5" r="1.15" fill="#8fb4ff" opacity=".85"/><circle cx="4.6" cy="12.2" r="1.05" fill="#8fb4ff" opacity=".8"/></svg>';
   const ICONS = {
     'bilibili': 'assets/bilibili-icon.png',   // 2026-10-19 宿主新建「B站」场景（官方 favicon.svg）
-    'douyin': 'assets/douyin-icon.png',     // 2026-10-26 宿主新建「刷抖音」场景（抖音官方 favicon）
     'harness': 'assets/deepseek-whale.png',
-    'oa-ops': 'data:image/svg+xml;utf8,' + encodeURIComponent(SERVER_SVG),  // 服务器图标（原为云朵 ☁️）
-    'stock-analysis': 'assets/hithink-icon.png',  // 同花顺官方图标（scripts\fetch-hithink-icon.mjs 从官网抓；原为通用股票图）
-    'blender': 'assets/blender-icon.png',  // Blender 官方图标（从 blender.exe 提取）
-    'video-workflow': 'data:image/svg+xml;utf8,' + encodeURIComponent(FILM_SVG),  // 视频工作流（胶片）
     'self-review': 'data:image/svg+xml;utf8,' + encodeURIComponent(REVIEW_SVG),  // 自我复盘（环形箭头 + 文档）
-    'dsh-gui': 'data:image/svg+xml;utf8,' + encodeURIComponent(PANELS_SVG),  // DSH·GUI改造（窗口 + 三块面板）
-    'design-misc': 'data:image/svg+xml;utf8,' + encodeURIComponent(DESIGN_SVG),
     'code-dev': 'data:image/svg+xml;utf8,' + encodeURIComponent(CODE_SVG),
     'pc-cleanup': 'data:image/svg+xml;utf8,' + encodeURIComponent(CLEAN_SVG),   // 本地电脑（用量环）
-    'workbench-custom': 'data:image/svg+xml;utf8,' + encodeURIComponent(WORKBENCH_SVG),  // 工作台定制（蓝壳 + 琥珀可换块）
     'command': 'data:image/svg+xml;utf8,' + encodeURIComponent(NEURON_SVG)  // 命令（记忆神经元）
   };
 
@@ -1260,7 +1210,7 @@ async function init() {
       const lib = window.WB_SCENE_ICONS;
       const h = (lib && lib.markupOf) ? lib.markupOf(id) : '';
       if (h) return h;
-    } catch (e) { /* 登记表没加载就当没有，走下面的兜底 */ }
+    } catch (e) { wbWarn(e) }
     return ICONS[id] || '🧩';
   };
 
@@ -1271,7 +1221,7 @@ async function init() {
     b.addEventListener('click', (ev) => {
       ev.stopPropagation();   // 别顺带切换标签
       ev.preventDefault();
-      try { window.app.win.openScene(id); } catch (e) { /* ignore */ }
+      try { window.app.win.openScene(id); } catch (e) { wbWarn(e) }
     });
     tab.appendChild(b);
   };
@@ -1355,14 +1305,14 @@ async function init() {
       showView('scenario');
       // 已在独立窗口里跑 → 顺手把那个窗口拉到前台（本窗口显示占位卡，不重复渲染一份）
       if (detachedScenes.has(s.id) && forceLocalScene !== s.id) {
-        try { window.app.win.openScene(s.id); } catch (e) { /* ignore */ }
+        try { window.app.win.openScene(s.id); } catch (e) { wbWarn(e) }
       }
       loadScenario(s.id);
     });
     // 右键标签 = 在新窗口打开（与标签上的 ⧉ 等价）
     t.addEventListener('contextmenu', (ev) => {
       ev.preventDefault();
-      try { window.app.win.openScene(s.id); } catch (e) { /* ignore */ }
+      try { window.app.win.openScene(s.id); } catch (e) { wbWarn(e) }
     });
     tabsNav.appendChild(t);
     return t;
@@ -1378,7 +1328,7 @@ async function init() {
       try {
         if (window.app.setSceneOrder) window.app.setSceneOrder(ids);
         else localStorage.setItem('scenarioTabOrder', JSON.stringify(ids));
-      } catch (e) { /* 存档失败不影响已经换好的位置 */ }
+      } catch (e) { wbWarn(e) }
     };
     // 迁移：老版本把顺序存在 localStorage，主进程还没有存档文件时搬一次过去（之后就只认主进程）
     Promise.resolve()

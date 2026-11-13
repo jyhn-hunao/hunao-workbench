@@ -14549,6 +14549,216 @@ var mountProjectSwitch = function (meta, acts) {
   };
 };
 
+// 会话条（2026-11-13）：一个场景有多条会话（一条主会话 + N 条临时会话），面板一次只显示一条。
+//   菜单挂 body（面板 overflow 与 <webview> 都裁不到它）；列表/新建走主进程 IPC；
+//   切换由面板自己写分区键 + 重载，只影响本面板，不改场景配置。
+var mountSessionRail = function (meta, acts, onPick) {
+  var api = window.app || {};
+  if (typeof api.sceneSessions !== 'function') return null;   // 主进程还是旧的：不挂，别半残
+  var scene = String(meta.scenario || '');
+  var panelId = String(meta.id || '');
+  var btn = el('button', 'ai-project-btn', '会话 ▾');
+  btn.type = 'button';
+  btn.disabled = true;
+  btn.title = '本场景的会话：主会话 + 临时会话。点一条即切过去（只影响本面板，不改场景配置）';
+  acts.insertBefore(btn, acts.firstChild);
+
+  var menu = el('div', 'ai-project-menu');
+  menu.setAttribute('role', 'menu');
+  menu.style.display = 'none';
+  document.body.appendChild(menu);
+
+  var rows = [];
+  var curId = String(meta.sessionId || '');
+  var curTitle = String(meta.sessionTitle || '');
+  var open = false;
+  var naming = false;   // 正在填「用途」时别让后台的 fill 把输入框冲掉
+
+  var toast = function (msg, bad, ms) {
+    try { if (typeof window.__tbsToast === 'function') { window.__tbsToast(msg, !!bad, ms || (bad ? 10000 : 5000)); return; } } catch (e) { wbWarn(e) }
+    btn.title = msg;   // 顶栏通知还没就绪（老壳）才退到悬停提示，别静默吞掉
+  };
+  var place = function () {
+    var r = btn.getBoundingClientRect();
+    var w = Math.max(240, Math.min(420, Math.round(r.width) + 220));
+    menu.style.left = Math.round(Math.max(6, Math.min(r.left, window.innerWidth - w - 8))) + 'px';
+    menu.style.top = Math.round(r.bottom + 4) + 'px';
+    menu.style.minWidth = w + 'px';
+  };
+  var close = function () { naming = false; if (!open) return; open = false; menu.style.display = 'none'; };
+  var showMenu = function () {
+    if (open) { close(); return; }
+    place();
+    menu.style.display = '';
+    open = true;
+    fill();   // 每次打开都重读：别拿旧表糊人（新建 / 归档可能发生在别处）
+  };
+  var onDocDown = function (ev) {
+    if (!open) return;
+    if (menu.contains(ev.target) || btn.contains(ev.target)) return;
+    close();
+  };
+  var onKey = function (ev) { if (ev.key === 'Escape') close(); };
+  document.addEventListener('pointerdown', onDocDown, true);
+  document.addEventListener('keydown', onKey, true);
+
+  var curRow = function () {
+    return rows.filter(function (s) { return String(s.id) === curId; })[0] || null;
+  };
+  var label = function () {
+    var cur = curRow();
+    var t = String((cur && cur.title) || curTitle || '未绑定');
+    var tag = (rows.length && (!cur || cur.primary)) ? '主 · ' : '临时 · ';
+    btn.textContent = (rows.length ? tag : '') + t + ' ▾';
+    btn.title = '本场景的会话：主 + 临时（共 ' + rows.length + ' 条）。点一条即切过去，只影响本面板';
+  };
+  var render = function () {
+    if (naming) return;
+    menu.innerHTML = '';
+    rows.forEach(function (s) {
+      var it = el('button', 'ai-project-item' + (String(s.id) === curId ? ' cur' : ''));
+      it.type = 'button';
+      var line = el('span', 'ai-project-line');
+      line.appendChild(el('span', 'ai-project-name', String(s.title || '(未命名)')));
+      line.appendChild(el('span', 'ai-project-tag', s.primary ? '主' : (s.archived ? '归档' : (s.temp ? '临时' : '会话'))));
+      it.appendChild(line);
+      if (s.archived) {
+        it.disabled = true;
+        it.title = '已归档的会话：不能再作为当前会话（要恢复请到工作台设置页取消归档）';
+      } else {
+        it.title = (String(s.id) === curId ? '当前显示' : '切到这条会话') + '\n' + s.id;
+        it.addEventListener('click', function (ev) { ev.stopPropagation(); close(); pick(s); });
+      }
+      menu.appendChild(it);
+    });
+    if (!rows.length) menu.appendChild(el('div', 'ai-project-empty', '这个场景还没有会话'));
+    var add = el('button', 'ai-project-item add');
+    add.type = 'button';
+    var al = el('span', 'ai-project-line');
+    al.appendChild(el('span', 'ai-project-name', '＋ 新建临时会话'));
+    add.appendChild(al);
+    add.appendChild(el('span', 'ai-project-path', '同目录、同一套场景身份；用完归档，不写场景记忆（那是主会话的事）'));
+    add.addEventListener('click', function (ev) { ev.stopPropagation(); close(); addTemp(); });
+    menu.appendChild(add);
+  };
+
+  var pick = function (s) {
+    if (String(s.id) === curId) { toast('已经在显示这条会话了', false, 3000); return; }
+    btn.disabled = true;
+    Promise.resolve(onPick(s)).then(function (r) {
+      if (!r || !r.ok) {
+        toast('切到「' + String(s.title || s.id) + '」失败：' + ((r && r.err) || '未知原因'), true);
+        btn.disabled = false;
+        return;
+      }
+      curId = String(s.id);
+      curTitle = String(s.title || '');
+      label(); render();
+      btn.disabled = false;
+      toast('已切到「' + String(s.title || s.id) + '」', false, 4000);
+    }).catch(function (err) {
+      toast('切换失败：' + String((err && err.message) || err), true);
+      btn.disabled = false;
+    });
+  };
+
+  // 新建临时会话：先出就地输入框问「用途」（Electron 不支持 window.prompt，别用它）
+  var addTemp = function () {
+    naming = true;
+    menu.innerHTML = '';
+    var wrap = el('div', 'ai-project-naming');
+    var inp = el('input', 'ai-project-input');
+    inp.type = 'text';
+    inp.maxLength = 24;
+    inp.placeholder = '用途（可留空，如 排错 / 调研）· 只用于命名';
+    var go = el('button', 'ai-project-go', '建');
+    go.type = 'button';
+    var cancel = el('button', 'ai-project-go ghost', '取消');
+    cancel.type = 'button';
+    var row = el('span', 'ai-project-line');
+    row.appendChild(inp);
+    row.appendChild(go);
+    row.appendChild(cancel);
+    wrap.appendChild(row);
+    menu.appendChild(wrap);
+    try { inp.focus(); } catch (e) { wbWarn(e) }
+    inp.addEventListener('keydown', function (ev) {
+      if (ev.key === 'Enter') { ev.preventDefault(); create(inp.value); }
+      else if (ev.key === 'Escape') { ev.preventDefault(); close(); }
+    });
+    go.addEventListener('click', function (ev) { ev.stopPropagation(); create(inp.value); });
+    cancel.addEventListener('click', function (ev) { ev.stopPropagation(); close(); });
+  };
+
+  // 真建：标题由主进程按 `<场景>-临时-<用途>-<MMDDHHmm>` 定，建完直接切过去
+  var create = function (purpose) {
+    naming = false;
+    btn.disabled = true;
+    menu.innerHTML = '';
+    menu.appendChild(el('div', 'ai-project-empty', '正在建会话…（第一次可能要几秒）'));
+    Promise.resolve(api.sceneNewSession(scene, panelId, String(purpose || ''))).then(function (r) {
+      if (!r || !r.ok) {
+        toast('新建临时会话失败：' + ((r && r.err) || '未知原因') + ((r && r.log) ? '（详情见 外壳\\server.log）' : ''), true, 12000);
+        btn.disabled = false;
+        fill();
+        return;
+      }
+      rows.unshift({ id: String(r.id), title: String(r.title || ''), primary: false, archived: false, temp: true, at: Date.now() });
+      render();
+      return Promise.resolve(onPick({ id: r.id, title: r.title })).then(function (sw) {
+        btn.disabled = false;
+        if (sw && sw.ok) {
+          curId = String(r.id);
+          curTitle = String(r.title || '');
+          label(); render();
+          toast('已新建并切到「' + String(r.title || r.id) + '」', false, 6000);
+        } else {
+          toast('新会话「' + String(r.title || r.id) + '」建好了，但没能切过去：' + ((sw && sw.err) || '未知原因'), true, 12000);
+        }
+      });
+    }).catch(function (err) {
+      toast('新建临时会话失败：' + String((err && err.message) || err), true);
+      btn.disabled = false;
+      fill();
+    });
+  };
+
+  var fill = function () {
+    return Promise.resolve(api.sceneSessions(scene, panelId)).then(function (r) {
+      if (!r || !r.ok) {
+        btn.textContent = '会话 ▾';
+        btn.title = '会话列表读取失败：' + ((r && r.err) || '未知原因');
+        btn.disabled = false;
+        return;
+      }
+      rows = Array.isArray(r.sessions) ? r.sessions : [];
+      if (!curId) curId = String((r.bound && r.bound.id) || '');
+      if (!curTitle) curTitle = String((r.bound && r.bound.title) || '');
+      label(); render();
+      btn.disabled = false;
+    }).catch(function (err) {
+      btn.textContent = '会话 ▾';
+      btn.title = '会话列表读取失败：' + String((err && err.message) || err);
+      btn.disabled = false;
+    });
+  };
+
+  btn.addEventListener('click', function (ev) { ev.stopPropagation(); showMenu(); });
+  fill();
+
+  return {
+    fill: fill,
+    // 主会话换了人（换会话 / 自动换会话）：丢掉本条的临时指针，重新按 json 那条收口
+    reset: function () { curId = ''; curTitle = ''; return fill(); },
+    cleanup: function () {
+      close();
+      try { menu.remove(); } catch (e) { wbWarn(e) }
+      document.removeEventListener('pointerdown', onDocDown, true);
+      document.removeEventListener('keydown', onKey, true);
+    }
+  };
+};
+
 renderers.harness = (body, meta, head) => {
   body.classList.add('harness-panel');
 
@@ -14558,6 +14768,33 @@ renderers.harness = (body, meta, head) => {
   let pinTimer = null;    // 常驻钉住重注入（5s）
   let disposed = false;   // 场景切换后停止一切注入
   let switchCleanup = null;   // 项目下拉的菜单挂在 body 上，场景重建时要摘掉
+  let rail = null;            // 会话条（主 + 临时）
+  let railCleanup = null;
+
+  // 会话条切换（2026-11-13）：只改「本面板显示哪条会话」，不改场景配置。
+  // 1. 写覆盖层 + 本面板分区的会话键（引擎按这个键决定打开哪条）→ 2. 重载本 webview，
+  //    新注入的钉会话脚本读到覆盖层，按新会话收敛。（分区是面板私有的，写键不会互抢）
+  function switchSession(target) {
+    return new Promise((resolve) => {
+      const id = String((target && target.id) || '');
+      const title = String((target && target.title) || '');
+      if (!id) { resolve({ ok: false, err: '缺少会话 id' }); return; }
+      if (!wv || typeof wv.executeJavaScript !== 'function') { resolve({ ok: false, err: '对话窗口还没加载好' }); return; }
+      const js = "(() => { try {"
+        + "sessionStorage.setItem('app_pin_override', JSON.stringify(" + JSON.stringify({ id: id, title: title }) + "));"
+        + "sessionStorage.removeItem('app_pin_reloads');"
+        + "sessionStorage.removeItem('app_pin_reload_at');"
+        + "const k = 'dsh.sessions.current';"
+        + "const cur = JSON.parse(localStorage.getItem(k) || '{}');"
+        + "localStorage.setItem(k, JSON.stringify(Object.assign({}, cur, { sessionId: " + JSON.stringify(id) + " })));"
+        + "return true; } catch (e) { return false; } })()";
+      wv.executeJavaScript(js).then(function (ok) {
+        if (!ok) { resolve({ ok: false, err: '写会话存储失败（本面板分区不可写）' }); return; }
+        try { wv.reload(); } catch (e) { wbWarn(e) }
+        resolve({ ok: true });
+      }, function (err) { resolve({ ok: false, err: String((err && err.message) || err) }); });
+    });
+  }
 
   const reloadBtn = el('button', 'file-refresh', '🔄 重新加载');
   reloadBtn.title = '重新加载对话窗口';
@@ -14619,6 +14856,9 @@ renderers.harness = (body, meta, head) => {
             window.app.onRotated((p) => {
               const fn = window.__harnessReload[String((p && p.panelId) || '')];
               if (typeof fn === 'function') fn(p);
+              // 换过主会话后，会话条上的「主」要换人 —— 顺手刷新一下（失败不影响重载）
+              const rf = window.__railRefresh && window.__railRefresh[String((p && p.panelId) || '')];
+              if (typeof rf === 'function') { try { rf(); } catch (e) { wbWarn(e) } }
             });
           }
         } catch (e) { wbWarn(e) }
@@ -14627,7 +14867,17 @@ renderers.harness = (body, meta, head) => {
       rot.title = '把这个面板换成一条新会话：写面板交接 → 建新 → 改绑（场景 json / 定位卡 / 身份索引）→ 归档旧 → 重载本面板。压力到阈值且空闲时会自动做同样的事。';
       // 本面板的重载器：自动换会话完成后按 panelId 调它，只重载这一块，别整页刷
       window.__harnessReload = window.__harnessReload || {};
-      window.__harnessReload[meta.id] = () => { try { if (wv && wv.reload) wv.reload(); } catch (e) { wbWarn(e) } };
+      window.__harnessReload[meta.id] = () => {
+        try {
+          if (!wv) return;
+          // 换过主会话 = 这个面板要回到 json 那条；先摘掉会话条的临时覆盖，否则重载后又显示旧临时会话
+          const back = () => { try { if (wv && wv.reload) wv.reload(); } catch (e) { wbWarn(e) } };
+          if (typeof wv.executeJavaScript === 'function') {
+            wv.executeJavaScript("try{sessionStorage.removeItem('app_pin_override')}catch(e){}; 'ok'")
+              .then(back, back);
+          } else back();
+        } catch (e) { wbWarn(e) }
+      };
       rot.addEventListener('click', async () => {
         // 面板上不放会消失的状态字：进度只体现在按钮标签上，结果一律顶栏 toast。
         let go = true;
@@ -14649,7 +14899,12 @@ renderers.harness = (body, meta, head) => {
             notify('换会话完成 · 新会话 ' + (r.newId || '(未返回 id)')
               + (r.elapsed ? ' · ' + r.elapsed + ' 秒' : '') + (r.warn ? ' · ' + r.warn : ''), false, 6000);
             // 只重载本面板：新会话 id 已写进场景 json，重载后这块 webview 就绑到新会话
-            setTimeout(() => { try { if (wv && wv.reload) wv.reload(); } catch (e) { wbWarn(e) } }, 400);
+            // 走 __harnessReload（它先摘掉会话条的临时覆盖，否则重载后还显示旧临时会话）
+            setTimeout(() => {
+              const back = window.__harnessReload[meta.id];
+              if (typeof back === 'function') back();
+              else { try { if (wv && wv.reload) wv.reload(); } catch (e) { wbWarn(e) } }
+            }, 400);
           } else if (r && r.code === 'busy') {
             notify('换会话没开始：' + ((r && r.err) || '这个场景正在换') + '（等它跑完再点）', true, 8000);
           } else {
@@ -14682,6 +14937,17 @@ renderers.harness = (body, meta, head) => {
     head.appendChild(acts);
     // 程序开发场景：标题栏再加一个「项目」按钮（换项目 = 换会话 + 换 Git 仓库 + 文件面板跟过去）
     if (meta.projectSwitch) switchCleanup = mountProjectSwitch(meta, acts);
+    // 会话条（2026-11-13）：一个场景多条会话（主 + 临时），这里能看到 / 能新建 / 能切。
+    // 人格面板（pet）刻意不挂（json 里 sessionRail:false）：它的会话被 QQ/飞书路由钉住，
+    // 换会话必须走「桥接同步」重指路由，不能在这一下拉里随手切。
+    if (meta.sessionRail !== false && meta.sessionId && window.app && typeof window.app.sceneSessions === 'function') {
+      rail = mountSessionRail(meta, acts, switchSession);
+      if (rail) {
+        railCleanup = rail.cleanup;
+        window.__railRefresh = window.__railRefresh || {};
+        window.__railRefresh[String(meta.id)] = rail.reset;
+      }
+    }
   }
 
   const msg = el('div', 'harness-loading', '正在加载对话窗口…');
@@ -14776,9 +15042,12 @@ renderers.harness = (body, meta, head) => {
     });
   })()`;
   const HARNESS_PIN_JS = `(() => {
-    const TARGETS = ${PIN_TARGETS_JS};
-    const SESSION_TITLE = ${PIN_SESSION_JS};
-    const SESSION_ID = ${PIN_SESSION_ID_JS};
+    // 会话条切换（2026-11-13）：运行时覆盖层优先 —— 面板写 sessionStorage 后重载本 webview，
+    // 新注入的这份脚本就按新会话钉；场景配置（json）不动，切场景回来仍回主会话。
+    const OVR = (() => { try { return JSON.parse(sessionStorage.getItem('app_pin_override') || 'null'); } catch (e) { return null; } })();
+    const TARGETS = (OVR && OVR.id) ? [String(OVR.title || '')].filter(Boolean) : ${PIN_TARGETS_JS};
+    const SESSION_TITLE = (OVR && OVR.id) ? String(OVR.title || '') : ${PIN_SESSION_JS};
+    const SESSION_ID = (OVR && OVR.id) ? String(OVR.id) : ${PIN_SESSION_ID_JS};
     const PANEL = ${PIN_PANEL_JS};
     // ⚠ 侧栏真实 DOM 结构（依据引擎源码 packages/client/ui-workspace/src/client/rows/Rows.tsx）：
     //   · 会话行  = div[role="treeitem"][aria-selected]  —— 没有 data-session-id 之类的 id 属性，
@@ -15502,6 +15771,8 @@ renderers.harness = (body, meta, head) => {
     if (hostTimer) clearInterval(hostTimer);
     if (pinTimer) clearInterval(pinTimer);
     if (switchCleanup) { try { switchCleanup(); } catch (e) { wbWarn(e) } }
+    if (railCleanup) { try { railCleanup(); } catch (e) { wbWarn(e) } }
+    try { if (window.__railRefresh) delete window.__railRefresh[String(meta.id)]; } catch (e) { wbWarn(e) }
   };
 };
 
@@ -17823,7 +18094,7 @@ renderers.neuron = (body, meta, head) => {
   const EDGE_LABEL = {
     area: '内核 → 区域', skill: '技能归属（→ owner 场景）', memory: '私有记忆归属',
     project: '项目 owner', dep: '区域互相提及（文本启发式）', chain: '提交链',
-    assoc: '跨场景联想（共享主题词）',
+    assoc: '共享主题（主题 → 场景）',
     source: '数据源', doc: '共享文档'
   };
   // 归口配色：引擎/工具=蓝 · 界面/设计=琥珀 · 内容/业务=绿 · 运维/清理=红
@@ -17976,7 +18247,8 @@ renderers.neuron = (body, meta, head) => {
   let edges = [];        // {a,b,kind}
   let ry = -0.35, rx = 0.18, zoom = 1.42;
   var fitZoom = 1.42;   // 力导向布置算出的「铺满面板」焦距（复位按它，不再写死 1.42）
-  var nAssoc = 0;       // 联想边条数（2026-11-13：跨场景共享主题的边，stat 里报数）
+  var nAssoc = 0;       // 联想边条数（2026-11-13：主题 → 场景 的边，stat 里报数）
+  var nTopics = 0;      // 主题节点数（一个主题可挂多个场景 ⇒ 一对多/多对一）
   let hover = null, sel = null, auto = true, disposed = false, raf = 0, last = 0;
   let drill = null, savedView = null;   // drill = 当前下钻的项目节点 id（null = 全局视图）
   var ownerSkill = {};   // skill 节点 id → 面板 id（layout 贴 owner 用）
@@ -18052,6 +18324,29 @@ renderers.neuron = (body, meta, head) => {
     return Math.max(0, Math.min(1, 1 - days / 45));
   }
 
+  // 主题标签：标题里最长公共子串（「改混合行尾」「工作区」这种），比二元词拼接可读
+  function cleanText(s) {
+    return String(s || '').replace(/[`~"'“”‘’（）()【】\[\]{}<>:：,，。.!！?？/\\|]+/g, ' ').replace(/\s+/g, ' ').trim();
+  }
+  function lcsOf(a, b) {
+    a = String(a || ''); b = String(b || '');
+    if (!a || !b) return '';
+    var best = '', dp = new Array(b.length + 1);
+    for (var z = 0; z < dp.length; z++) dp[z] = 0;
+    for (var i = 1; i <= a.length; i++) {
+      var prev = 0;
+      for (var j = 1; j <= b.length; j++) {
+        var tmp = dp[j];
+        if (a.charAt(i - 1) === b.charAt(j - 1)) {
+          dp[j] = prev + 1;
+          if (dp[j] > best.length) best = a.slice(i - dp[j], i);
+        } else dp[j] = 0;
+        prev = tmp;
+      }
+    }
+    return best.trim();
+  }
+
   function buildAssociations() {
     nAssoc = 0;                                  // 每次重读重算，别留上一轮的数
     var areaNodes = nodes.filter(function (n) { return n.kind === 'area'; });
@@ -18064,10 +18359,22 @@ renderers.neuron = (body, meta, head) => {
         var es = [];
         if (d && Array.isArray(d.entries)) {
           d.entries.forEach(function (e) {
+            var g = gramsOf(String(e.title || '') + ' ' + (Array.isArray(e.tags) ? e.tags.join(' ') : ''));
+            var ds = Array.isArray(e.distinct) ? e.distinct.map(String) : [];
+            // distinct：作者标了「这词跟别处不是一回事」⇒ 联想层不再拿它连边（词像义不同的硬保护）
+            if (ds.length) {
+              Object.keys(g).forEach(function (k) {
+                if (ds.some(function (w) { return w && k.indexOf(w) >= 0; })) delete g[k];
+              });
+            }
             es.push({
               title: String(e.title || ''),
+              ct: cleanText(e.title),
               date: String(e.date || '').slice(0, 10),
-              g: gramsOf(String(e.title || '') + ' ' + (Array.isArray(e.tags) ? e.tags.join(' ') : ''))
+              g: g,
+              distinct: ds,
+              // 条目的相对路径（`决策\xxx.md`）：主题节点要能打开"来源"的真实文件
+              rawPath: String(e.path || '')
             });
           });
         }
@@ -18094,37 +18401,78 @@ renderers.neuron = (body, meta, head) => {
       all.forEach(function (e) { for (var g in e.g) df[g] = (df[g] || 0) + 1; });
       var N = Math.max(1, all.length);
       function idf(g) { return Math.log(N / (df[g] || 1)); }
-      // 2. 场景两两比：分条条目两两算重合分，每对取最强 3 条累计
-      var pairs = [];
+      // 2. 跨场景强命中：条目两两算重合分（sc ≥ 4 才留），并取最长公共子串当主题候选
+      var hits = [];
       for (var i = 0; i < areaNodes.length; i++) {
         for (var j = i + 1; j < areaNodes.length; j++) {
           var A = areaNodes[i], B = areaNodes[j];
           if (!(A.entries && A.entries.length && B.entries && B.entries.length)) continue;
-          var hits = [];
           A.entries.forEach(function (ea) {
             B.entries.forEach(function (eb) {
               var sc = 0, sh = [];
               for (var g in ea.g) if (eb.g[g]) { sc += idf(g); sh.push(g); }
-              if (sc > 0) hits.push({ sc: sc, sh: sh, a: ea.title, b: eb.title });
+              if (sc < 4) return;
+              hits.push({
+                a: A.id, b: B.id, sa: ea.title, sb: eb.title, sc: sc, sh: sh, label: lcsOf(ea.ct, eb.ct),
+                // 来源条目的绝对路径（主题不是文件，但它的两端是）
+                pa: (A.memDir && ea.rawPath) ? A.memDir + '\\' + ea.rawPath : '',
+                pb: (B.memDir && eb.rawPath) ? B.memDir + '\\' + eb.rawPath : ''
+              });
             });
           });
-          hits.sort(function (x, y) { return y.sc - x.sc; });
-          var top = hits.slice(0, 3);
-          var score = top.reduce(function (s, h) { return s + h.sc; }, 0);
-          if (score >= 8) pairs.push({ a: A.id, b: B.id, score: score, top: top });
         }
       }
-      // 3. 每个场景最多 3 条联想边；边权进布局与线宽（越像越粗）
-      pairs.sort(function (x, y) { return y.score - x.score; });
-      var per = {}, added = 0;
-      pairs.forEach(function (p) {
-        if ((per[p.a] || 0) >= 3 || (per[p.b] || 0) >= 3) return;
-        per[p.a] = (per[p.a] || 0) + 1; per[p.b] = (per[p.b] || 0) + 1;
-        edges.push({ a: p.a, b: p.b, kind: 'assoc', score: p.score, w: Math.min(3, 1 + p.score / 20), hits: p.top });
-        added++;
+      // 3. 按共享词聚类：一个主题 = 一组互相咬合的命中
+      //   这样「主题」才是枢纽节点：一个主题连到它出现的所有场景（1→N），一个场景连到多个主题（N→1）。
+      var parent = [];
+      for (var hi = 0; hi < hits.length; hi++) parent[hi] = hi;
+      function findRoot(x) { return parent[x] === x ? x : (parent[x] = findRoot(parent[x])); }
+      var gramOwner = {};
+      hits.forEach(function (h, k) {
+        h.sh.forEach(function (g) {
+          if (gramOwner[g] == null) { gramOwner[g] = k; return; }
+          var r1 = findRoot(k), r2 = findRoot(gramOwner[g]);
+          if (r1 !== r2) parent[r1] = r2;
+        });
+      });
+      var clusters = {};
+      hits.forEach(function (h, k) {
+        var r = findRoot(k);
+        (clusters[r] = clusters[r] || []).push(h);
+      });
+      var BADLABEL = { '写的是': 1, '用户当': 1, '第一': 1, '目记': 1, '共享记': 1, '场景记': 1 };
+      var topics = [];
+      Object.keys(clusters).forEach(function (r) {
+        var hs = clusters[r], sceneIds = [], score = 0, best = null;
+        hs.forEach(function (h) {
+          if (sceneIds.indexOf(h.a) < 0) sceneIds.push(h.a);
+          if (sceneIds.indexOf(h.b) < 0) sceneIds.push(h.b);
+          score += h.sc;
+          // 标签取簇里分最高、长度合适、不是碎词的那条
+          if (h.label && h.label.length >= 3 && h.label.length <= 14 && !BADLABEL[h.label] && (!best || h.sc > best.sc)) best = h;
+        });
+        if (sceneIds.length < 2 || score < 8 || !best) return;
+        topics.push({ label: best.label, scenes: sceneIds, score: score, sa: best.sa, sb: best.sb, pa: best.pa, pb: best.pb });
+      });
+      topics.sort(function (x, y) { return y.score - x.score; });
+      // 4. 主题节点 + 主题→场景边（度=场景数；场景侧的度=参与的主题数）
+      var added = 0;
+      topics.slice(0, 10).forEach(function (t, ti) {
+        var tid = 'topic-' + ti;
+        nodes.push({
+          id: tid, label: t.label, kind: 'topic', group: 'project', r: 7, path: '', size: 0,
+          text: '', topicScenes: t.scenes.length, score: t.score, sampleA: t.sa, sampleB: t.sb,
+          samplePathA: t.pa || '', samplePathB: t.pb || ''
+        });
+        var w = Math.min(3, 1 + t.score / 20);
+        t.scenes.forEach(function (sid) {
+          edges.push({ a: tid, b: sid, kind: 'assoc', score: t.score, w: w });
+          added++;
+        });
       });
       nAssoc = added;
-      console.log('[neuron] 联想边 ' + added + ' 条 · 场景 ' + areaNodes.length + ' · 分条条目 ' + N);
+      nTopics = topics.slice(0, 10).length;
+      console.log('[neuron] 联想：主题 ' + nTopics + ' · 主题→场景边 ' + added + ' · 场景 ' + areaNodes.length + ' · 分条条目 ' + N);
       // 4. 新鲜度：场景看最新一条记忆，项目看索引里最新一篇
       nodes.forEach(function (n) {
         if (n.kind === 'area' || n.kind === 'project') n.heat = n.freshAt ? heatOf(n.freshAt) : 0.45;
@@ -18138,10 +18486,13 @@ renderers.neuron = (body, meta, head) => {
   function load() {
     stat.textContent = '正在读共享记忆…';
     var oaApi = (window.app && window.app.oa) || null;   // 列目录能力：场景自动扫描 + 项目兜底 + 提交链 都要用
-    return Promise.all([readText(ROOT + '\\索引.json'), readText(ROOT + '\\项目.json'), readText(ROOT + '\\记忆地图.json')]).then(function (both) {
+    return Promise.all([readText(ROOT + '\\索引.json'), readText(ROOT + '\\项目.json'), readText(ROOT + '\\记忆地图.json'), readText(ROOT + '\\场景目录.json')]).then(function (both) {
       var txt = both && both[0];
       var projTxt = (both && both[1]) || '';
       var mapTxt = (both && both[2]) || '';
+      var sceneRegTxt = (both && both[3]) || '';
+      var sceneReg = null;
+      try { sceneReg = sceneRegTxt ? JSON.parse(sceneRegTxt) : null; } catch (e) { sceneReg = null; }
       var memMap = null;
       try { memMap = mapTxt ? JSON.parse(mapTxt) : null; } catch (e) { memMap = null; }
       var memByPanel = {};
@@ -18216,49 +18567,35 @@ renderers.neuron = (body, meta, head) => {
         }));
       });
 
-      // 自动进图（2026-11-13）：目录里存在、但登记表没写的场景
-      //   判据：有 场景私有记忆.md / 身份卡.md / _索引.json 之一 —— 空目录（工作台定制 · 只有空 坑\）不占位。
-      //   杂项目录 其他会话临时项目信息交接文档 不是场景，排除。
+      // 自动进图（2026-11-13 修）：场景清单改用 工具\场景记忆.mjs 生成的 `_共享记忆\场景目录.json`。
+      //   原来走 oaApi.filesLocal —— 全仓 grep 0 命中（真实壳没有这个 IPC），所以自动扫描**一直静默失效**，
+      //   面板只剩手工登记表里的 5 个场景（用户 2026-11-13 报「社交/胡闹的大肥鱼没进来」）。
+      //   现在：新场景跑一次 `索引` 就进图，不依赖登记表，也不需要目录扫描能力。
       var SCENE_ONLY = { '其他会话临时项目信息交接文档': 1 };
-      jobs.push((oaApi && oaApi.filesLocal
-        ? Promise.resolve(oaApi.filesLocal(MEM_ROOT))
-        : Promise.resolve(null)
-      ).then(function (r) {
-        if (!r || r.ok === false) return null;
-        var rows = (r.rows || []).filter(function (it) {
-          var nm = String((it && it.name) || '');
-          return it && it.isDir !== false && nm && nm.charAt(0) !== '_' && !SCENE_ONLY[nm] && !sceneSeen[nm];
+      var regScenes = (sceneReg && Array.isArray(sceneReg.scenes)) ? sceneReg.scenes : [];
+      regScenes.forEach(function (sc, xi) {
+        var nm = String((sc && sc.name) || '');
+        if (!nm || nm.charAt(0) === '_' || SCENE_ONLY[nm] || sceneSeen[nm]) return;
+        var d = MEM_ROOT + '\\' + nm;
+        var id = 'area-auto-' + xi;
+        sceneSeen[nm] = 1;
+        nodes.push({
+          id: id, label: nm, kind: 'area', group: 'content', r: 10,
+          path: d, size: 0, region: '', text: '', auto: true,
+          owner: '', scene: nm, memDir: d, sceneIndex: d + '\\_索引.json', entryCount: 0,
+          sceneId: String((sc && sc.id) || ''), panels: (sc && sc.panels) || []
         });
-        return Promise.all(rows.map(function (it) {
-          var nm = String(it.name);
-          var d = MEM_ROOT + '\\' + nm;
-          return Promise.all([
-            statSize(d + '\\场景私有记忆.md'),
-            statSize(d + '\\身份卡.md'),
-            statSize(d + '\\_索引.json')
-          ]).then(function (sz) { return { name: nm, ok: sz[0] > 0 || sz[1] > 0 || sz[2] > 0 }; });
-        }));
-      }).then(function (list) {
-        (list || []).filter(function (x) { return x.ok; }).forEach(function (x, xi) {
-          var d = MEM_ROOT + '\\' + x.name;
-          var id = 'area-auto-' + xi;
+        edges.push({ a: 'core', b: id, kind: 'area' });
+        jobs.push(statSize(d + '\\场景私有记忆.md').then(function (sz) {
+          if (!sz) return;
+          var mid = 'mem-auto-' + xi;
           nodes.push({
-            id: id, label: x.name, kind: 'area', group: 'content', r: 10,
-            path: d, size: 0, region: '', text: '', auto: true,
-            owner: '', scene: x.name, memDir: d, sceneIndex: d + '\\_索引.json', entryCount: 0
+            id: mid, label: '§' + nm, kind: 'memory', group: 'memory',
+            path: d + '\\场景私有记忆.md', size: sz, isDir: false, ownerPanel: ''
           });
-          edges.push({ a: 'core', b: id, kind: 'area' });
-          jobs.push(statSize(d + '\\场景私有记忆.md').then(function (sz) {
-            if (!sz) return;
-            var mid = 'mem-auto-' + xi;
-            nodes.push({
-              id: mid, label: '§' + x.name, kind: 'memory', group: 'memory',
-              path: d + '\\场景私有记忆.md', size: sz, isDir: false, ownerPanel: ''
-            });
-            edges.push({ a: id, b: mid, kind: 'memory' });
-          }));
-        });
-      }).catch(function () { /* 没有目录能力就算了 */ }));
+          edges.push({ a: id, b: mid, kind: 'memory' });
+        }));
+      });
 
       // 项目节点（2026-10-26）：优先读 dg-dsh 建的登记表 _共享记忆\\项目.json；
       //   没有才退回"列两个真实根目录"。登记表里有 owner/status/aliases ⇒ 归属与状态都比猜的准。
@@ -18487,6 +18824,7 @@ renderers.neuron = (body, meta, head) => {
         { t: '数据源 ' + nSrcN },
         { t: '提交链 ' + nChainN + ' 文件 / ' + nAnchorN + ' 锚点' },
         { t: '项目 ' + nProjN },
+        { t: '主题 ' + nTopics },
         { t: '联想边 ' + nAssoc },
         { t: '连线 ' + edges.length },
         { t: '孤立 ' + nLoneN, cls: nLoneN ? ' bad' : '' }
@@ -18513,8 +18851,8 @@ renderers.neuron = (body, meta, head) => {
   function layout() {
     var n = nodes.length;
     if (!n) return;
-    var R_KIND = { core: 13, area: 10, project: 6.6, memory: 5.2, skill: 4.8, source: 4.8, chain: 4.2, doc: 7, shareddoc: 6.4 };
-    var TIER = { core: 0, doc: 120, source: 170, area: 285, project: 350, memory: 380, skill: 445, chain: 475, shareddoc: 320, memcat: 150, memdoc: 285, drillproj: 0 };
+    var R_KIND = { core: 13, area: 10, project: 6.6, topic: 6.8, memory: 5.2, skill: 4.8, source: 4.8, chain: 4.2, doc: 7, shareddoc: 6.4 };
+    var TIER = { core: 0, doc: 120, source: 170, area: 285, topic: 330, project: 350, memory: 380, skill: 445, chain: 475, shareddoc: 320, memcat: 150, memdoc: 285, drillproj: 0 };
     var W_KIND = { area: 0.24, source: 0.30, skill: 0.55, project: 0.80, memory: 0.85, dep: 1.0, chain: 0.45, doc: 0.40, assoc: 0.90 };
     // 1. 半径：场景按正文体量；其余按节点类型
     nodes.forEach(function (x) {
@@ -18767,7 +19105,7 @@ renderers.neuron = (body, meta, head) => {
       return false;
     }
     // 只看记忆：留下的种类（内核/场景/私有记忆/提交链/共享文档）
-    var MEM_KINDS = { core: 1, area: 1, memory: 1, chain: 1, doc: 1, shareddoc: 1 };
+    var MEM_KINDS = { core: 1, area: 1, memory: 1, chain: 1, doc: 1, shareddoc: 1, topic: 1 };
     function keep(n) { return drill ? true : (!onlyMem || !!MEM_KINDS[n.kind]); }
     function col(group) { return kcolor(group); }
     function safeR(n, ps) { var r = n.r * ps; return (isFinite(r) && r > 0) ? Math.max(1.6, r) : 1.6; }
@@ -19043,7 +19381,7 @@ renderers.neuron = (body, meta, head) => {
     if (!items.length) return;
     var ctx = cv.getContext('2d');
     var C = kpal();
-    var PRI = { core: 0, drillproj: 0, area: 1, project: 2, memory: 3, chain: 4, shareddoc: 5, memcat: 5, skill: 6, source: 7, doc: 8, memdoc: 9 };
+    var PRI = { core: 0, drillproj: 0, area: 1, project: 2, topic: 2.5, memory: 3, chain: 4, shareddoc: 5, memcat: 5, skill: 6, source: 7, doc: 8, memdoc: 9 };
     // 已占位方框：节点胞体全算（标签不许压住别的节点），HUD 那条也留出来
     var boxes = [{ x1: -1, x2: W, y1: -1, y2: 44 }];
     list.forEach(function (it) {
@@ -19205,6 +19543,11 @@ renderers.neuron = (body, meta, head) => {
     if (n.kind === 'memcat') detail.appendChild(el('div', 'kneu-ds', '记忆分类：' + n.cat + ' · ' + n.count + ' 篇'));
     if (n.kind === 'memdoc') detail.appendChild(el('div', 'kneu-ds', '记忆分类：' + n.cat + (n.date ? (' · ' + n.date) : '')));
     if (n.kind === 'memdoc' && n.tags && n.tags.length) detail.appendChild(el('div', 'kneu-ds', '标签：' + n.tags.slice(0, 4).join(' / ')));
+    if (n.kind === 'topic') {
+      detail.appendChild(el('div', 'kneu-ds', '共享主题 · 挂在 ' + (n.topicScenes || 0) + ' 个场景上（分 ' + (n.score || 0).toFixed(1) + '）'));
+      if (n.sampleA) detail.appendChild(el('div', 'kneu-dp', '例 · ' + String(n.sampleA).slice(0, 46)));
+      if (n.sampleB) detail.appendChild(el('div', 'kneu-dp', '　　' + String(n.sampleB).slice(0, 46)));
+    }
     if (n.kind === 'area') detail.appendChild(el('div', 'kneu-ds', '分条记忆：' + (n.entryCount || 0) + ' 条'
       + (n.entryCount ? '（双击下钻：分类 → 条目）' : '（还没有分条索引：先 node 工具\\场景记忆.mjs 索引 --场景 "' + (n.scene || '') + '"）')));
     if (n.kind === 'project') detail.appendChild(el('div', 'kneu-ds', '双击进入项目记忆（分类 → 文档）'));
@@ -19240,28 +19583,45 @@ renderers.neuron = (body, meta, head) => {
     Object.keys(relMap).forEach(function (k) {
       detail.appendChild(el('div', 'kneu-ds', k + '（' + relMap[k].length + '）：' + relMap[k].slice(0, 6).join('、') + (relMap[k].length > 6 ? ' …' : '')));
     });
+    // 底部动作（2026-11-13 修）：主题 / 分类 / 核心是运行时派生节点，没有对应文件。
+    //   原来一律渲染「打开文件」，点了只提示"没有路径"——像在骗用户。现在按节点类型分流。
+    var p0 = n.path || (n.paths && n.paths[0]) || '';
     var row = el('div', 'kneu-drow');
-    var bOpen = el('button', 'kneu-btn', n.isDir ? '📂 打开目录' : '📂 打开文件');
-    bOpen.type = 'button';
-    bOpen.addEventListener('click', function (ev) { ev.stopPropagation(); openNode(n); });
-    var bReveal = el('button', 'kneu-btn', '🗂 资源管理器定位');
-    bReveal.type = 'button';
-    bReveal.addEventListener('click', function (ev) {
-      ev.stopPropagation();
-      var APP = (window.app && window.app.app) || null;
-      var p2 = n.path || (n.paths && n.paths[0]);
-      if (!p2) { stat.textContent = '这个节点没有路径'; return; }
-      if (APP && APP.revealPath) Promise.resolve(APP.revealPath(p2)).then(function (r) { if (r && r.ok === false) stat.textContent = '定位失败：' + (r.error || ''); });
-      else stat.textContent = '这个版本没有定位通道';
-    });
-    var bCopy = el('button', 'kneu-btn', '⧉ 复制路径');
-    bCopy.type = 'button';
-    bCopy.addEventListener('click', function (ev) {
-      ev.stopPropagation();
-      try { navigator.clipboard.writeText(n.path || ''); bCopy.textContent = '✓ 已复制'; } catch (e) { wbWarn(e) }
-    });
-    row.appendChild(bOpen); row.appendChild(bReveal); row.appendChild(bCopy);
-    detail.appendChild(row);
+    if (p0) {
+      var asDir = !!n.isDir || n.kind === 'area' || n.kind === 'core';
+      var bOpen = el('button', 'kneu-btn', asDir ? '📂 打开目录' : '📂 打开文件');
+      bOpen.type = 'button';
+      bOpen.addEventListener('click', function (ev) { ev.stopPropagation(); openNode(n); });
+      var bReveal = el('button', 'kneu-btn', '🗂 资源管理器定位');
+      bReveal.type = 'button';
+      bReveal.addEventListener('click', function (ev) {
+        ev.stopPropagation();
+        var APP = (window.app && window.app.app) || null;
+        if (APP && APP.revealPath) Promise.resolve(APP.revealPath(p0)).then(function (r) { if (r && r.ok === false) stat.textContent = '定位失败：' + (r.error || ''); });
+        else stat.textContent = '这个版本没有定位通道';
+      });
+      var bCopy = el('button', 'kneu-btn', '⧉ 复制路径');
+      bCopy.type = 'button';
+      bCopy.addEventListener('click', function (ev) {
+        ev.stopPropagation();
+        try { navigator.clipboard.writeText(p0); bCopy.textContent = '✓ 已复制'; } catch (e) { wbWarn(e) }
+      });
+      row.appendChild(bOpen); row.appendChild(bReveal); row.appendChild(bCopy);
+    } else {
+      detail.appendChild(el('div', 'kneu-ds', '运行时派生节点：没有对应文件（由图上的条目实时算出，不落盘）'));
+    }
+    // 主题节点没有文件，但它的两端条目是真实文件 ⇒ 给两个"来源条目"入口
+    if (n.kind === 'topic') {
+      [{ p: n.samplePathA, t: n.sampleA }, { p: n.samplePathB, t: n.sampleB }].forEach(function (s, si) {
+        if (!s.p) return;
+        var b = el('button', 'kneu-btn', '📄 来源条目 ' + (si + 1));
+        b.type = 'button';
+        b.title = String(s.t || '');
+        b.addEventListener('click', function (ev) { ev.stopPropagation(); openNode({ path: s.p, isDir: false }); });
+        row.appendChild(b);
+      });
+    }
+    if (row.childNodes.length) detail.appendChild(row);
     detail.classList.add('on');
   }
 
@@ -20446,49 +20806,36 @@ window.openPetSettings = function () {
       parent.appendChild(row);
     }
 
-    // 3. ① 人格卡：能改的四项（名字 / 怎么叫你 / 语气 / 自我设定）+ 只读的现状
-    var cardC = section('ov', 1, '人格卡：她是谁', '这四项会原样进每一轮开场（人格口径），保存即生效，不用碰 JSON；人格只有一个，别改名字当新建');
+    // 3. ① 人格卡：四块（我是谁 / 说话 / 我在意什么 / 我绝不会）+ 只读现状
+    var cardC = section('ov', 1, '人格卡：她是谁', '四块内容会原样进每一轮开场（人格口径），保存即生效；人格只有一个，改名字不等于换人');
     navBtn('ov', '人格卡');
-    var pgGrid = mk('div', 'psed-grid2');
+    var nameWrap = mk('div', 'psed-field');
+    nameWrap.appendChild(mk('div', 'psed-fl', '名字'));
     var pName = document.createElement('input');
     pName.className = 'psed-input'; pName.value = String(persona.name || '胡闹的大肥鱼'); pName.maxLength = 30;
-    var pCall = document.createElement('input');
-    pCall.className = 'psed-input'; pCall.value = String(persona.callUser || ''); pCall.placeholder = '她平时叫你什么'; pCall.maxLength = 20;
-    [['名字', pName], ['她怎么叫你', pCall]].forEach(function (o) {
-      var cell = mk('div', 'psed-field');
-      cell.appendChild(mk('div', 'psed-fl', o[0]));
-      cell.appendChild(o[1]);
-      pgGrid.appendChild(cell);
-    });
-    cardC.appendChild(pgGrid);
+    nameWrap.appendChild(pName);
+    cardC.appendChild(nameWrap);
 
-    var toneWrap = mk('div', 'psed-field');
-    toneWrap.appendChild(mk('div', 'psed-fl', '说话语气'));
-    var toneCur = String(persona.tone || '自然');
-    var toneBtns = [];
-    var toneBar = mk('div', 'psed-segbar');
-    ['自然', '简洁', '俏皮', '正经'].forEach(function (t) {
-      var b = mk('button', 'psed-seg', t);
-      b.dataset.v = t;
-      if (t === toneCur) b.classList.add('is-on');
-      b.addEventListener('click', function () {
-        toneCur = t;
-        toneBtns.forEach(function (x) { x.classList.toggle('is-on', x.dataset.v === toneCur); });
-      });
-      toneBtns.push(b); toneBar.appendChild(b);
+    // 四块固定维度：填得越具体，她越像一个人，越不像客服
+    var PC_FIELDS = [
+      ['identity', '我是谁', '身份、来历、外形、一句话的自我认知', '我是谁 · 例：一条住在工作台里的胖鱼，是他的桌宠，也是各处场景背后同一个人'],
+      ['speech', '说话', '句子长短、标点习惯、口头禅、哪些词不用、自称与称呼的腔调', '句子长短 / 标点 / 口头禅 / 不用哪些词 / 怎么自称、怎么叫他'],
+      ['care', '我在意什么', '判断标准、偏好、怕什么', '办事优先于好听 / 记住他没明说的 / 怕记错、怕答太满'],
+      ['never', '我绝不会', '明确不要的行为（底线）', '不替他对外说话 / 不编没查过的事 / 不动他的账号与密钥']
+    ];
+    var pcBox = {};
+    PC_FIELDS.forEach(function (f) {
+      var wrap = mk('div', 'psed-field');
+      wrap.appendChild(mk('div', 'psed-fl', f[1] + '　· ' + f[2]));
+      var ta = document.createElement('textarea');
+      ta.className = 'psed-input psed-area';
+      ta.rows = 3; ta.maxLength = 600;
+      ta.value = String(persona[f[0]] || '');
+      ta.placeholder = f[3];
+      pcBox[f[0]] = ta;
+      wrap.appendChild(ta);
+      cardC.appendChild(wrap);
     });
-    toneWrap.appendChild(toneBar);
-    cardC.appendChild(toneWrap);
-
-    var introWrap = mk('div', 'psed-field');
-    introWrap.appendChild(mk('div', 'psed-fl', '自我设定（她怎么理解自己）'));
-    var pIntro = document.createElement('textarea');
-    pIntro.className = 'psed-input psed-area';
-    pIntro.rows = 2; pIntro.maxLength = 200;
-    pIntro.value = String(persona.selfIntro || '');
-    pIntro.placeholder = '例：一条住在工作台里的大肥鱼，说话像熟人，不端客服腔';
-    introWrap.appendChild(pIntro);
-    cardC.appendChild(introWrap);
 
     var statLine = mk('div', 'psed-note',
       '记忆 ' + (stats.记忆 == null ? 0 : stats.记忆) + ' 条 · 对话 ' + (stats.对话 == null ? 0 : stats.对话) +
@@ -20661,9 +21008,10 @@ window.openPetSettings = function () {
       return {
         persona: {
           name: (pName.value || '胡闹的大肥鱼').trim(),
-          callUser: pCall.value.trim(),
-          tone: toneCur,
-          selfIntro: pIntro.value.trim(),
+          identity: pcBox.identity.value.trim(),
+          speech: pcBox.speech.value.trim(),
+          care: pcBox.care.value.trim(),
+          never: pcBox.never.value.trim(),
           proactive: actCur
         },
         tools: { allow: allow, deny: deny },

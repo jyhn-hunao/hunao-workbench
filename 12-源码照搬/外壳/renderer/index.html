@@ -112,6 +112,8 @@
     </div>
   </div>
 
+  <!-- 静默 catch 的统一出口（2026-11-13）：wbWarn() 写 server.log。必须最早加载，renderers.js / renderer.js 的 catch 都调它 -->
+  <script id="wb-warn-script" src="wb-warn.js"></script>
   <!-- 场景图标登记表（2026-11-13 · 单处权威）：必须在 renderers.js / renderer.js 之前加载，
        两层都用它取图标（图标本体在 renderer\assets\icons\，由 scripts\图标库.mjs 抓取） -->
   <script id="scene-icons-script" src="scene-icons.js"></script>
