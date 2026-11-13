@@ -58,6 +58,33 @@ function addIndex(file, line) {
   fs.writeFileSync(file, t.replace(/\s*$/, '\n') + line + '\n', 'utf8');
   return true;
 }
+
+// 3.5 近期摘要：把「最近 10 条记忆索引 + 未办待办 5 条」压成一份 ≤2 KB 的小文件。
+//     为什么有它：开场注入只带 §〇（人格卡），不读这份就等于「有记忆但想不起来」；
+//     每轮读它成本很小，需要细节再用 读 --词 顺着看原文。
+const RECENT = path.join(MEM, '_近期.md');
+function rebuildRecent() {
+  if (!fs.existsSync(IDX_LONG)) return;
+  const lines = fs.readFileSync(IDX_LONG, 'utf8').split('\n').filter((x) => x.startsWith('- ')).slice(-10);
+  const todo = fs.existsSync(TODO) ? fs.readFileSync(TODO, 'utf8').split('\n').filter((x) => /^- \[ \]/.test(x.trim())).slice(-5) : [];
+  const talkIdx = fs.existsSync(IDX_TALK) ? fs.readFileSync(IDX_TALK, 'utf8').split('\n').filter((x) => x.startsWith('- ')).slice(-5) : [];
+  const txt = [
+    '# 近期记忆（工具自动生成，别手改）',
+    '',
+    '> 开场先读这份；要细节就 `node 12-源码照搬\\工具\\桌宠.mjs 记 读 --词 "…"` 顺着文件看原文。',
+    '',
+    '## 长期的事（最近 10 条）',
+    lines.length ? lines.join('\n') : '（还没记）',
+    '',
+    '## 聊过什么（最近 5 条）',
+    talkIdx.length ? talkIdx.join('\n') : '（还没记）',
+    '',
+    '## 答应没办',
+    todo.length ? todo.join('\n') : '（没有未办）',
+    ''
+  ].join('\n');
+  fs.writeFileSync(RECENT, txt, 'utf8');
+}
 function checkScene() {
   const r = spawnSync(process.execPath || 'node', [CHECK, 'check', '--场景', '胡闹的大肥鱼'], { cwd: ROOT, encoding: 'utf8', timeout: 60000 });
   const out = String((r.stdout || '') + (r.stderr || '')).trim();
@@ -76,6 +103,7 @@ function cmdWrite() {
     const t = fs.readFileSync(TODO, 'utf8');
     if (t.includes(title)) { say('✓ 待办里已有这条，不重复登记：' + title); return 0; }
     fs.writeFileSync(TODO, t.replace(/\s*$/, '\n') + line + '\n', 'utf8');
+    rebuildRecent();
     say('✓ 已登记待办：' + title);
     return 0;
   }
@@ -128,6 +156,7 @@ function cmdWrite() {
   const rel = path.relative(MEM, file).replace(/\\/g, '\\');
   addIndex(kind === '记忆' ? IDX_LONG : IDX_TALK,
     '- ' + date + ' · ' + (kind === '记忆' ? title : source + ' · ' + title) + ' · `' + rel + '`');
+  rebuildRecent();
   say('✓ 已写入 ' + path.relative(ROOT, file));
 
   // 3. 写完当场复核：场景记忆闸门（卡指纹 / 证据 / 索引）必须过
@@ -187,6 +216,7 @@ function cmdArchive() {
 // 6. 体检：目录/索引/待办在不在、有多少条、最旧/最新、有没有孤儿文件（不在索引里的）
 function cmdDoctor() {
   ensureDirs();
+  rebuildRecent();
   const long = fs.readdirSync(DIR_LONG).filter((f) => f.endsWith('.md') && !f.startsWith('_'));
   const talk = fs.readdirSync(DIR_TALK).filter((f) => f.endsWith('.md') && !f.startsWith('_'));
   const idxL = fs.readFileSync(IDX_LONG, 'utf8');
