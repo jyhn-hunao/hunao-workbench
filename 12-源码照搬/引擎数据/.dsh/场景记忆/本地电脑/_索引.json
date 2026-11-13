@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "scene": "本地电脑",
+  "generatedAt": "2026-11-13T07:34:06.514Z",
+  "entries": [
+    {
+      "path": "决策\\2026-11-10-面板依赖的扫描脚本从未入库-renderers-js.md",
+      "kind": "决策",
+      "title": "面板依赖的扫描脚本从未入库：`renderers.js:12288` 写的是 `scripts\\pc-scan.mjs`",
+      "date": "2026-11-10",
+      "tags": [
+        "决策"
+      ],
+      "distinct": [],
+      "evidence": [],
+      "size": 975
+    },
+    {
+      "path": "决策\\2026-11-10-时间上限只按目录粒度检查-遇到超大目录C-Windows.md",
+      "kind": "决策",
+      "title": "时间上限只按\"目录\"粒度检查，遇到超大目录（`C:\\Windows` 这类）会大幅超时：C 盘预算 400s/3 盘≈1",
+      "date": "2026-11-10",
+      "tags": [
+        "决策",
+        "`C:\\Windows` 这类"
+      ],
+      "distinct": [],
+      "evidence": [],
+      "size": 905
+    },
+    {
+      "path": "决策\\2026-11-10-12-源码照搬-工作区-缺-WRITE-OWNER-DSH.md",
+      "kind": "决策",
+      "title": "`12-源码照搬\\工作区` 缺 WRITE_OWNER，DSH 沙箱连 `Get-ChildItem` 都报 `SetN",
+      "date": "2026-11-10",
+      "tags": [
+        "决策",
+        "验证 writeOwner false→true"
+      ],
+      "distinct": [],
+      "evidence": [],
+      "size": 858
+    }
+  ]
+}
