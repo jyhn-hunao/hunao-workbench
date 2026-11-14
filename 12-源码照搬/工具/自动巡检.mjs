@@ -33,6 +33,7 @@ const TASKS = [
   { name: '会话对照', file: path.join(SHELL, 'scripts', 'sessions.mjs'), args: ['--check'], mustPass: true },
   { name: '门禁 check-gui', file: path.join(SHELL, 'scripts', 'check-gui.mjs'), args: [], mustPass: true },
   { name: '记忆体检', file: path.join(HERE, '记忆.mjs'), args: ['体检', '--project', REPO], mustPass: true },
+  { name: '场景记忆', file: path.join(HERE, '场景记忆.mjs'), args: ['check', '--all'], mustPass: true },
   { name: '派发看门狗', file: path.join(HERE, '看门狗.mjs'), args: [], mustPass: true },
 ]
 

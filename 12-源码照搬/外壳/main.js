@@ -256,6 +256,33 @@ function scheduleAutoCacheCleanup() {
   } catch (e) { warnOnce("auto-clean", e); }
 }
 
+// ④ 自动记忆整理：每周一次（把超 180 天的条目搬 归档\、刷索引与近期记忆、复核 check --all）
+//    整理本身就是"改历史文件"，所以顺序卡死：先 dry 看计划 → 有要搬的才 记忆打包 留快照 → 再搬。
+//    快照拿不到就整轮不搬（宁可这周不整理，也不要没有回退点）。
+const TIDY_FILE = path.join(__dirname, 'data', '记忆整理.json');
+const TIDY_EVERY_MS = 7 * 24 * 3600 * 1000;
+function scheduleAutoMemoryTidy() {
+  const last = readJsonSafe(TIDY_FILE, null);
+  const at = last && typeof last.at === 'string' ? Date.parse(last.at) : 0;
+  if (at && (Date.now() - at) < TIDY_EVERY_MS) { log('[auto] 距上次记忆整理不足 7 天，跳过'); return; }
+  setTimeout(function () {
+    const tool = path.join(__dirname, '..', '工具', '自动记忆整理.mjs');
+    if (!fs.existsSync(tool)) { log('[auto] 自动记忆整理脚本不在，跳过：' + tool); return; }
+    let child;
+    try { child = spawnTool(null, tool, [], { stdio: 'ignore' }); } catch (e) { warnOnce("auto-tidy", e); return; }
+    child.on('exit', function (code) {
+      const doc = readJsonSafe(TIDY_FILE, null) || {};
+      log('[auto] 记忆整理完成（exit ' + code + '）：' + (doc.scenes || 0) + ' 个场景，搬 ' + (doc.moved || 0) + ' 篇进 归档\\');
+      if (code !== 0) {
+        broadcast('topbar:toast', {
+          text: '自动记忆整理有失败（详情见 外壳\\data\\记忆整理.json 与 自动维护.log）',
+          bad: true, ms: 15000
+        });
+      }
+    });
+  }, 90000);
+}
+
 // ---- 焦点探针（2026-11-12 用户同意；只记必要几行，不刷屏）----
 // 用途：复现「一个面板跑任务时，另一个面板输入框打不进字」时，看是谁把 webview 焦点抢走。
 // 开关：data\focus-probe.on 存在才写日志；删掉文件即时关闭（每次事件都查一次，不常驻开启）。
@@ -6124,6 +6151,8 @@ if (!gotLock) {
     log('[boot] 引擎就绪总耗时 ' + ((Date.now() - APP_T0) / 1000).toFixed(1) + 's');
     // 2026-11-14：后台巡检（60s 后跑，每天最多一次；只在有失败时弹通知）
     try { scheduleAutoInspection(); } catch (e) { warnOnce("auto-inspect", e); }
+    // 2026-11-14：记忆整理（90s 后跑，每周最多一次；整理前后都留痕）
+    try { scheduleAutoMemoryTidy(); } catch (e) { warnOnce("auto-tidy", e); }
     // 判据留痕：这一行说明「端口先通、token 后到」，渲染层会等它（见 harness:ready 的 3s 有界等待）
     if (!engineIsForeign && !harnessToken) log('[boot] token 行尚未到达（端口先通）⇒ 渲染层会等待并重试');
     // 通知渲染层：Harness 已就绪（所有窗口的 webview 都可以加载了）
