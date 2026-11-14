@@ -11984,9 +11984,9 @@ function decorateBrand() {
       if (v.engine && ADAPTED_ENGINE && v.engine !== ADAPTED_ENGINE) {
         engineMismatch = v.engine;
         set('ver-runtime', (rt.join(' · ') || '运行时') + '\n⚠ 本壳适配的是 v' + ADAPTED_ENGINE + '，引擎已是 v' + v.engine +
-          '：若面板藏不住侧栏 / 切不到会话，先跑 node scripts\\engine-after.mjs 核对上游实现');
+          '：若面板藏不住侧栏 / 切不到会话，跑 node scripts\\check-gui.mjs 看引擎接线，并对照 doc\\引擎升级与版本兼容清单.md');
         try { highlightEngineMismatch(true); } catch (e) { wbWarn(e) }
-        try { console.warn('[工作台] 引擎版本 ' + v.engine + ' ≠ 本壳适配版本 ' + ADAPTED_ENGINE + '，请跑 node scripts/engine-after.mjs 核对'); } catch (e) { wbWarn(e) }
+        try { console.warn('[工作台] 引擎版本 ' + v.engine + ' ≠ 本壳适配版本 ' + ADAPTED_ENGINE + '，跑 node scripts/check-gui.mjs 核对引擎接线（对照 doc/引擎升级与版本兼容清单.md）'); } catch (e) { wbWarn(e) }
       } else {
         engineMismatch = '';
         try { highlightEngineMismatch(false); } catch (e) { wbWarn(e) }
@@ -12567,8 +12567,8 @@ function highlightEngineMismatch(on) {
 // 2026-11-13 清理：抖音 / OA运维 / 同花顺 / Blender / 视频工作流 / DSH·GUI改造 / 设计杂活 / 工作台定制 这 8 个
 //   已不在任何 scenarios\*.json 里的场景图标已删除（原来留着会让"这张表有什么"和"实际有哪些场景"对不上）。
 var SCENARIO_ICONS = {
-  // 命令（command，2026-10-26）：与 renderer.js 的 NEURON_SVG 同一份
-  'command':
+  // 记忆（memory，2026-10-26）：与 renderer.js 的 NEURON_SVG 同一份
+  'memory':
     '<svg width="17" height="17" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3.7 4.5 8 2.9l4.4 1.7M3 8.4l.7-3.9M8 2.9l.4 5.2M12.4 4.6 8.4 8.1M8.4 8.1l3.8 3.4M8.4 8.1l-3.8 4.1M3 8.4l5.4-.3" stroke="#8fb4ff" stroke-width=".85" stroke-linecap="round" opacity=".6"/><circle cx="3.7" cy="4.5" r="1.45" fill="#8fb4ff"/><circle cx="8" cy="2.9" r="1.15" fill="#8fb4ff" opacity=".85"/><circle cx="12.4" cy="4.6" r="1.25" fill="#8fb4ff"/><circle cx="3" cy="8.4" r="1.05" fill="#8fb4ff" opacity=".8"/><circle cx="8.4" cy="8.1" r="1.85" fill="#f0a35e"/><circle cx="12.2" cy="11.5" r="1.15" fill="#8fb4ff" opacity=".85"/><circle cx="4.6" cy="12.2" r="1.05" fill="#8fb4ff" opacity=".8"/></svg>',
   // 2026-10-19「B站」：这里的内容是 innerHTML 插入 ⇒ 要写 <img> 标签（不是路径）
   'bilibili': '<img src="assets/bilibili-icon.png" width="17" height="17" alt="" style="display:block">',
@@ -15947,21 +15947,24 @@ renderers['bl-live'] = (body, meta, head) => {
 
   const dot = el('span', 'bl-dot');
   const note = el('span', 'bl-note', '检测中…');
-  let launchBtn = null, reembedBtn = null, closeBtn = null;
+  let launchBtn = null, reembedBtn = null, closeBtn = null, fullBtn = null;
   if (head) {
     head.classList.add('file-head');
     const acts = el('div', 'file-head-acts');
     acts.appendChild(dot);
     acts.appendChild(note);
     launchBtn = el('button', 'file-refresh', '▶ 启动');
-    launchBtn.title = '启动 Blender（自动开启 MCP 服务器，省去手点 N 面板）';
+    launchBtn.title = '启动 Blender（自动挂上 9876 桥接，大肥鱼就能实时改这个场景）';
     closeBtn = el('button', 'file-refresh', '✕ 关闭');
     closeBtn.title = '关闭 Blender：先解除内置再退出；有未保存改动时它会自己弹保存提示';
     reembedBtn = el('button', 'file-refresh', '⧉ 重新内置');
     reembedBtn.title = '先把 Blender 放回桌面，再重新嵌进面板（画面异常时点这个）';
+    fullBtn = el('button', 'file-refresh', '⛶ 全屏调整');
+    fullBtn.title = '把 Blender 临时铺满整个工作区，方便手动挪模型/看细节；切回点这个或按 Ctrl+Alt+B';
     acts.appendChild(launchBtn);
     acts.appendChild(closeBtn);
     acts.appendChild(reembedBtn);
+    acts.appendChild(fullBtn);
     head.appendChild(acts);
   }
 
@@ -15973,7 +15976,7 @@ renderers['bl-live'] = (body, meta, head) => {
   ico.alt = 'Blender';
   blank.appendChild(ico);
   const blankTitle = el('div', 'bl-blank-t', 'Blender 未运行');
-  const blankDesc = el('div', 'bl-blank-d', '点「启动」打开 Blender，它会自动嵌进这个面板，可以直接在里面建模改参数');
+  const blankDesc = el('div', 'bl-blank-d', '点「启动」打开 Blender，它会贴进这个面板，可以直接在里面建模改参数；没装会告诉你路径怎么补');
   const blankBtn = el('button', 'bl-blank-btn', '▶ 启动 Blender');
   blank.appendChild(blankTitle);
   blank.appendChild(blankDesc);
@@ -15993,9 +15996,9 @@ renderers['bl-live'] = (body, meta, head) => {
   if (launchBtn) launchBtn.addEventListener('click', doLaunch);
   blankBtn.addEventListener('click', doLaunch);
   // ---------- 只内置模式 ----------
-  // 面板不再做截图预览：直接把 Blender 主窗口 SetParent 进来，在里面直接操作。
+  // 面板不做截图预览：主进程把 Blender 主窗口设成「面板窗口的 owner + 摆到面板矩形」（覆盖式内置，不 SetParent）。
   // 主进程侧保险：面板切走、GUI 关闭、GUI 崩溃都会把 Blender 释放回桌面。
-  let embedded = false, embedBusy = false, embedRO = null, moveTimer = null, triedForRun = false;
+  let embedded = false, embedBusy = false, embedRO = null, moveTimer = null, triedForRun = false, embedFails = 0;
 
   // 只回 CSS px（视口坐标）；主进程负责加上窗口内容区位置并换算成屏幕物理像素
   function panelRect() {
@@ -16005,16 +16008,31 @@ renderers['bl-live'] = (body, meta, head) => {
       w: Math.round(r.width), h: Math.round(r.height)
     };
   }
+  // 全屏调整：铺满整个工作区（#grid，四个面板的容器；顶栏不在里面，切回提示还能看到）
+  function gridRect() {
+    const g = document.getElementById('grid');
+    if (!g) return panelRect();
+    const r = g.getBoundingClientRect();
+    return {
+      x: Math.round(r.left), y: Math.round(r.top),
+      w: Math.round(r.width), h: Math.round(r.height)
+    };
+  }
+  let fullscreen = false;
+  function layoutRect() { return fullscreen ? gridRect() : panelRect(); }
+  function syncFullBtn() { if (fullBtn) fullBtn.textContent = fullscreen ? '⤡ 还原面板' : '⛶ 全屏调整'; }
   function pushMove() {
     if (!embedded || !K || !K.embedMove) return;
     if (moveTimer) clearTimeout(moveTimer);
-    moveTimer = setTimeout(() => { try { K.embedMove(panelRect()); } catch (e) { wbWarn(e) } }, 120);
+    moveTimer = setTimeout(() => { try { K.embedMove(layoutRect()); } catch (e) { wbWarn(e) } }, 120);
   }
   async function releaseEmbed() {
     if (embedRO) { try { embedRO.disconnect(); } catch (e) { wbWarn(e) } embedRO = null; }
     window.removeEventListener('resize', pushMove);
     if (!embedded) return;
     embedded = false;
+    fullscreen = false;
+    syncFullBtn();
     stage.classList.remove('embedded');
     try { if (K && K.embed) await K.embed(false, null); } catch (e) { wbWarn(e) }
   }
@@ -16032,11 +16050,20 @@ renderers['bl-live'] = (body, meta, head) => {
       if (disposed) return;
       if (r && r.ok) {
         embedded = true;
+        embedFails = 0;
         stage.classList.add('embedded');
-        setDot('ok', '已内置 · 直接操作');
+        const childMode = r.mode === 'child';
+        setDot('ok', childMode
+          ? '已嵌入 · 跟着面板裁剪'
+          : (r.mode === 'clip' ? '已嵌入 · 面板内裁剪' : (r.fallback ? '已贴合（裁剪不可用）' : '已内置 · 直接操作')));
+        if (r.fallback && window.__tbsToast) window.__tbsToast('Blender 嵌入模式没生效，已退回普通贴合（窗口不会被面板裁剪）', true, 9000);
         if (window.ResizeObserver) { embedRO = new ResizeObserver(pushMove); embedRO.observe(stage); }
         window.addEventListener('resize', pushMove);
       } else {
+        // Blender 冷启动要 10 秒上下，窗口还没出来时第一次内置会 timeout / window-not-found：
+        // 放开 triedForRun 让下一拍（4 秒后）再试，最多 10 次，避免一直刷错误。
+        embedFails += 1;
+        if (embedFails <= 10) triedForRun = false;
         setDot('err', '内置失败：' + ((r && r.err) || '未知'));
       }
     } catch (e) {
@@ -16074,6 +16101,31 @@ renderers['bl-live'] = (body, meta, head) => {
     triedForRun = false;
     await refreshState();
   });
+
+  // ---------- 全屏调整 ----------
+  // 全屏 = Blender 铺满整个工作区（#grid），面板头被盖住，所以退出留了全局快捷键 Ctrl+Alt+B
+  if (fullBtn) fullBtn.addEventListener('click', async () => {
+    if (!embedded) {
+      if (window.__tbsToast) window.__tbsToast('Blender 还没贴进面板，先启动 / 重新内置再全屏', true, 8000);
+      return;
+    }
+    const want = !fullscreen;
+    fullBtn.disabled = true;
+    try {
+      const r = await K.embedFullscreen(want, { grid: gridRect(), panel: panelRect() });
+      if (r && r.ok) {
+        fullscreen = want;
+        syncFullBtn();
+        if (window.__tbsToast) window.__tbsToast(want ? 'Blender 已铺满工作区 · 按 Ctrl+Alt+B 或点「⤡ 还原面板」切回' : '已切回面板', false, want ? 9000 : 4000);
+      } else if (window.__tbsToast) {
+        window.__tbsToast('切换失败：' + ((r && r.err) || '未知'), true, 8000);
+      }
+    } catch (e) { wbWarn(e) } finally { fullBtn.disabled = false; }
+  });
+  // 主进程用快捷键把人从全屏收回时，按钮文字要跟着回来
+  if (K && K.onFullscreen) {
+    try { K.onFullscreen((v) => { fullscreen = !!v; syncFullBtn(); }); } catch (e) { wbWarn(e) }
+  }
 
   // ---------- 关闭 Blender ----------
   // 默认优雅关闭（Blender 自己会弹保存提示）。只有确认框里点了「确定」才强杀。
@@ -16133,7 +16185,7 @@ renderers['bl-live'] = (body, meta, head) => {
   };
 };
 
-// Blender 本地文件（工作区浏览：<盘根>:\blender\blender控制）
+// Blender 本地文件（工程资源浏览：默认 工作区\创意工坊，见 main.js 的 BLENDER_DIR）
 renderers['bl-folder'] = (body, meta, head) => {
   const K = window.app && window.app.blender;
   body.classList.add('bl-folder');
@@ -16221,6 +16273,547 @@ renderers['bl-folder'] = (body, meta, head) => {
   load('');
   const timer = setInterval(() => { if (!disposed) load(rel); }, 20000);
   return () => { disposed = true; clearInterval(timer); };
+};
+
+/* ══════════════════════════════════════════════════════════════════
+   创意工坊 · 流程看板（type = "pipe-board"）
+   只读汇总：十个环节的状态卡 + 最近工单行 + 最近回执；不读会话正文。
+   用户"只看每条环节走到哪"，细节留在岗位会话里。
+   ══════════════════════════════════════════════════════════════════ */
+renderers['pipe-board'] = (body, meta, head) => {
+  const K = window.app && window.app.creative;
+  const B = window.app && window.app.blender;
+  body.classList.add('pb-body');
+  let disposed = false, timer = null, root = '';
+
+  const note = el('span', 'bl-note', '加载中…');
+  if (head) {
+    head.classList.add('file-head');
+    const acts = el('div', 'file-head-acts');
+    const openBtn = el('button', 'file-refresh', '📂');
+    openBtn.title = '打开工作区（工程 / 概念 / 贴图 / 导出 / 输出）';
+    openBtn.addEventListener('click', () => { if (B && B.open && root) B.open(root); });
+    acts.appendChild(note);
+    acts.appendChild(openBtn);
+    head.appendChild(acts);
+  }
+
+  const bar = el('div', 'pb-alert');
+  bar.style.display = 'none';
+  const counts = el('div', 'pb-counts');
+  const flowBox = el('div', 'pb-flow');
+  const foot = el('div', 'pb-foot');
+  body.appendChild(bar);
+  body.appendChild(counts);
+  body.appendChild(flowBox);
+  body.appendChild(foot);
+
+  // 卡住告警条：主进程巡检说了算，这里只负责显示 + 一个手动「重派」（弹窗告警走全局，避免双弹）
+  function renderAlerts(alerts, stuckMin, atSec) {
+    bar.innerHTML = '';
+    if (!alerts || !alerts.length) { bar.style.display = 'none'; return; }
+    bar.style.display = 'flex';
+    bar.appendChild(el('span', 'pb-alert-t', '⚠ ' + alerts.length + ' 项卡住'));
+    alerts.slice(0, 3).forEach((a) => {
+      const it = el('span', 'pb-alert-i', a.kind + ' · ' + a.who + ' · ' + (a.detail || ''));
+      if (a.kind === '派发' && K && K.retry) {
+        const btn = el('button', 'pb-retry', '重派');
+        btn.title = '把原单内容再发给同一岗位（人工触发，避免双写工程）';
+        btn.addEventListener('click', async () => {
+          btn.disabled = true;
+          let r = null;
+          try { r = await K.retry(a.id); } catch (e) { r = null; }
+          if (window.__tbsToast) window.__tbsToast(r && r.ok ? ('已重派给 ' + r.to) : ('重派失败：' + ((r && r.err) || '未知')), !(r && r.ok), 8000);
+          btn.disabled = false;
+        });
+        it.appendChild(btn);
+      }
+      bar.appendChild(it);
+    });
+    bar.appendChild(el('span', 'pb-alert-at', '巡检阈值 ' + (stuckMin || 15) + ' 分钟 · ' + (atSec ? new Date(atSec * 1000).toTimeString().slice(0, 8) : '')));
+  }
+  async function pullWatch() {
+    if (disposed || !K || !K.watchState) return;
+    let r = null;
+    try { r = await K.watchState(); } catch (e) { r = null; }
+    if (disposed || !r || !r.ok) return;
+    renderAlerts(r.alerts, r.stuckMin, r.at);
+  }
+
+  async function refresh() {
+    if (disposed || !K || !K.board) { note.textContent = '看板不可用'; return; }
+    let r = null;
+    try { r = await K.board(); } catch (e) { r = null; }
+    if (disposed) return;
+    if (!r || !r.ok) { note.textContent = '看板读取失败'; return; }
+    root = r.root || root;
+    note.textContent = '刚刷新 · 8 秒自动';
+
+    counts.innerHTML = '';
+    counts.appendChild(el('span', 'pb-k', '进行 ' + r.counts.active));
+    counts.appendChild(el('span', 'pb-k', '待审 ' + r.counts.review));
+    counts.appendChild(el('span', 'pb-k', '通过 ' + r.counts.done));
+    if (r.counts.rejected) counts.appendChild(el('span', 'pb-k pb-k-bad', '退回 ' + r.counts.rejected));
+    if (r.counts.hung) counts.appendChild(el('span', 'pb-k pb-k-bad', '卡住 ' + r.counts.hung));
+    else if ((r.pending || []).length) counts.appendChild(el('span', 'pb-k', '挂起 ' + r.pending.length));
+
+    // 流程：竖着排，序号＝第几段；同一条并行组的节点并排标注「∥ 同步」；在等谁直接写在卡片里
+    flowBox.innerHTML = '';
+    (r.flow || []).forEach((n) => {
+      const row = el('div', 'pb-step ' + (n.state || 'ready'));
+      if (n.par) row.classList.add('pb-par');
+      if (n.now) row.classList.add('pb-now');
+      const rail = el('span', 'pb-step-rail');
+      rail.appendChild(el('span', 'pb-step-no', String(n.step || '')));
+      row.appendChild(rail);
+
+      const card = el('div', 'pb-step-c');
+      const top = el('div', 'pb-step-t');
+      top.appendChild(el('span', 'pb-step-nm', n.short || n.name || ''));
+      if (n.par) top.appendChild(el('span', 'pb-par-tag', '∥'));
+      if (n.state === 'done') top.appendChild(el('span', 'pb-badge ok', n.status));
+      else if (n.state === 'rejected') top.appendChild(el('span', 'pb-badge err', n.status));
+      else if (n.state === 'doing') top.appendChild(el('span', 'pb-badge warn', n.status));
+      else if (n.state === 'manual') top.appendChild(el('span', 'pb-badge dim', '你派工'));
+      else top.appendChild(el('span', 'pb-badge ' + (n.state === 'waiting' ? 'dim' : ''), n.status || '未开单'));
+      card.appendChild(top);
+
+      // 第二行只放徽标：← 依赖岗位 / 门 谁放行 / 资产名。整句说明一律进 tooltip
+      const tags = el('div', 'pb-step-tags');
+      (n.deps || []).forEach((d) => {
+        const t = el('span', 'pb-tag pb-tag-dep' + (d.optional ? ' pb-tag-soft' : ''));
+        t.textContent = '←' + d.short;
+        t.title = d.name + '：' + d.status + (d.optional ? '（按需，未开单不挡后面）' : '');
+        tags.appendChild(t);
+      });
+      if (n.gateShort) {
+        const g = el('span', 'pb-tag pb-tag-gate');
+        g.textContent = '门 ' + n.gateShort;
+        g.title = n.gate || '';
+        tags.appendChild(g);
+      }
+      if (n.asset) {
+        const a = el('span', 'pb-tag pb-tag-as');
+        a.textContent = n.asset;
+        tags.appendChild(a);
+      }
+      if (tags.childNodes.length) card.appendChild(tags);
+
+      const tips = [];
+      if (n.gate) tips.push(n.gate);
+      if (n.syncWith && n.syncWith.length) tips.push('与「' + n.syncWith.join('」「') + '」同步，互不等待');
+      if (n.file) tips.push(n.file);
+      card.title = tips.join(' · ');
+      row.appendChild(card);
+      flowBox.appendChild(row);
+    });
+    if (!(r.flow || []).length) flowBox.appendChild(el('div', 'file-empty', '看板没拿到工序链'));
+
+    foot.innerHTML = '';
+    // 只放徽标行：类型 + 岗位 + 时间/耗时；原始 id 与长句进 tooltip
+    const pend = (r.pending || []).slice(0, 3);
+    if (pend.length) {
+      foot.appendChild(el('div', 'pb-foot-t', '挂起 ' + (r.pending || []).length));
+      pend.forEach((x) => {
+        const row = el('div', 'pb-foot-r');
+        row.appendChild(el('span', 'pb-badge ' + (x.stuck ? 'err' : 'warn'), x.state === 'timeout' ? '超时' : '等回执'));
+        row.appendChild(el('span', 'pb-foot-w', x.to || '?'));
+        row.appendChild(el('span', 'pb-foot-k', x.ageMin + ' 分'));
+        row.title = x.id;
+        foot.appendChild(row);
+      });
+    }
+    const rec = (r.receipts || []).slice(-3).reverse();
+    if (rec.length) {
+      foot.appendChild(el('div', 'pb-foot-t', '最近回执'));
+      rec.forEach((x) => {
+        const row = el('div', 'pb-foot-r');
+        const okish = !/超时|失败/.test(x.kind || '');
+        row.appendChild(el('span', 'pb-badge ' + (okish ? 'ok' : 'err'), /超时/.test(x.kind || '') ? '超时' : '回执'));
+        if (x.to) row.appendChild(el('span', 'pb-foot-w', x.to));
+        row.appendChild(el('span', 'pb-foot-k', x.hhmm || ''));
+        row.title = x.raw || '';
+        foot.appendChild(row);
+      });
+    } else {
+      foot.appendChild(el('div', 'pb-foot-r', '还没有回执'));
+    }
+  }
+
+  refresh();
+  pullWatch();
+  // 主进程巡检一拍就推一次（新卡住立刻弹），面板不用等人打开才发现
+  let offWatch = null;
+  if (K && K.onWatch) {
+    offWatch = K.onWatch((p) => {
+      if (disposed || !p || !p.ok) return;
+      renderAlerts(p.alerts, p.stuckMin, Math.floor(Date.now() / 1000));
+    });
+  }
+  timer = setInterval(() => { if (!disposed) { refresh(); pullWatch(); } }, 8000);
+  return () => { disposed = true; if (timer) clearInterval(timer); if (offWatch) offWatch(); };
+};
+
+/* ══════════════════════════════════════════════════════════════════
+   总入口 · 派发巡检（type = "dispatch-board"）
+   一张单一行：判成什么（在跑 / 没送到 / 干完没回执 / 超时）+ 两个按钮（补投回执 / 看单子）。
+   数据来自主进程调 工具\看门狗.mjs（--json）；面板不自己判、不直接读文件，也不自动投消息。
+   ══════════════════════════════════════════════════════════════════ */
+renderers['dispatch-board'] = (body, meta, head) => {
+  const D = window.app && window.app.dispatch;
+  body.classList.add('dg-body');
+  let disposed = false, timer = null;
+
+  const note = el('span', 'dg-note', '加载中…');
+  if (head) {
+    head.classList.add('file-head');
+    const acts = el('div', 'file-head-acts');
+    const scanBtn = el('button', 'file-refresh', '↻ 立即巡检');
+    scanBtn.title = '马上扫一遍派发单（只读，不改单、不投消息）';
+    scanBtn.addEventListener('click', (ev) => { ev.stopPropagation(); refresh(true); });
+    acts.appendChild(note);
+    acts.appendChild(scanBtn);
+    head.appendChild(acts);
+  }
+
+  const counts = el('div', 'dg-counts');
+  const appr = el('div', 'dg-appr');
+  const timers = el('div', 'dg-timers');
+  const list = el('div', 'dg-list');
+  const foot = el('div', 'dg-foot');
+  body.appendChild(appr);
+  body.appendChild(timers);
+  body.appendChild(counts);
+  body.appendChild(list);
+  body.appendChild(foot);
+
+  // 1. 判定 → 徽标：文案短、颜色走令牌；完整原因进 tooltip / 详情行
+  function badgeOf(t) {
+    if (t.level === 'ok') return { cls: 'ok', txt: '已回执' };
+    if (t.verdict === '已作废') return { cls: 'ok', txt: '已作废' };
+    if (t.verdict === '已回执·外层未结') return { cls: 'warn', txt: '外层未结' };
+    if (t.verdict === '已干完·未回执') return { cls: 'err', txt: '未回执' };
+    if (t.verdict === '超时未交付') return { cls: 'err', txt: '超时' };
+    if (t.verdict === '消息没进会话') return { cls: 'err', txt: '没送到' };
+    if (t.verdict === '在跑') return { cls: 'warn', txt: '在跑' };
+    if (t.verdict === '回合结束·结论为空') return { cls: 'warn', txt: '空结论' };
+    return { cls: 'warn', txt: '判不了' };
+  }
+
+  // 2. 一行：徽标 + 目标 + 时长，第二行放判定详情和按钮（只有「未回执」给补投）
+  function rowOf(t) {
+    const b = badgeOf(t);
+    const row = el('div', 'dg-row dg-' + b.cls);
+    const top = el('div', 'dg-row-t');
+    top.appendChild(el('span', 'dg-badge ' + b.cls, b.txt));
+    top.appendChild(el('span', 'dg-to', t.to || '?'));
+    top.appendChild(el('span', 'dg-age', t.ageMin >= 0 ? t.ageMin + ' 分' : '—'));
+    row.appendChild(top);
+
+    const sub = el('div', 'dg-row-sub');
+    sub.appendChild(el('span', 'dg-detail', t.detail || ''));
+    const acts = el('div', 'dg-row-acts');
+    if (t.verdict === '已干完·未回执') {
+      const fix = el('button', 'dg-btn', '补投回执');
+      fix.title = '把目标会话那一轮的结论投回派发方（人点才发生）';
+      fix.addEventListener('click', async () => {
+        fix.disabled = true;
+        let r = null;
+        try { r = await D.dogFix(t.id); } catch (e) { console.warn('[dispatch] 补投失败', e); r = null; }
+        if (window.__tbsToast) window.__tbsToast(r && r.ok ? ('已补投：' + t.id) : ('补投没成：' + ((r && r.err) || '未知')), !(r && r.ok), 8000);
+        fix.disabled = false;
+        refresh(true);
+      });
+      acts.appendChild(fix);
+    }
+    const openBtn = el('button', 'dg-btn dg-btn-ghost', '单子');
+    openBtn.title = '用系统程序打开这张派发单的 JSON';
+    openBtn.addEventListener('click', () => { if (D && D.dogOpen) D.dogOpen(t.id); });
+    acts.appendChild(openBtn);
+    sub.appendChild(acts);
+    row.appendChild(sub);
+    row.title = t.id + ' · 派发方 ' + (t.from || '?');
+    return row;
+  }
+
+  // 2b. 待批准：confirm 级的派发等人一键放行（清单来自 外壳\data\pet\待批准.json，和工具读同一份）
+  async function loadApprovals() {
+    if (!D || !D.approvals) return [];
+    try { const r = await D.approvals(); return (r && r.ok && r.list) || []; } catch (e) {
+      console.warn('[dispatch] 待批准读取失败', e); return [];
+    }
+  }
+  function renderApprovals(items) {
+    appr.innerHTML = '';
+    if (!items.length) { appr.style.display = 'none'; return; }
+    appr.style.display = '';
+    appr.appendChild(el('div', 'dg-sec-t', '待批准 ' + items.length + ' 条 —— 点「批准」就当场派出去'));
+    items.forEach((a) => {
+      const row = el('div', 'dg-row dg-warn');
+      const top = el('div', 'dg-row-t');
+      top.appendChild(el('span', 'dg-badge warn', '待批准'));
+      top.appendChild(el('span', 'dg-to', a.toTitle || a.to || '?'));
+      row.appendChild(top);
+      const sub = el('div', 'dg-row-sub');
+      sub.appendChild(el('span', 'dg-detail', (a.text || '').slice(0, 120)));
+      const acts = el('div', 'dg-row-acts');
+
+      const okBtn = el('button', 'dg-btn', '批准');
+      okBtn.title = '当场派出这条任务（等同在聊天里点头）';
+      okBtn.addEventListener('click', async (ev) => {
+        ev.stopPropagation();
+        okBtn.disabled = true;
+        let r = null;
+        try { r = await D.approve(a.id); } catch (e) { console.warn('[dispatch] 批准失败', e); r = null; }
+        if (window.__tbsToast) window.__tbsToast(r && r.ok ? '已批准并派出' : ('批准没成：' + ((r && r.err) || '未知')), !(r && r.ok), 8000);
+        refresh(true);
+      });
+      const noBtn = el('button', 'dg-btn dg-btn-ghost', '忽略');
+      noBtn.title = '不派这条，从待批准队列删掉';
+      noBtn.addEventListener('click', async (ev) => {
+        ev.stopPropagation();
+        noBtn.disabled = true;
+        let r = null;
+        try { r = await D.drop(a.id); } catch (e) { console.warn('[dispatch] 忽略失败', e); r = null; }
+        if (window.__tbsToast) window.__tbsToast(r && r.ok ? '已忽略这条' : ('忽略没成：' + ((r && r.err) || '未知')), !(r && r.ok), 8000);
+        refresh(true);
+      });
+      acts.appendChild(okBtn);
+      acts.appendChild(noBtn);
+      sub.appendChild(acts);
+      row.appendChild(sub);
+      row.title = a.id + (a.reason ? ' · 原因：' + a.reason : '');
+      appr.appendChild(row);
+    });
+  }
+
+  // 2c. 定时触发（Trigger）：到点自动派；confirm 级会落进上面的待批准，仍由人放行
+  async function loadTimers() {
+    if (!D || !D.timers) return [];
+    try { const r = await D.timers(); return (r && r.ok && r.tasks) || []; } catch (e) {
+      console.warn('[dispatch] 定时任务读取失败', e); return [];
+    }
+  }
+  function renderTimers(items) {
+    timers.innerHTML = '';
+    if (!items.length) { timers.style.display = 'none'; return; }
+    timers.style.display = '';
+    timers.appendChild(el('div', 'dg-sec-t', '定时触发（到点自动派，开关在这里点）'));
+    items.forEach((t) => {
+      const row = el('div', 'dg-timer');
+      row.appendChild(el('span', 'dg-timer-t', (t.time || '—') + '  ' + (t.title || t.id)));
+      row.appendChild(el('span', 'dg-detail', String(t.text || '').slice(0, 70)));
+      const tg = el('button', 'dg-btn' + (t.enabled ? '' : ' dg-btn-ghost'), t.enabled ? '已开启' : '已关闭');
+      tg.title = '切换这条定时任务（只改 定时.json，不到点什么都不做）';
+      tg.addEventListener('click', async (ev) => {
+        ev.stopPropagation();
+        tg.disabled = true;
+        let r = null;
+        try { r = await D.timerToggle(t.id, !t.enabled); } catch (e) { console.warn('[dispatch] 定时开关失败', e); r = null; }
+        if (window.__tbsToast) window.__tbsToast(
+          r && r.ok ? ((t.enabled ? '已关闭' : '已开启') + '：' + (t.title || t.id)) : ('切换没成：' + ((r && r.err) || '未知')),
+          !(r && r.ok), 8000);
+        refresh(true);
+      });
+      row.appendChild(tg);
+      timers.appendChild(row);
+    });
+  }
+
+  // 3. 刷新：默认只看未闭环；已闭环只报个数，不占地方
+  async function refresh(manual) {
+    if (disposed || !D || !D.dog) { note.textContent = '巡检不可用'; return; }
+    let r = null, ap = [], tm = [];
+    try {
+      const out = await Promise.all([D.dog(), loadApprovals(), loadTimers()]);
+      r = out[0]; ap = out[1]; tm = out[2];
+    } catch (e) { console.warn('[dispatch] 巡检调用失败', e); r = null; }
+    if (disposed) return;
+    renderApprovals(ap);
+    renderTimers(tm);
+    if (!r || !r.ok) {
+      note.textContent = '巡检失败';
+      list.innerHTML = '';
+      list.appendChild(el('div', 'dg-empty', '读不到派发单：' + ((r && r.err) || '未知原因')));
+      return;
+    }
+    const d = r.data || {};
+    note.textContent = (manual ? '刚巡检 · ' : '') + '60 秒自动';
+    const tickets = d.tickets || [];
+    const open = tickets.filter((x) => x.level !== 'ok');
+
+    counts.innerHTML = '';
+    counts.appendChild(el('span', 'dg-k', '待回执 ' + (d.counts && d.counts.pending || 0)));
+    counts.appendChild(el('span', 'dg-k' + (d.counts && d.counts.timeout ? ' dg-k-bad' : ''), '超时 ' + (d.counts && d.counts.timeout || 0)));
+    counts.appendChild(el('span', 'dg-k', '已闭环 ' + (d.counts && d.counts.done || 0)));
+    if (open.length) counts.appendChild(el('span', 'dg-k dg-k-bad', '要看 ' + open.length));
+
+    list.innerHTML = '';
+    if (!open.length) {
+      const th = d.thresholds ? (d.thresholds.warnMin + '/' + d.thresholds.errMin + ' 分') : '30/60 分';
+      list.appendChild(el('div', 'dg-empty', '没有待处理的派发单（阈值 ' + th + '）'));
+    } else {
+      open.slice()
+        .sort((a, b) => (a.level === b.level ? 0 : (a.level === 'err' ? -1 : 1)))
+        .forEach((t) => list.appendChild(rowOf(t)));
+    }
+
+    foot.innerHTML = '';
+    foot.appendChild(el('span', 'dg-foot-t', '上次巡检 ' + (d.checkedAt || '—')));
+  }
+
+  refresh(false);
+  timer = setInterval(() => { if (!disposed) refresh(false); }, 60000);
+  return () => { disposed = true; if (timer) clearInterval(timer); };
+};
+
+/* ══════════════════════════════════════════════════════════════════
+   创意工坊 · 工程文件预览（type = "bl-files"）
+   左边点文件、右边直接看：图片出大图、.md 出正文、.blend/.glb 出元信息 + 一键打开。
+   和 bl-folder 的区别：不来回跳目录，固定四个产物夹做 tab，一眼看"这活到底出了什么"。
+   ══════════════════════════════════════════════════════════════════ */
+renderers['bl-files'] = (body, meta, head) => {
+  const K = window.app && window.app.blender;
+  body.classList.add('bf-body');
+  let disposed = false, rel = '', rootPath = '';
+
+  // 1. tab = 资产包（一次一个资产，一个资产一个包）；没有资产包时回退旧扁平五夹
+  const TABS = ['工程', '概念', '贴图', '输出', '导出'];
+  const tabBar = el('div', 'bf-tabs');
+  function makeTab(label, relPath, on) {
+    const b = el('span', 'bf-tab' + (on ? ' on' : ''), label);
+    b.dataset.rel = relPath;
+    b.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      tabBar.querySelectorAll('.bf-tab').forEach((x) => x.classList.remove('on'));
+      b.classList.add('on');
+      load(relPath);
+    });
+    tabBar.appendChild(b);
+    return b;
+  }
+  async function initTabs() {
+    tabBar.innerHTML = '';
+    let dirs = [];
+    if (K && K.files) {
+      try {
+        const r = await K.files('资产');
+        if (r && r.ok) dirs = (r.rows || []).filter((x) => x.isDir).map((x) => x.name);
+      } catch (e) { dirs = []; }
+    }
+    if (disposed) return;
+    if (!dirs.length) {
+      TABS.forEach((t) => makeTab(t, t, t === '工程'));
+      load('工程');
+      return;
+    }
+    dirs.forEach((d, i) => makeTab(d, '资产/' + d, i === 0));
+    load('资产/' + dirs[0]);
+  }
+  const tip = el('span', 'bl-note', '');
+  if (head) {
+    head.classList.add('file-head');
+    const acts = el('div', 'file-head-acts');
+    acts.appendChild(tabBar);
+    const openBtn = el('button', 'file-refresh', '📂');
+    openBtn.title = '在资源管理器打开当前目录';
+    openBtn.addEventListener('click', () => { if (K) K.open(rootPath + (rel ? '\\' + rel.replace(/\//g, '\\') : '')); });
+    acts.appendChild(openBtn);
+    // ＋资产：一次做一个资产就建一个包（回车确认，不弹系统对话框）
+    const newIn = el('input', 'bf-new-in');
+    newIn.type = 'text';
+    newIn.placeholder = '新资产名，回车建包';
+    newIn.style.display = 'none';
+    const newBtn = el('button', 'file-refresh', '＋资产');
+    newBtn.title = '新建资产包（模型/贴图/渲染/导出都放这个包里）';
+    newBtn.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      if (newIn.style.display === 'none') { newIn.style.display = ''; newIn.focus(); return; }
+      newIn.style.display = 'none';
+    });
+    newIn.addEventListener('keydown', async (ev) => {
+      if (ev.key !== 'Enter') return;
+      ev.stopPropagation();
+      const name = String(newIn.value || '').trim();
+      if (!name) return;
+      const A = window.app && window.app.creative;
+      let r = null;
+      try { r = await (A && A.assetNew ? A.assetNew(name) : Promise.resolve(null)); } catch (e) { r = null; }
+      if (window.__tbsToast) window.__tbsToast(r && r.ok ? ('资产包已建：' + name) : ('建包失败：' + ((r && r.err) || '没有通道')), !(r && r.ok), 9000);
+      if (r && r.ok) { newIn.value = ''; newIn.style.display = 'none'; initTabs(); }
+    });
+    acts.appendChild(newBtn);
+    acts.appendChild(newIn);
+    head.appendChild(acts);
+    head.appendChild(tip);
+  }
+
+  // 只列目录：面板小（2×2），不留预览区；要打开文件就双击 / 右键
+  const main = el('div', 'bf-main');
+  const list = el('div', 'bf-list');
+  main.appendChild(list);
+  body.appendChild(main);
+
+  const fmtSize = (n) => {
+    if (n == null) return '—';
+    if (n < 1024) return n + ' B';
+    if (n < 1048576) return (n / 1024).toFixed(1) + ' KB';
+    if (n < 1073741824) return (n / 1048576).toFixed(1) + ' MB';
+    return (n / 1073741824).toFixed(2) + ' GB';
+  };
+  const icon = (name, isDir) => {
+    if (isDir) return '📁';
+    const n = String(name).toLowerCase();
+    if (/\.blend\d?$/.test(n)) return '🟠';
+    if (/\.(png|jpe?g|webp|gif|exr|hdr)$/.test(n)) return '🖼️';
+    if (/\.(mp4|mov|avi|mkv)$/.test(n)) return '🎬';
+    if (/\.(obj|fbx|glb|gltf|stl|ply|usd)$/.test(n)) return '🧊';
+    if (/\.(md|txt)$/.test(n)) return '📄';
+    if (/\.py$/.test(n)) return '🐍';
+    return '📄';
+  };
+  const absOf = (name) => rootPath + '\\' + (rel ? rel.replace(/\//g, '\\') + '\\' : '') + name;
+
+  // 4. 列目录（只列，不预览：双击用系统程序打开、右键定位到资源管理器）
+  async function load(nextRel) {
+    if (disposed || !K) return;
+    rel = nextRel || '';
+    list.innerHTML = '';
+    list.appendChild(el('div', 'file-empty', '加载中…'));
+    let res = null;
+    try { res = await K.files(rel); } catch (e) { res = null; }
+    if (disposed) return;
+    list.innerHTML = '';
+    if (!res || !res.ok) { list.appendChild(el('div', 'file-empty', '无法读取：' + ((res && res.err) || '未知错误'))); return; }
+    rootPath = res.root || rootPath;
+    if (tip) tip.textContent = res.rows.length + ' 项';
+    // 进了子目录给一个回上一级的行（面板小，不做面包屑）
+    if (rel) {
+      const up = el('div', 'file-row dir bf-up');
+      up.appendChild(el('span', 'bl-file-ico', '↩'));
+      up.appendChild(el('span', 'file-name', '上一级'));
+      up.addEventListener('click', () => load(rel.split('/').slice(0, -1).join('/')));
+      list.appendChild(up);
+    }
+    if (!res.rows.length) { list.appendChild(el('div', 'file-empty', '（空）')); return; }
+    res.rows.forEach((it) => {
+      const row = el('div', 'file-row' + (it.isDir ? ' dir' : ''));
+      row.appendChild(el('span', 'bl-file-ico', icon(it.name, it.isDir)));
+      row.appendChild(el('span', 'file-name', it.name));
+      row.appendChild(el('span', 'file-meta', it.isDir ? '目录' : fmtSize(it.size)));
+      row.addEventListener('click', () => {
+        list.querySelectorAll('.file-row.sel').forEach((x) => x.classList.remove('sel'));
+        row.classList.add('sel');
+        if (it.isDir) load(rel ? rel + '/' + it.name : it.name);
+      });
+      row.addEventListener('dblclick', () => { if (!it.isDir && K) K.open(absOf(it.name)); });
+      row.addEventListener('contextmenu', (ev) => { ev.preventDefault(); if (K) K.reveal(rel ? rel + '/' + it.name : it.name); });
+      list.appendChild(row);
+    });
+  }
+
+  initTabs();
+  return () => { disposed = true; };
 };
 
 /* ══════════════════════════════════════════════════════════════════
@@ -18066,7 +18659,7 @@ renderers['review-doc'] = function (body, meta, head) {
 })();
 
 // ==========================================================================================
-// 2026-10-26（宿主）：新场景「命令」——左边大窗口把记忆系统做成 3D 神经元网络（节点=场景/技能/记忆文档，
+// 2026-10-26（宿主）：新场景「记忆」——左边大窗口把记忆系统做成 3D 神经元网络（节点=场景/技能/记忆文档，
 //   连线=所有权与依赖），右边窄条 = AI 会话。本渲染器只读共享记忆与技能目录，不改任何文件。
 //   · 3D 用 canvas 2D 自己投影（不引三方库，CSP script-src 'self' 也引不进来）
 //   · 数据源：_共享记忆\索引.json + areas\*.md + 冲突.md + _待办.md + _跨场景通知.md + 技能 SKILL.md
@@ -18084,12 +18677,12 @@ renderers.neuron = (body, meta, head) => {
   const ROOT = MEM_ROOT + '\\_共享记忆';
   const META_DIR = MEM_ROOT;
   const SKILL_DIR = P.skillDir || '<工作台>\\引擎数据\\.dsh\\skills';
-  // 技能清单**不硬编码**（2026-10-27 审计①：硬编码 23 漏了 command / douyin）——运行时列技能目录，这份只当兜底
+  // 技能清单**不硬编码**（2026-10-27 审计①：硬编码 23 漏了 memory / douyin）——运行时列技能目录，这份只当兜底
   const SKILL_FALLBACK = ['gui-workbench', 'harness-dev', 'context-overflow', 'workbuddy', 'webai-offload',
     'new-tools', 'code-dev', 'design-misc', 'pc-cleanup', 'bilibili', 'blender', 'comfyui',
     'code-video', 'jianying-ai-editor', 'oa-ops', 'your-site', 'self-profile',
     'video-workflow-canvas', 'transparent-flow-video', 'provider-direct', 'host-scan', 'app-packaging',
-    'local-pc-control', 'command', 'douyin'];
+    'local-pc-control', 'memory', 'douyin'];
   // 边的语义标签（2026-10-27 审计⑤：原来只有颜色，看不出这条线是什么关系）
   const EDGE_LABEL = {
     area: '内核 → 区域', skill: '技能归属（→ owner 场景）', memory: '私有记忆归属',
@@ -18101,7 +18694,7 @@ renderers.neuron = (body, meta, head) => {
   const GROUP = {
     'dg-dsh': 'engine', 'dg-gui': 'ui', 'code-ai': 'code', 'dz-ai': 'ui', 'site-ai': 'content',
     'wb-ai': 'content', 'oa-ai': 'content', 'vw-ai': 'content', 'bv-ai': 'content', 'bl-ai': 'content',
-    'mk-chat': 'content', 'sr-ai': 'content', 'pc-ai': 'ops'
+    'cw-ai': 'content', 'cw-board': 'doc', 'cw-files': 'doc', 'mk-chat': 'content', 'sr-ai': 'content', 'pc-ai': 'ops'
   };
   // 2026-11-13：归口色对齐设计令牌（--warn / --ok / --err），不再用自己调的一套近似色
   const COLOR = { core: '#7fe3ff', engine: '#8fb4ff', ui: '#e5b355', code: '#b79bff', content: '#34c98f', ops: '#ef5d6d', skill: '#6f8fd6', doc: '#c9d4e6', project: '#2dd4bf', memory: '#dfe7ff', source: '#8f9bb3', chain: '#e5b355' };
@@ -18170,11 +18763,12 @@ renderers.neuron = (body, meta, head) => {
   const MEM_DIR = MEM_ROOT;
   const CHAIN_DIR = MEM_ROOT + '\\_共享记忆\\提交链';
   const MEMORY_BY_PANEL = {
-    'cmd-chat': MEM_DIR + '\\命令\\场景私有记忆.md',
+    'mem-chat': MEM_DIR + '\\记忆\\场景私有记忆.md',
     'bv-ai': MEM_DIR + '\\B站\\场景私有记忆.md',
     'dg-dsh': MEM_DIR + '\\DSH·GUI改造\\场景私有记忆.md',
     'dg-gui': MEM_DIR + '\\DSH·GUI改造\\场景私有记忆.md',
-    'bl-ai': MEM_DIR + '\\Blender\\场景私有记忆.md'
+    'bl-ai': MEM_DIR + '\\Blender\\场景私有记忆.md',
+    'cw-ai': MEM_DIR + '\\创意工坊\\场景私有记忆.md'
   };
 
   // ---------- 骨架 ----------
@@ -21066,3 +21660,20 @@ window.openPetSettings = function () {
     return null;
   });
 };
+// 创意工坊 · 卡住告警（全局）：主进程每 60 秒巡检，新卡住就主动推过来。
+// 放在模块级而不是看板里 —— 你停在任何场景（哪怕不在创意工坊）都能收到顶栏通知，不用等自己去看。
+(function watchCreativeGlobal() {
+  const A = window.app && window.app.creative;
+  if (!A || typeof A.onWatch !== 'function') return;
+  const seen = new Set();
+  A.onWatch((p) => {
+    if (!p || !p.ok || !p.fresh || !p.fresh.length) return;
+    p.fresh.forEach((a) => {
+      if (seen.has(a.key)) return;
+      seen.add(a.key);
+      if (window.__tbsToast) {
+        window.__tbsToast('创意工坊卡住：' + a.kind + '「' + a.who + '」' + (a.detail || '') + ' —— 打开看板可一键重派', true, 12000);
+      }
+    });
+  });
+})();

@@ -195,7 +195,42 @@ contextBridge.exposeInMainWorld('app', {
     // on=false 释放回桌面；on=true 时 rect 为面板可视区的 CSS 像素矩形
     embed: (on, rect) => ipcRenderer.invoke('blender:embed', on, rect),
     embedMove: (rect) => ipcRenderer.invoke('blender:embedMove', rect),
-    embedStatus: () => ipcRenderer.invoke('blender:embedStatus')
+    embedStatus: () => ipcRenderer.invoke('blender:embedStatus'),
+    // 全屏调整：on=true 时 rects = { grid, panel }（都按视口 CSS px）；退出用 rects 里的 panel 原样贴回
+    embedFullscreen: (on, rects) => ipcRenderer.invoke('blender:embedFullscreen', on, rects),
+    // 主进程用 Ctrl+Alt+B 把人从全屏收回时广播（面板按钮被 Blender 盖住，靠这条同步 UI）
+    onFullscreen: (cb) => {
+      const h = (e, v) => { try { cb(v) } catch (ex) { console.warn('[blender:fullscreen] 回调出错', ex) } };
+      ipcRenderer.on('blender:fullscreen', h);
+      return () => ipcRenderer.removeListener('blender:fullscreen', h);
+    }
+  },
+  // ---- 创意工坊 · 流程看板（只读汇总：工单状态 + 回执台账，不读会话正文）----
+  creative: {
+    board: () => ipcRenderer.invoke('creative:board'),
+    // 自动巡检：后台每 60 秒扫一次，卡住就主进程主动广播（不用人盯）
+    watchState: () => ipcRenderer.invoke('creative:watchState'),
+    retry: (id) => ipcRenderer.invoke('creative:retry', id),
+    // 新建资产包（一次一个资产，一个资产一个目录）
+    assetNew: (name) => ipcRenderer.invoke('creative:assetNew', name),
+    onWatch: (cb) => {
+      const h = (e, payload) => { try { cb(payload) } catch (ex) { console.warn('[creative:watch] 回调出错', ex) } };
+      ipcRenderer.on('creative:watch', h);
+      return () => ipcRenderer.removeListener('creative:watch', h);
+    }
+  },
+  // ---- 总入口 · 派发巡检（超时 / 干完未回执 / 待批准；补投与批准要人点按钮）----
+  dispatch: {
+    dog: () => ipcRenderer.invoke('dispatch:dog'),
+    dogFix: (id) => ipcRenderer.invoke('dispatch:dogFix', id),
+    dogOpen: (id) => ipcRenderer.invoke('dispatch:dogOpen', id),
+    // 待批准队列（confirm 级不再靠聊天点头）：列出 / 批准 / 忽略
+    approvals: () => ipcRenderer.invoke('dispatch:approvals'),
+    approve: (id) => ipcRenderer.invoke('dispatch:approve', id),
+    drop: (id) => ipcRenderer.invoke('dispatch:drop', id),
+    // 定时触发（Trigger）：到点自动派；confirm 级照样进待批准
+    timers: () => ipcRenderer.invoke('dispatch:timers'),
+    timerToggle: (id, on) => ipcRenderer.invoke('dispatch:timerToggle', id, on)
   },
   // 2026-10-28 客户「<客户>」：把工业软件窗口内置成面板（owner-overlay，与 Blender 同一套）
   appwin: {

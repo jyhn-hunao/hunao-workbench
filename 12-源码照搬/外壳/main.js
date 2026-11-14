@@ -342,7 +342,17 @@ function sendBoot(patch) {
 }
 
 // 已构建的 CLI 入口：直接 node 跑它，可跳过 cmd.exe → pnpm → tsx 三层转译，明显加快引擎启动
-const CLI_BUILT = path.join(HARNESS_DIR, 'apps', 'cli', 'lib', 'bin.js');
+// 2026-11-14 修：原来只认源码版 apps/cli/lib/bin.js，打包版引擎（引擎/lib/bin.js）永远命中不到
+//   ⇒ 每次启动都退回 pnpm 兜底，实测多约 10 秒（server.log: engine ready in 16.7s via pnpm 脚本）。
+//   两套布局都认，与 自检.mjs 的 ENGINE_BINS 同源。
+const CLI_CANDS = [
+  path.join(HARNESS_DIR, 'apps', 'cli', 'lib', 'bin.js'),   // 源码版
+  path.join(HARNESS_DIR, 'lib', 'bin.js')                    // 打包版
+];
+const CLI_BUILT = (function () {
+  for (const p of CLI_CANDS) { try { if (fs.existsSync(p)) return p; } catch (e) { warnOnce('main', e) } }
+  return CLI_CANDS[0];
+})();
 
 function serverSpawnEnv() {
   const env = Object.assign({}, process.env);
@@ -378,9 +388,15 @@ function resolveNodeExe() {
   if (process.env.DSH_NODE) {
     try { if (fs.statSync(process.env.DSH_NODE).isFile()) { cachedNodeExe = process.env.DSH_NODE; return cachedNodeExe; } } catch (e) { warnOnce("main", e) }
   }
+  // 2026-11-14 修：自检按 机器配置.json 的 nodeExe 判 Node 版本（引擎要求 >=24.9），主进程却只扫 PATH
+  //   ⇒ PATH 里先命中 22.x（沙箱 / 旧装 / 别的工具自带）时，引擎跑在低版本 node 上而自检仍是绿的。
+  //   顺序固定为：DSH_NODE > 机器配置 nodeExe > PATH > Electron 内置 Node。
+  try {
+    const cfgFile = process.env.DSH_MACHINE_FILE || path.join(__dirname, '..', '引擎数据', '.dsh', '机器配置.json');
+    const cfg = JSON.parse(fs.readFileSync(cfgFile, 'utf8'));
+    if (cfg && cfg.nodeExe && fs.statSync(cfg.nodeExe).isFile()) { cachedNodeExe = cfg.nodeExe; return cachedNodeExe; }
+  } catch (e) { warnOnce("main", e) }
   const dirs = String(process.env.Path || process.env.PATH || '').split(path.delimiter).filter(Boolean);
-  // 末位兜底：本机常见安装位置（PATH 里没有 node 时仍可直连）
-  dirs.push('<盘根>:\\software\\node.js');
   for (const d of dirs) {
     const p = path.join(d, 'node.exe');
     try { if (fs.statSync(p).isFile()) { cachedNodeExe = p; return cachedNodeExe; } } catch (e) { warnOnce("main", e) }
@@ -616,16 +632,92 @@ function applyOaScenario(sid) {
   };
 }
 
-// ---- 个人站场景：官网静态服务（E 盘官网目录 → 127.0.0.1:SITE_PORT，供 webview 预览与图片加载）----
 // ---- Blender 场景：实时画面（抓帧 JPEG 也由这个静态服务直出，避免每帧走 IPC）----
-const BLENDER_EXE = '<盘根>:\\software\\Blender\\blender.exe';
-const BLENDER_DIR = '<盘根>:\\blender\\blender控制';                               // Blender 工作区（本地文件面板的根）
-const BLENDER_AUTOSTART = path.join(__dirname, 'scripts', 'autostart_mcp.py'); // ASCII 路径：中文路径会被 Blender 当文件加载
+// 2026-11-13 创意工坊：路径不再写死。解析顺序 = 环境变量 > 机器配置.json > 常见安装位 > PATH；
+//   都找不到就把 exe 留空（启动时按 err 说清怎么补），⛔ 不猜路径、不静默兜底。
+const MACHINE_FILE = process.env.DSH_MACHINE_FILE || path.join(__dirname, '..', '引擎数据', '.dsh', '机器配置.json');
+function readMachineConfig() {
+  try {
+    const j = JSON.parse(fs.readFileSync(MACHINE_FILE, 'utf8'));
+    return (j && typeof j === 'object') ? j : {};
+  } catch (e) { return {}; }
+}
+const MACHINE = readMachineConfig();
+
+// 1. 找 blender.exe：env > 机器配置 blenderExe > Program Files\Blender Foundation\Blender*\blender.exe（取最高版本）> PATH
+function resolveBlenderExe() {
+  const tried = [];
+  const envExe = String(process.env.DSH_BLENDER_EXE || '').trim();
+  if (envExe) {
+    tried.push(['环境变量 DSH_BLENDER_EXE', envExe]);
+    if (fs.existsSync(envExe)) return { exe: envExe, from: '环境变量', tried };
+  }
+  const cfgExe = String(MACHINE.blenderExe || '').trim();
+  if (cfgExe) {
+    tried.push(['机器配置 blenderExe', cfgExe]);
+    if (fs.existsSync(cfgExe)) return { exe: cfgExe, from: '机器配置', tried };
+  }
+  const roots = [process.env.ProgramFiles, process.env['ProgramFiles(x86)'],
+    process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, 'Programs') : ''].filter(Boolean);
+  const hits = [];
+  for (const r of roots) {
+    const dir = path.join(r, 'Blender Foundation');
+    let names = [];
+    try { names = fs.readdirSync(dir); } catch (e) { tried.push(['安装位', dir + '（没有）']); continue; }
+    for (const n of names) {
+      const exe = path.join(dir, n, 'blender.exe');   // eslint 之外：只认官方安装布局
+      if (fs.existsSync(exe)) hits.push({ exe: exe, v: n });
+    }
+  }
+  if (hits.length) {
+    hits.sort((a, b) => String(b.v).localeCompare(String(a.v), 'en', { numeric: true }));
+    return { exe: hits[0].exe, from: '安装目录', tried };
+  }
+  try {
+    const r = spawnSync('where.exe', ['blender.exe'], { windowsHide: true, encoding: 'utf8' });
+    const first = String((r && r.stdout) || '').split(/\r?\n/).map((s) => s.trim()).filter(Boolean)[0];
+    if (first && fs.existsSync(first)) return { exe: first, from: 'PATH', tried };
+    tried.push(['PATH', 'where blender.exe 没结果']);
+  } catch (e) { tried.push(['PATH', 'where 调用失败']); }
+  return { exe: '', from: '', tried };
+}
+const BLENDER_PICK = resolveBlenderExe();
+const BLENDER_EXE = BLENDER_PICK.exe;
+
+// 2. 工程工作区：env > 机器配置 blenderDir > <工作台>\工作区\创意工坊（工作区不进库，也不许落盘根）
+const BLENDER_DIR = String(process.env.DSH_BLENDER_DIR || MACHINE.blenderDir || '').trim()
+  || path.join(WORKSPACE_DIR, '创意工坊');
+try { fs.mkdirSync(BLENDER_DIR, { recursive: true }); } catch (e) { warnOnce('main', e) }
+// 工程根下四个固定子目录（工程 / 输出 / 导出 / _脚本）：让「工程资源」面板第一眼就有结构，AI 也照这个落文件
+for (const sub of ['工程', '输出', '导出', '_脚本']) {
+  try { fs.mkdirSync(path.join(BLENDER_DIR, sub), { recursive: true }); } catch (e) { warnOnce('main', e) }
+}
+
+// 3. 桥接脚本：源码在 外壳\scripts\blender-bridge.py，启动 Blender 前复制到 %TEMP% 的纯 ASCII 路径再 --python
+//    （历史坑：Blender 对中文路径的 --python 处理不稳，会把脚本当 .blend 文件加载）
+const BLENDER_BRIDGE_SRC = path.join(__dirname, 'scripts', 'blender-bridge.py');
+const BLENDER_BRIDGE_COPY = path.join(os.tmpdir(), 'dsh-blender-bridge.py');
+const BLENDER_BRIDGE_STAMP = path.join(os.tmpdir(), 'dsh-blender-bridge.stamp');
+function ensureBlenderBridge() {
+  try {
+    if (!fs.existsSync(BLENDER_BRIDGE_SRC)) return '';
+    const st = fs.statSync(BLENDER_BRIDGE_SRC);
+    const stamp = st.size + '|' + Math.floor(st.mtimeMs);
+    let old = '';
+    try { old = fs.readFileSync(BLENDER_BRIDGE_STAMP, 'utf8').trim(); } catch (e) { old = ''; }
+    if (!fs.existsSync(BLENDER_BRIDGE_COPY) || old !== stamp) {
+      fs.copyFileSync(BLENDER_BRIDGE_SRC, BLENDER_BRIDGE_COPY);
+      fs.writeFileSync(BLENDER_BRIDGE_STAMP, stamp, 'utf8');
+    }
+    return BLENDER_BRIDGE_COPY;
+  } catch (e) { warnOnce('main', e); return ''; }
+}
+
 const BLENDER_CAPTURE_PS = path.join(__dirname, 'scripts', 'blender-capture.ps1');
 const BLENDER_LIVE_JPG = path.join(__dirname, 'data', 'blender-live.jpg');
 const BLENDER_LIVE_META = path.join(__dirname, 'data', 'blender-live.json');
 const BLENDER_CAPTURE_PID = path.join(__dirname, 'data', 'blender-capture.pid');
-const BLENDER_MCP_PORT = 9876;
+const BLENDER_MCP_PORT = 9876;   // blender-bridge.py 在同一端口监听（AI 靠它实时改场景）
 
 // ---- Blender 内置：把 Blender 主窗口 SetParent 进 GUI 窗口，直接在面板里操作 ----
 // Win32 部分全在 scripts/blender-embed-agent.ps1；主进程只负责起代理、下命令、收结果。
@@ -1895,17 +1987,31 @@ ipcMain.handle('blender:state', (e, opts) => new Promise((resolve) => {
       liveUrl: 'http://127.0.0.1:' + SITE_PORT + '/__blender/live.jpg',
       workspace: BLENDER_DIR,
       exe: BLENDER_EXE,
+      exeFound: !!BLENDER_EXE,
+      exeFrom: BLENDER_PICK.from,
+      machineFile: MACHINE_FILE,
+      bridge: 'blender-bridge.py @ ' + BLENDER_MCP_PORT,
       mcpPort: BLENDER_MCP_PORT
     });
   });
 }));
 
-// 启动 Blender（带 MCP 自启动脚本，省去手点 N 面板）
-ipcMain.handle('blender:launch', () => {
+// 启动 Blender（带桥接脚本：起来就能被 AI 实时驱动，省去手点 N 面板装插件）
+ipcMain.handle('blender:launch', (e, opts) => {
   if (blenderRunning()) return { ok: true, already: true };
-  if (!fs.existsSync(BLENDER_EXE)) return { ok: false, err: '找不到 blender.exe：' + BLENDER_EXE };
+  if (!BLENDER_EXE) {
+    return {
+      ok: false,
+      err: '没找到 blender.exe：装好后跑 node 12-源码照搬\\工具\\Blender.mjs set-exe --path "<blender.exe>"（或设 DSH_BLENDER_EXE），再点启动。'
+    };
+  }
+  if (!fs.existsSync(BLENDER_EXE)) return { ok: false, err: 'blender.exe 路径失效：' + BLENDER_EXE };
   try {
-    const args = fs.existsSync(BLENDER_AUTOSTART) ? ['--python', BLENDER_AUTOSTART] : [];
+    const bridge = ensureBlenderBridge();
+    const args = [];
+    const blend = String((opts && opts.blend) || '').trim();
+    if (blend && fs.existsSync(blend)) args.push(blend);
+    if (bridge) args.push('--python', bridge);
     const child = spawn(BLENDER_EXE, args, {
       cwd: path.dirname(BLENDER_EXE),
       detached: true,
@@ -1913,9 +2019,11 @@ ipcMain.handle('blender:launch', () => {
       windowsHide: false
     });
     child.unref();
-    log('[blender] 已启动: ' + BLENDER_EXE + ' ' + args.join(' '));
-    startBlenderCapture();
-    return { ok: true };
+    log('[blender] 已启动: ' + BLENDER_EXE + ' ' + args.join(' ') + (bridge ? '' : '（桥接脚本缺失：AI 只能走后台 run）'));
+    // 面板是覆盖式内置（真窗口贴进来），不需要抓帧；抓帧脚本没随包提供时也明说一句，别当成闷声失败
+    if (fs.existsSync(BLENDER_CAPTURE_PS)) startBlenderCapture();
+    else log('[blender] 抓帧脚本未提供（scripts\\blender-capture.ps1），跳过抓帧；内置模式不受影响');
+    return { ok: true, bridge: !!bridge };
   } catch (ex) { return { ok: false, err: String((ex && ex.message) || ex) }; }
 });
 
@@ -1958,10 +2066,15 @@ ipcMain.handle('blender:capture', (e, on) => {
   return { ok: startBlenderCapture(), capturing: true };
 });
 
-// ================= Blender 内置（真把窗口嵌进面板，不是截图）=================
-// 安全性：Win32 里子窗口会随父窗口一起销毁，所以如果 GUI 崩了，被嵌入的 Blender
-// 会连窗口一起被系统销毁。代理脚本里有守护逻辑——一发现本进程（-ParentPid）没了，
-// 立刻把 Blender 还回桌面并还原原始样式与几何。任何情况下 Blender 都必须还能单独用。
+// ================= Blender 内置（真把窗口贴进面板，不是截图）=================
+// 做法：代理把 Blender 主窗口的 owner 设成发起内置的窗口 + **摘掉标题栏与厚边框**（WS_CAPTION/WS_THICKFRAME/
+//   WS_SYSMENU/WS_*BOX 全去掉，改 WS_POPUP，exstyle 加 WS_EX_TOOLWINDOW），再按面板矩形精确铺满
+//   （⛔ 不用 SetParent——子窗口会随父窗口一起销毁，壳一崩 Blender 就被系统带走）。
+// 效果：窗口没有标题栏、不进任务栏/Alt-Tab、矩形与面板内容区逐像素对齐 → 看起来就是面板里的一块；
+//   窗口被用户最小化/压成一条时，内置会先 ShowWindow(SW_RESTORE) 再摆位。
+// 保险：代理每拍检查 -ParentPid 是否还活着；一旦不在，立刻还原样式（带框）、owner 与原始矩形。
+// 面板切走 / 关 Blender / 退出工作台三条路径也都会先发 release。任何情况下 Blender 都必须还能单独用。
+// ⚠ 硬杀代理（不经 release）会把 Blender 留在无边框状态——重启 Blender 即可恢复；正常退出都走 release/quit。
 let blenderEmbedProc = null;
 let blenderEmbedSeq = 0;
 
@@ -2067,6 +2180,8 @@ ipcMain.handle('blender:embed', async (e, on, rect) => {
     if (blenderEmbedOwner && win && blenderEmbedOwner !== win) return { ok: true, skipped: true };
     blenderEmbedCssRect = null;
     blenderEmbedOwner = null;
+    blenderPanelCssRect = null;
+    if (blenderFullscreen) { blenderFullscreen = false; notifyBlenderFullscreen(false); }
     const r = await blenderEmbedCommand({ cmd: 'release' }, 6000);
     return Object.assign({ ok: true }, r || {});
   }
@@ -2075,14 +2190,20 @@ ipcMain.handle('blender:embed', async (e, on, rect) => {
     return { ok: false, err: '已在另一个窗口内置（这块画面只能贴一个窗口）' };
   }
   const p = toScreenPhysicalRect(rect || {}, win);
+  // 嵌入模式：clip = 顶层窗 + SetWindowRgn 裁到面板内（默认，绝不越界且不会连带丢窗口）；
+  //           owner = 只用 owner 贴合（最保守）；child = SetParent 真子窗（会随壳一起销毁，谨慎）
+  // 机器配置.json 写 "blenderEmbedMode": "owner" | "child" 可切换
+  const rawMode = String(MACHINE.blenderEmbedMode || '').toLowerCase();
+  const embedMode = (rawMode === 'owner' || rawMode === 'child') ? rawMode : 'clip';
   const res = await blenderEmbedCommand({
-    cmd: 'embed', parent: windowHandleToDecimal(win),
+    cmd: 'embed', parent: windowHandleToDecimal(win), mode: embedMode,
     x: p.x, y: p.y, w: p.w, h: p.h
   }, 12000);
   if (res && res.ok) {
     blenderEmbedCssRect = rect || null;
     blenderEmbedOwner = win;
-    log('[blender] 内置画面已贴到窗口: ' + (win.kunScene || 'main'));
+    log('[blender] 内置画面已贴到窗口: ' + (win.kunScene || 'main') + ' · 模式 ' + ((res && res.mode) || 'owner')
+      + (res && res.fallback ? '（真嵌入失败，已退回贴合式）' : ''));
     stopBlenderCapture();    // 已内置就不必再抓帧，省 CPU
   }
   return res;
@@ -2097,6 +2218,56 @@ ipcMain.handle('blender:embedMove', (e, rect) => {
 });
 
 ipcMain.handle('blender:embedStatus', () => blenderEmbedCommand({ cmd: 'status' }, 6000));
+
+// ---- 全屏调整：Blender 临时铺满整个工作区（#grid），方便手动挪模型/看细节，再一键切回面板 ----
+// 铺满后 Blender 会盖住所有面板（含它自己的「还原」按钮），所以退出必须留一条全局快捷键 Ctrl+Alt+B。
+let blenderPanelCssRect = null;   // 面板矩形（进入全屏前的落点，退出时用）
+let blenderFullscreen = false;
+let blenderFullKeyOn = false;
+
+function notifyBlenderFullscreen(on) {
+  // 2026-11-14 修：原来只发 mainWindow，分离出去的窗口收不到 ⇒ 统一走 broadcast（check-gui 的硬规则）
+  try { broadcast('blender:fullscreen', !!on); } catch (e) { warnOnce('main', e) }
+}
+
+function ensureBlenderFullKey() {
+  if (blenderFullKeyOn) return;
+  try {
+    const gs = require('electron').globalShortcut;
+    blenderFullKeyOn = gs.register('Control+Alt+B', function () {
+      if (!blenderFullscreen) return;
+      exitBlenderFullscreen();
+    });
+  } catch (e) { warnOnce('main', e) }
+}
+
+async function exitBlenderFullscreen() {
+  if (!blenderFullscreen) return { ok: true, full: false };
+  blenderFullscreen = false;
+  if (blenderPanelCssRect) {
+    blenderEmbedCssRect = blenderPanelCssRect;
+    const p = toScreenPhysicalRect(blenderPanelCssRect, blenderEmbedOwner || mainWindow);
+    await blenderEmbedCommand({ cmd: 'move', x: p.x, y: p.y, w: p.w, h: p.h }, 4000);
+  }
+  notifyBlenderFullscreen(false);
+  return { ok: true, full: false };
+}
+
+ipcMain.handle('blender:embedFullscreen', async (e, on, rects) => {
+  const win = windowOfEvent(e) || blenderEmbedOwner || mainWindow;
+  if (on === false) return exitBlenderFullscreen();
+  if (!blenderEmbedOwner) return { ok: false, err: '还没内置到面板，先启动/重新内置' };
+  const grid = (rects && rects.grid) || null;
+  if (!grid || !grid.w || !grid.h) return { ok: false, err: 'no-rect' };
+  if (!blenderFullscreen) blenderPanelCssRect = (rects && rects.panel) || blenderEmbedCssRect;
+  blenderEmbedCssRect = grid;
+  blenderFullscreen = true;
+  ensureBlenderFullKey();
+  const p = toScreenPhysicalRect(grid, win);
+  const r = await blenderEmbedCommand({ cmd: 'move', x: p.x, y: p.y, w: p.w, h: p.h }, 4000);
+  notifyBlenderFullscreen(true);
+  return Object.assign({ ok: true, full: true, rect: p }, r || {});
+});
 
 // 退出时先请代理释放；真来不及也有代理里的守护兜底
 function releaseBlenderEmbedSync() {
@@ -2233,6 +2404,472 @@ ipcMain.handle('blender:files', (e, relPath) => {
   }).filter(r => r.name !== '.gitkeep')
     .sort((a, b) => (b.isDir - a.isDir) || a.name.localeCompare(b.name, 'zh'));
   return { ok: true, root: root, rel: rel, rows: rows };
+});
+
+// ---- 创意工坊 · 流程看板（只读汇总，不读会话正文）----
+// 用户只关心"十个环节走到哪"：看板读 工单\*.md 的状态行与 派发\回执日志.md 的最近记录，
+// 不碰任何会话内容，也不提供改状态的能力（状态只能由岗位改自己工单的第一行）。
+const CREATIVE_STAGES = [
+  { key: 'concept', name: '原画·概念' },
+  { key: 'art', name: '美术指导' },
+  { key: 'hi', name: '高模雕刻' },
+  { key: 'lo', name: '低模·拓扑' },
+  { key: 'uv', name: 'UV·贴图' },
+  { key: 'look', name: '材质·灯光' },
+  { key: 'rig', name: '绑定·动画' },
+  { key: 'fx', name: '特效·合成' },
+  { key: 'qa', name: '技美·质检' }
+];
+// 流程视图用的工序链：顺序照 流水线.md §二（十段带门）。
+// short/gateShort 是界面用的极短标签（面板上不放长句，长句只进 tooltip）；
+// deps = 必须等这些阶段「通过」才能开工；par = 同一个并行组（互不等待，可同时开工）；
+// optionalDeps = 该阶段没开单就按「按需」放过，不挡后面的人。
+const CREATIVE_FLOW = [
+  { key: 'brief', step: 1, name: '接单 · 派工', short: '接单', gateShort: '你派工', gate: '在「创意工坊」丢一张参考图 + 一句要求', deps: [], manual: true },
+  { key: 'art', step: 2, name: '美术方向', short: '美术方向', gateShort: '导演+你', gate: '门：导演 + 你确认风格', deps: ['brief'] },
+  { key: 'concept', step: 3, name: '原画·概念', short: '原画', gateShort: '美术指导', gate: '门：美术指导审图（造型/配色/比例）', deps: ['art'] },
+  { key: 'hi', step: 4, name: '高模雕刻', short: '高模', gateShort: '美术+导演', gate: '门：美术 + 导演确认造型', deps: ['concept'] },
+  { key: 'lo', step: 5, name: '低模·拓扑', short: '低模', gateShort: '技美预检', gate: '门：技美预检（面数/命名/非流形）', deps: ['hi'] },
+  { key: 'uv', step: 6, name: 'UV·贴图', short: 'UV贴图', gateShort: '技美预检', gate: '门：技美预检（UV 重叠/丢贴图）', deps: ['lo'] },
+  { key: 'look', step: 7, name: '材质·灯光', short: '材质灯光', gateShort: '导演审图', gate: '门：导演审 test 图（含第 8 段终渲）', deps: ['uv'], par: 'B' },
+  { key: 'rig', step: 7, name: '绑定·动画', short: '绑定', gateShort: '技美验骨', gate: '角色/生物必绑 · 技美验骨骼通道', deps: ['lo'], par: 'B' },
+  { key: 'fx', step: 9, name: '特效·合成', short: '特效', gateShort: '按需', gate: '按需开单（不进 GLB 就不挡交付）', deps: ['look'] },
+  { key: 'qa', step: 10, name: '技美·质检', short: '质检', gateShort: 'QC 通过', gate: '门：QC 通过才算交付', deps: ['uv', 'look', 'rig', 'fx'], optionalDeps: ['rig', 'fx'] }
+];
+// 工单里的「岗位」写的是会话标题（创意工坊·高模雕刻），这里按关键词归到阶段卡上
+const CREATIVE_STAGE_KEYS = [
+  ['原画', 'concept'], ['概念', 'concept'], ['美术指导', 'art'], ['高模', 'hi'], ['低模', 'lo'], ['拓扑', 'lo'],
+  ['UV', 'uv'], ['贴图', 'uv'], ['材质', 'look'], ['灯光', 'look'], ['绑定', 'rig'], ['动画', 'rig'],
+  ['特效', 'fx'], ['合成', 'fx'], ['质检', 'qa'], ['技美', 'qa']
+];
+function creativeStageOf(role) {
+  const r = String(role || '');
+  for (const pair of CREATIVE_STAGE_KEYS) {
+    if (r.indexOf(pair[0]) >= 0) return pair[1];
+  }
+  return '';
+}
+// 状态归一：排队 / 进行中 / 待审 / 通过 / 退回 五档，其余按原样展示
+// 回执日志一行 → 结构化：- [2026-11-13 14:05:47] 超时回执 20261113-140346-89c8bf
+//   或 - [2026-11-12 16:19:44] 回执 20261112-161447-cdc77b → 程序开发·工作区（目标会话主动）
+function parseReceiptLine(line) {
+  const s = String(line || '').replace(/^[-*]\s*/, '').trim();
+  const m = s.match(/^\[(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2}):\d{2}\]\s*(.+)$/);
+  const rest = (m ? m[6] : s) || '';
+  const ticket = (rest.match(/\d{8}-\d{6}-[0-9a-z]+/) || [''])[0];
+  const to = (rest.split('→')[1] || '').replace(/（.*$/, '').trim();
+  const kind = (rest.split(/\s+/)[0] || '回执').trim();
+  return {
+    kind: kind,
+    to: to,
+    ticket: ticket,
+    hhmm: m ? (m[4] + ':' + m[5]) : '',
+    date: m ? (m[2] + '/' + m[3]) : '',
+    raw: s
+  };
+}
+
+function creativeBoard() {
+  const root = path.resolve(BLENDER_DIR);
+  const ticketDir = path.join(root, '工单');
+  const tickets = [];
+  try {
+    for (const f of fs.readdirSync(ticketDir)) {
+      if (!/\.md$/i.test(f)) continue;
+      const full = path.join(ticketDir, f);
+      let txt = '', mtime = 0;
+      try {
+        txt = fs.readFileSync(full, 'utf8').replace(/^\uFEFF/, '');
+        mtime = Math.floor(fs.statSync(full).mtimeMs / 1000);
+      } catch (ex) { warnOnce('main', ex) }
+      const pick = (re) => { const m = txt.match(re); return m ? m[1].trim() : ''; };
+      tickets.push({
+        file: f,
+        title: pick(/^#\s+(.+)$/m) || f.replace(/\.md$/i, ''),
+        asset: pick(/\|\s*资产名\s*\|\s*(.+?)\s*\|/),
+        role: pick(/\|\s*岗位\s*\|\s*(.+?)\s*\|/),
+        owner: pick(/\|\s*负责人\s*\|\s*(.+?)\s*\|/),
+        status: pick(/^状态[：:]\s*(.+)$/m) || '未填',
+        stage: '',
+        mtime: mtime
+      });
+    }
+  } catch (ex) { if (ex && ex.code !== 'ENOENT') warnOnce('main', ex); /* 还没有工单目录 = 首次使用，看板显示"未开单" */ }
+  tickets.forEach((t) => { t.stage = creativeStageOf(t.role) || creativeStageOf(t.owner); });
+  tickets.sort((a, b) => b.mtime - a.mtime);
+
+  // 回执台账：只取最近几条，够看"谁刚交了活"。
+  // 一行日志拆成 {kind,to,at,hhmm,ticket}：面板上只放「类型徽标 + 岗位 + 时间」，原始行进 tooltip（长句不进界面）
+  const ledger = path.join(__dirname, '..', '引擎数据', '.dsh', '派发', '回执日志.md');
+  let receipts = [];
+  try {
+    const lines = fs.readFileSync(ledger, 'utf8').replace(/^\uFEFF/, '').split(/\r?\n/).filter((l) => l.trim());
+    receipts = lines.slice(-5).map((l) => parseReceiptLine(l));
+  } catch (ex) { if (ex && ex.code !== 'ENOENT') warnOnce('main', ex); /* 首次还没派过活 */ }
+
+  // 巡查卡死：派发单子 state 不是 done 的 = 还等着回执；超过 20 分钟没回 = 大概率卡住（用户要的就是这个口径）
+  const dispDir = path.join(__dirname, '..', '引擎数据', '.dsh', '派发');
+  const pending = [];
+  try {
+    for (const f of fs.readdirSync(dispDir)) {
+      if (!/\.json$/i.test(f)) continue;
+      try {
+        const j = JSON.parse(fs.readFileSync(path.join(dispDir, f), 'utf8').replace(/^\uFEFF/, ''));
+        const st = String(j.state || 'unknown');
+        if (st === 'done') continue;
+        const ageMin = Math.max(0, Math.floor((Date.now() - Number(j.createdAt || 0)) / 60000));
+        pending.push({ id: String(j.id || f.replace(/\.json$/i, '')), to: String(j.toTitle || j.to || ''), state: st, ageMin: ageMin, stuck: st !== 'timeout' && ageMin >= 20 });
+      } catch (ex2) { if (ex2 && ex2.code !== 'ENOENT') warnOnce('main', ex2) }
+    }
+  } catch (ex) { if (ex && ex.code !== 'ENOENT') warnOnce('main', ex); /* 还没派过活 */ }
+  pending.sort((a, b) => b.ageMin - a.ageMin);
+
+  // 每个阶段取最近的一张工单当代表
+  const stages = CREATIVE_STAGES.map((s) => {
+    const hit = tickets.find((t) => t.stage === s.key);
+    return { key: s.key, name: s.name, status: hit ? hit.status : '未开单', asset: hit ? hit.asset : '', file: hit ? hit.file : '' };
+  });
+
+  // 流程视图：把阶段串成「谁先谁后 / 谁跟谁同时做 / 谁在等谁」
+  // 只读工单状态，不改任何文件；判「完成」的口径与看板计数一致（通过/完成/已交付）
+  const doneRe = /通过|完成|已交付/;
+  const stageBy = {};
+  stages.forEach((s) => { stageBy[s.key] = s; });
+  const nameBy = {};
+  const shortBy = {};
+  CREATIVE_FLOW.forEach((n) => { nameBy[n.key] = n.name; shortBy[n.key] = n.short || n.name; });
+  const statusOf = (k) => {
+    if (k === 'brief') return tickets.length ? '已派工' : '未开单';
+    return String((stageBy[k] && stageBy[k].status) || '未开单');
+  };
+  // 依赖是否已放行：接单段没有工单状态，用「有没有工单」判；其余看工单状态
+  const depDone = (k) => (k === 'brief' ? tickets.length > 0 : doneRe.test(statusOf(k)));
+  const flow = CREATIVE_FLOW.map((n) => {
+    const st = n.key === 'brief'
+      ? { name: n.name, status: statusOf('brief'), asset: '', file: '' }
+      : (stageBy[n.key] || { name: n.name, status: '未开单', asset: '', file: '' });
+    const isDone = n.manual ? tickets.length > 0 : doneRe.test(st.status);
+    // 没放行的依赖逐条列出，界面按徽标显示（不拼句子）
+    const deps = [];
+    (n.deps || []).forEach((k) => {
+      if (depDone(k)) return;
+      deps.push({
+        key: k,
+        name: nameBy[k] || k,
+        short: shortBy[k] || (nameBy[k] || k),
+        status: statusOf(k),
+        optional: (n.optionalDeps || []).indexOf(k) >= 0
+      });
+    });
+    const hard = deps.filter((d) => !d.optional);
+    let state = 'ready';
+    if (isDone) state = 'done';
+    else if (n.manual) state = 'manual';
+    else if (/退回|打回|阻塞|不通过/.test(st.status)) state = 'rejected';
+    else if (hard.length) state = 'waiting';
+    else if (/进行|排队|待处理|待审|待确认|待验收/.test(st.status)) state = 'doing';
+    return {
+      key: n.key, step: n.step, name: n.name, short: n.short || n.name,
+      gate: n.gate || '', gateShort: n.gateShort || '', par: n.par || '',
+      status: st.status, asset: st.asset || '', file: st.file || '',
+      state: state, deps: deps, now: false, syncWith: []
+    };
+  });
+  // 同一个并行组互相是「同步」：两段的「∥」标签 + tooltip 里写明搭档，谁也不需要等谁
+  flow.forEach((f) => {
+    if (!f.par) return;
+    f.syncWith = flow.filter((x) => x.par === f.par && x.key !== f.key).map((x) => x.short);
+  });
+  // 「当前该推进的一步」：第一个没完成、且依赖已满足的节点（正在做 / 可开工 / 等你派工）
+  const cur = flow.find((f) => f.state !== 'done' && (f.state === 'doing' || f.state === 'ready' || f.state === 'manual'));
+  if (cur) cur.now = true;
+
+  const counts = { active: 0, review: 0, done: 0, rejected: 0, hung: 0 };
+  tickets.forEach((t) => {
+    if (/进行|排队|待处理/.test(t.status)) counts.active += 1;
+    else if (/待审|待确认|待验收/.test(t.status)) counts.review += 1;
+    else if (/通过|完成|已交付/.test(t.status)) counts.done += 1;
+    else if (/退回|打回|阻塞/.test(t.status)) counts.rejected += 1;
+  });
+  counts.hung = pending.filter((x) => x.stuck).length;
+  return { ok: true, root: root, stages: stages, flow: flow, tickets: tickets.slice(0, 8), receipts: receipts, pending: pending.slice(0, 6), counts: counts };
+}
+ipcMain.handle('creative:board', () => creativeBoard());
+
+// ---- 创意工坊 · 自动巡检：卡住就主动报，不用人盯看板等半天 ----
+// 判定只看文件时间，不读会话内容：
+//   ① 派发单 state ≠ done 且创建超过 stuckMin 分钟 ⇒ 岗位没回执
+//   ② 工单状态是「排队 / 进行中 / 待处理」且文件超过 stuckMin 分钟没动 ⇒ 岗位没进展
+// 命中后：广播 creative:watch 给所有窗口（面板弹红条 + 顶栏通知），并追加日志到 派发\巡检日志.md。
+// 同一目标（key）只报一次，恢复后自动清掉，避免每 60 秒刷屏；⛔ 巡检本身不改任何工单/派发单。
+const CREATIVE_STUCK_MIN = Math.max(3, Number(MACHINE.creativeStuckMin) || 15);
+const CREATIVE_WATCH_EVERY = 60; // 秒
+let creativeWatchCache = { at: 0, alerts: [], stuckMin: CREATIVE_STUCK_MIN };
+const creativeAlertSeen = new Map();
+let creativeWatchTimer = null;
+
+// 1. 扫出当前所有"卡住"项（纯函数，可单独测）
+function creativeAlerts() {
+  const out = [];
+  const now = Date.now();
+  const minMs = CREATIVE_STUCK_MIN * 60000;
+
+  // 1.1 派发单：没回执
+  const dispDir = path.join(__dirname, '..', '引擎数据', '.dsh', '派发');
+  let dispFiles = [];
+  try { dispFiles = fs.readdirSync(dispDir); } catch (ex) { if (ex && ex.code !== 'ENOENT') warnOnce('main', ex) }
+  for (const f of dispFiles) {
+    if (!/\.json$/i.test(f)) continue;
+    let j = null;
+    try { j = JSON.parse(fs.readFileSync(path.join(dispDir, f), 'utf8').replace(/^\uFEFF/, '')); }
+    catch (ex) { if (ex && ex.code !== 'ENOENT') warnOnce('main', ex); continue; }
+    const st = String(j.state || 'unknown');
+    if (st === 'done') continue;
+    const born = Number(j.createdAt || 0);
+    if (!born || now - born < minMs) continue;
+    out.push({
+      key: 'disp:' + String(j.id || f),
+      kind: '派发',
+      who: String(j.toTitle || j.to || '?'),
+      detail: Math.floor((now - born) / 60000) + ' 分钟未回执（' + st + '）',
+      id: String(j.id || f)
+    });
+  }
+
+  // 1.2 工单：状态没往前走
+  let ticketFiles = [];
+  try { ticketFiles = fs.readdirSync(path.join(BLENDER_DIR, '工单')); } catch (ex) { if (ex && ex.code !== 'ENOENT') warnOnce('main', ex) }
+  for (const f of ticketFiles) {
+    if (!/\.md$/i.test(f)) continue;
+    try {
+      const full = path.join(BLENDER_DIR, '工单', f);
+      const st = fs.statSync(full);
+      if (now - st.mtimeMs < minMs) continue;
+      const txt = fs.readFileSync(full, 'utf8').replace(/^\uFEFF/, '');
+      const m = txt.match(/^状态[：:]\s*(.+)$/m);
+      const status = m ? m[1].trim() : '';
+      if (!/排队|进行中|待处理/.test(status)) continue;
+      out.push({ key: 'ticket:' + f, kind: '工单', who: f, detail: '「' + status + '」' + Math.floor((now - st.mtimeMs) / 60000) + ' 分钟没动', id: f });
+    } catch (ex) { if (ex && ex.code !== 'ENOENT') warnOnce('main', ex) }
+  }
+  return out;
+}
+
+// 2. 巡检日志（只在"新出现"卡住时记一行，避免刷屏）
+function creativeWatchLog(line) {
+  try {
+    const p = path.join(__dirname, '..', '引擎数据', '.dsh', '派发', '巡检日志.md');
+    if (!fs.existsSync(p)) fs.writeFileSync(p, '# 巡检日志（自动追加，只在"新卡住"时记一行）\r\n\r\n', 'utf8');
+    fs.appendFileSync(p, line + '\r\n', 'utf8');
+  } catch (ex) { warnOnce('main', ex) }
+}
+
+// 3. 一拍：算 → 比 → 报
+function creativeWatchTick() {
+  const alerts = creativeAlerts();
+  const fresh = [];
+  alerts.forEach((a) => { if (!creativeAlertSeen.has(a.key)) { creativeAlertSeen.set(a.key, Date.now()); fresh.push(a); } });
+  for (const k of Array.from(creativeAlertSeen.keys())) if (!alerts.some((a) => a.key === k)) creativeAlertSeen.delete(k);
+  creativeWatchCache = { at: Math.floor(Date.now() / 1000), alerts: alerts, stuckMin: CREATIVE_STUCK_MIN };
+  if (!fresh.length) return;
+  const stamp = new Date().toISOString().slice(0, 19).replace('T', ' ');
+  creativeWatchLog(stamp + ' 新卡住 ' + fresh.length + ' 项：' + fresh.map((a) => a.kind + '/' + a.who + '（' + a.detail + '）').join('；'));
+  for (const w of BrowserWindow.getAllWindows()) {
+    try { w.webContents.send('creative:watch', { ok: true, stamp: stamp, alerts: alerts, fresh: fresh, stuckMin: CREATIVE_STUCK_MIN }); }
+    catch (ex) { warnOnce('main', ex) }
+  }
+}
+
+function startCreativeWatch() {
+  if (creativeWatchTimer) return;
+  creativeWatchTick();
+  creativeWatchTimer = setInterval(creativeWatchTick, CREATIVE_WATCH_EVERY * 1000);
+  if (creativeWatchTimer.unref) creativeWatchTimer.unref();
+}
+ipcMain.handle('creative:watchState', () => ({ ok: true, at: creativeWatchCache.at, alerts: creativeWatchCache.alerts, stuckMin: CREATIVE_STUCK_MIN, everySec: CREATIVE_WATCH_EVERY }));
+
+// 4. 重派：把原单文本再发给同一个岗位（人工点按钮才触发，⛔ 不自动重派、避免双写工程）
+ipcMain.handle('creative:retry', (e, id) => {
+  const file = path.join(__dirname, '..', '引擎数据', '.dsh', '派发', String(id || '') + '.json');
+  if (!fs.existsSync(file)) return { ok: false, err: '找不到派发单：' + id };
+  let j = null;
+  try { j = JSON.parse(fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, '')); }
+  catch (ex) { return { ok: false, err: '派发单损坏：' + ((ex && ex.message) || ex) }; }
+  const to = String(j.toTitle || j.to || '').trim();
+  const text = String(j.text || '').trim();
+  if (!to || !text) return { ok: false, err: '派发单缺 to/text，不能重派' };
+  const tool = path.join(__dirname, '..', '工具', '派发.mjs');
+  const nodeExe = resolveNodeExe();
+  try {
+    const child = spawn(nodeExe || process.execPath, [tool, '--to', to, text, '--timeout', '1800'], {
+      cwd: path.join(__dirname, '..'), windowsHide: true, detached: true, stdio: 'ignore',
+      env: nodeExe ? process.env : Object.assign({}, process.env, { ELECTRON_RUN_AS_NODE: '1' })
+    });
+    child.unref();
+    return { ok: true, to: to };
+  } catch (ex) { return { ok: false, err: String((ex && ex.message) || ex) }; }
+});
+startCreativeWatch();
+
+// ---- 派发巡检面板（总入口「胡闹的大肥鱼」· type=dispatch-board）----
+// 判据只有一份：调用 工具\看门狗.mjs，壳只负责起进程 + 把 JSON 摊给面板（不在这里复制一套判定，免得两处漂移）。
+// ⛔ 巡检只读；「补投回执」必须人点按钮（走 等回执.mjs --once），不自动补、不改任何派发单。
+const DISPATCH_DIR = path.join(__dirname, '..', '引擎数据', '.dsh', '派发');
+const DOG_TOOL = path.join(__dirname, '..', '工具', '看门狗.mjs');
+const DOG_WAIT_TOOL = path.join(__dirname, '..', '工具', '等回执.mjs');
+
+// 1. 起一次工具进程（看门狗 / 等回执共用）；失败把 stderr 原样带出，不吞
+function runToolSync(tool, args, timeoutMs) {
+  if (!fs.existsSync(tool)) return { ok: false, err: '缺工具：' + tool };
+  const nodeExe = resolveNodeExe();
+  const r = spawnSync(nodeExe || process.execPath, [tool, ...args], {
+    cwd: path.join(__dirname, '..'), encoding: 'utf8', windowsHide: true,
+    timeout: timeoutMs || 20000,
+    env: nodeExe ? process.env : Object.assign({}, process.env, { ELECTRON_RUN_AS_NODE: '1' })
+  });
+  if (r.error) return { ok: false, err: String(r.error.message || r.error) };
+  return { ok: true, code: r.status, out: String(r.stdout || '').trim(), err: String(r.stderr || '').trim() };
+}
+
+// 2. 面板拉一次：--all 让「已回执」也带回来，显示哪几条由面板决定。
+//    阈值跟顶栏告警同源（机器配置 creativeStuckMin，默认 15 分；err = 2 倍），
+//    免得"顶栏弹了卡住、面板却还写着在跑"两套口径打架。
+ipcMain.handle('dispatch:dog', () => {
+  const r = runToolSync(DOG_TOOL, [
+    '--json', '--all',
+    '--warn', String(CREATIVE_STUCK_MIN),
+    '--err', String(CREATIVE_STUCK_MIN * 2)
+  ], 30000);
+  if (!r.ok) return r;
+  let data = null;
+  try { data = JSON.parse(r.out); } catch (ex) { data = null; }
+  if (!data) return { ok: false, err: r.err || r.out || ('退出码 ' + r.code) };
+  return { ok: true, at: Math.floor(Date.now() / 1000), data: data };
+});
+
+// 3. 补投回执：只对点中的那一单起 等回执 --once；失败把最后一行原因带回来
+ipcMain.handle('dispatch:dogFix', (e, id) => {
+  const key = String(id || '').trim();
+  if (!key || !/^[\w-]+$/.test(key)) return { ok: false, err: '单号不合法' };
+  const file = path.join(DISPATCH_DIR, key + '.json');
+  if (!fs.existsSync(file)) return { ok: false, err: '找不到派发单：' + key };
+  const r = runToolSync(DOG_WAIT_TOOL, ['--ticket', file, '--once'], 120000);
+  if (!r.ok) return r;
+  if (/已回执/.test(r.out)) return { ok: true, msg: '已补投回执' };
+  return { ok: false, err: (r.out || r.err || '').split('\n').filter(Boolean).slice(-1)[0] || '这一单还没跑完，暂时补不了' };
+});
+
+// 4. 打开单子：只认派发目录下的单号，别让面板传任意路径过来
+ipcMain.handle('dispatch:dogOpen', async (e, id) => {
+  const key = String(id || '').trim();
+  if (!key || !/^[\w-]+$/.test(key)) return { ok: false, err: '单号不合法' };
+  const file = path.resolve(DISPATCH_DIR, key + '.json');
+  if (!file.startsWith(path.resolve(DISPATCH_DIR) + path.sep) || !fs.existsSync(file)) return { ok: false, err: '找不到派发单：' + key };
+  const err = await shell.openPath(file);
+  return err ? { ok: false, err: err } : { ok: true };
+});
+
+// ---- 待批准 / 定时触发（2026-11-14）----
+// confirm 级不再靠「聊天里点头」：派发工具把未确认的派发落进 待批准.json，面板点【批准】当场派出。
+// 触发（Trigger）：定时.json 里到点的任务自动走 桌宠.mjs 派；confirm 级会自然落进待批准，仍由人一键放行。
+const PET_TOOL = path.join(__dirname, '..', '工具', '桌宠.mjs');
+const APPROVAL_FILE = path.join(__dirname, 'data', 'pet', '待批准.json');
+const TIMER_FILE = path.join(__dirname, 'data', 'pet', '定时.json');
+const TIMER_STATE = path.join(__dirname, 'data', 'pet', '定时-已跑.json');
+const TIMER_DEFAULT = path.join(__dirname, 'pet', '定时.默认.json');
+
+function readJsonSafe(file, fallback) {
+  try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch (ex) { return fallback; }   // 不存在/写坏都退回默认，别让面板炸
+}
+function writeJsonSafe(file, data) {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify(data, null, 2) + '\n', 'utf8');
+}
+
+// 1. 待批准队列：与 桌宠.mjs 读写同一个文件（判据只有一份，壳不复制一套规则）
+ipcMain.handle('dispatch:approvals', () => {
+  const list = readJsonSafe(APPROVAL_FILE, []);
+  return { ok: true, list: (Array.isArray(list) ? list : []).filter((x) => x && x.state === 'pending') };
+});
+
+// 2. 批准 / 忽略：起一次 桌宠.mjs（真正的派发逻辑在那边，壳只转发结果）
+ipcMain.handle('dispatch:approve', (e, id) => {
+  const key = String(id || '').trim();
+  if (!key || !/^ap[\w-]+$/.test(key)) return { ok: false, err: '待批准号不合法' };
+  const r = runToolSync(PET_TOOL, ['批准', key], 90000);
+  if (!r.ok) return r;
+  if (r.code === 0) return { ok: true, msg: r.out.split('\n').filter(Boolean).pop() || '已批准' };
+  return { ok: false, err: r.err || r.out || ('退出码 ' + r.code) };
+});
+
+ipcMain.handle('dispatch:drop', (e, id) => {
+  const key = String(id || '').trim();
+  if (!key || !/^ap[\w-]+$/.test(key)) return { ok: false, err: '待批准号不合法' };
+  const r = runToolSync(PET_TOOL, ['忽略', key], 20000);
+  if (!r.ok) return r;
+  return r.code === 0 ? { ok: true } : { ok: false, err: r.err || r.out || ('退出码 ' + r.code) };
+});
+
+// 3. 定时任务（Trigger）：读写 定时.json；没有这个文件时按 pet\定时.默认.json 的示例显示（默认全关）
+ipcMain.handle('dispatch:timers', () => {
+  const def = readJsonSafe(TIMER_DEFAULT, { tasks: [] });
+  const cfg = readJsonSafe(TIMER_FILE, def);
+  return { ok: true, tasks: (cfg && cfg.tasks) || [] };
+});
+
+ipcMain.handle('dispatch:timerToggle', (e, id, on) => {
+  const def = readJsonSafe(TIMER_DEFAULT, { tasks: [] });
+  const cfg = readJsonSafe(TIMER_FILE, def);
+  const tasks = (cfg && cfg.tasks) || [];
+  const hit = tasks.find((x) => x && String(x.id) === String(id));
+  if (!hit) return { ok: false, err: '没有这个定时任务：' + id };
+  hit.enabled = !!on;
+  writeJsonSafe(TIMER_FILE, { tasks });
+  return { ok: true, tasks };
+});
+
+// 4. 到点触发：每 30 秒对一次表，同一任务同一天只跑一次；异步起进程，不阻塞界面
+function pad2(n) { return String(n).length < 2 ? '0' + n : String(n); }
+function timerTick() {
+  const cfg = readJsonSafe(TIMER_FILE, { tasks: [] });
+  const tasks = (cfg && cfg.tasks || []).filter((x) => x && x.enabled && /^\d{2}:\d{2}$/.test(String(x.time || '')));
+  if (!tasks.length) return;
+  const now = new Date();
+  const hm = pad2(now.getHours()) + ':' + pad2(now.getMinutes());
+  const day = now.getFullYear() + '-' + pad2(now.getMonth() + 1) + '-' + pad2(now.getDate());
+  const seen = readJsonSafe(TIMER_STATE, {});
+  for (const t of tasks) {
+    if (String(t.time) !== hm) continue;
+    const key = String(t.id) + '@' + day;
+    if (seen[key]) continue;
+    seen[key] = Date.now();
+    writeJsonSafe(TIMER_STATE, seen);
+    const nodeExe = resolveNodeExe();
+    const child = spawn(nodeExe || process.execPath, [PET_TOOL, '派', '--文本', String(t.text || ''), '--超时', '600'], {
+      cwd: path.join(__dirname, '..'), detached: true, stdio: 'ignore', windowsHide: true,
+      env: nodeExe ? process.env : Object.assign({}, process.env, { ELECTRON_RUN_AS_NODE: '1' })
+    });
+    child.unref();
+    console.log('[timer] ' + t.id + ' 到点触发：' + t.text);
+  }
+}
+setInterval(timerTick, 30000);
+
+// 5. 新建资产包：面板「＋资产」按钮和会话都走这一条（一次一个资产，一个资产一个目录）
+ipcMain.handle('creative:assetNew', (e, name) => {
+  const tool = path.join(__dirname, '..', '工具', '资产.mjs');
+  if (!fs.existsSync(tool)) return { ok: false, err: '缺工具：' + tool };
+  const nodeExe = resolveNodeExe();
+  try {
+    const r = spawnSync(nodeExe || process.execPath, [tool, 'new', '--name', String(name || '')], {
+      cwd: path.join(__dirname, '..'), encoding: 'utf8', windowsHide: true,
+      env: nodeExe ? process.env : Object.assign({}, process.env, { ELECTRON_RUN_AS_NODE: '1' })
+    });
+    const out = String(r.stdout || '') + String(r.stderr || '');
+    if (r.status !== 0) return { ok: false, err: out.trim() || ('退出码 ' + r.status) };
+    const m = out.match(/资产包已建：(.+)/);
+    return { ok: true, dir: m ? m[1].trim() : '' };
+  } catch (ex) { return { ok: false, err: String((ex && ex.message) || ex) }; }
 });
 
 // 打开路径：文件用系统默认程序，目录用资源管理器；也支持 http(s) 链接
