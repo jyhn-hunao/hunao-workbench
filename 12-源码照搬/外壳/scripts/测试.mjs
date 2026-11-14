@@ -14,7 +14,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
+const req = createRequire(import.meta.url);
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SHELL = path.dirname(HERE);            // 12-源码照搬\外壳
@@ -232,6 +234,51 @@ function checkMeta(count) {
   else add('元数据对齐', 'ok', 'package.json description 的场景数与 scenarios/ 一致（' + count + ' 个）');
 }
 
+// ── 9. 功能台登记表：每项都得有说明 / 动作 / 白名单脚本；症状表不许指向空卡 ──────────────
+//    为什么：功能台是「点错就改真实文件」的地方，登记项写歪了界面不会报，只会静默少一张卡。
+function checkFeatureDesk() {
+  let desk;
+  try { desk = req(path.join(SHELL, '功能台.js')); } catch (e) { add('功能台登记表', 'fail', '功能台.js 加载失败：' + e.message, []); return; }
+  let o;
+  try { o = desk.list(); } catch (e) { add('功能台登记表', 'fail', 'list() 抛错：' + e.message, []); return; }
+  const bad = [];
+  const groups = new Set(o.groups.map((g) => g.id));
+  const ids = new Set();
+  o.groups.forEach((g) => g.features.forEach((f) => {
+    if (ids.has(f.id)) bad.push('功能 id 重复：' + f.id);
+    ids.add(f.id);
+    if (!groups.has(f.group)) bad.push(f.id + ' 的 group 不在 GROUPS：' + f.group);
+    if (!f.name) bad.push(f.id + ' 缺 name');
+    if (!f.plain || !String(f.plain).trim() || String(f.plain).trim().length < 8) bad.push(f.id + ' 的 plain 太短（一句话得说清这是什么）');
+    if (!(f.actions || []).length) bad.push(f.id + ' 一个动作都没有');
+    if (!(/^工具\\/.test(f.script) || /^外壳\\scripts\\/.test(f.script))) bad.push(f.id + ' 的脚本不在白名单目录（工具\\ 或 外壳\\scripts\\）：' + f.script);
+    if (!f.ok) bad.push(f.id + ' 的脚本不存在：' + f.script);
+    const acts = new Set();
+    (f.actions || []).forEach((a) => {
+      if (acts.has(a.id)) bad.push(f.id + ' 动作 id 重复：' + a.id);
+      acts.add(a.id);
+      if (!a.label || !String(a.label).trim()) bad.push(f.id + '.' + a.id + ' 缺按钮名');
+      if (a.danger !== 'read' && a.danger !== 'write' && a.danger !== 'destructive') bad.push(f.id + '.' + a.id + ' 的 danger 值非法：' + a.danger);
+      (a.inputs || []).forEach((s) => {
+        if (!s.key || !s.label) bad.push(f.id + '.' + a.id + ' 的输入项缺 key / label');
+        if (['text', 'number', 'select', 'scene', 'memscene', 'file', 'dir'].indexOf(s.kind) < 0) bad.push(f.id + '.' + a.id + '.' + s.key + ' 的 kind 不认识：' + s.kind);
+      });
+    });
+    (f.next || []).forEach((n) => {
+      if (!n.ok) bad.push(f.id + ' 的「接着做」指向不存在的功能：' + n.id);
+    });
+    if (f.also && String(f.also).trim().length < 6) bad.push(f.id + ' 的 also 说明太短（得说清顶栏哪里也有）');
+  }));
+  const tri = o.triage || [];
+  if (!tri.length) bad.push('症状表是空的（TRIAGE 至少留一条）');
+  tri.forEach((t) => {
+    if (!ids.has(t.feature)) bad.push('症状表指向不存在的功能：' + t.feature);
+    else if (!t.ok) bad.push('症状表指向的脚本不在：' + t.feature);
+  });
+  if (bad.length) add('功能台登记表', 'fail', '违规 ' + bad.length + ' 条', bad);
+  else add('功能台登记表', 'ok', (o.stats.features || 0) + ' 项 / ' + (o.stats.actions || 0) + ' 个动作 · 说明齐全 · 脚本都在白名单目录 · 症状表 ' + tri.length + ' 条都能落到卡上');
+}
+
 // ── 跑 ───────────────────────────────────────────────────────────────────────────────
 const want = (k) => !ONLY || ONLY.includes(k);
 let types = new Set();
@@ -246,6 +293,7 @@ try {
   if (want('icons')) checkIcons();
   if (want('syntax')) checkSyntax();
   if (want('meta')) checkMeta(count);
+  if (want('features')) checkFeatureDesk();
 } catch (e) {
   add('脚本自身', 'fail', '测试脚本异常：' + e.message, [String(e.stack || '').split('\n')[1] || '']);
 }
