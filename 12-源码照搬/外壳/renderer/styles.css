@@ -5120,6 +5120,33 @@ html[data-theme="light"] .kneu-crumb { background: rgba(255, 255, 255, .94); }
 .kneu-ds { font-size: 11.5px; color: var(--text-dim); }
 .kneu-dp { font-size: 11px; color: #8fb4ff; word-break: break-all; }
 .kneu-drow { display: flex; gap: 6px; margin-top: 4px; }
+/* 2026-11-14：异常红标从"只报数"改成按钮 → 点开清单（哪几条 · 为什么 · 当场怎么处理） */
+.kneu-anom-b {
+  pointer-events: auto; cursor: pointer; font: inherit; font-size: 11.5px; line-height: 1.4;
+  background: none; border: 0; padding: 0; text-decoration: underline dotted; white-space: nowrap;
+}
+.kneu-anom-b:hover { filter: brightness(1.25); }
+.kneu-anom {
+  position: absolute; left: 12px; bottom: 12px; z-index: 5; display: none;
+  flex-direction: column; gap: 6px; width: min(560px, 84%); max-height: 72%;
+  background: rgba(10, 16, 27, .95); border: 1px solid var(--border); border-radius: 10px;
+  padding: 10px 12px; backdrop-filter: blur(8px); box-shadow: 0 12px 34px rgba(0,0,0,.5);
+}
+.kneu-anom.on { display: flex; }
+html[data-theme="light"] .kneu-anom { background: rgba(255, 255, 255, .96); }
+.kneu-anom-h { display: flex; align-items: center; gap: 8px; }
+.kneu-anom-t { font-size: 12.5px; font-weight: 700; color: var(--text); flex: 1 1 auto; }
+.kneu-anom-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.kneu-anom-list { display: flex; flex-direction: column; gap: 6px; overflow: auto; }
+.kneu-anom-r {
+  display: flex; flex-direction: column; gap: 3px;
+  padding: 6px 8px; border: 1px solid var(--border); border-radius: 8px;
+}
+.kneu-anom-n { font-size: 12px; color: var(--text); word-break: break-all; }
+.kneu-anom-why { font-size: 11px; line-height: 1.5; color: var(--text-dim); }
+.kneu-anom-s { font-size: 11px; color: var(--text-dim); }
+.kneu-anom-h2 { font-size: 11.5px; color: var(--warn); }
+.kneu-anom-acts { display: flex; gap: 6px; flex-wrap: wrap; }
 /* ===== wb-cards：卡片墙（工作台定制「客户与交付」，2026-10-27） ===== */
 .wbc-body { padding: 0; overflow: auto; }
 .wbc { display: flex; flex-direction: column; gap: 7px; padding: 10px 10px 14px; }

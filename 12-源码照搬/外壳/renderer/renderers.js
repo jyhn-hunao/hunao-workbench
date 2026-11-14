@@ -18833,6 +18833,7 @@ renderers.neuron = (body, meta, head) => {
   btns.appendChild(bRot); btns.appendChild(bReset); btns.appendChild(bMem); btns.appendChild(bFx); btns.appendChild(bLabel); btns.appendChild(bReload);
   hud.appendChild(btns);
   const detail = el('div', 'kneu-detail');
+  const anom = el('div', 'kneu-anom');       // 异常清单抽屉（点顶部的红标打开，2026-11-14）
   const legend = el('div', 'kneu-legend');
   // 项目记忆下钻：面包屑 + 返回（2026-11-11）
   const crumb = el('div', 'kneu-crumb');
@@ -18863,6 +18864,7 @@ renderers.neuron = (body, meta, head) => {
   body.appendChild(cv);
   body.appendChild(hud);
   body.appendChild(detail);
+  body.appendChild(anom);
   body.appendChild(legend);
   body.appendChild(crumb);
   if (head) {
@@ -18872,6 +18874,8 @@ renderers.neuron = (body, meta, head) => {
   // ---------- 状态 ----------
   let nodes = [];        // {id,label,kind,group,path,size,x,y,z,r,deg,hover}
   let edges = [];        // {a,b,kind}
+  // 异常清单数据（每次 load 重算）：点顶部「悬空边 / 路径失效 / 孤立」红标时展开给人看
+  var anomData = { dangling: [], depSkip: [], missing: [], lone: [], areaIdByLabel: {} };
   let ry = -0.35, rx = 0.18, zoom = 1.42;
   var fitZoom = 1.42;   // 力导向布置算出的「铺满面板」焦距（复位按它，不再写死 1.42）
   var nAssoc = 0;       // 联想边条数（2026-11-13：主题 → 场景 的边，stat 里报数）
@@ -19377,13 +19381,24 @@ renderers.neuron = (body, meta, head) => {
         return statOk(n.path).then(function (okk) { n.missing = !okk; });
       }));
     }).then(function () {
-      // 依赖边：area 文本里提到别的 owner ⇒ 连一条
+      // 依赖边：area 文本里提到别的区域 ⇒ 连一条
+      // 2026-11-14 修：原来 b 写成「area-」+ 中文区域名（label），而节点 id 是 area-<owner 面板id>
+      //   ⇒ 六份区域文件都提到「记忆」，拼出的 area-记忆 根本不存在 ⇒ 12 条边端点全空、全被丢弃
+      //   （用户在图上只看到「⛔ 悬空边 12」，既不知道原因也没法处理）。现在先建 label → 真实节点 id 的表。
+      var areaIdByLabel = {};
+      nodes.filter(function (n) { return n.kind === 'area'; }).forEach(function (n) {
+        var k = String(n.label || '');
+        if (k && !areaIdByLabel[k]) areaIdByLabel[k] = n.id;   // 同名区域只连第一个，不重复连
+      });
+      var depSkipped = [];   // 名字提到了、但图上找不到这个区域（留给人看，不悄悄丢）
       var owners = nodes.filter(function (n) { return n.kind === 'area'; }).map(function (n) { return n.label; });
       nodes.filter(function (n) { return n.kind === 'area' && n.text; }).forEach(function (n) {
         owners.forEach(function (o) {
           if (o === n.label) return;
           if (new RegExp('`?' + o.replace(/[-]/g, '\\-') + '`?').test(n.text)) {
-            edges.push({ a: n.id, b: 'area-' + o, kind: 'dep' });
+            var target = areaIdByLabel[o];
+            if (!target) { depSkipped.push({ from: n.id, fromLabel: n.label, toLabel: o }); return; }
+            edges.push({ a: n.id, b: target, kind: 'dep' });
           }
         });
       });
@@ -19420,10 +19435,13 @@ renderers.neuron = (body, meta, head) => {
       cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
     }
       // 2026-10-27：边只留两端都真实存在的；悬空的丢掉并在头部报数（不再"悄悄算一条画不出来的线"）
+      // 2026-11-14：不止报数 —— 把丢掉的每条都记下来（起点/终点/类型），点红标能逐条看、能处理
       var nDangling = 0;
+      var danglingRows = [];
       edges = edges.filter(function (e) {
         if (byId[e.a] && byId[e.b]) return true;
         nDangling++;
+        danglingRows.push({ a: e.a, b: e.b, kind: e.kind });
         return false;
       });
       edges.forEach(function (e) { if (byId[e.b]) byId[e.b].deg++; if (byId[e.a]) byId[e.a].deg++; });
@@ -19454,14 +19472,30 @@ renderers.neuron = (body, meta, head) => {
         { t: '主题 ' + nTopics },
         { t: '联想边 ' + nAssoc },
         { t: '连线 ' + edges.length },
-        { t: '孤立 ' + nLoneN, cls: nLoneN ? ' bad' : '' }
+        { t: '孤立 ' + nLoneN, cls: nLoneN ? ' bad' : '', anom: nLoneN ? 'lone' : '' }
       ];
-      if (nDangling) chips.push({ t: '⛔ 悬空边 ' + nDangling, cls: ' bad' });
-      chips.push(nMiss ? { t: '⛔ 路径失效 ' + nMiss, cls: ' bad' } : { t: '路径全在', cls: ' ok' });
+      // 2026-11-14：异常不再是"只报个数字" —— 三块红标都是按钮，点开逐条看原因、当场处理
+      if (nDangling) chips.push({ t: '⛔ 悬空边 ' + nDangling, cls: ' bad', anom: 'dangling' });
+      chips.push(nMiss ? { t: '⛔ 路径失效 ' + nMiss, cls: ' bad', anom: 'missing' } : { t: '路径全在', cls: ' ok' });
+      anomData = {
+        dangling: danglingRows,
+        depSkip: depSkipped,
+        missing: nodes.filter(function (n) { return n.missing; }).map(function (n) { return { label: n.label, path: n.path, kind: n.kind, kindName: EDGE_LABEL[n.kind] || n.kind }; }),
+        lone: nodes.filter(function (n) { return n.kind !== 'core' && !n.deg; }).map(function (n) { return { label: n.label, path: n.path, kind: n.kind, kindName: EDGE_LABEL[n.kind] || n.kind }; }),
+        areaIdByLabel: areaIdByLabel
+      };
       stat.innerHTML = '';
       chips.forEach(function (c, ci) {
         if (ci) stat.appendChild(el('span', 'kneu-sep', '·'));
-        stat.appendChild(el('span', 'kneu-seg' + (c.cls || ''), c.t));
+        if (c.anom) {
+          var ab = el('button', 'kneu-seg' + (c.cls || '') + ' kneu-anom-b', c.t);
+          ab.type = 'button';
+          ab.title = '点开：是哪几条、为什么、怎么处理';
+          ab.addEventListener('click', function (ev) { ev.stopPropagation(); showAnom(c.anom); });
+          stat.appendChild(ab);
+        } else {
+          stat.appendChild(el('span', 'kneu-seg' + (c.cls || ''), c.t));
+        }
       });
       stat.title = '数据源：引擎\\场景记忆\\_共享记忆（索引/项目/记忆地图/提交链）+ .dsh\\skills 目录'
         + ' · 核对时间 ' + new Date().toLocaleString('zh-CN', { hour12: false });
@@ -20432,6 +20466,165 @@ renderers.neuron = (body, meta, head) => {
     bornAt = performance.now();
     load();
   });
+
+  // ---------- 异常清单（2026-11-14） ----------
+  //   用户原话：「出现悬空边 12，但我完全不知道原因，也没法通过页面功能处理」。
+  //   所以这里把三个红标做成按钮：点开逐条给「谁 → 谁 / 缺哪个 id / 为什么 / 去哪儿看 / 怎么修」。
+  //   只做两件真事：打开对应文件（只读）、重建索引（可再生产物，二击确认）；其余一律指路，不代改正文。
+  function anomToast(msg, bad, ms) {
+    try {
+      if (typeof window.__tbsToast === 'function') window.__tbsToast(msg, !!bad, ms || (bad ? 9000 : 5000));
+      else stat.textContent = msg;
+    } catch (e) { wbWarn(e, 'neuron.toast') }
+  }
+  function anomClose() { anom.classList.remove('on'); anom.innerHTML = ''; }
+  function nodeById(id) {
+    var hit = nodes.filter(function (n) { return n.id === id; })[0];
+    return hit || null;
+    }
+  function openPathOf(p, asDir) {
+    if (!p) return;
+    var APP = (window.app && window.app.app) || null;
+    if (asDir && APP && APP.revealPath) { Promise.resolve(APP.revealPath(p)).catch(function (e) { wbWarn(e, 'neuron.reveal') }); return; }
+    openNode({ path: p, isDir: !!asDir });
+  }
+  // 一键修：重跑「场景记忆索引 --all」。_索引.json 是可再生产物，重写它不动任何正文
+  function anomRebuild(btn) {
+    var api = (window.app && window.app.feature) || null;
+    if (!api || typeof api.run !== 'function') { anomToast('这个宿主没有功能台（重启一次工作台）', true, 8000); return; }
+    var now = Date.now();
+    if (!btn._armed || now - btn._armed > 6000) {
+      btn._armed = now;
+      btn.textContent = '再点一次：重建索引';
+      anomToast('会重跑「场景记忆索引 --all」（重写 _索引.json，不动正文），6 秒内再点一次才执行', false, 8000);
+      setTimeout(function () { btn._armed = 0; btn.textContent = '⚙ 一键修：重建索引'; }, 6200);
+      return;
+    }
+    btn._armed = 0; btn.disabled = true; btn.textContent = '重建中…';
+    Promise.resolve(api.run('scene-mem-index', 'all', {})).then(function (r) {
+      btn.disabled = false;
+      if (r && r.ok) {
+        btn.textContent = '✓ 已重建';
+        anomToast('索引已重建，图上正在重读', false, 5000);
+        setTimeout(function () { try { load(); } catch (e) { wbWarn(e, 'neuron.reload') } }, 400);
+      } else {
+        btn.textContent = '重建失败（看输出）';
+        anomToast('重建没成：' + ((r && (r.message || r.reason)) || '去控制台看那张卡的输出'), true, 9000);
+      }
+    }).catch(function (e) {
+      btn.disabled = false; btn.textContent = '重建失败';
+      wbWarn(e, 'neuron.fix');
+      anomToast('重建没成：' + ((e && e.message) || e), true, 9000);
+    });
+  }
+  // 为什么这条边悬空：把「缺哪个 id / 该是哪个 id」直接说出来，而不是只报数
+  function whyDangling(r) {
+    var out = '';
+    if (String(r.b).indexOf('area-') === 0) {
+      var lbl = String(r.b).slice(5);
+      var real = anomData.areaIdByLabel[lbl];
+      out = real
+        ? '这条边把中文区域名当成了节点 id（写成 ' + r.b + '，图上真实 id 是 ' + real + '）'
+        : '图里没有「' + lbl + '」这个区域节点（登记表 owner 与目录扫描都没给出这个 id）';
+    } else {
+      out = (!nodeById(r.a) ? '起点 ' + r.a + ' 不在图上；' : '') + (!nodeById(r.b) ? '终点 ' + r.b + ' 不在图上' : '');
+    }
+    var k = EDGE_LABEL[r.kind] || r.kind;
+    return (k ? '[' + k + '] ' : '') + (out || '两端节点都已不在，或图被过滤');
+  }
+  function anomOpen(type) {
+    anom.innerHTML = '';
+    anom.classList.add('on');
+    var title = type === 'dangling' ? '悬空边：两端有一端不在图上，所以没画'
+      : type === 'missing' ? '路径失效：节点指向的文件/目录已不存在'
+        : '孤立：这些点一条连线都没有';
+    var top = el('div', 'kneu-anom-h');
+    top.appendChild(el('span', 'kneu-anom-t', title));
+    var close = el('button', 'kneu-btn', '✕ 关');
+    close.type = 'button';
+    close.addEventListener('click', function (ev) { ev.stopPropagation(); anomClose(); });
+    top.appendChild(close);
+    anom.appendChild(top);
+
+    var list = el('div', 'kneu-anom-list');
+    var rows = (type === 'dangling') ? anomData.dangling : (type === 'missing' ? anomData.missing : anomData.lone);
+    if (!rows.length) list.appendChild(el('div', 'kneu-anom-s', '这一项现在是 0 —— 没有可修的。'));
+    if (type === 'dangling') {
+      var bar = el('div', 'kneu-anom-bar');
+      var fix = el('button', 'kneu-btn', '⚙ 一键修：重建场景索引');
+      fix.type = 'button';
+      fix.title = '重跑 场景记忆索引 --all：重建各场景 _索引.json 与 场景目录.json（可再生产物，不动正文）';
+      fix.addEventListener('click', function (ev) { ev.stopPropagation(); anomRebuild(fix); });
+      bar.appendChild(fix);
+      var bReg = el('button', 'kneu-btn', '📂 打开区域登记表');
+      bReg.type = 'button';
+      bReg.title = ROOT + '\\索引.json —— 区域 owner（面板 id）写错了就在这里改';
+      bReg.addEventListener('click', function (ev) {
+        ev.stopPropagation();
+        var APP = (window.app && window.app.app) || null;
+        if (APP && APP.revealPath) Promise.resolve(APP.revealPath(ROOT + '\\索引.json')).catch(function (e) { wbWarn(e, 'neuron.reveal') });
+        else anomToast('这个宿主没有定位通道（重启一次工作台）', true, 6000);
+      });
+      bar.appendChild(bReg);
+      bar.appendChild(el('span', 'kneu-anom-s', '重建索引管「目录/场景清单过期」；若还报悬空，就是登记表里区域 owner 与场景面板 id 不一致 —— 点「打开区域登记表」按提示改'));
+      anom.appendChild(bar);
+    }
+    rows.slice(0, 60).forEach(function (r) {
+      var row = el('div', 'kneu-anom-r');
+      if (type === 'dangling') {
+        var from = nodeById(r.a);
+        row.appendChild(el('span', 'kneu-anom-n', (from ? from.label : r.a) + '  →  ' + r.b));
+        row.appendChild(el('div', 'kneu-anom-why', whyDangling(r)));
+        var acts = el('div', 'kneu-anom-acts');
+        if (from && from.path) {
+          var bOpen2 = el('button', 'kneu-btn', from.isDir ? '📂 打开目录' : '📂 打开来源文件');
+          bOpen2.type = 'button';
+          bOpen2.addEventListener('click', function (ev) { ev.stopPropagation(); openPathOf(from.path, from.isDir); });
+          acts.appendChild(bOpen2);
+        }
+        var bCopyId = el('button', 'kneu-btn', '⧉ 复制缺的 id');
+        bCopyId.type = 'button';
+        bCopyId.addEventListener('click', function (ev) {
+          ev.stopPropagation();
+          try { navigator.clipboard.writeText(String(r.b)); bCopyId.textContent = '✓ 已复制'; } catch (e) { wbWarn(e, 'neuron.copy') }
+        });
+        acts.appendChild(bCopyId);
+        row.appendChild(acts);
+      } else {
+        row.appendChild(el('span', 'kneu-anom-n', r.label + '（' + (r.kindName || r.kind) + '）'));
+        row.appendChild(el('div', 'kneu-anom-why', r.path || '（运行时派生节点，没有文件）'));
+        var acts2 = el('div', 'kneu-anom-acts');
+        if (r.path) {
+          var bOpen3 = el('button', 'kneu-btn', '📂 打开');
+          bOpen3.type = 'button';
+          bOpen3.addEventListener('click', function (ev) { ev.stopPropagation(); openPathOf(r.path, type === 'missing' ? false : false); });
+          acts2.appendChild(bOpen3);
+          var bDir = el('button', 'kneu-btn', '🗂 定位');
+          bDir.type = 'button';
+          bDir.addEventListener('click', function (ev) { ev.stopPropagation(); openPathOf(r.path, true); });
+          acts2.appendChild(bDir);
+          var bCp = el('button', 'kneu-btn', '⧉ 复制路径');
+          bCp.type = 'button';
+          bCp.addEventListener('click', function (ev) {
+            ev.stopPropagation();
+            try { navigator.clipboard.writeText(String(r.path)); bCp.textContent = '✓ 已复制'; } catch (e) { wbWarn(e, 'neuron.copy') }
+          });
+          acts2.appendChild(bCp);
+        }
+        row.appendChild(acts2);
+      }
+      list.appendChild(row);
+    });
+    if (rows.length > 60) list.appendChild(el('div', 'kneu-anom-s', '还有 ' + (rows.length - 60) + ' 条没列（同样的两条一行，先处理上面这些）'));
+    if (type === 'dangling' && anomData.depSkip && anomData.depSkip.length) {
+      list.appendChild(el('div', 'kneu-anom-h2', '另外 ' + anomData.depSkip.length + ' 处：区域正文提到了别的区域名，但图上没有那个区域 —— 按设计不连线'));
+      anomData.depSkip.slice(0, 20).forEach(function (d) {
+        list.appendChild(el('div', 'kneu-anom-s', '「' + d.fromLabel + '」提到了「' + d.toLabel + '」'));
+      });
+    }
+    anom.appendChild(list);
+  }
+
   var statAll = '';   // 全量统计文案（切回时还原）
   bMem.addEventListener('click', function () {
     onlyMem = !onlyMem;
