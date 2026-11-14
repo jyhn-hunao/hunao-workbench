@@ -20174,7 +20174,13 @@ renderers.neuron = (body, meta, head) => {
     if (!p) { stat.textContent = '这个节点没有路径'; return; }
     var APP = (window.app && window.app.app) || null;
     var isDir = !!n.isDir || /[\\/]$/.test(p) || !/\.[A-Za-z0-9]{1,6}$/.test(p);
-    if (n.missing) stat.textContent = '⛔ 这个路径不存在：' + p;
+    // 2026-11-14：路径已经不在时不再硬打开（会弹系统错误框），改为定位到它所在的目录，并留一句真原因
+    if (n.missing) {
+      var parent = String(p).replace(/[\\/][^\\/]*$/, '');
+      if (parent && parent !== p) openPathOf(parent, true);
+      anomToast('这个路径不存在（' + p + '）—— 已打开它所在的目录；要修去点顶部「⛔ 路径失效」', true, 9000);
+      return;
+    }
     if (isDir) {
       if (APP && APP.openPath) {
         Promise.resolve(APP.openPath(p)).then(function (r) { if (r && r.ok === false) stat.textContent = '打不开：' + (r.error || ''); });
@@ -20209,8 +20215,47 @@ renderers.neuron = (body, meta, head) => {
       if (n.sampleA) detail.appendChild(el('div', 'kneu-dp', '例 · ' + String(n.sampleA).slice(0, 46)));
       if (n.sampleB) detail.appendChild(el('div', 'kneu-dp', '　　' + String(n.sampleB).slice(0, 46)));
     }
-    if (n.kind === 'area') detail.appendChild(el('div', 'kneu-ds', '分条记忆：' + (n.entryCount || 0) + ' 条'
-      + (n.entryCount ? '（双击下钻：分类 → 条目）' : '（还没有分条索引：先 node 工具\\场景记忆.mjs 索引 --场景 "' + (n.scene || '') + '"）')));
+    if (n.kind === 'area') {
+      if (n.entryCount) detail.appendChild(el('div', 'kneu-ds', '分条记忆：' + n.entryCount + ' 条（双击下钻：分类 → 条目）'));
+      else {
+        // 2026-11-14：这里原来写「先 node 工具\场景记忆.mjs 索引 --场景 X」—— 在面板里教人敲命令，等于没入口
+        detail.appendChild(el('div', 'kneu-ds', '还没有分条索引（点下面的按钮就地建，不碰正文）'));
+        var bIdx = el('button', 'kneu-btn', '⚙ 建这个场景的分条索引');
+        bIdx.type = 'button';
+        bIdx.title = 'node 工具\\场景记忆.mjs 索引 --场景 "' + (n.scene || '') + '"';
+        bIdx.addEventListener('click', function (ev) {
+          ev.stopPropagation();
+          var api = (window.app && window.app.feature) || null;
+          if (!api || typeof api.run !== 'function') { anomToast('这个宿主没有功能台（重启一次工作台）', true, 8000); return; }
+          bIdx.disabled = true; bIdx.textContent = '建索引中…';
+          Promise.resolve(api.run('scene-mem-index', 'one', { scene: n.scene || '' })).then(function (r) {
+            bIdx.disabled = false;
+            if (r && r.ok) { bIdx.textContent = '✓ 已建，正在重读'; anomToast('分条索引已建好', false, 5000); setTimeout(function () { try { load(); } catch (e) { wbWarn(e, 'neuron.reload') } }, 400); }
+            else { bIdx.textContent = '⚙ 建这个场景的分条索引'; anomToast('建索引没成：' + ((r && (r.message || r.reason)) || '看功能台那张卡的输出'), true, 9000); }
+          }).catch(function (e) { bIdx.disabled = false; bIdx.textContent = '⚙ 建这个场景的分条索引'; wbWarn(e, 'neuron.index'); anomToast('建索引没成：' + ((e && e.message) || e), true, 9000) });
+        });
+        detail.appendChild(bIdx);
+      }
+    }
+    // 路径已失效的节点：给「打开所在目录 / 复制路径」，而不是只刷一行红字
+    if (n.missing && n.path) {
+      detail.appendChild(el('div', 'kneu-anom-why', '⛔ 这个路径已经不在：' + n.path));
+      var actsM = el('div', 'kneu-anom-acts');
+      var bDirM = el('button', 'kneu-btn', '📂 打开所在目录');
+      bDirM.type = 'button';
+      bDirM.addEventListener('click', function (ev) {
+        ev.stopPropagation();
+        openPathOf(String(n.path).replace(/[\\/][^\\/]*$/, ''), true);
+      });
+      var bCpM = el('button', 'kneu-btn', '⧉ 复制路径');
+      bCpM.type = 'button';
+      bCpM.addEventListener('click', function (ev) {
+        ev.stopPropagation();
+        try { navigator.clipboard.writeText(String(n.path)); bCpM.textContent = '✓ 已复制'; } catch (e) { wbWarn(e, 'neuron.copy') }
+      });
+      actsM.appendChild(bDirM); actsM.appendChild(bCpM);
+      detail.appendChild(actsM);
+    }
     if (n.kind === 'project') detail.appendChild(el('div', 'kneu-ds', '双击进入项目记忆（分类 → 文档）'));
     (n.paths && n.paths.length ? n.paths : [n.path]).filter(Boolean).forEach(function (pp) {
       detail.appendChild(el('div', 'kneu-dp', pp));
