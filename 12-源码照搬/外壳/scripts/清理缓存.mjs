@@ -18,6 +18,8 @@
 // 用法：
 //   node 外壳\scripts\清理缓存.mjs              只读体检：总量 + Top 10 大头 + 可回收多少
 //   node 外壳\scripts\清理缓存.mjs --apply      真删缓存（先在设置里退出工作台）
+//   node 外壳\scripts\清理缓存.mjs --after-exit <pid> [--apply]   等这个进程退出（且端口空）后再删
+//                                                —— 2026-11-14 加：壳退出时自己拉起它，用户不用记得手动清
 //   node 外壳\scripts\清理缓存.mjs --json       机器可读
 //
 // 退出码：0 正常 / 2 前置不成立（目录不存在、壳在跑）/ 4 有删除失败
@@ -32,10 +34,26 @@ const SHELL = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'); 
 const DATA = path.join(SHELL, 'data');
 const PROFILE = path.join(DATA, 'electron-profile');
 const DSH_PORT = port('dsh');
+// 自动维护的流水账（只在 --after-exit 模式写；人手动跑还是打屏幕）
+const AUTO_LOG = path.join(DATA, '自动维护.log');
 
 const argv = process.argv.slice(2);
 const APPLY = argv.includes('--apply');
 const JSON_OUT = argv.includes('--json');
+const AFTER_IDX = argv.indexOf('--after-exit');
+const AFTER_PID = AFTER_IDX >= 0 ? Number(argv[AFTER_IDX + 1] || 0) : 0;
+
+function autoLog(line) {
+  try {
+    fs.appendFileSync(AUTO_LOG, '[' + new Date().toISOString() + '] ' + line + '\r\n');
+  } catch { /* 写不进就算了，不阻塞清理 */ }
+}
+
+function pidAlive(pid) {
+  if (!pid) return false;
+  try { process.kill(pid, 0); return true; } catch { return false; }
+}
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // 1. 缓存目录名白名单（大小写不敏感；只在 profile 内、按目录名匹配）
 const CACHE_NAMES = new Set([
@@ -134,6 +152,22 @@ async function main() {
   const targets = listTargets();
   const reclaim = measure(targets);
 
+  // 1. 自动模式：先等壳真的退干净（进程没了 + 端口空了），再走同一套删除逻辑
+  if (AFTER_PID) {
+    const waitStart = Date.now();
+    const LIMIT_MS = 15 * 60 * 1000;   // 最多等 15 分钟：等不到就放弃，别留一个僵尸进程
+    while (Date.now() - waitStart < LIMIT_MS) {
+      const busy = await engineBusy();
+      if (!pidAlive(AFTER_PID) && !busy) break;
+      await sleep(700);
+    }
+    const busy2 = await engineBusy();
+    if (pidAlive(AFTER_PID) || busy2) {
+      autoLog('放弃：等了 15 分钟壳仍未退出（pid ' + AFTER_PID + ' alive=' + pidAlive(AFTER_PID) + ' / 端口在=' + busy2 + '）');
+      process.exit(2);
+    }
+  }
+
   if (JSON_OUT) {
     console.log(JSON.stringify({
       data: { dir: DATA, bytes: whole.bytes, files: whole.files.length },
@@ -163,6 +197,7 @@ async function main() {
   const busy = await engineBusy();
   if (busy) {
     console.error('\n✗ 工作台还在跑（' + DSH_PORT + ' 端口在应答）⇒ 拒绝删缓存。\n  先退出工作台（托盘退出或关窗），再跑一次。');
+    if (AFTER_PID) autoLog('放弃：端口仍被占用（' + DSH_PORT + '）');
     process.exit(2);
   }
 
@@ -170,6 +205,7 @@ async function main() {
   for (const d of targets) {
     try { fs.rmSync(d, { recursive: true, force: true }); } catch (e) { failed++; console.error('  ✗ 删不掉 ' + d + '：' + (e && e.message)); }
   }
+  if (AFTER_PID) autoLog('自动清缓存：删 ' + (targets.length - failed) + ' 个目录，释放约 ' + mb(reclaim.bytes) + '（失败 ' + failed + '）');
   console.log('\n✓ 已删除 ' + (targets.length - failed) + ' 个缓存目录，释放约 ' + mb(reclaim.bytes) + '（失败 ' + failed + ' 个）');
   console.log('  登录态（Cookies / Local Storage / IndexedDB）未动；下次启动会重建缓存，首屏可能慢 1–3 秒。');
   if (failed) process.exit(4);

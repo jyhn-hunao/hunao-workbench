@@ -179,6 +179,83 @@ async function maybeHintCacheSize() {
   } catch (e) { warnOnce("cache-hint", e); }
 }
 
+// ---- 2026-11-14 · 自动维护（用户不用记得手动跑）----
+// 三件事：① 启动时清"孤儿 staging"；② 引擎就绪 60s 后后台巡检（每 12 小时最多一次）；③ 退出时自动清缓存。
+// 判据与手动命令完全一样（不复制第二套规则）：孤儿 = 引擎更新\ 下的 staging-* 里 state.json 没指向的那些；
+//   巡检 = 工具\自动巡检.mjs；清缓存 = scripts\清理缓存.mjs --after-exit <pid>。
+const UPDATE_DIR_AUTO = path.join(path.dirname(__dirname), '引擎更新');   // 12-源码照搬\引擎更新
+const INSPECT_FILE = path.join(__dirname, 'data', '巡检.json');
+const INSPECT_EVERY_MS = 12 * 3600 * 1000;
+
+// 用 机器配置.json 的 nodeExe 跑（⛔ 不用 Electron 内置 Node：自检按 >=24.9 判，用错的 node 会假红）
+function spawnTool(nodeMode, script, args, opts) {
+  const node = resolveNodeExe();
+  if (!node) throw new Error('找不到 node（机器配置.json 的 nodeExe 与 PATH 都没有）');
+  return spawn(node, [script].concat(args || []), Object.assign({
+    cwd: __dirname, windowsHide: true, env: serverSpawnEnv(),
+    stdio: 'ignore',
+  }, opts || {}));
+}
+
+// ① 孤儿 staging：prepare 中途被杀、或换目标版本后残留的那份（可重新 prepare，不是备份，删了不丢东西）
+function cleanOrphanStaging() {
+  if (!fs.existsSync(UPDATE_DIR_AUTO)) return;
+  const state = readJsonSafe(path.join(UPDATE_DIR_AUTO, 'state.json'), null);
+  // state 读不出来就不动：宁可留着，也不要把"正要应用的那一份"误删
+  if (!state || typeof state !== 'object') { log('[auto] 引擎更新 state.json 读不出，跳过 staging 清理'); return; }
+  const keep = typeof state.staging === 'string' ? state.staging : '';
+  let n = 0;
+  for (const name of fs.readdirSync(UPDATE_DIR_AUTO)) {
+    if (!name.startsWith('staging-') || name === keep) continue;
+    try {
+      fs.rmSync(path.join(UPDATE_DIR_AUTO, name), { recursive: true, force: true });
+      n++;
+      log('[auto] 清掉孤儿 staging：' + name + '（state 指向 ' + (keep || '无') + '）');
+    } catch (e) { warnOnce("auto-staging", e); }
+  }
+  if (!n) log('[auto] staging 已干净（state 指向 ' + (keep || '无') + '）');
+}
+
+// ② 后台巡检：开机 60s 后跑一次（每天最多一次），只在有失败时弹通知，详细结果在 data\巡检.json
+function scheduleAutoInspection() {
+  const last = readJsonSafe(INSPECT_FILE, null);
+  const at = last && typeof last.at === 'string' ? Date.parse(last.at) : 0;
+  if (at && (Date.now() - at) < INSPECT_EVERY_MS) { log('[auto] 距上次巡检不足 12 小时，跳过'); return; }
+  setTimeout(function () {
+    const tool = path.join(__dirname, '..', '工具', '自动巡检.mjs');
+    if (!fs.existsSync(tool)) { log('[auto] 自动巡检脚本不在，跳过：' + tool); return; }
+    let child;
+    try { child = spawnTool(null, tool, [], { stdio: 'ignore' }); } catch (e) { warnOnce("auto-inspect", e); return; }
+    child.on('exit', function (code) {
+      const doc = readJsonSafe(INSPECT_FILE, null) || {};
+      const items = Array.isArray(doc.items) ? doc.items : [];
+      const fails = items.filter(function (x) { return !x.ok; });
+      log('[auto] 巡检完成（exit ' + code + '）：' + items.length + ' 项，失败 ' + fails.length);
+      if (fails.length) {
+        broadcast('topbar:toast', {
+          text: '自动巡检有 ' + fails.length + ' 项没过：' + fails.map(function (x) { return x.name; }).join(' / ') + '（详情见 外壳\\data\\巡检.json）',
+          bad: true, ms: 15000
+        });
+      }
+    });
+  }, 60000);
+}
+
+// ③ 退出后清缓存：壳自己拉一个分离进程，它等本进程退出 + 端口空下来再删（删完写 data\自动维护.log）
+//    条件：开机巡检记下的体积 ≥ 阈值（cache-hint.json 的 mb）。没记录就不清 —— 不猜。
+function scheduleAutoCacheCleanup() {
+  const hint = readJsonSafe(CACHE_HINT_FILE, null) || {};
+  const sizeMb = typeof hint.mb === 'number' ? hint.mb : 0;
+  if (sizeMb < CACHE_HINT_MB) return;
+  const script = path.join(__dirname, 'scripts', '清理缓存.mjs');
+  if (!fs.existsSync(script)) return;
+  try {
+    const child = spawnTool(null, script, ['--after-exit', String(process.pid), '--apply'], { detached: true });
+    child.unref();
+    log('[auto] 已安排退出后清缓存（体积 ' + sizeMb + ' MB ≥ 阈值 ' + CACHE_HINT_MB + ' MB，等 pid ' + process.pid + ' 退出后执行）');
+  } catch (e) { warnOnce("auto-clean", e); }
+}
+
 // ---- 焦点探针（2026-11-12 用户同意；只记必要几行，不刷屏）----
 // 用途：复现「一个面板跑任务时，另一个面板输入框打不进字」时，看是谁把 webview 焦点抢走。
 // 开关：data\focus-probe.on 存在才写日志；删掉文件即时关闭（每次事件都查一次，不常驻开启）。
@@ -6031,6 +6108,8 @@ if (!gotLock) {
       bridgeService.autoStart().catch(function (e) { log('[bridge] 随壳启动失败: ' + ((e && e.message) || e)); });
     } catch (err) { log('[bridge] 随壳启动异常: ' + ((err && err.message) || err)); }
     let ok = false;
+    // 2026-11-14：起引擎之前先收拾"孤儿 staging"（不动 state 指向的那份），失败不影响启动
+    try { cleanOrphanStaging(); } catch (e) { warnOnce("auto-staging", e); }
     try {
       ok = await startServer();
     } catch (err) {
@@ -6043,6 +6122,8 @@ if (!gotLock) {
       return;
     }
     log('[boot] 引擎就绪总耗时 ' + ((Date.now() - APP_T0) / 1000).toFixed(1) + 's');
+    // 2026-11-14：后台巡检（60s 后跑，每天最多一次；只在有失败时弹通知）
+    try { scheduleAutoInspection(); } catch (e) { warnOnce("auto-inspect", e); }
     // 判据留痕：这一行说明「端口先通、token 后到」，渲染层会等它（见 harness:ready 的 3s 有界等待）
     if (!engineIsForeign && !harnessToken) log('[boot] token 行尚未到达（端口先通）⇒ 渲染层会等待并重试');
     // 通知渲染层：Harness 已就绪（所有窗口的 webview 都可以加载了）
@@ -6061,6 +6142,8 @@ if (!gotLock) {
   });
   app.on('before-quit', function () {
     quitRequested = true;      // 保留"下次恢复"的布局：整体退出 ≠ 用户关掉某个场景窗口
+    // 2026-11-14：退出后自动清缓存（拉起分离进程，等本进程退出 + 端口空后再删；超阈值才清）
+    try { scheduleAutoCacheCleanup(); } catch (e) { warnOnce("auto-clean", e); }
     // 2026-10-24：正常退出 ⇒ 给保险哨子盖章（下次启动不会误判成"升级中途被关掉"）
     try { writeGuard({ clean: true, at: Date.now(), pid: process.pid }); } catch (e) { warnOnce("main", e) }
     try { saveWinLayout(); } catch (e) { warnOnce("main", e) }
