@@ -1,5 +1,5 @@
 /* topbar-status.js —— 顶栏右侧「状态区」v2（2026-10-16；纯增量，一个现有按钮都不动）
- * 2026-10-26：新场景「命令」（command）已建：左窗 3D 记忆神经元 + 右窄 AI 会话。
+ * 2026-10-26：新场景「记忆」（command）已建：左窗 3D 记忆神经元 + 右窄 AI 会话。
  * 2026-10-26：新增场景「工作台定制」（workbench-custom）的标签图标已加进 renderer.js 的 ICONS
  *            与 renderers.js 的 SCENARIO_ICONS（同一份 SVG，改一处必须同步另一处）。
  *

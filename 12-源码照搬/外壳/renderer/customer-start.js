@@ -1,12 +1,12 @@
-/* customer-start.js —— 客户版启动落地：开机直接进「命令」场景（可改 FIRST）
+/* customer-start.js —— 客户版启动落地：开机直接进「胡闹的大肥鱼」总入口（可改 FIRST）
  * 2026-11-04 修复（code-ai 复核）：
  *   ① 本文件原来没被 index.html 引用 ⇒ 客户版一直停在引擎页（已加引用）
  *   ② 找不到 FIRST 时点 all[0] 却返回 false ⇒ 会反复点同一 tab（现在返回 true 停止重试）
- *   ③ 原「每 3 秒把 harness 拽回 command」会让用户永远打不开引擎页 ⇒ 改成启动后限时 3 次兜底
+ *   ③ 原「每 3 秒把 harness 拽回 memory」会让用户永远打不开引擎页 ⇒ 改成启动后限时 3 次兜底
  *   ④ 注释写 20 秒、代码 8 秒 ⇒ 统一为 8 秒
  */
 (function () {
-  var FIRST = 'command';   // 想换默认场景改这里（面板 id 见 scenarios\_场景身份索引.md）
+  var FIRST = 'pet';   // 开机落点 = 总入口「胡闹的大肥鱼」（2026-11-14 由 memory 改过来；想换改这里 + 两个 json 的 first 标记）
   var tries = 0;
   function tabs() { return document.querySelectorAll('#scenario-tabs .tab'); }
   function activeId() {

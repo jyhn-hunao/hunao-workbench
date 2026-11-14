@@ -150,7 +150,7 @@ ok(card1.text.indexOf('（换项目时会变，换完回写）') > 0, '定位卡
 const idx0 = read(path.join(scenDir, '_场景身份索引.md'));
 const idx1 = PS.patchIdentityIndex(idx0, { sceneId: 'code-dev', panelId: 'cd-ai', name: 'beta', sessionId: 'session-B' });
 ok(idx1.changed && /\| `code-dev` \| `cd-ai` \|[^|]*\| beta \| `session-B` \|/.test(idx1.text), '索引表：code-dev 行的会话名/id 已换');
-ok(idx1.text.indexOf('| `command` |') > 0, '索引表：其它场景行原样保留');
+ok(idx1.text.indexOf('| `memory` |') > 0, '索引表：其它场景行原样保留');
 
 // 双 AI 面板场景（程序开发：工作区 cd-ai-home + 项目 cd-ai）：必须按面板 id 命中，不许改错那条
 const idxTwo = '| `code-dev` | `cd-ai` | AI·项目 | alpha | `session-A` | `scenarios\\code-dev-context.md` | code-dev |\r\n'

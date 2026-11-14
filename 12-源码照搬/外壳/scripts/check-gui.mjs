@@ -168,7 +168,7 @@ const NS_EXPECT = {
   // wb-cards = 工作台定制「客户与交付」卡片墙（2026-10-27，wb-ai 需求、dg-gui 实现）：
   //   只用宿主通用能力 —— app.oa.filesLocal（列模板/客户目录）、app.file.read（读 05-状态.md 第一行阶段）、app.app.openPath（打开文件夹）。不碰任何场景命名空间。
   'wb-cards': ['oa', 'file', 'app'],
-  // neuron = 2026-10-26 新场景「命令」左窗：3D 记忆神经元。只用 app.file（读共享记忆/技能体积）与 app.topbar.open（定位文件），不碰任何场景命名空间
+  // neuron = 2026-10-26 新场景「记忆」左窗：3D 记忆神经元。只用 app.file（读共享记忆/技能体积）与 app.topbar.open（定位文件），不碰任何场景命名空间
   // neuron 用 app.oa.filesLocal 列项目目录（宿主通用列目录能力，view 也这么用，不读 OA 数据）
   neuron: ['oa'],
   // flow = 通用流程图/流程画布渲染器（首个用户：视频工作流 左下「视频·全工作流」），

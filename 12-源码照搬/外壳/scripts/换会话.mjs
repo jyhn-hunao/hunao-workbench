@@ -51,7 +51,7 @@ const BASE = process.env.DSH_GUI_BASE || process.env.DSH_WEB_URL || ('http://127
 // 面板 → 交接文件的**非标路径覆盖表**。标准路径由 handoffOf() 按场景名现算，新场景无需登记。
 // 2026-11-12：补上「AI·工作区」（cd-ai-home）——同一个场景记忆文件（程序开发）。
 const HANDOFF = {
-  'cmd-chat': path.join(DSH_HOME, '场景记忆', '命令', '场景私有记忆.md'),
+  'mem-chat': path.join(DSH_HOME, '场景记忆', '记忆', '场景私有记忆.md'),
   'bv-ai': path.join(DSH_HOME, '场景记忆', 'B站', '场景私有记忆.md'),
   'cd-ai': path.join(DSH_HOME, '场景记忆', '程序开发', '场景私有记忆.md'),
   'cd-ai-home': path.join(DSH_HOME, '场景记忆', '程序开发', '场景私有记忆.md'),

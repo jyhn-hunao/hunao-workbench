@@ -19,7 +19,8 @@
   // 场景 id → Lucide 图标名（图标名去 https://lucide.dev/icons 搜）
   var MAP = {
     'pet': 'fish',                  // 胡闹的大肥鱼：人格本体，一条鱼（原来和「社交」一起退回 🧩）
-    'social': 'message-circle-more' // 社交：气泡 + 三个点 = 多平台通道 / 合并消息流（16px 下最认得出）
+    'social': 'message-circle-more', // 社交：气泡 + 三个点 = 多平台通道 / 合并消息流（16px 下最认得出）
+    'creative': 'box'               // 创意工坊：一个立方体 = 三维建模 / 场景搭建
   };
 
   // 兜底池：未登记的场景按标签顺序各领一个没被占用的，避免两枚图撞在一起
