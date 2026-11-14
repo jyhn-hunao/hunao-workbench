@@ -59,7 +59,9 @@ contextBridge.exposeInMainWorld('app', {
   //   并且有 'scenes:order:set' 通道可以回报拖拽结果。老壳没有这一位 ⇒ 渲染层退回去用 localStorage，
   //   绝不"报了顺序却没人接"（那会表现为拖完重启就复位）。
   //   改这里要重启 GUI 才生效，所以它天然是"新壳"的标志。
-  caps: { webaiGuestFreeNav: true, sceneTabOrder: true },
+  //   ★warmGateOff：外站预热闸门的对照开关（TBS_WARM_GATE_OFF=1 ⇒ 维持"启动即预热"的旧行为）。
+  //   2026-11-14 加：默认让预热等引擎就绪（详见 renderers.js 的 warmAfterEngineReady 注释）。
+  caps: { webaiGuestFreeNav: true, sceneTabOrder: true, warmGateOff: process.env.TBS_WARM_GATE_OFF === '1' },
   // 场景标签拖拽换位：把新顺序交给主进程（唯一权威，见 main.js 的 SCENE_ORDER_FILE）
   setSceneOrder: (ids) => ipcRenderer.invoke('scenes:order:set', ids),
   // 主进程有没有存过顺序（渲染层据此决定要不要把老版本的 localStorage 顺序迁移过去）

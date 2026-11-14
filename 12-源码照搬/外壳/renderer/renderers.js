@@ -12451,6 +12451,34 @@ function webAiMarkOn() {
 }
 
 // 顶栏那五个图标（插在「淋雨家的工作台」字段后面；✕ 幂等：⟳ 重跑不会插第二排）
+// 2026-11-14 · 预热闸门：等引擎就绪再预热外站
+// 病因（实测）：渲染层 1.1s 就可见，随即预热 4 个外站 <webview>（豆包/通义/智谱/Kimi）；
+//   同一时间引擎还在冷启动，4 个 guest 进程一起抢 CPU 与磁盘 ⇒ 壳内 `engine ready in 19.9s`，
+//   壳外同条件 `pnpm dsh web` 只要 12.9～14.1s。把预热挪到引擎就绪之后，让引擎先拿到 CPU。
+// 机制：订阅 boot:progress（stage=ready 时开跑）+ 进来先查一次 bootState（已经就绪就别等）；
+//   引擎报错（stage=error）也开跑 —— 预热不该拖累"引擎挂了但工作台还能用"的场景。
+// 关掉：环境变量 TBS_WARM_GATE_OFF=1（preload 暴露 caps.warmGateOff，对照测量用）。
+function warmAfterEngineReady(run) {
+  var fired = false;
+  function fire() {
+    if (fired) return;
+    fired = true;
+    setTimeout(function () { try { run(); } catch (e) { wbWarn(e); } }, 1500);
+  }
+  try {
+    if (window.app && window.app.onBootProgress && window.app.bootState) {
+      window.app.onBootProgress(function (v) {
+        if (v && (v.stage === 'ready' || v.stage === 'error')) fire();
+      });
+      window.app.bootState().then(function (v) {
+        if (v && (v.stage === 'ready' || v.stage === 'error')) fire();
+      }).catch(function (e) { wbWarn(e); fire(); });
+      return;
+    }
+  } catch (e) { wbWarn(e); }
+  fire();
+}
+
 function decorateWebAi() {
   try {
     const drag = document.querySelector('#titlebar .titlebar-drag');
@@ -12496,12 +12524,17 @@ function decorateWebAi() {
     //   一开 GUI 就自动弹出豆包/智谱的网页，而且千问/智谱的登录框被掐掉。
     //   老壳下干脆不预热（点开时才加载），重启一次 GUI 后这个能力位出现，预热自动恢复。
     const warmOk = !!(window.app && window.app.caps && window.app.caps.webaiGuestFreeNav);
-    if (!WEB_AI_ST.warmed && warmOk) {
-      WEB_AI_ST.warmed = true;
+    const warmGateOff = !!(window.app && window.app.caps && window.app.caps.warmGateOff);
+    function runWarm() {
       WEB_AI.forEach(function (s, k) {   // k 只是站点表下标、用来错峰（跳过 noWarm 的站会留个空档，无害）
         if (s.noWarm) return;             // 不预热的站：点开时才建 webview（省一份常驻 guest 内存）
         setTimeout(function () { try { webAiEnsure(s.key, 'warm'); } catch (e) { wbWarn(e) } }, k * 700);
       });
+    }
+    if (!WEB_AI_ST.warmed && warmOk) {
+      WEB_AI_ST.warmed = true;
+      // 默认等引擎就绪再预热（见 warmAfterEngineReady 的注释）；TBS_WARM_GATE_OFF=1 时维持旧行为
+      if (warmGateOff) runWarm(); else warmAfterEngineReady(runWarm);
     } else if (!WEB_AI_ST.warmed && !WEB_AI_ST.warmOff) {
       WEB_AI_ST.warmOff = true;
       if (window.console && console.info) {
