@@ -1,0 +1,106 @@
+{
+  "id": "console",
+  "name": "工作台控制台",
+  "description": "工作台控制台：把原来只能敲命令的功能一次性接出界面 —— 五组：插件开关（省token / 守卫 / 记忆回响）、记忆维护（近期记忆 / 人格记忆 / 通道记忆 / 场景记忆体检与收工 / 项目记忆体检）、自检与发布（发布前检查 / 桌宠自检 / 渲染与用量自检 / 外壳静态测试 / 引擎升级后核对）、协作与通道（人格引用同步 / 跨场景发消息 / 会话改名）、创意与资产（生图 / 资产包检查 / 打发布包）。每块功能板按「什么时候用」排（日常在前、低频默认折叠），带搜索框；最下面那块「出什么事点什么」是症状表：按症状跳卡，不用记功能名。每项自带说明、参数表单与上次结果；写操作默认要连点两次确认。开关的真实状态不猜：一律跑脚本的 --status / --check 贴回卡片；配置只存界面偏好（外壳\\data\\功能台.json），真实配置仍写 profile patch / 机器配置.json。⛔ 本场景不启停引擎，改完开关提示「重启整壳生效」。",
+  "layout": "grid",
+  "theme": "dark",
+  "cols": 6,
+  "panels": [
+    {
+      "id": "con-switch",
+      "title": "插件开关",
+      "sub": "省 token / 守卫 / 记忆回响：装没装、什么模式；改完重启整壳",
+      "type": "feature-board",
+      "group": "switch",
+      "col": 1,
+      "row": 1,
+      "w": 2,
+      "h": 3
+    },
+    {
+      "id": "con-mem",
+      "title": "记忆维护",
+      "sub": "近期记忆 / 人格记忆 / 通道记忆 / 场景记忆体检与收工",
+      "type": "feature-board",
+      "group": "memory",
+      "col": 3,
+      "row": 1,
+      "w": 2,
+      "h": 3
+    },
+    {
+      "id": "con-guard",
+      "title": "自检与发布",
+      "sub": "发布前红线 / 各层自检 / 引擎升级后接线核对（只读）",
+      "type": "feature-board",
+      "group": "guard",
+      "col": 5,
+      "row": 1,
+      "w": 2,
+      "h": 3
+    },
+    {
+      "id": "con-flow",
+      "title": "协作与通道",
+      "sub": "人格引用同步 / 跨场景发消息 / 会话改名",
+      "type": "feature-board",
+      "group": "flow",
+      "col": 1,
+      "row": 4,
+      "w": 2,
+      "h": 3
+    },
+    {
+      "id": "con-creative",
+      "title": "创意与资产",
+      "sub": "生图 / 资产包检查 / 打发布包（出包是危险动作）",
+      "type": "feature-board",
+      "group": "creative",
+      "col": 3,
+      "row": 4,
+      "w": 2,
+      "h": 3
+    },
+    {
+      "id": "con-config",
+      "title": "配置",
+      "sub": "界面偏好（二次确认 / 展开说明）；开关状态去功能板里看",
+      "type": "feature-config",
+      "col": 5,
+      "row": 4,
+      "w": 2,
+      "h": 3
+    },
+    {
+      "id": "con-find",
+      "title": "找功能",
+      "sub": "一个框搜全部 28 项：不用先知道在哪一组，搜到就跳过去",
+      "type": "feature-find",
+      "col": 1,
+      "row": 7,
+      "w": 3,
+      "h": 2
+    },
+    {
+      "id": "con-recent",
+      "title": "最近操作",
+      "sub": "刚才点过什么、成没成、错在哪：按时间倒序 10 条，点一行回那张卡",
+      "type": "feature-recent",
+      "col": 4,
+      "row": 7,
+      "w": 3,
+      "h": 2
+    },
+    {
+      "id": "con-triage",
+      "title": "出什么事点什么",
+      "sub": "症状 → 那张卡：面板空白 / 白屏 / 她不出声 / token 烧太快 / 记忆乱 / 发布前",
+      "type": "feature-triage",
+      "col": 1,
+      "row": 9,
+      "w": 6,
+      "h": 3
+    }
+  ],
+  "first": false
+}
