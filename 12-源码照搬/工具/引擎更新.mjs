@@ -18,7 +18,7 @@
 //   node 工具\引擎更新.mjs apply [--version X] [--yes]      备份 → 换入 → 验收 → 探活，失败自动回退
 //   node 工具\引擎更新.mjs rollback [--to <备份目录名>]      回到某一版备份
 //   node 工具\引擎更新.mjs list [--json]                    备份清单
-//   node 工具\引擎更新.mjs clean [--keep 2]                 只留最近 N 份备份
+//   node 工具\引擎更新.mjs clean [--keep 2] [--staging]    只留最近 N 份备份；--staging 连"装好没应用"的 staging 一起清
 //
 // 退出码：0 成功 / 1 业务失败（可直接看 stderr 的中文原因） / 2 参数或环境错误
 
@@ -366,6 +366,17 @@ async function cmdPrepare(opts) {
   if (!want) throw new Error('不知道要装哪个版本：registry 没回 latest，也没给 --version')
   if (st.freeMB >= 0 && st.freeMB < NEED_FREE_MB) throw new Error('磁盘不够：剩 ' + st.freeMB + ' MB，至少要 ' + NEED_FREE_MB + ' MB（一份 staging + 一份备份）')
   const staging = path.join(UPDATE_DIR, 'staging-' + want)
+  // 2026-11-14 · staging 过期清理：同一时刻只该留一份"待应用"的 staging。
+  //   原来只有同名目录会被 rm ⇒ staging-0.2.2-rc.1 装好没应用、之后又换目标版本时，
+  //   旧的那份（575 MB）就一直躺在 引擎更新\ 里没人管（本机实测躺了两天）。
+  //   这里在开装前把**别的版本**的 staging 清掉；只清 staging-*，⛔ 不碰 backup-*（那是回退用的）。
+  try {
+    for (const name of fs.readdirSync(UPDATE_DIR)) {
+      if (!name.startsWith('staging-') || name === path.basename(staging)) continue
+      fs.rmSync(path.join(UPDATE_DIR, name), { recursive: true, force: true })
+      say('清掉上一份未被应用的 staging：' + name)
+    }
+  } catch (e) { say('清理旧 staging 失败（不影响本次）：' + ((e && e.message) || e)) }
   writeState({ phase: 'preparing', pct: 0, text: '开始准备 ' + want, target: want, ok: null, error: null, source: opts.version ? 'cli-arg' : 'registry-latest' })
 
   // 1. 下载 tarball
@@ -510,15 +521,31 @@ async function cmdRollback(opts) {
 }
 
 // 20. 命令：clean（只留最近 N 份；⛔ 不自动删，必须显式调用）
+//   --staging：连"装好但没应用"的 staging 一起清（那是可重新 prepare 的，不是备份）。
+//   场景：装好 0.2.2-rc.1 一直没应用、后来很可能改升别的版本 ⇒ 那份 575 MB 留着没意义。
 function cmdClean(opts) {
   const keep = Number(opts.keep || 2)
   const all = listBackups()
-  if (!all.length) return { ok: true, removed: [], kept: 0 }
   const removed = []
-  all.slice(keep).forEach((x) => {
-    try { fs.rmSync(path.join(UPDATE_DIR, x.name), { recursive: true, force: true }); removed.push(x.name) } catch (e) { drop('删不掉 ' + x.name + '：' + e.message) }
-  })
-  return { ok: true, removed, kept: Math.min(keep, all.length) }
+  if (all.length) {
+    all.slice(keep).forEach((x) => {
+      try { fs.rmSync(path.join(UPDATE_DIR, x.name), { recursive: true, force: true }); removed.push(x.name) } catch (e) { drop('删不掉 ' + x.name + '：' + e.message) }
+    })
+  }
+  let stagingRemoved = []
+  if (opts.staging) {
+    try {
+      fs.readdirSync(UPDATE_DIR).filter((n) => n.startsWith('staging-')).forEach((n) => {
+        try { fs.rmSync(path.join(UPDATE_DIR, n), { recursive: true, force: true }); stagingRemoved.push(n) } catch (e) { drop('删不掉 ' + n + '：' + e.message) }
+      })
+    } catch (e) { drop('清 staging 失败：' + e.message) }
+    if (stagingRemoved.length) {
+      // staging 清掉了，state 里那句"已就绪"就失效了，改成说清现状（否则界面会一直挂着 ready）
+      const st = readState()
+      if (st && st.phase === 'ready') writeState({ phase: 'idle', pct: 0, text: 'staging 已清理（要再升级请重新 prepare）', target: null, staging: null, verify: null })
+    }
+  }
+  return { ok: true, removed, kept: Math.min(keep, all.length), stagingRemoved }
 }
 
 // 21. 参数解析与分发
@@ -533,6 +560,7 @@ function parseArgs(argv) {
     else if (a === '--keep') opts.keep = argv[++i]
     else if (a === '--wait') opts.wait = argv[++i]
     else if (a === '--then-start') opts.start = true
+    else if (a === '--staging') opts.staging = true
     else drop('忽略不认识的参数：' + a)
   }
   return opts
@@ -561,6 +589,11 @@ async function main() {
     out.ok = true
     if (opts.json) say(JSON.stringify(out))
     else if (opts.cmd === 'status') printStatus(out.data)
+    else if (opts.cmd === 'clean') {
+      say('删掉的备份：' + (out.data.removed.length ? out.data.removed.join(' / ') : '无'))
+      say('保留备份：' + out.data.kept + ' 份')
+      if (opts.staging) say('删掉的 staging：' + (out.data.stagingRemoved.length ? out.data.stagingRemoved.join(' / ') : '无'))
+    }
     else say(JSON.stringify(out.data, null, 2))
     process.exit(0)
   } catch (e) {

@@ -108,8 +108,12 @@ let logTail = '';
 let harnessToken = null;
 
 function log(line) {
-  try { fs.appendFileSync(LOG_FILE, line + '\r\n'); } catch (e) { /* ignore */ }
-  logTail = (logTail + line + '\n').slice(-1200);
+  // 2026-11-14 · token 脱敏：引擎会把自己的启动 URL（`…?token=xxx`）打到 stdout，原来整行进 server.log
+  //   ⇒ 45 次启动就留了 45 个明文 token（server.log 还常被拿去发给别人看）。
+  //   token 本体只留在内存（captureToken）给界面与 IPC 用；落盘的这一份统一打成 token=***。
+  const safe = String(line).replace(/(token=)([A-Za-z0-9_\-]{8,})/g, '$1***');
+  try { fs.appendFileSync(LOG_FILE, safe + '\r\n'); } catch (e) { /* ignore */ }
+  logTail = (logTail + safe + '\n').slice(-1200);
 }
 
 // 静默兜底统一出口（2026-11-13）：主进程里原本 140+ 处 catch 只留一句注释，故障时用户只看到"界面没反应"。
@@ -127,6 +131,52 @@ function warnOnce(tag, e) {
   WARN_IN = true;
   try { log("[warn] (" + tag + ") " + msg + (at ? " @ " + at : "")); } catch (x) { warnOnce("main", x) }
   WARN_IN = false;
+}
+
+// ---- 2026-11-14 · 缓存体积巡检（只提示，不自动删）----
+// 与 自检.mjs 的阈值同源：外壳\data 超过 800 MB 就该清；清理必须退壳后跑 `清理缓存.mjs --apply`
+//   （在壳运行中硬删会让面板白屏 / 分区损坏）。
+// 7 天内只提示一次（data\cache-hint.json 记时间戳）——刚清过就别反复弹，也避免每次开机都刷一条。
+const CACHE_HINT_MB = 800;
+const CACHE_HINT_DAYS = 7;
+const CACHE_HINT_FILE = path.join(__dirname, 'data', 'cache-hint.json');
+let CACHE_HINT_SCHEDULED = false;
+
+// 异步走目录（10k 文件也别用同步 API 把主进程事件循环卡住）
+async function dirSizeAsync(root) {
+  let total = 0;
+  const stack = [root];
+  while (stack.length) {
+    const cur = stack.pop();
+    let entries = [];
+    try { entries = await fs.promises.readdir(cur, { withFileTypes: true }); } catch (e) { warnOnce("cache-hint", e); continue; }
+    const files = [];
+    for (const ent of entries) {
+      const p = path.join(cur, ent.name);
+      if (ent.isDirectory()) stack.push(p);
+      else if (ent.isFile()) files.push(p);
+    }
+    for (const f of files) {
+      try { const st = await fs.promises.stat(f); total += st.size; } catch (e) { warnOnce("cache-hint", e); /* 单文件读不到不影响总体（同位置只记一次） */ }
+    }
+  }
+  return total;
+}
+
+async function maybeHintCacheSize() {
+  try {
+    const mb = Math.round((await dirSizeAsync(path.join(__dirname, 'data'))) / (1024 * 1024));
+    if (mb < CACHE_HINT_MB) return;
+    const last = readJsonSafe(CACHE_HINT_FILE, {}) || {};
+    if (typeof last.at === 'number' && Date.now() - last.at < CACHE_HINT_DAYS * 24 * 3600 * 1000) return;
+    writeJsonSafe(CACHE_HINT_FILE, { at: Date.now(), mb: mb });
+    log('[cache] 数据目录 ' + mb + ' MB（阈值 ' + CACHE_HINT_MB + ' MB）⇒ 建议退壳后跑 清理缓存.mjs --apply');
+    broadcast('topbar:toast', {
+      text: '数据目录已 ' + mb + ' MB（阈值 ' + CACHE_HINT_MB + ' MB）：退出工作台后跑 node 12-源码照搬\\外壳\\scripts\\清理缓存.mjs --apply 能回收大部分缓存',
+      bad: false,
+      ms: 12000,
+    });
+  } catch (e) { warnOnce("cache-hint", e); }
 }
 
 // ---- 焦点探针（2026-11-12 用户同意；只记必要几行，不刷屏）----
@@ -329,7 +379,8 @@ function captureToken(text) {
   const m = String(text).match(new RegExp('http:\\/\\/127\\.0\\.0\\.1:' + DSH_PORT + '\\/\\?token=([A-Za-z0-9_\\-]+)'));
   if (m && m[1]) {
     harnessToken = m[1];
-    log('[token] captured: ' + m[1]);
+    // 2026-11-14 · 别把 token 本体写进日志（原来这行是明文的第二处泄漏，log() 的脱敏只管 token=xxx 形态）
+    log('[token] captured（长度 ' + m[1].length + '，不落盘）');
   }
 }
 
@@ -511,6 +562,11 @@ async function startServer() {
         sendBoot({ stage: 'ready', pct: 92, text: '引擎已就绪，正在加载界面…', detail: plan.label + ' · ' + secs + 's' });
         resetBootFail();
         markEngineGood();
+        // 引擎就绪后异步巡检一次缓存体积（8s 后跑，不跟启动抢 IO、不自动删）
+        if (!CACHE_HINT_SCHEDULED) {
+          CACHE_HINT_SCHEDULED = true;
+          setTimeout(function () { maybeHintCacheSize(); }, 8000);
+        }
         return true;
       }
       if (proc.exitCode !== null) {
