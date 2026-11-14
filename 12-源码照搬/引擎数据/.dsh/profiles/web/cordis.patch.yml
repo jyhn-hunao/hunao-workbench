@@ -8,15 +8,17 @@
     welcomeNoticeVersion: 2026-09-28.1
 
 # ---- 2026-11-12 用户拍板启用（评估：doc\工具启用价值评估.md §3）----
-# 只加这三个；其余 6 个按报告保持关闭。删掉对应行即关闭。
-- id: tool-ask-user
-  name: "@deepseek-ai/dsh-tool-ask-user"
-
-- id: tool-present
-  name: "@deepseek-ai/dsh-tool-present"
-
-- id: tool-schedule
-  name: "@deepseek-ai/dsh-tool-schedule"
+# 只加这三个；其余 6 个按报告保持关闭。删掉整块即关闭。
+# ⚠ 2026-11-14 修：这三条原来是**顶层裸条目**，而这三个 id 只在 preset group 内，
+#   顶层 patch 匹配不到 ⇒ dump-config 实测 3 行 patch: entry "…" not found，工具其实一直没挂上。
+#   按 doc\引擎升级与版本兼容清单.md §五 的正确写法改成 insert 块。
+- insert:
+    - id: tool-ask-user
+      name: "@deepseek-ai/dsh-tool-ask-user"
+    - id: tool-present
+      name: "@deepseek-ai/dsh-tool-present"
+    - id: tool-schedule
+      name: "@deepseek-ai/dsh-tool-schedule"
 
 # ---- 2026-11-13 记忆回响：每轮用户发言前注入 §〇 / 近期 / 相关条目（工具\记忆回响.mjs 装）----
 - insert:

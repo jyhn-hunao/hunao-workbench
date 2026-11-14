@@ -2,7 +2,7 @@
  "areas": [
   {
    "id": "command",
-   "name": "命令",
+   "name": "记忆",
    "owner": "cmd-chat",
    "memory": "场景记忆/命令",
    "file": "areas/command.md",
