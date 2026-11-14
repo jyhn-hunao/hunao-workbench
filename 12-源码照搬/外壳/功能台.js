@@ -154,7 +154,34 @@ const FEATURES = [
     id: 'scene-mem-index', group: 'memory', name: '场景记忆索引',
     plain: '分条记忆 → _索引.json（神经元按它画点、连联想边），归档条目也进索引。',
     script: '工具\\场景记忆.mjs', timeout: 180000,
-    actions: [{ id: 'all', label: '重建全部索引', danger: 'write', args: () => ['索引', '--all'] }],
+    actions: [
+      { id: 'all', label: '重建全部索引', danger: 'write', args: () => ['索引', '--all'] },
+      {
+        id: 'one', label: '重建一个场景', danger: 'write',
+        inputs: [{ key: 'scene', label: '场景', kind: 'memscene', required: true }],
+        args: (v) => ['索引', '--场景', v.scene],
+      },
+    ],
+  },
+  {
+    id: 'mem-pack', group: 'memory', name: '记忆打包（快照 / 核对 / 恢复）',
+    plain: 'git 之外再给一层完整快照：场景记忆 + 各项目 memory\\ 整目录拷贝 + sha256 清单；换机、回滚、兜底都用它。',
+    why: '归档\\、项目.json、身份卡画像这些被 gitignore 的本机内容，git 救不回来，原来只能敲命令。',
+    script: '工具\\记忆打包.mjs', timeout: 600000,
+    actions: [
+      { id: 'pack', label: '打包一次', danger: 'write', args: () => ['打包'] },
+      {
+        id: 'verify', label: '核对一个包',
+        inputs: [{ key: 'pack', label: '包目录', kind: 'dir', required: true }],
+        args: (v) => ['核对', '--包', v.pack],
+      },
+      { id: 'schema', label: '升版数据契约', danger: 'write', args: () => ['升版'] },
+      {
+        id: 'restore', label: '恢复（先自动快照当前）', danger: 'destructive',
+        inputs: [{ key: 'pack', label: '包目录', kind: 'dir', required: true }],
+        args: (v) => ['恢复', '--包', v.pack],
+      },
+    ],
   },
   {
     id: 'scene-mem-finish', group: 'memory', name: '场景收工',
@@ -291,8 +318,84 @@ const FEATURES = [
     actions: [{ id: 'check', label: '核对', args: () => ['--check'] }],
   },
   {
-    id: 'usage-ledger', group: 'guard', name: '用量账本（全量口径）',
-    plain: '按会话算 token 账：默认只算面板钉了的，--all 连没被钉的也算（要查「谁在偷偷烧 token」用这个）。',
+    id: 'rename-check', group: 'guard', name: '场景改名核对（五处对齐）',
+    plain: '改了场景名 / 面板 id 之后跑：登记表 owner、记忆目录、areas 正文的「场景 id」、场景目录、记忆地图，五处漏一处就报。',
+    why: '把「命令」改成「记忆」那次漏了共享登记表，图上就多出一个重复区域 + 12 条悬空边；这五处没有一处会自己报错。',
+    script: '外壳\\scripts\\场景改名核对.mjs', timeout: 120000,
+    actions: [
+      { id: 'run', label: '核对', args: () => [] },
+      { id: 'json', label: '核对（机器读）', args: () => ['--json'] },
+    ],
+  },
+  {
+    id: 'engine-update-check', group: 'guard', name: '引擎更新检查（只读）',
+    plain: '拿本机版本对上游 dist-tags，顺带看 Node 相容与端口是否被占。退出码 1 = 有新版本，2 = 连不上（断网不等于已最新）。',
+    script: '工具\\引擎更新检查.mjs', timeout: 120000,
+    actions: [
+      { id: 'run', label: '查一遍', args: () => [], okCodes: [1] },
+      { id: 'json', label: '查（机器读）', args: () => ['--json'], okCodes: [1] },
+      { id: 'mirror', label: '换镜像查', args: () => ['--mirror'], okCodes: [1] },
+      { id: 'offline', label: '只看上次结果', args: () => ['--offline'] },
+    ],
+  },
+  {
+    id: 'engine-update', group: 'guard', name: '引擎更新（换版 / 回退）',
+    plain: '查状态 → 下载装配到 staging 自证 → 备份后换入 → 探活，失败自动回退。⛔ 换版必须停机：工作台开着的时候只能查状态和备份清单。',
+    why: '引擎是整目录外部依赖，升级原来只能在命令行跑一长串；壳外的 token 与生命周期归壳所有（AGENTS §8）。',
+    script: '工具\\引擎更新.mjs', timeout: 900000,
+    actions: [
+      { id: 'status', label: '看状态', args: () => ['status'] },
+      { id: 'list', label: '备份清单', args: () => ['list'] },
+      {
+        id: 'prepare', label: '下载装配（不换）', danger: 'write',
+        inputs: [{ key: 'version', label: '目标版本（空 = 上游 latest）', kind: 'text', hint: '留空走 dist-tags' }],
+        args: (v) => (v.version ? ['prepare', '--version', v.version] : ['prepare']),
+      },
+      {
+        id: 'apply', label: '换版本（先退出工作台）', danger: 'destructive',
+        inputs: [{ key: 'version', label: '目标版本（空 = staging 已备好的那版）', kind: 'text' }],
+        args: (v) => (v.version ? ['apply', '--version', v.version, '--yes'] : ['apply', '--yes']),
+      },
+      {
+        id: 'rollback', label: '回退到某份备份', danger: 'destructive',
+        inputs: [{ key: 'to', label: '备份目录名（空 = 最近一份）', kind: 'text', hint: '看「备份清单」里的 gen-xxxx' }],
+        args: (v) => (v.to ? ['rollback', '--to', v.to] : ['rollback']),
+      },
+      {
+        id: 'clean', label: '清旧备份（留最近 N 份）', danger: 'destructive',
+        inputs: [{ key: 'keep', label: '保留份数', kind: 'number', def: '2' }],
+        args: (v) => ['clean', '--keep', v.keep || '2'],
+      },
+    ],
+  },
+  {
+    id: 'engine-snapshot', group: 'guard', name: '引擎配置快照（起不来时回退）',
+    plain: '只存「引擎能不能起来」的配置级东西：cordis.yml / patch / package.json / 锁 + 插件启用记录；不碰源码、会话、凭证。',
+    why: '改坏启动配置引擎就起不来，原来回退只能翻 外壳\\data\\engine-good。',
+    script: '工具\\引擎快照.mjs', timeout: 180000,
+    actions: [
+      { id: 'save', label: '打一份正常点', danger: 'write', args: () => ['--save'] },
+      { id: 'list', label: '看有哪些代', args: () => ['--list'] },
+      { id: 'restore', label: '回到最近一代', danger: 'destructive', args: () => ['--restore', '--yes'] },
+      {
+        id: 'restoreGen', label: '回到指定一代', danger: 'destructive',
+        inputs: [{ key: 'gen', label: '代（gen-xxxx）', kind: 'text', required: true }],
+        args: (v) => ['--restore-gen', v.gen, '--yes'],
+      },
+    ],
+  },
+  {
+    id: 'cache-clean', group: 'guard', name: '清理缓存（webview / 分区缓存）',
+    plain: '回收 外壳\\data\\electron-profile 里的 Chromium 缓存，只删 Cache / Code Cache / GPUCache 这类可重建的，登录态一概不碰。默认只统计。',
+    why: '浏览器缓存只增不减（实测 1.2 GB / 8 千文件），原来没有任何回收入口。',
+    script: '外壳\\scripts\\清理缓存.mjs', timeout: 600000,
+    actions: [
+      { id: 'dry', label: '只统计（不删）', args: () => [] },
+      { id: 'apply', label: '真删（先在设置里退出工作台）', danger: 'destructive', args: () => ['--apply'] },
+    ],
+  },
+  {
+    id: 'usage-ledger', group: 'guard', name: '用量账本（全量口径）',    plain: '按会话算 token 账：默认只算面板钉了的，--all 连没被钉的也算（要查「谁在偷偷烧 token」用这个）。',
     script: '工具\\用量账本.mjs', timeout: 120000,
     actions: [
       { id: 'all', label: '全部会话', args: () => ['--all'] },

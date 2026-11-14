@@ -174,8 +174,12 @@ function checkRenderers(used) {
   let m;
   while ((m = re.exec(src))) reg.add(m[1] || m[2]);
   const miss = [...used].filter((t) => !reg.has(t));
+  // 2026-11-14：反向也看一眼 —— 注册了却没有任何场景引用的 type，是「代码在、用户点不到」的死面板
+  //   （控制台收到 2 块之后 feature-find/recent/triage 就是这么变成未用的，靠人肉发现，没有告警）
+  const unused = [...reg].filter((t) => !used.has(t));
   if (miss.length) add('渲染器注册', 'fail', '场景用到但没注册的 type：' + miss.join(', '), []);
   else add('渲染器注册', 'ok', '场景用到的 ' + used.size + ' 个 type 都已注册（总注册 ' + reg.size + ' 个）');
+  if (unused.length) add('渲染器注册（反向）', 'warn', '注册但无任何场景引用 ' + unused.length + ' 个（删或挂，属产品口径）', unused.slice(0, 24));
 }
 
 // ── 6. 图标：登记表的值不重复、pet≠social、图标文件都在、兜底池够用 ──────────────────────
