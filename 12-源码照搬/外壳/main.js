@@ -341,10 +341,10 @@ function sendBoot(patch) {
   return lastBoot;
 }
 
-// 已构建的 CLI 入口：直接 node 跑它，可跳过 cmd.exe → pnpm → tsx 三层转译，明显加快引擎启动
-// 2026-11-14 修：原来只认源码版 apps/cli/lib/bin.js，打包版引擎（引擎/lib/bin.js）永远命中不到
-//   ⇒ 每次启动都退回 pnpm 兜底，实测多约 10 秒（server.log: engine ready in 16.7s via pnpm 脚本）。
-//   两套布局都认，与 自检.mjs 的 ENGINE_BINS 同源。
+// 已构建的 CLI 入口：可跳过 cmd.exe → pnpm → tsx 三层转译，作为 pnpm 起不来时的兜底
+// 2026-11-14：原来只认源码版 apps/cli/lib/bin.js，打包版引擎（引擎/lib/bin.js）命中不到 ⇒ 兜底永远不可用。
+//   现在两套布局都认，与 自检.mjs 的 ENGINE_BINS 同源。
+//   ⚠ 实测（见下方 plans 处注释）本机 pnpm 比内置入口更快，所以它只当兜底、不再排第一。
 const CLI_CANDS = [
   path.join(HARNESS_DIR, 'apps', 'cli', 'lib', 'bin.js'),   // 源码版
   path.join(HARNESS_DIR, 'lib', 'bin.js')                    // 打包版
@@ -489,10 +489,13 @@ async function startServer() {
     return true;
   }
   const plans = [];
+  // 2026-11-14 实测（同条件：真 DSH_HOME + 3099 端口，各两次）：pnpm 脚本 14.1s / 12.9s，内置入口 20.6s / 20.3s。
+  //   结论：本机 pnpm 反而更快 —— 内置入口要先过 @deepseek-ai/dsh-app-boot 的整棵扫描才起服务。
+  //   ⛔ 别再凭"跳过三层转译就一定更快"把顺序调回去；要改先按上面方式各测两次。
+  plans.push({ label: 'pnpm 脚本', detail: 'pnpm dsh web（tsx 转译）', spawn: spawnServerPnpm, budget: 90 });
   if (fs.existsSync(CLI_BUILT)) {
-    plans.push({ label: '内置入口', detail: 'apps/cli/lib/bin.js（跳过 pnpm / tsx）', spawn: spawnServerDirect, budget: 45 });
+    plans.push({ label: '内置入口', detail: 'CLI 构建产物（pnpm 不可用时兜底）', spawn: spawnServerDirect, budget: 45 });
   }
-  plans.push({ label: 'pnpm 脚本', detail: 'pnpm dsh web（tsx 转译，兜底）', spawn: spawnServerPnpm, budget: 90 });
 
   for (let i = 0; i < plans.length; i++) {
     const plan = plans[i];
