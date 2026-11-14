@@ -398,7 +398,9 @@ async function cmdPrepare(opts) {
   // 4. 自证
   writeState({ pct: 88, text: '自证：版本与 dump-config' })
   const v = verifyStaging(staging, want)
-  writeState({ phase: 'ready', pct: 100, text: want + ' 已就绪（自证通过），重启后生效', ok: true, verify: v, staging: path.basename(staging) })
+  // 2026-11-14 修文案：原来写「重启后生效」——prepare 只把新版本装进 引擎更新\staging，
+  //   重启整壳**不会**换引擎（本地仍是旧版），必须再点「立即更新」才替换并自动重启。
+  writeState({ phase: 'ready', pct: 100, text: want + ' 已就绪（自证通过）；点「立即更新」才会换上并自动重启（只重启整壳不换引擎）', ok: true, verify: v, staging: path.basename(staging) })
   return { ok: true, version: want, staging: path.basename(staging), verify: v }
 }
 
