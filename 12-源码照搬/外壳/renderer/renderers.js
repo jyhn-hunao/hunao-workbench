@@ -21710,3 +21710,885 @@ window.openPetSettings = function () {
     });
   });
 })();
+
+/* ══════════════════════════════════════════════════════════════════
+   工作台控制台 · 功能台（type = "feature-board"）
+   一块面板接一组「原来只能命令行」的功能：按钮 + 白名单参数 + 上次结果。
+   数据来自 外壳\功能台.js（feature:* 通道）；本面板不拼命令、不猜开关状态。
+   ══════════════════════════════════════════════════════════════════ */
+renderers['feature-board'] = (body, meta, head) => {
+  const A = window.app && window.app.feature;
+  const GROUP = (meta && meta.group) || '';
+  body.classList.add('ft-body');
+  let disposed = false, cfg = { ui: {}, params: {}, last: {} }, desk = null;
+  let jumpTo = null;                                   // 由 load() 挂上：跳卡片 + 高亮（「接着做」用）
+  const statusOf = {};
+
+  function agoStr(sec) {
+    const d = Math.max(0, Math.floor(Date.now() / 1000) - (Number(sec) || 0));
+    if (!sec) return '';
+    if (d < 60) return '刚刚';
+    if (d < 3600) return Math.floor(d / 60) + ' 分钟前';
+    return Math.floor(d / 3600) + ' 小时前';
+  }
+
+  function tstr(sec) {
+    try { return new Date(sec * 1000).toLocaleString('zh-CN', { hour12: false }); } catch (e) { return String(sec || ''); }
+  }
+
+  if (!A || typeof A.list !== 'function') {
+    body.appendChild(el('div', 'ft-empty', '这个宿主没有功能台（preload 还是旧的）—— 重启一次工作台。'));
+    return () => {};
+  }
+
+  // 1. 头部：条数 + 手动刷新（只读）
+  const note = el('span', 'ft-note', '加载中…');
+  if (head) {
+    head.classList.add('file-head');
+    const acts = el('div', 'file-head-acts');
+    const rl = el('button', 'file-refresh', '↻');
+    rl.title = '重新读功能清单与开关状态（只读）';
+    rl.addEventListener('click', (ev) => { ev.stopPropagation(); load(true); });
+    acts.appendChild(note);
+    acts.appendChild(rl);
+    head.appendChild(acts);
+  }
+
+  const listBox = el('div', 'ft-list');
+  const foot = el('div', 'ft-foot');
+  body.appendChild(listBox);
+  body.appendChild(foot);
+
+  // 2. 一条功能 = 一张卡：标题 / 说明 / 动作按钮 / 参数表单 / 输出
+  function cardOf(f) {
+    const card = el('div', 'ft-card' + (f.ok ? '' : ' ft-gone'));
+    const top = el('div', 'ft-card-t');
+    top.appendChild(el('span', 'ft-name', f.name));
+    if (f.freq === 'daily') top.appendChild(el('span', 'ft-tag daily', '日常'));
+    if (f.freq === 'rare') top.appendChild(el('span', 'ft-tag dim', '低频'));
+    if (f.restart) top.appendChild(el('span', 'ft-tag warn', '改完重启整壳'));
+    if (!f.ok) top.appendChild(el('span', 'ft-tag err', '脚本不在'));
+    // 上次结果：带上动作名（一张卡有好几个按钮，只写「上次 ✓」会让人以为整张卡都过了）
+    const last = cfg && cfg.last && cfg.last[f.id];
+    if (last) {
+      const la = (f.actions || []).filter((x) => x.id === last.action)[0];
+      top.appendChild(el('span', 'ft-tag ' + (last.ok ? 'ok' : 'err'),
+        (last.ok ? '上次 ✓ ' : '上次 ✗ ') + (la ? la.label : String(last.action || '')) + ' · ' + tstr(last.at)));
+    }
+    card.appendChild(top);
+    card.appendChild(el('div', 'ft-plain', f.plain || ''));
+    // 同一个能力在顶栏 / 命令行也有入口 —— 写明白，免得以为这里是两套数据
+    if (f.also) card.appendChild(el('div', 'ft-also', '别处也有：' + f.also));
+
+    // 为什么以前只给命令行：配置里 showWhy 打开时展开（排障时有用，嫌长可以关）
+    if (f.why && cfg && cfg.ui && cfg.ui.showWhy) card.appendChild(el('div', 'ft-why', '以前只给命令行：' + f.why));
+
+    const acts = el('div', 'ft-acts');
+    const form = el('div', 'ft-form');
+    const out = el('div', 'ft-out');
+    card.appendChild(acts);
+    card.appendChild(form);
+    card.appendChild(out);
+
+    (f.actions || []).forEach((a) => {
+      const btn = el('button', 'ft-btn' + (a.danger === 'write' ? ' ft-btn-w' : '') + (a.danger === 'destructive' ? ' ft-btn-d' : ''), a.label);
+      btn.title = (a.danger === 'destructive' ? '会覆盖 / 搬运真实文件：要手打「确认」才放行 → '
+        : (a.danger === 'write' ? '会改真实配置 / 文件：' : '只读：')) + f.script + ' ' + a.label;
+      let armedAt = 0, timer = null;
+      btn.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        if (disposed) return;
+        if (a.danger === 'destructive') { openForm(); return; }     // 破坏性动作没有「顺手点一下」这条路
+        if ((a.inputs || []).length) { openForm(); return; }
+        if (a.danger === 'write' && cfg.ui && cfg.ui.confirmAgain) {
+          const now = Date.now();
+          if (!(armedAt && now - armedAt < 6000)) {
+            armedAt = now;
+            btn.textContent = '再点一次确认';
+            if (window.__tbsToast) window.__tbsToast('「' + f.name + ' · ' + a.label + '」会改真实配置，6 秒内再点一次才执行。', false, 6000);
+            timer = setTimeout(() => { armedAt = 0; btn.textContent = a.label; }, 6200);
+            return;
+          }
+          armedAt = 0;
+          if (timer) { clearTimeout(timer); timer = null; }
+          btn.textContent = a.label;
+        }
+        go(a, {}, false);
+      });
+
+      // 2a. 表单：每个输入一行；场景 / 场景记忆目录是下拉，文件 / 目录带选择器
+      function openForm() {
+        form.innerHTML = '';
+        let gateInput = null;
+        const inputs = el('div', 'ft-inputs');
+        const getters = {};
+        const saved = (cfg.params && cfg.params[f.id + '.' + a.id]) || {};
+        (a.inputs || []).forEach((s) => {
+          const row = el('div', 'ft-in');
+          row.appendChild(el('label', 'ft-in-l', s.label + (s.required ? ' *' : '')));
+          const box = el('div', 'ft-in-box');
+          let input;
+          if (s.kind === 'select' || s.kind === 'scene' || s.kind === 'memscene') {
+            input = el('select', 'ft-select');
+            const src = s.kind === 'select' ? (s.options || [])
+              : (s.kind === 'scene' ? (desk.scenes || []) : (desk.memScenes || []).map((n) => ({ v: n, t: n })));
+            const opts = src.map((o) => ({ v: o.id || o.v, t: o.name || o.t }));
+            opts.forEach((o) => { const op = el('option', '', o.t); op.value = o.v; input.appendChild(op); });
+            const want = saved[s.key] || s.def || (opts[0] && opts[0].v) || '';
+            if (want) input.value = want;
+          } else if (s.long) {
+            input = el('textarea', 'ft-textarea');
+            input.value = saved[s.key] || s.def || '';
+            input.placeholder = s.hint || '';
+          } else {
+            input = el('input', 'ft-input');
+            input.value = saved[s.key] || s.def || '';
+            input.placeholder = s.hint || '';
+            if (s.kind === 'number') input.inputMode = 'decimal';
+          }
+          box.appendChild(input);
+          if (s.kind === 'file' || s.kind === 'dir') {
+            const pick = el('button', 'ft-btn ft-btn-g', '选…');
+            pick.type = 'button';
+            pick.addEventListener('click', () => {
+              const api = (window.app && (s.kind === 'file' ? window.app.pickFile : window.app.pickFolder));
+              if (!api) { if (window.__tbsToast) window.__tbsToast('这个宿主没有选择器（要重启一次工作台）', true, 6000); return; }
+              Promise.resolve(api()).then((p) => { if (p) input.value = p; }).catch((e) => wbWarn(e, 'feature.pick'));
+            });
+            box.appendChild(pick);
+          }
+          row.appendChild(box);
+          if (s.hint) row.appendChild(el('div', 'ft-in-h', s.hint));
+          inputs.appendChild(row);
+          getters[s.key] = () => String(input.value || '').trim();
+        });
+
+        const runRow = el('div', 'ft-acts');
+        const runBtn = el('button', 'ft-btn' + (a.danger === 'write' ? ' ft-btn-w' : '') + (a.danger === 'destructive' ? ' ft-btn-d' : ''), '执行 ' + a.label);
+        let armedAt = 0;
+        // 破坏性动作：上面那只按钮只是入口，真正的闸门在下面这行「手打确认」
+        if (a.danger === 'destructive') {
+          runBtn.disabled = true;
+          runBtn.title = '先手打「确认」，才允许执行';
+        }
+        runBtn.addEventListener('click', () => {
+          if (a.danger === 'destructive' && (!gateInput || String(gateInput.value || '').trim() !== '确认')) {
+            if (window.__tbsToast) window.__tbsToast('「' + f.name + ' · ' + a.label + '」要手打「确认」两个字才放行。', true, 6000);
+            return;
+          }
+          const vals = {};
+          Object.keys(getters).forEach((k) => { vals[k] = getters[k](); });
+          if (a.danger === 'write' && cfg.ui.confirmAgain) {
+            const now = Date.now();
+            if (!(armedAt && now - armedAt < 6000)) {
+              armedAt = now;
+              runBtn.textContent = '再点一次确认';
+              if (window.__tbsToast) window.__tbsToast('「' + f.name + ' · ' + a.label + '」会改真实配置，6 秒内再点一次才执行。', false, 6000);
+              setTimeout(() => { armedAt = 0; runBtn.textContent = '执行 ' + a.label; }, 6200);
+              return;
+            }
+            armedAt = 0;
+          }
+          go(a, vals, true);
+        });
+        // 破坏性动作的保护行：手打「确认」两个字才解锁执行按钮（比连点两次更难误触）
+        if (a.danger === 'destructive') {
+          const grow = el('div', 'ft-in');
+          grow.appendChild(el('label', 'ft-in-l', '保护 *'));
+          const gbox = el('div', 'ft-in-box');
+          const gi = el('input', 'ft-input ft-gate');
+          gi.placeholder = '手打「确认」两个字（这个动作会覆盖 / 搬运真实文件）';
+          gbox.appendChild(gi);
+          grow.appendChild(gbox);
+          inputs.appendChild(grow);
+          gateInput = gi;
+          gi.addEventListener('input', () => { runBtn.disabled = busyCount > 0 || String(gi.value || '').trim() !== '确认'; });
+        }
+        // 表单里的「执行」也随全局忙态置灰：不然别人在跑时还能点，撞上「同时 2 条」被拒
+        busyRefresh.push((busy) => {
+          const gateOpen = a.danger !== 'destructive' || String((gateInput && gateInput.value) || '').trim() === '确认';
+          runBtn.disabled = busy || !gateOpen;
+        });
+        runRow.appendChild(runBtn);
+        const closeBtn = el('button', 'ft-btn ft-btn-g', '收起');
+        closeBtn.type = 'button';
+        closeBtn.addEventListener('click', () => { form.innerHTML = ''; });
+        runRow.appendChild(closeBtn);
+        form.appendChild(inputs);
+        form.appendChild(runRow);
+      }
+
+      acts.appendChild(btn);
+    });
+
+    // 2b. 开关类：把 --status / --check 的结论贴在卡上（feature:status，60 秒缓存）
+    if (statusOf[f.id]) {
+      const st = el('div', 'ft-status');
+      st.textContent = statusOf[f.id].text || '（没有输出）';
+      card.appendChild(st);
+    }
+
+    // 2c. 跑一条：置忙 → 结果进输出框 + toast；带输入的成功后把参数记住，下次不用重填
+    let busyCount = 0;
+    const busyRefresh = [];                            // 表单里的按钮也要跟着置忙（原来只管卡片按钮区）
+    function btnBusy(on) {
+      busyCount += on ? 1 : -1;
+      if (busyCount < 0) busyCount = 0;
+      const busy = busyCount > 0;
+      Array.prototype.forEach.call(acts.querySelectorAll('button'), (b) => { b.disabled = busy; });
+      busyRefresh.forEach((fn) => { try { fn(busy); } catch (e) { if (e && e.message) console.warn('[功能台] 表单忙态刷新失败', e.message); } });
+    }
+    function go(a, vals, persist) {
+      if (!f.ok) { if (window.__tbsToast) window.__tbsToast('脚本不在了：' + f.script, true, 8000); return; }
+      out.innerHTML = '';
+      // 5d. 跑着的时候给一只「停」：封装 / 发布前检查能跑十几分钟，不能只让人等
+      const runRow = el('div', 'ft-out-run');
+      runRow.appendChild(el('span', '', '跑着…（' + a.label + '）'));
+      if (typeof A.kill === 'function') {
+        const stop = el('button', 'ft-btn ft-btn-g ft-stop', '停');
+        stop.type = 'button';
+        stop.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          Promise.resolve(A.kill(f.id, a.id)).then((k) => {
+            if (window.__tbsToast) window.__tbsToast((k && k.msg) || '已发停止信号', false, 5000);
+            if (k && k.ok) { stop.disabled = true; stop.textContent = '已停'; }
+          }).catch((e) => wbWarn(e, 'feature.kill'));
+        });
+        runRow.appendChild(stop);
+      }
+      out.appendChild(runRow);
+      btnBusy(true);
+      Promise.resolve(A.run(f.id, a.id, vals)).then((r) => {
+        btnBusy(false);
+        if (disposed) return;
+        out.innerHTML = '';
+        const ok = !!(r && r.ok);
+        // 失败原因提到标题行（原来只说「原因见输出」，得自己去翻）
+        const headTxt = (ok ? '✓ ' : '✗ ')
+          + (ok ? ((r && r.msg) || '完成') : ((r && (r.reason || r.error || r.msg)) || '没回话'))
+          + (r && r.ms ? ' · ' + (r.ms / 1000).toFixed(1) + ' 秒' : '');
+        out.appendChild(el('div', 'ft-out-h ' + (ok ? 'ok' : 'err'), headTxt));
+        out.appendChild(el('pre', 'ft-out-pre', String((r && (r.out || r.error)) || '（没有输出）').slice(0, 6000)));
+        // 输出超过 6000 字会被截；全文已落盘，给一条直达
+        if (r && r.logPath) {
+          const bar = el('div', 'ft-acts');
+          const open = el('button', 'ft-btn ft-btn-g', '打开完整日志');
+          open.type = 'button';
+          open.title = r.logPath;
+          open.addEventListener('click', (ev) => {
+            ev.stopPropagation();
+            const AAPP = window.app && window.app.app;
+            const fn = AAPP && (AAPP.revealPath || AAPP.openPath);
+            if (!fn) { if (window.__tbsToast) window.__tbsToast('这个宿主没有打开文件的能力（要重启一次工作台）', true, 6000); return; }
+            Promise.resolve(fn(r.logPath)).catch((e) => wbWarn(e, 'feature.openLog'));
+          });
+          bar.appendChild(open);
+          out.appendChild(bar);
+        }
+        // 5e. 接着做：工序写在登记表的 NEXT 里，跑完直接把下一步摆在下面
+        const nx = (f.next || []).filter((n) => n.ok);
+        if (ok && nx.length) {
+          const bar2 = el('div', 'ft-next');
+          bar2.appendChild(el('span', 'ft-next-h', '接着做：'));
+          nx.forEach((n) => {
+            const b = el('button', 'ft-btn ft-btn-g', n.name || n.id);
+            b.type = 'button';
+            b.addEventListener('click', (ev) => { ev.stopPropagation(); if (jumpTo) jumpTo(n.id); });
+            bar2.appendChild(b);
+          });
+          out.appendChild(bar2);
+        }
+        if (r && r.ok && persist) {
+          const patch = {};
+          patch[f.id + '.' + a.id] = vals;
+          Promise.resolve(A.configSet({ params: patch })).catch((e) => wbWarn(e, 'feature.saveParams'));
+        }
+        if (window.__tbsToast) window.__tbsToast((r && r.ok) ? ('完成：' + f.name + ' · ' + a.label) : ('没成：' + ((r && (r.reason || r.error)) || '原因见输出')), !(r && r.ok), 8000);
+      }).catch((e) => {
+        btnBusy(false);
+        wbWarn(e, 'feature.run');
+        out.innerHTML = '';
+        out.appendChild(el('div', 'ft-out-h err', '✗ 调用出错：' + ((e && e.message) || e)));
+      });
+    }
+
+    return card;
+  }
+
+  // 3. 装载：清单 + 配置 + 开关状态（并行；哪一项失败就降级哪一项，不整块白屏）
+  function load(manual) {
+    note.textContent = '读取中…';
+    Promise.all([
+      Promise.resolve(A.list()),
+      Promise.resolve(A.configGet()),
+      Promise.resolve().then(() => A.status()).catch((e) => { wbWarn(e, 'feature.status'); return null; }),
+    ]).then((arr) => {
+      if (disposed) return;
+      desk = arr[0] || null;
+      cfg = (arr[1] && arr[1].cfg) || { ui: {}, params: {}, last: {} };
+      const st = arr[2];
+      if (st && st.rows) st.rows.forEach((r) => { statusOf[r.id] = r; });
+      if (!desk || !desk.ok) {
+        listBox.innerHTML = '';
+        listBox.appendChild(el('div', 'ft-empty', '读不到功能清单：' + ((desk && desk.error) || '主进程没回话')));
+        note.textContent = '失败';
+        return;
+      }
+      const g = (desk.groups || []).filter((x) => x.id === GROUP)[0];
+      if (!g) {
+        listBox.innerHTML = '';
+        listBox.appendChild(el('div', 'ft-empty', '这台机器上没有「' + GROUP + '」这一组（登记表改过？）'));
+        note.textContent = '空';
+        return;
+      }
+      listBox.innerHTML = '';
+      listBox.appendChild(el('div', 'ft-grp-h', g.title + ' · ' + g.features.length + ' 项'));
+      if (g.plain) listBox.appendChild(el('div', 'ft-grp-p', g.plain));
+      // 1d. 认知层的三件事：按「什么时候用」排（后端已排好）、低频默认折叠、顶上给一条搜索
+      //     卡片只隐藏不重建 —— 搜索/展开来回切不会把已跑出来的输出弄丢
+      const bar = el('div', 'ft-bar');
+      const search = el('input', 'ft-search');
+      search.placeholder = '搜功能 / 用途 / 脚本…';
+      bar.appendChild(search);
+      const cnt = el('span', 'ft-bar-n', '');
+      bar.appendChild(cnt);
+      listBox.appendChild(bar);
+
+      const cards = [];
+      let rareOn = false;
+      g.features.forEach((f) => {
+        const c = cardOf(f);
+        c.dataset.freq = f.freq || 'weekly';
+        c.dataset.fid = f.id;
+        c.dataset.group = g.title;
+        c.dataset.q = (f.name + ' ' + (f.plain || '') + ' ' + f.script + ' ' + (f.actions || []).map((a) => a.label).join(' ')).toLowerCase();
+        cards.push(c);
+        listBox.appendChild(c);
+      });
+
+      // 低频折叠开关（放在列表尾部，不挡常用项）
+      const rareN = cards.filter((c) => c.dataset.freq === 'rare').length;
+      const moreBtn = el('button', 'ft-more-t', '低频 ' + rareN + ' 项（平时用不到，出问题再展开）');
+      moreBtn.type = 'button';
+      moreBtn.addEventListener('click', () => { rareOn = !rareOn; applyFilter(); });
+      listBox.appendChild(moreBtn);
+      const emptyTip = el('div', 'ft-empty ft-hide', '没有匹配的功能');
+      listBox.appendChild(emptyTip);
+
+      function applyFilter() {
+        const q = (search.value || '').trim().toLowerCase();
+        let n = 0, hiddenRare = 0;
+        cards.forEach((c) => {
+          const rare = c.dataset.freq === 'rare';
+          const hit = !q || c.dataset.q.indexOf(q) >= 0;
+          if (rare && !q && !rareOn) hiddenRare += 1;
+          const vis = hit && (!rare || !!q || rareOn);
+          c.style.display = vis ? '' : 'none';
+          if (vis) n += 1;
+        });
+        if (rareN) {
+          moreBtn.style.display = q ? 'none' : '';
+          moreBtn.textContent = rareOn ? '收起低频项' : ('低频 ' + rareN + ' 项（平时用不到，出问题再展开）');
+        } else {
+          moreBtn.style.display = 'none';
+        }
+        emptyTip.className = 'ft-empty' + (n ? ' ft-hide' : '');
+        cnt.textContent = q
+          ? (n + ' / ' + cards.length + ' 项')
+          : (hiddenRare ? (n + ' 项 · 低频 ' + hiddenRare + ' 项已折叠') : (n + ' 项'));
+      }
+      search.addEventListener('input', applyFilter);
+      applyFilter();
+
+      // 5f. 跳卡片：被折叠的低频项自动展开，搜过的过滤自动清掉（「接着做」/「去这张卡」都走它）
+      jumpTo = (id) => {
+        const c = cards.filter((x) => x.dataset.fid === id)[0];
+        if (!c) { if (window.__tbsToast) window.__tbsToast('「' + id + '」不在这一块板上 —— 用「找功能」搜一下。', false, 6000); return; }
+        if (c.dataset.freq === 'rare' && !rareOn) rareOn = true;
+        if ((search.value || '').trim()) search.value = '';
+        applyFilter();
+        c.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        c.classList.add('ft-flash');
+        setTimeout(() => c.classList.remove('ft-flash'), 1600);
+      };
+
+      const actN = g.features.reduce((a, f) => a + f.actions.length, 0);
+      note.textContent = (manual ? '刚刷新 · ' : '') + g.features.length + ' 项 / ' + actN + ' 个动作';
+      // 60 秒缓存是有代价的：告诉人这份开关状态是什么时候查的，别拿三小时前的当真
+      const stAt = (st && st.at) ? '开关状态查于 ' + agoStr(st.at / 1000) + '（60 秒内复用缓存，点 ↻ 可重查）' : '开关状态这次没查成';
+      foot.textContent = '开关类改完要重启整壳才生效；只读项随便点。' + stAt + ' · 配置：' + (arr[1] && arr[1].file || '');
+    }).catch((e) => {
+      wbWarn(e, 'feature.load');
+      listBox.innerHTML = '';
+      listBox.appendChild(el('div', 'ft-empty', '装载失败：' + ((e && e.message) || e)));
+      note.textContent = '失败';
+    });
+  }
+
+  function onCfgChanged() { load(false); }
+  window.addEventListener('feature:cfg-changed', onCfgChanged);
+  load(false);
+  return () => {
+    disposed = true;
+    window.removeEventListener('feature:cfg-changed', onCfgChanged);
+  };
+};
+
+/* ══════════════════════════════════════════════════════════════════
+   工作台控制台 · 配置（type = "feature-config"）
+   只管「界面偏好」：危险动作要不要二次确认、要不要展开「以前只给命令行」。
+   开关的真实状态不在这里改 —— 那在功能板里跑脚本的 --status / --on / --off。
+   ══════════════════════════════════════════════════════════════════ */
+renderers['feature-config'] = (body, meta, head) => {
+  const A = window.app && window.app.feature;
+  body.classList.add('ft-body');
+  let disposed = false, cfg = { ui: {} }, desk = null;
+
+  if (!A || typeof A.configGet !== 'function') {
+    body.appendChild(el('div', 'ft-empty', '这个宿主没有功能台（preload 还是旧的）—— 重启一次工作台。'));
+    return () => {};
+  }
+
+  const note = el('span', 'ft-note', '读取中…');
+  if (head) {
+    head.classList.add('file-head');
+    const acts = el('div', 'file-head-acts');
+    const rl = el('button', 'file-refresh', '↻');
+    rl.title = '重读配置与清单（只读）';
+    rl.addEventListener('click', (ev) => { ev.stopPropagation(); load(); });
+    acts.appendChild(note); acts.appendChild(rl); head.appendChild(acts);
+  }
+  const box = el('div', 'ft-cfg');
+  body.appendChild(box);
+
+  function rowToggle(title, sub, key) {
+    const row = el('div', 'ft-cfg-row');
+    const mid = el('div', 'ft-cfg-mid');
+    mid.appendChild(el('div', 'ft-cfg-t', title));
+    if (sub) mid.appendChild(el('div', 'ft-cfg-s', sub));
+    row.appendChild(mid);
+    const chk = el('input', 'ft-check');
+    chk.type = 'checkbox';
+    chk.checked = !!(cfg.ui && cfg.ui[key]);
+    mid.appendChild(chk);
+    chk.addEventListener('change', () => {
+      const patch = { ui: {} };
+      patch.ui[key] = !!chk.checked;
+      Promise.resolve(A.configSet(patch)).then((r) => {
+        cfg = (r && r.cfg) || cfg;
+        window.dispatchEvent(new Event('feature:cfg-changed'));
+        if (window.__tbsToast) window.__tbsToast('已保存：' + title + (chk.checked ? '（开）' : '（关）'), false, 5000);
+      }).catch((e) => {
+        wbWarn(e, 'feature.cfg');
+        if (window.__tbsToast) window.__tbsToast('保存没成：' + ((e && e.message) || e), true, 8000);
+      });
+    });
+    return row;
+  }
+
+  function load() {
+    note.textContent = '读取中…';
+    Promise.all([Promise.resolve(A.configGet()), Promise.resolve(A.list())]).then((arr) => {
+      if (disposed) return;
+      cfg = (arr[0] && arr[0].cfg) || { ui: {} };
+      desk = arr[1] || null;
+      box.innerHTML = '';
+      const st = (desk && desk.stats) || {};
+      box.appendChild(el('div', 'ft-grp-h', '界面偏好'));
+      box.appendChild(el('div', 'ft-grp-p', '只存本机（外壳\\data\\功能台.json）。危险动作默认要连点两次，防手滑把真实配置改掉。'));
+      box.appendChild(rowToggle('危险动作二次确认', '写操作第一次点只提醒，6 秒内再点一次才真跑', 'confirmAgain'));
+      box.appendChild(rowToggle('展开「以前只给命令行」', '给每张功能卡多一行背景；嫌长可以关', 'showWhy'));
+
+      box.appendChild(el('div', 'ft-grp-h', '接管范围'));
+      const kv = el('div', 'ft-kv');
+      const pair = (k, v) => { kv.appendChild(el('span', 'ft-k', k)); kv.appendChild(el('span', 'ft-v', v)); };
+      pair('功能', String(st.features || 0) + ' 项');
+      pair('动作', String(st.actions || 0) + ' 个');
+      pair('分组', String(st.groups || 0) + ' 组');
+      pair('日常 / 低频', String(st.daily || 0) + ' / ' + String(st.rare || 0) + ' 项');
+      box.appendChild(kv);
+      box.appendChild(el('div', 'ft-grp-p', '这 ' + (st.features || 0) + ' 项原来都只能敲命令（node 工具\\xxx.mjs）；现在每项都有按钮，写操作与只读操作分开标。'));
+
+      const fileRow = el('div', 'ft-cfg-row');
+      fileRow.appendChild(el('div', 'ft-cfg-mid', '配置文件：' + ((arr[0] && arr[0].file) || '—')));
+      const openBtn = el('button', 'ft-btn ft-btn-g', '打开');
+      openBtn.type = 'button';
+      openBtn.addEventListener('click', () => {
+        const p = (arr[0] && arr[0].file) || '';
+        const api = window.app && window.app.app;
+        if (api && api.revealPath && p) api.revealPath(p);
+      });
+      fileRow.appendChild(openBtn);
+      box.appendChild(fileRow);
+
+      // 历史日志目录：跑完的全文都落在这一处，界面上得有个门进去
+      const logRow = el('div', 'ft-cfg-row');
+      const lmid = el('div', 'ft-cfg-mid');
+      lmid.appendChild(el('div', 'ft-cfg-t', '历史日志目录'));
+      lmid.appendChild(el('div', 'ft-cfg-s', ((desk && desk.logDir) || '外壳\\data\\历史') + ' · 每条动作一份，每功能留最近 20 份'));
+      logRow.appendChild(lmid);
+      const logBtn = el('button', 'ft-btn ft-btn-g', '打开');
+      logBtn.type = 'button';
+      logBtn.addEventListener('click', () => {
+        const dir = (desk && desk.logDir) || '';
+        const api = window.app && window.app.app;
+        if (!dir) { if (window.__tbsToast) window.__tbsToast('还没跑过任何动作，目录还没建', false, 6000); return; }
+        if (!api || !api.revealPath) { if (window.__tbsToast) window.__tbsToast('这个宿主没有打开文件夹的能力（要重启一次工作台）', true, 6000); return; }
+        Promise.resolve(api.revealPath(dir)).catch((e) => wbWarn(e, 'feature.openLogDir'));
+      });
+      logRow.appendChild(logBtn);
+      box.appendChild(logRow);
+
+      // 最近 8 份日志：不用自己去目录里翻（文件名 = 功能 + 时间，点一下直接打开）
+      const lg = (desk && desk.logs) || [];
+      if (lg.length) {
+        const lbox = el('div', 'ft-log');
+        lg.forEach((l) => {
+          const r2 = el('div', 'ft-log-r');
+          const name = String(l.name || '').replace(/\.log$/i, '');
+          r2.appendChild(el('span', 'ft-log-n', name + ' · ' + (l.size >= 1024 ? (Math.round(l.size / 1024) + ' KB') : (l.size + ' B'))));
+          const b2 = el('button', 'ft-btn ft-btn-g ft-log-b', '打开');
+          b2.type = 'button';
+          b2.title = l.path;
+          b2.addEventListener('click', () => {
+            const api = window.app && window.app.app;
+            if (!api || !api.openPath) { if (window.__tbsToast) window.__tbsToast('这个宿主没有打开文件的能力（要重启一次工作台）', true, 6000); return; }
+            Promise.resolve(api.openPath(l.path)).catch((e) => wbWarn(e, 'feature.openLog'));
+          });
+          r2.appendChild(b2);
+          lbox.appendChild(r2);
+        });
+        box.appendChild(lbox);
+      } else {
+        box.appendChild(el('div', 'ft-grp-p', '还没有日志：任意功能跑一次，这里就会出现全文记录。'));
+      }
+
+      // 清掉界面侧记忆（上次 ✓ 标签 / 点击计数）；不碰真实开关、不删日志文件，故两次确认就够
+      const resetRow = el('div', 'ft-cfg-row');
+      const rmid = el('div', 'ft-cfg-mid');
+      rmid.appendChild(el('div', 'ft-cfg-t', '清空「上次结果」与点击计数'));
+      rmid.appendChild(el('div', 'ft-cfg-s', '只清界面标签（本机 功能台.json 的 last / hits）；真实开关与历史日志都不动'));
+      resetRow.appendChild(rmid);
+      const resetBtn = el('button', 'ft-btn ft-btn-g', '清空');
+      resetBtn.type = 'button';
+      let resetArmedAt = 0;
+      resetBtn.addEventListener('click', () => {
+        const now = Date.now();
+        if (!(resetArmedAt && now - resetArmedAt < 6000)) {
+          resetArmedAt = now;
+          resetBtn.textContent = '再点一次确认';
+          if (window.__tbsToast) window.__tbsToast('会清掉所有「上次 ✓/✗」标签与计数，6 秒内再点一次才执行（不会动真实开关）', false, 8000);
+          setTimeout(() => { resetArmedAt = 0; resetBtn.textContent = '清空'; }, 6200);
+          return;
+        }
+        resetArmedAt = 0;
+        resetBtn.textContent = '清空';
+        Promise.resolve(A.configSet({ reset: true })).then(() => {
+          window.dispatchEvent(new Event('feature:cfg-changed'));
+          if (window.__tbsToast) window.__tbsToast('已清空：上次结果与点击计数（日志文件没动）', false, 6000);
+          load();
+        }).catch((e) => {
+          wbWarn(e, 'feature.reset');
+          if (window.__tbsToast) window.__tbsToast('清空没成：' + ((e && e.message) || e), true, 8000);
+        });
+      });
+      resetRow.appendChild(resetBtn);
+      box.appendChild(resetRow);
+
+      note.textContent = '共 ' + (st.features || 0) + ' 项 / ' + (st.actions || 0) + ' 个动作';
+    }).catch((e) => {
+      wbWarn(e, 'feature.cfgLoad');
+      box.innerHTML = '';
+      box.appendChild(el('div', 'ft-empty', '读不到配置：' + ((e && e.message) || e)));
+      note.textContent = '失败';
+    });
+  }
+
+  load();
+  return () => { disposed = true; };
+};
+/* ==================================================================
+   工作台控制台 · 症状表（type = "feature-triage"）
+   目的：不要求人记住 100 项功能，只记 6 条「出什么事 → 点哪张卡」。
+   数据来自 功能台.js 的 TRIAGE（feature:list 一起下发），点按钮只「跳过去」，不代你执行。
+   ================================================================== */
+renderers['feature-triage'] = (body, meta, head) => {
+  const A = window.app && window.app.feature;
+  body.classList.add('ft-body');
+  let disposed = false;
+
+  if (!A || typeof A.list !== 'function') {
+    body.appendChild(el('div', 'ft-empty', '这个宿主没有功能台（preload 还是旧的）—— 重启一次工作台。'));
+    return () => {};
+  }
+
+  const note = el('span', 'ft-note', '读取中…');
+  if (head) {
+    head.classList.add('file-head');
+    const acts = el('div', 'file-head-acts');
+    const rl = el('button', 'file-refresh', '↻');
+    rl.title = '重读症状表（只读）';
+    rl.addEventListener('click', (ev) => { ev.stopPropagation(); load(); });
+    acts.appendChild(note); acts.appendChild(rl); head.appendChild(acts);
+  }
+
+  const box = el('div', 'ft-triage');
+  body.appendChild(box);
+
+  // 1. 跳到对应的功能卡：卡片在别的面板里，靠 data-fid 找到，滚过去闪一下
+  function jumpTo(fid, name) {
+    const card = document.querySelector('.ft-card[data-fid="' + fid + '"]');
+    if (!card) {
+      if (window.__tbsToast) window.__tbsToast('「' + name + '」这张卡在别的面板里：去对应的功能板点它（有的组默认折叠了低频项）。', true, 8000);
+      return;
+    }
+    try { card.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (e) { card.scrollIntoView(); }
+    card.classList.add('ft-flash');
+    setTimeout(() => { card.classList.remove('ft-flash'); }, 1600);
+  }
+
+  function load() {
+    note.textContent = '读取中…';
+    Promise.resolve(A.list()).then((desk) => {
+      if (disposed) return;
+      box.innerHTML = '';
+      const rows = (desk && desk.triage) || [];
+      if (!rows.length) {
+        box.appendChild(el('div', 'ft-empty', '没有症状表（后端没下发 triage）'));
+        note.textContent = '空';
+        return;
+      }
+      box.appendChild(el('div', 'ft-grp-p', '按「出什么症状」找，不用记功能名；点「去这张卡」只跳过去，不替你执行。'));
+      rows.forEach((r) => {
+        const row = el('div', 'ft-tr' + (r.ok ? '' : ' ft-tr-gone'));
+        const left = el('div', 'ft-tr-l');
+        left.appendChild(el('div', 'ft-tr-s', r.symptom));
+        if (r.tip) left.appendChild(el('div', 'ft-tr-t', r.tip));
+        row.appendChild(left);
+        const right = el('div', 'ft-tr-r');
+        right.appendChild(el('div', 'ft-tr-f', r.featureName + ' · ' + r.actionLabel));
+        const go = el('button', 'ft-btn ft-btn-g', '去这张卡');
+        go.type = 'button';
+        go.addEventListener('click', (ev) => { ev.stopPropagation(); jumpTo(r.feature, r.featureName); });
+        right.appendChild(go);
+        row.appendChild(right);
+        box.appendChild(row);
+      });
+      note.textContent = rows.length + ' 条症状';
+    }).catch((e) => {
+      wbWarn(e, 'feature.triage');
+      box.innerHTML = '';
+      box.appendChild(el('div', 'ft-empty', '读不到症状表：' + ((e && e.message) || e)));
+      note.textContent = '失败';
+    });
+  }
+
+  load();
+  return () => { disposed = true; };
+};
+/* ==================================================================
+   工作台控制台 · 找功能（type = "feature-find"）
+   一个框搜全部 28 项：不用先知道「它在哪一组」，搜到就跳过去。
+   默认先给「日常」那几项（每天真会用的），空框时也算个入口。
+   ================================================================== */
+renderers['feature-find'] = (body, meta, head) => {
+  const A = window.app && window.app.feature;
+  body.classList.add('ft-body');
+  let disposed = false;
+
+  if (!A || typeof A.list !== 'function') {
+    body.appendChild(el('div', 'ft-empty', '这个宿主没有功能台（preload 还是旧的）—— 重启一次工作台。'));
+    return () => {};
+  }
+
+  const note = el('span', 'ft-note', '读取中…');
+  if (head) {
+    head.classList.add('file-head');
+    const acts = el('div', 'file-head-acts');
+    const rl = el('button', 'file-refresh', '↻');
+    rl.title = '重读功能清单（只读）';
+    rl.addEventListener('click', (ev) => { ev.stopPropagation(); load(); });
+    acts.appendChild(note); acts.appendChild(rl); head.appendChild(acts);
+  }
+
+  const bar = el('div', 'ft-bar');
+  const search = el('input', 'ft-search');
+  search.placeholder = '要干什么？搜功能 / 用途 / 脚本 / 按钮…（例：用量、索引、出包）';
+  bar.appendChild(search);
+  body.appendChild(bar);
+  const box = el('div', 'ft-triage');
+  body.appendChild(box);
+
+  let flat = [];
+
+  function jumpTo(card, name) {
+    if (!card) {
+      if (window.__tbsToast) window.__tbsToast('「' + name + '」那张卡还没渲染出来（面板被关掉了？）', true, 8000);
+      return;
+    }
+    const hidden = card.style.display === 'none';
+    if (hidden) {
+      if (window.__tbsToast) window.__tbsToast('「' + name + '」在「' + (card.dataset.group || '别的') + '」那块板里，属低频项：先去那块点「展开低频项」。', true, 8000);
+      return;
+    }
+    try { card.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (e) { card.scrollIntoView(); }
+    card.classList.add('ft-flash');
+    setTimeout(() => { card.classList.remove('ft-flash'); }, 1600);
+  }
+
+  function render() {
+    const q = (search.value || '').trim().toLowerCase();
+    box.innerHTML = '';
+    let list;
+    if (!q) {
+      list = flat.filter((x) => x.f.freq === 'daily');
+      box.appendChild(el('div', 'ft-grp-p', '空着就是「日常」那 ' + list.length + ' 项（每天真会用的）；想看别的直接搜。'));
+    } else {
+      list = flat.filter((x) => x.q.indexOf(q) >= 0);
+      if (!list.length) { box.appendChild(el('div', 'ft-empty', '没有匹配的功能。换个词试试：脚本名、按钮名也算关键词。')); note.textContent = '0 项'; return; }
+    }
+    list.forEach((x) => {
+      const f = x.f;
+      const row = el('div', 'ft-tr');
+      const left = el('div', 'ft-tr-l');
+      const s = el('div', 'ft-tr-s', f.name);
+      if (f.freq === 'daily') s.appendChild(el('span', 'ft-tag daily', '日常'));
+      left.appendChild(s);
+      left.appendChild(el('div', 'ft-tr-t', x.g + ' · ' + (f.plain || '').slice(0, 60) + ((f.plain || '').length > 60 ? '…' : '')));
+      row.appendChild(left);
+      const right = el('div', 'ft-tr-r');
+      right.appendChild(el('div', 'ft-tr-f', f.actions.length + ' 个动作'));
+      const go = el('button', 'ft-btn ft-btn-g', '去这张卡');
+      go.type = 'button';
+      go.addEventListener('click', (ev) => { ev.stopPropagation(); jumpTo(document.querySelector('.ft-card[data-fid="' + f.id + '"]'), f.name); });
+      right.appendChild(go);
+      row.appendChild(right);
+      box.appendChild(row);
+    });
+    note.textContent = list.length + ' 项';
+  }
+
+  function load() {
+    note.textContent = '读取中…';
+    Promise.resolve(A.list()).then((desk) => {
+      if (disposed) return;
+      flat = [];
+      ((desk && desk.groups) || []).forEach((g) => {
+        (g.features || []).forEach((f) => {
+          flat.push({
+            f: f, g: g.title,
+            q: (f.name + ' ' + (f.plain || '') + ' ' + f.script + ' ' + (f.actions || []).map((a) => a.label).join(' ')).toLowerCase(),
+          });
+        });
+      });
+      render();
+    }).catch((e) => {
+      wbWarn(e, 'feature.find');
+      box.innerHTML = '';
+      box.appendChild(el('div', 'ft-empty', '读不到功能清单：' + ((e && e.message) || e)));
+      note.textContent = '失败';
+    });
+  }
+
+  search.addEventListener('input', render);
+  load();
+  return () => { disposed = true; };
+};/* ==================================================================
+   feature-recent · 最近操作（2026-11-14 第四轮）
+   读 list().recent，按时间倒序排 10 条「哪个功能 · 哪个动作 · 成没成 · 多久前」。
+   不新增 IPC：时间线直接来自 功能台.json 的 last（每次跑完都写，关掉面板也在）。
+   点一行 → 去那张卡；失败的那条顺手把原因带出来（省得再点一次才知道错在哪）。
+   ================================================================== */
+renderers['feature-recent'] = (body, meta, head) => {
+  const A = window.app && window.app.feature;
+  body.classList.add('ft-body');
+  let disposed = false;
+
+  if (!A || typeof A.list !== 'function') {
+    body.appendChild(el('div', 'ft-empty', '这个宿主没有功能台（preload 还是旧的）—— 重启一次工作台。'));
+    return () => {};
+  }
+
+  function ago(sec) {
+    const s = Number(sec) || 0;
+    if (!s) return '—';
+    const d = Math.max(0, Math.floor(Date.now() / 1000) - s);
+    if (d < 60) return '刚刚';
+    if (d < 3600) return Math.floor(d / 60) + ' 分钟前';
+    if (d < 86400) return Math.floor(d / 3600) + ' 小时前';
+    return Math.floor(d / 86400) + ' 天前';
+  }
+
+  const note = el('span', 'ft-note', '读取中…');
+  if (head) {
+    head.classList.add('file-head');
+    const acts = el('div', 'file-head-acts');
+    const rl = el('button', 'file-refresh', '↻');
+    rl.title = '重读最近操作（只读）';
+    rl.addEventListener('click', (ev) => { ev.stopPropagation(); load(); });
+    acts.appendChild(note); acts.appendChild(rl); head.appendChild(acts);
+  }
+
+  const box = el('div', 'ft-triage');
+  const foot = el('div', 'ft-foot');
+  body.appendChild(box);
+  body.appendChild(foot);
+
+  function goCard(id, name) {
+    const card = document.querySelector('.ft-card[data-fid="' + id + '"]');
+    if (!card) {
+      if (window.__tbsToast) window.__tbsToast('「' + name + '」的卡不在当前视图 —— 用「找功能」搜一下。', false, 6000);
+      return;
+    }
+    if (card.style.display === 'none') {
+      if (window.__tbsToast) window.__tbsToast('「' + name + '」是低频项、被折叠了：先去「' + (card.dataset.group || '所属') + '」那块点展开。', false, 7000);
+      return;
+    }
+    try { card.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (e) { card.scrollIntoView(); }
+    card.classList.add('ft-flash');
+    setTimeout(() => { card.classList.remove('ft-flash'); }, 1600);
+  }
+
+  function load() {
+    note.textContent = '读取中…';
+    Promise.resolve(A.list()).then((desk) => {
+      if (disposed) return;
+      const rows = (desk && desk.recent) || [];
+      box.innerHTML = '';
+      if (!rows.length) {
+        box.appendChild(el('div', 'ft-empty', '这几天还没点过任何功能。随便找一张卡点一次，这里就会按时间记下来。'));
+        note.textContent = '0 条';
+        return;
+      }
+      rows.forEach((r) => {
+        const row = el('div', 'ft-tr');
+        const left = el('div', 'ft-tr-l');
+        const s = el('div', 'ft-tr-s', r.feature);
+        s.appendChild(el('span', 'ft-tag ' + (r.ok ? 'ok' : 'err'), r.ok ? '成' : '没成'));
+        left.appendChild(s);
+        const t = el('div', 'ft-tr-t',
+          r.action + ' · ' + ago(r.at) + (r.hits ? (' · 共点过 ' + r.hits + ' 次') : '')
+          + (r.ok ? '' : (' · 原因：' + String(r.reason || '看输出').slice(0, 90))));
+        left.appendChild(t);
+        row.appendChild(left);
+        const right = el('div', 'ft-tr-r');
+        const b = el('button', 'ft-btn ft-btn-g', '去这张卡');
+        b.type = 'button';
+        b.addEventListener('click', (ev) => { ev.stopPropagation(); goCard(r.id, r.feature); });
+        right.appendChild(b);
+        row.appendChild(right);
+        box.appendChild(row);
+      });
+      note.textContent = rows.length + ' 条';
+      foot.textContent = '按时间倒序，最多 10 条（来源：外壳\data\功能台.json 的 last，每次跑完就写一次）。';
+    }).catch((e) => {
+      wbWarn(e, 'feature.recent');
+      box.innerHTML = '';
+      box.appendChild(el('div', 'ft-empty', '读不到最近操作：' + ((e && e.message) || e)));
+      note.textContent = '失败';
+    });
+  }
+
+  load();
+  return () => { disposed = true; };
+};

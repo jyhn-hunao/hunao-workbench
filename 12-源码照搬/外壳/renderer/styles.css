@@ -6720,3 +6720,126 @@ html[data-theme="light"] .kneu-btn { border-color: var(--line-2); }
 }
 .dg-timer-t { flex: none; font-size: 12px; color: var(--text); font-weight: 600; }
 .dg-timer .dg-detail { flex: 1; min-width: 0; -webkit-line-clamp: 1; }
+/* ── 工作台控制台 · 功能台 / 配置面板（2026-11-14）────────────────────────────
+   一套令牌走到底：浅色主题下不写死颜色，正文 11.5–13px，次要文字用 --text-dim。 */
+.ft-body { display: flex; flex-direction: column; gap: 8px; overflow: auto; padding: 8px; }
+.ft-note { font-size: 11px; color: var(--text-dim); }
+.ft-list { display: flex; flex-direction: column; gap: 8px; }
+.ft-grp-h { font-size: 13px; font-weight: 600; color: var(--text); }
+.ft-grp-p { font-size: 11.5px; line-height: 1.55; color: var(--text-dim); }
+.ft-card {
+  display: flex; flex-direction: column; gap: 6px; padding: 8px 9px;
+  border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--bg-panel);
+}
+.ft-card-t { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.ft-name { font-size: 12.5px; font-weight: 600; color: var(--text); }
+.ft-tag {
+  font-size: 10.5px; padding: 1px 5px; border-radius: 3px;
+  border: 1px solid var(--border); color: var(--text-dim);
+}
+.ft-tag.warn { color: var(--warn); border-color: var(--warn); }
+.ft-tag.err { color: var(--err); border-color: var(--err); }
+.ft-tag.ok { color: var(--ok); border-color: var(--ok); }
+.ft-plain { font-size: 11.5px; line-height: 1.55; color: var(--text-dim); }
+.ft-why {
+  font-size: 11px; line-height: 1.5; color: var(--text-dim); opacity: .85;
+  border-left: 2px solid var(--border); padding-left: 6px;
+}
+.ft-acts { display: flex; gap: 6px; flex-wrap: wrap; }
+.ft-btn {
+  font-size: 11.5px; padding: 3px 9px; cursor: pointer;
+  border: 1px solid var(--accent); border-radius: var(--r-sm);
+  background: var(--bg-panel); color: var(--accent);
+}
+.ft-btn:hover { background: var(--accent); color: var(--bg-panel); }
+.ft-btn:disabled { opacity: .5; cursor: default; }
+.ft-btn-w { border-color: var(--warn); color: var(--warn); }
+.ft-btn-w:hover { background: var(--warn); color: var(--bg-panel); }
+.ft-btn-g { border-color: var(--border); color: var(--text-dim); }
+.ft-btn-g:hover { border-color: var(--accent); color: var(--accent); background: transparent; }
+.ft-inputs { display: flex; flex-direction: column; gap: 6px; }
+.ft-in { display: flex; flex-direction: column; gap: 3px; }
+.ft-in-l { font-size: 11px; color: var(--text); opacity: .9; }
+.ft-in-box { display: flex; gap: 5px; }
+.ft-input, .ft-select, .ft-textarea {
+  flex: 1; min-width: 0; font-size: 11.5px; padding: 3px 6px;
+  border: 1px solid var(--border); border-radius: 3px;
+  background: var(--bg); color: var(--text);
+}
+.ft-textarea { min-height: 52px; resize: vertical; font-family: inherit; }
+.ft-in-h { font-size: 10.5px; color: var(--text-dim); }
+.ft-status {
+  font-size: 10.5px; line-height: 1.5; color: var(--text-dim); white-space: pre-wrap;
+  max-height: 72px; overflow: auto; border-top: 1px dashed var(--border); padding-top: 4px;
+}
+.ft-out-h { font-size: 11px; margin-bottom: 3px; }
+.ft-out-h.ok { color: var(--ok); }
+.ft-out-h.err { color: var(--err); }
+.ft-out-run { font-size: 11px; color: var(--text-dim); }
+.ft-out-pre {
+  font-size: 11px; line-height: 1.5; margin: 0; max-height: 180px; overflow: auto;
+  white-space: pre-wrap; word-break: break-all; color: var(--text);
+  background: var(--bg); border: 1px solid var(--border); border-radius: 3px; padding: 5px 6px;
+}
+.ft-empty { font-size: 12px; color: var(--text-dim); padding: 10px 2px; }
+.ft-foot { font-size: 10.5px; color: var(--text-dim); }
+.ft-gone { opacity: .6; }
+.ft-cfg { display: flex; flex-direction: column; gap: 8px; }
+.ft-cfg-row {
+  display: flex; align-items: center; gap: 8px; padding: 6px 8px;
+  border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--bg-panel);
+}
+.ft-cfg-mid { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ft-cfg-t { font-size: 12px; font-weight: 600; color: var(--text); }
+.ft-cfg-s { font-size: 10.5px; color: var(--text-dim); }
+.ft-check { width: 15px; height: 15px; accent-color: var(--accent); }
+.ft-kv { display: grid; grid-template-columns: auto 1fr; gap: 3px 10px; font-size: 11.5px; }
+.ft-k { color: var(--text-dim); }
+.ft-v { color: var(--text); }/* 功能台 · 认知层（2026-11-14 第三轮）：搜索条 / 低频折叠 / 症状表 / 跳转高亮 */
+.ft-bar { display: flex; align-items: center; gap: 8px; }
+.ft-search {
+  flex: 1 1 auto; min-width: 0; height: 26px; padding: 0 8px;
+  border: 1px solid var(--border); border-radius: var(--r-sm);
+  background: var(--bg-panel); color: var(--text); font-size: 12px;
+}
+.ft-search::placeholder { color: var(--text-dim); }
+.ft-search:focus { outline: none; border-color: var(--accent); }
+.ft-bar-n { flex: 0 0 auto; font-size: 10.5px; color: var(--text-dim); white-space: nowrap; }
+.ft-more-t {
+  width: 100%; padding: 6px 8px; cursor: pointer;
+  border: 1px dashed var(--border); border-radius: var(--r-sm);
+  background: transparent; color: var(--text-dim); font-size: 11px;
+}
+.ft-more-t:hover { color: var(--text); border-color: var(--accent); }
+.ft-hide { display: none !important; }
+.ft-tag.daily { color: var(--accent); border-color: var(--accent); }
+.ft-tag.dim { color: var(--text-dim); border-color: var(--border); }
+.ft-triage { display: flex; flex-direction: column; gap: 6px; }
+.ft-tr {
+  display: flex; align-items: center; gap: 10px; padding: 7px 9px;
+  border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--bg-panel);
+}
+.ft-tr-gone { opacity: 0.55; }
+.ft-tr-l { flex: 1 1 auto; min-width: 0; }
+.ft-tr-s { font-size: 12.5px; font-weight: 600; color: var(--text); }
+.ft-tr-t { font-size: 10.5px; color: var(--text-dim); margin-top: 2px; }
+.ft-tr-r { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; }
+.ft-tr-f { font-size: 10.5px; color: var(--text-dim); max-width: 30ch; text-align: right; }
+.ft-flash { box-shadow: 0 0 0 2px var(--accent); transition: box-shadow 0.25s; }/* 功能台 · 破坏性动作（2026-11-14 第三轮）：红框 + 手打「确认」才解锁 */
+.ft-btn-d { border-color: var(--err); color: var(--err); }
+.ft-btn-d:hover { background: var(--err); color: var(--bg-panel); }
+.ft-btn-d:disabled { opacity: 0.45; cursor: not-allowed; }
+.ft-btn-d:disabled:hover { background: transparent; color: var(--err); }
+.ft-gate { letter-spacing: 0.5px; }
+.ft-gate:focus { border-color: var(--err); }
+/* 功能台 · 运行态 / 接着做 / 最近操作（2026-11-14 第四轮） */
+.ft-out-run { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.ft-stop { font-size: 10.5px; padding: 1px 8px; }
+.ft-also { font-size: 10.5px; color: var(--text-dim); opacity: .9; margin: 2px 0 4px; line-height: 1.5; }
+.ft-next { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 6px; }
+.ft-next-h { font-size: 10.5px; color: var(--text-dim); }
+/* 功能台 · 最近日志列表（2026-11-14 第七轮） */
+.ft-log { display: flex; flex-direction: column; gap: 4px; margin: 2px 0 4px; }
+.ft-log-r { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.ft-log-n { font-size: 10.5px; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ft-log-b { font-size: 10px; padding: 0 7px; flex: 0 0 auto; }
