@@ -179,7 +179,7 @@ export function ensureDispatchDir() {
   fs.mkdirSync(DISPATCH_DIR, { recursive: true });
 }
 
-export function newTicket({ from, fromTitle, to, toTitle, text, turnsBefore }) {
+export function newTicket({ from, fromTitle, to, toTitle, text, turnsBefore, mandate, parent, rootFrom, rootFromTitle }) {
   const now = new Date();
   const stamp = now.getFullYear() + String(now.getMonth() + 1).padStart(2, '0') + String(now.getDate()).padStart(2, '0')
     + '-' + String(now.getHours()).padStart(2, '0') + String(now.getMinutes()).padStart(2, '0') + String(now.getSeconds()).padStart(2, '0');
@@ -189,6 +189,10 @@ export function newTicket({ from, fromTitle, to, toTitle, text, turnsBefore }) {
     to, toTitle: toTitle || '',
     text: String(text || '').slice(0, 300),
     turnsBefore,
+    mandate: String(mandate || '').slice(0, 400),     // 本次授权范围（一次一单；留空表示默认只做本条）
+    parent: String(parent || '').slice(0, 40),          // 外层派发单（分层派发：L2 派给 worker 时才有）
+    rootFrom: String(rootFrom || ''),                   // 根派发方会话 id（回执自动上浮的终点）
+    rootFromTitle: String(rootFromTitle || ''),         // 根派发方标题（写日志/正文给人看）
     createdAt: Date.now(),
     state: 'pending',
     replyAt: 0,

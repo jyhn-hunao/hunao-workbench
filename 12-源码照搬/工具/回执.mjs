@@ -59,10 +59,14 @@ const body = '【回执】「' + title + '」' + (ticket ? '完成派发单 ' + 
 try {
   if (dry) {
     console.log('--dry：不投递。将回给 ' + from + ' 的正文：\n' + body);
+    if (ticket && ticket.rootFrom && ticket.rootFrom !== ticket.from) {
+      console.log('还会自动上浮到：' + (ticket.rootFromTitle || ticket.rootFrom) + '（外层单 ' + (ticket.parent || '—') + '）');
+    }
     process.exit(0);
   }
   // 4. 投递：mode queue，不抢派发方正在跑的回合
-  await promptSession(from, body, await getCookie());
+  var cookie = await getCookie();
+  await promptSession(from, body, cookie);
 } catch (e) {
   console.error('✗ 回执没投出去：' + e.message);
   process.exit(1);
@@ -74,4 +78,36 @@ if (ticket && file) {
   saveTicket(file, ticket);
   appendLog('[' + stamp + '] 回执 ' + ticket.id + ' → ' + (ticket.fromTitle || ticket.from) + '（目标会话主动）');
 }
-console.log('✓ 已回执到 ' + (ticket ? (ticket.fromTitle || ticket.from) : from));
+
+// 6. 分层上浮（2026-11-14 加）：本单挂在外层单上 ⇒ 结论同时冒到根派发方，并把外层单结掉。
+//    为什么写在回执里、不写成规则：worker 不会记得再手写一张外层回执，忘了就是「活干完、总入口永远不知道」。
+const rootFrom = String((ticket && ticket.rootFrom) || '');
+let upFailed = false;
+if (ticket && rootFrom && rootFrom !== ticket.from) {
+  const upBody = '【上浮回执】派发单 ' + ticket.id + '（' + (ticket.toTitle || ticket.to) + '）已交付给「' + (ticket.fromTitle || ticket.from) + '」\n\n'
+    + summary
+    + '\n\n—— 自动上浮（工具\\回执.mjs）；本条不必再回执 ——';
+  try {
+    await promptSession(rootFrom, upBody, cookie);
+    appendLog('[' + stamp + '] 上浮 ' + ticket.id + ' → ' + (ticket.rootFromTitle || rootFrom));
+  } catch (e) {
+    upFailed = true;
+    console.error('✗ 上浮失败（子单已回执给上层，根派发方没收到）：' + e.message);
+  }
+}
+
+// 6b. 外层单收口：子单已交付，外层单就必须结掉——哪怕根派发方就是本会话、不必再投一条。
+function closeOuter(t) {
+  if (!t || !t.parent || t.state !== 'done') return;
+  const pf = findTicketFile(t.parent);
+  const pt = pf ? readTicket(pf) : null;
+  if (!pt || pt.state !== 'pending') return;
+  pt.state = 'done'; pt.replyAt = Date.now();
+  pt.reply = tail('（子单 ' + t.id + ' 已交付）' + summary, 4000);
+  saveTicket(pf, pt);
+  appendLog('[' + stamp + '] 外层单 ' + pt.id + ' 已结（靠子单 ' + t.id + ' 上浮）');
+}
+closeOuter(ticket);
+console.log('✓ 已回执到 ' + (ticket ? (ticket.fromTitle || ticket.from) : from)
+  + (ticket && rootFrom && rootFrom !== ticket.from ? (upFailed ? '（上浮失败，见上）' : '（已自动上浮到根派发方）') : ''));
+if (upFailed) process.exit(1);

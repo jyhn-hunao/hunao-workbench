@@ -10,6 +10,8 @@
 //   node 工具\派发.mjs --project "工作台本体" "排查技能面板为什么是空的"   # 项目名/别称（查 项目.json）
 //   node 工具\派发.mjs --to session-cd20... "任务" --no-watch --timeout 1800
 //   node 工具\派发.mjs --to "mlw" "任务" --dry        # 只核对会话与派发单，不投递
+//   node 工具\派发.mjs --to "mlw" "任务" --mandate "只改 工具\X.mjs，不动引擎、不提交"   # 本次授权范围
+//   node 工具\派发.mjs --to "创意工坊·原画概念" --parent <外层单号> "工单内容"           # 分层派发：回执自动上浮到根派发方
 //
 // 约定：--from 不写就是当前会话（DSH_SESSION_ID）；--to 按会话标题逐字相等或 session id 认；
 //   --project 按 `_共享记忆\项目.json` 的 name / aliases 认项目，再按 cwd 找该项目当前会话
@@ -21,7 +23,7 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import {
   ROOT, DSH_HOME, loadSessions, resolveSession, transcriptOf, readEvents, turnStats,
-  newTicket, getCookie, promptSession
+  newTicket, findTicketFile, readTicket, getCookie, promptSession
 } from './派发-公共.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -37,10 +39,15 @@ const taskFile = val('--file', '');
 const task = taskFile
   ? (fs.existsSync(taskFile) ? fs.readFileSync(taskFile, 'utf8').trim() : '')
   : argv.filter((a, i) => !a.startsWith('--') && argv[i - 1] !== '--to' && argv[i - 1] !== '--from'
-    && argv[i - 1] !== '--timeout' && argv[i - 1] !== '--file' && argv[i - 1] !== '--project').join(' ').trim();
+    && argv[i - 1] !== '--timeout' && argv[i - 1] !== '--file' && argv[i - 1] !== '--project'
+    && argv[i - 1] !== '--mandate' && argv[i - 1] !== '--parent').join(' ').trim();
+
+// 授权（Mandate）：一次一单写清「这次允许做到哪」；不写就用默认，别让「上次也这么干」变成长期授权
+const DEFAULT_MANDATE = '只做本条任务：可在项目目录内改动、可跑只读检查；⛔ 不动 12-源码照搬\\引擎、不改别人的场景记忆、不提交不推送；越界即停并回问。';
+const mandate = String(val('--mandate', '') || DEFAULT_MANDATE).trim();
 
 if ((!toWant && !projectWant) || !task) {
-  console.error('用法：node 工具\\派发.mjs （--to "<会话标题或 id>" | --project "<项目名/别称>"） "<任务>" [--file 任务.md] [--from <派发方会话id>] [--no-watch] [--timeout 秒] [--dry]');
+  console.error('用法：node 工具\\派发.mjs （--to "<会话标题或 id>" | --project "<项目名/别称>"） "<任务>" [--file 任务.md] [--from <派发方会话id>] [--mandate "本次授权范围"] [--no-watch] [--timeout 秒] [--dry]');
   process.exit(2);
 }
 if (!fromId) { console.error('✗ 拿不到派发方会话：设 DSH_SESSION_ID 或显式 --from'); process.exit(2); }
@@ -81,18 +88,37 @@ console.log('派发方：' + (from.title || from.id) + '  ' + from.id);
 console.log('目标  ：' + (to.title || '(无标题)') + '  ' + to.id);
 console.log('目标已完成轮数：' + turnsBefore + (before ? '' : '（读不到 transcript，回执可能退化为按时间判断）'));
 
+// 2b. 分层派发（--parent <外层单号>）：流程 superAgent 把活派给 worker 时带上它，
+//     worker 的回执会自动上浮到根派发方（总入口），L2 不用再手写一张外层回执。
+const parentArg = String(val('--parent', '') || '').trim();
+let parentTicket = null, parentFile = null;
+if (parentArg) {
+  parentFile = findTicketFile(parentArg);
+  parentTicket = parentFile ? readTicket(parentFile) : null;
+  if (!parentTicket) { console.error('✗ 找不到外层派发单：' + parentArg); process.exit(2); }
+  if (parentTicket.state !== 'pending') { console.error('✗ 外层单 ' + parentTicket.id + ' 已是 ' + parentTicket.state + '，不再往上挂子单'); process.exit(2); }
+}
+const rootFrom = parentTicket ? String(parentTicket.rootFrom || parentTicket.from || '') : '';
+const rootFromTitle = parentTicket ? String(parentTicket.rootFromTitle || parentTicket.fromTitle || '') : '';
+if (parentTicket) console.log('外层单：' + parentTicket.id + '（根派发方 ' + (rootFromTitle || rootFrom) + '）');
+
 // 3. 登记派发单（先落盘再投递：投递失败也留得下现场）
 const { ticket, file } = newTicket({
   from: fromId, fromTitle: from.title || '', to: to.id, toTitle: to.title || '',
-  text: task, turnsBefore
+  text: task, turnsBefore, mandate, parent: parentTicket ? parentTicket.id : '', rootFrom, rootFromTitle
 });
 
-// 4. 正文 = 用户任务 + 回执协议（写死绝对路径，目标会话照抄就能跑）
+// 4. 正文 = 授权 + 用户任务 + 回执协议（写死绝对路径，目标会话照抄就能跑）
 const msg = task + '\n\n'
+  + '—— 授权（Mandate · 一次一单）——\n'
+  + mandate + '\n'
+  + '越界即停：发现要超出上面范围，先回问派发方，不拿「上次也这么干」当默认。\n\n'
+  + (parentTicket ? '—— 分层归属 ——\n本单隶属外层派发单 ' + parentTicket.id + '（根派发方：' + (rootFromTitle || rootFrom) + '）；照常回执即可，结论会自动上浮到根派发方。\n\n' : '')
   + '—— 回执协议（由 工具\\派发.mjs 自动附加，别删）——\n'
   + '这条任务由会话「' + (from.title || fromId) + '」派发，派发单：' + ticket.id + '。\n'
   + '干完（含「只诊断不改」的活）后，在任意 shell 执行：\n'
   + '  node "' + path.join(ROOT, '工具', '回执.mjs') + '" --ticket ' + ticket.id + ' --summary "<3~6 行结论：做了什么 / 结论 / 要用户拍板的项>"\n'
+  + '结果超过一屏就落成文件，回执里只写结论 + 路径（别把全文塞进消息）。\n'
   + '回执会以一条消息投回派发方会话；不回执 = 任务没交付。';
 
 if (has('--dry')) {

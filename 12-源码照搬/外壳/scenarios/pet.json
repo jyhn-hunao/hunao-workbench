@@ -13,7 +13,7 @@
       "type": "harness",
       "col": 1,
       "row": 1,
-      "w": 3,
+      "w": 2,
       "h": 6,
       "sessionTitle": "胡闹的大肥鱼",
       "sessionId": "session-861de8a2-9bf1-4251-ac21-441240d1e0bd",
@@ -22,7 +22,17 @@
       "pinTarget": [
         "胡闹的大肥鱼"
       ]
+    },
+    {
+      "id": "pet-dog",
+      "title": "派发巡检",
+      "sub": "总入口的派发台：待批准 / 定时触发 / 超时未回执；每 60 秒自动扫，批准与补投都要你点按钮",
+      "type": "dispatch-board",
+      "col": 3,
+      "row": 1,
+      "w": 1,
+      "h": 6
     }
   ],
-  "first": false
+  "first": true
 }

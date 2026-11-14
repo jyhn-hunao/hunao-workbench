@@ -1,0 +1,18 @@
+{
+  "tasks": [
+    {
+      "id": "daily-memory-check",
+      "title": "记忆体检",
+      "time": "09:30",
+      "text": "记忆体检一下，把待确认和过期条目清一遍",
+      "enabled": false
+    },
+    {
+      "id": "daily-dispatch-dog",
+      "title": "派发单巡检",
+      "time": "18:00",
+      "text": "记忆体检一下，顺便看派发单有没有超时的",
+      "enabled": false
+    }
+  ]
+}

@@ -6,9 +6,12 @@
 //
 // 用法：
 //   node 12-源码照搬\工具\桌宠.mjs 路由 --文本 "B站那期视频的脚本还在吗"
-//   node 12-源码照搬\工具\桌宠.mjs 派   --文本 "帮我看下项目里那个 bug"              # level=confirm 时会拒绝并提示加 --确认
+//   node 12-源码照搬\工具\桌宠.mjs 派   --文本 "帮我看下项目里那个 bug"              # level=confirm 时自动进「待批准」队列
 //   node 12-源码照搬\工具\桌宠.mjs 派   --文本 "…" --确认                           # 人已经点头了
 //   node 12-源码照搬\工具\桌宠.mjs 派   --文本 "…" --超时 900 --dry                 # 只看会派给谁，不投递
+//   node 12-源码照搬\工具\桌宠.mjs 待批准 [--json]                                 # 列待批准队列（面板读同一个文件）
+//   node 12-源码照搬\工具\桌宠.mjs 批准 <待批准id>                                 # 面板【批准】按钮走这条
+//   node 12-源码照搬\工具\桌宠.mjs 忽略 <待批准id>
 //   node 12-源码照搬\工具\桌宠.mjs 日志 --尾 10
 //   node 12-源码照搬\工具\桌宠.mjs 设置                                             # 打印配置文件路径与当前值
 //   node 12-源码照搬\工具\桌宠.mjs 桥接同步                                         # 把桥接 routes 指回 pet-ai 的当前会话
@@ -46,12 +49,46 @@ function cmdRoute() {
   return 0;
 }
 
-function cmdDispatch() {
-  const text = String(val('--文本', ''));
-  const dry = has('--dry');
-  const confirmed = has('--确认');
-  const timeoutSec = Math.max(30, Number(val('--超时', 600)) || 600);
-  if (!text.trim()) { say('✗ 缺少 --文本 "<原话>"'); return 4; }
+/* ── 待批准队列（2026-11-14）───────────────────────────────────────
+ * 为什么落文件：confirm 级原来只能在聊天里点头，人一离开会话就卡死。
+ * 现在未确认的派发先入队（外壳\data\pet\待批准.json），总入口「胡闹的大肥鱼」场景的「派发巡检」面板点【批准】即可。
+ * 队列只存原话与目标；批准 = 当场派一次，派成功即出队（不存「已批准」的空壳）。 */
+const APPROVAL_FILE = path.join(ROOT, '外壳', 'data', 'pet', '待批准.json');
+
+function readApprovals() {
+  try {
+    const j = JSON.parse(fs.readFileSync(APPROVAL_FILE, 'utf8'));
+    return Array.isArray(j) ? j : [];
+  } catch (e) { return []; }   // 文件不存在 = 还没人待批准，不是故障
+}
+function writeApprovals(list) {
+  fs.mkdirSync(path.dirname(APPROVAL_FILE), { recursive: true });
+  fs.writeFileSync(APPROVAL_FILE, JSON.stringify(list, null, 2) + '\n', 'utf8');
+}
+function approvalId() { return 'ap' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
+
+// 1. 入队：同一条原话 + 同一个目标已在等 ⇒ 复用那张，不重复排队
+function pushApproval(item) {
+  const list = readApprovals();
+  const dup = list.find((x) => x.state === 'pending' && x.text === item.text && x.to === item.to);
+  if (dup) return dup;
+  const rec = {
+    id: approvalId(), text: String(item.text || ''), to: String(item.to || ''),
+    toTitle: String(item.toTitle || ''), level: String(item.level || ''),
+    reason: String(item.reason || ''), timeoutSec: Number(item.timeoutSec) || 600,
+    createdAt: Date.now(), state: 'pending'
+  };
+  list.push(rec);
+  if (list.length > 50) list.splice(0, list.length - 50);
+  writeApprovals(list);
+  return rec;
+}
+
+// 2. 真正派一次：--确认 / 面板批准 / 定时触发 共用这一段（别各写一套，否则审批口径会漂）
+function runDispatch(text, opt) {
+  const o = opt || {};
+  const timeoutSec = Math.max(30, Number(o.timeoutSec) || 600);
+  if (!String(text || '').trim()) { say('✗ 缺少 --文本 "<原话>"'); return { code: 4 }; }
 
   const settings = pet.getSettings();
   // 工具白名单是硬门：设置里没让「派活」，直接拒绝，不靠模型自觉（2026-11-13）
@@ -59,35 +96,35 @@ function cmdDispatch() {
   const deny = (settings.tools || {}).deny || [];
   if (deny.indexOf('dispatch') >= 0 || allow.indexOf('dispatch') < 0) {
     say('✗ 设置里没允许「派活给别的场景」⇒ 不派。（人格面板 ⚙ 设置 → 她可以做什么 → 派活给别的场景）');
-    return 5;
+    return { code: 5 };
   }
 
   const r = pet.resolveRoute(text, settings);
   if (!r.hit) {
     say('✗ 认不出该派给谁。候选场景：' + (r.candidates || []).join(' / '));
-    return 2;
+    return { code: 2 };
   }
   // 审批一律走 桌宠设置.js 的 dispatchPolicy（通道降级、全局只读要问、never 都在那一条里判）
   const pol = pet.dispatchPolicy(text, r.hit, settings);
   if (pol.level === 'never') {
     say('✗ 不派：' + (pol.reason || '该场景被设为禁止') + '。要改：人格面板 ⚙ 设置 → 哪句话该交给谁');
-    return 5;
+    return { code: 5 };
   }
-  if (pol.confirm && !confirmed) {
-    say('⚠ 这条要派给「' + r.hit.to + '」⇒ 需要你确认（' + pol.reason + '）。确认后加 --确认 再跑一次：');
-    say('  node 12-源码照搬\\工具\\桌宠.mjs 派 --文本 "' + text + '" --确认');
-    return 3;
+  if (pol.confirm && !o.confirmed) {
+    if (o.dry) { say('（--dry）会派给「' + r.hit.to + '」，且需要人点头：' + text); return { code: 0 }; }
+    const ap = pushApproval({ text, to: r.hit.to, toTitle: r.hit.to, level: r.hit.level, reason: pol.reason, timeoutSec });
+    say('⚠ 这条要派给「' + r.hit.to + '」⇒ 需要你点头（' + pol.reason + '）');
+    say('  已进待批准队列：' + ap.id + '（打开总入口「胡闹的大肥鱼」场景，在「派发巡检」面板点【批准】就行，不用敲命令）');
+    return { code: 3, approval: ap.id };
   }
-  if (dry) {
-    say('（--dry）会派给「' + r.hit.to + '」：' + text);
-    return 0;
-  }
+  if (o.dry) { say('（--dry）会派给「' + r.hit.to + '」：' + text); return { code: 0 }; }
 
   const t0 = Date.now();
   // 派发方默认是人格会话（桌宠就是「胡闹的大肥鱼」这条会话），别让人再手填 --from
-  const fromId = String(val('--from', '') || pet.petSession().sessionId || '');
+  const fromId = String(o.from || val('--from', '') || pet.petSession().sessionId || '');
   const args = [DISPATCH, '--to', r.hit.to, text, '--timeout', String(timeoutSec)];
   if (fromId) args.push('--from', fromId);
+  if (o.parent) args.push('--parent', String(o.parent));
   const res = spawnSync(process.execPath || 'node', args, {
     cwd: ROOT, encoding: 'utf8', timeout: (timeoutSec + 20) * 1000, maxBuffer: 8 * 1024 * 1024,
   });
@@ -104,7 +141,54 @@ function cmdDispatch() {
   say((ok ? '✓' : '✗') + ' 派给「' + r.hit.to + '」' + (ok ? ' 完成' : ' 失败') + '（' + Math.round(ms) + 'ms）');
   if (tail) say('  ' + tail);
   if (!ok && res.error && res.error.code === 'ETIMEDOUT') say('  （超时：' + timeoutSec + 's 内没等到回执，任务可能还在跑）');
-  return ok ? 0 : 4;
+  return { code: ok ? 0 : 4, out, ticket, ms };
+}
+
+function cmdDispatch() {
+  const r = runDispatch(String(val('--文本', '')), {
+    dry: has('--dry'),
+    confirmed: has('--确认'),
+    timeoutSec: val('--超时', '600')
+  });
+  return r.code;
+}
+
+// 3. 待批准：列队列（面板读同一个文件；这条命令只用于自检/排障）
+function cmdApprovals() {
+  const list = readApprovals().filter((x) => x.state === 'pending');
+  if (has('--json')) { say(JSON.stringify(list, null, 2)); return 0; }
+  if (!list.length) { say('（没有待批准的派发）'); return 0; }
+  say('待批准 ' + list.length + ' 条：');
+  list.forEach((x) => say('  ' + x.id + '  「' + (x.toTitle || x.to) + '」  ' + String(x.text || '').slice(0, 60)));
+  return 0;
+}
+
+// 4. 批准：把队列里那一条当场派出去；成功即出队（失败保留，可稍后再点）
+function cmdApprove() {
+  const id = String(argv[1] || '').trim();
+  if (!id) { say('✗ 用法：桌宠.mjs 批准 <待批准id>'); return 2; }
+  const list = readApprovals();
+  const item = list.find((x) => x.state === 'pending' && x.id === id);
+  if (!item) { say('✗ 队列里没有 ' + id + '（可能已批准或已忽略）'); return 2; }
+  const r = runDispatch(item.text, { confirmed: true, timeoutSec: item.timeoutSec });
+  if (r.code === 0) {
+    writeApprovals(list.filter((x) => x.id !== id));
+    say('✓ 已批准并派出：' + id + (r.ticket ? '（派发单 ' + r.ticket + '）' : ''));
+    return 0;
+  }
+  say('✗ 批准了但没派成（队列保留，可稍后重试）：' + id);
+  return 4;
+}
+
+// 5. 忽略：从队列删掉，不派
+function cmdDrop() {
+  const id = String(argv[1] || '').trim();
+  if (!id) { say('✗ 用法：桌宠.mjs 忽略 <待批准id>'); return 2; }
+  const list = readApprovals();
+  const hit = list.filter((x) => x.id === id).length;
+  writeApprovals(list.filter((x) => x.id !== id));
+  say(hit ? '✓ 已忽略：' + id : '✗ 队列里没有 ' + id);
+  return hit ? 0 : 2;
 }
 
 function cmdLog() {
@@ -249,9 +333,9 @@ function cmdWrap() {
   return bad ? 4 : 0;
 }
 
-const table = { 路由: cmdRoute, 派: cmdDispatch, 日志: cmdLog, 设置: cmdSettings, 桥接同步: cmdSync, 能主动吗: cmdProactive, 记: cmdRemember, 场景: cmdScenes, 收尾: cmdWrap };
+const table = { 路由: cmdRoute, 派: cmdDispatch, 待批准: cmdApprovals, 批准: cmdApprove, 忽略: cmdDrop, 日志: cmdLog, 设置: cmdSettings, 桥接同步: cmdSync, 能主动吗: cmdProactive, 记: cmdRemember, 场景: cmdScenes, 收尾: cmdWrap };
 if (!table[cmd]) {
-  say('用法：node 12-源码照搬\\工具\\桌宠.mjs <路由|派|日志|设置|桥接同步|能主动吗|记|场景|收尾> [参数]');
+  say('用法：node 12-源码照搬\\工具\\桌宠.mjs <路由|派|待批准|批准|忽略|日志|设置|桥接同步|能主动吗|记|场景|收尾> [参数]');
   process.exit(2);
 }
 process.exit(table[cmd]());
