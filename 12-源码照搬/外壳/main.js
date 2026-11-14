@@ -5720,6 +5720,18 @@ ipcMain.handle('tools:catalog', () => {
   catch (e) { return { updated: null, groups: [], error: '扫描引擎工具包失败：' + String((e && e.message) || e) }; }
 });
 
+// ---- 功能台（2026-11-14）：把「只能命令行」的功能接出界面入口（场景「工作台控制台」）----
+// 登记表与执行都在 外壳\功能台.js（可脱离 Electron 自测：node 外壳\功能台.js）
+//   界面只传 id / action / 白名单输入项；主进程照登记表 spawn 脚本，参数逐项进 argv，不拼命令行。
+//   三个插件开关的当下状态不让界面猜：一律跑脚本 --status / --check（feature:status，60 秒内复用）。
+const featureDesk = require('./功能台');
+ipcMain.handle('feature:list', () => featureDesk.list());
+ipcMain.handle('feature:run', (e, id, actionId, inputs) => featureDesk.run(id, actionId, inputs));
+ipcMain.handle('feature:status', () => featureDesk.status());
+ipcMain.handle('feature:config:get', () => featureDesk.configGet());
+ipcMain.handle('feature:config:set', (e, patch) => featureDesk.configSet(patch));
+ipcMain.handle('feature:kill', (e, id, actionId) => featureDesk.kill(id, actionId));
+
 // ---- 面板「换会话」按钮（2026-11-12）----
 // 一次跑完：写交接（默认从 transcript 摘录，秒级）→ 建新会话 → 场景 json 三字段 + 定位卡 + 身份索引改绑
 //   → 旧会话真归档 → 写 reload-panels.cmd 让面板重载。

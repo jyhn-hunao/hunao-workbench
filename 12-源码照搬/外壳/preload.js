@@ -462,6 +462,18 @@ contextBridge.exposeInMainWorld('app', {
   },
   // 工具清单（2026-10-21）：顶栏 🛠 面板读 data\工具清单.json
   toolsCatalog: () => ipcRenderer.invoke('tools:catalog'),
+  // ---- 功能台（2026-11-14）：场景「工作台控制台」用 ----
+  // 把原来只能命令行的功能（省token/守卫/记忆回响开关、近期/人格/通道记忆、发布前检查、
+  // 各层自检、人格引用同步、发消息、会话改名、生图、资产检查、打发布包）接出按钮与配置。
+  // 缺这个命名空间 = 主进程/preload 还是旧的 ⇒ 面板显示「重启一次工作台」，不假装能用。
+  feature: {
+    list: () => ipcRenderer.invoke('feature:list'),
+    status: () => ipcRenderer.invoke('feature:status'),
+    run: (id, action, inputs) => ipcRenderer.invoke('feature:run', id, action, inputs),
+    configGet: () => ipcRenderer.invoke('feature:config:get'),
+    configSet: (patch) => ipcRenderer.invoke('feature:config:set', patch),
+    kill: (id, actionId) => ipcRenderer.invoke('feature:kill', id, actionId)
+  },
   // ---- 内置网页版 AI 桥（2026-09-21 第 10 轮）：把任务派给顶栏那 5 个免费网页版 ----
   // 会话侧入口：HTTP 127.0.0.1:31239/webai/ask，或 node scripts\webai.mjs ask <key> "问题"
   // onTask 只**替换回调**：真正的 ipcRenderer 监听在文件末尾只注册一次 ⇒ 渲染层被「⟳」重跑多少遍，
