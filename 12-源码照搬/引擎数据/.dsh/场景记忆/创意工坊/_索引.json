@@ -1,0 +1,313 @@
+{
+  "version": 1,
+  "scene": "创意工坊",
+  "generatedAt": "2026-11-14T06:34:27.355Z",
+  "entries": [
+    {
+      "path": "决策\\2026-11-13-面板砍到三格-用户只投参考图与看环节.md",
+      "kind": "决策",
+      "title": "面板砍到三格-用户只投参考图与看环节-十岗退到后台",
+      "date": "2026-11-13",
+      "tags": [
+        "决策"
+      ],
+      "distinct": [],
+      "evidence": [
+        "12-源码照搬/外壳/scenarios/creative.json::pipe-board"
+      ],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 1089
+    },
+    {
+      "path": "决策\\2026-11-13-面板定为四格-加工程文件预览-布局改-cols.md",
+      "kind": "决策",
+      "title": "面板定为四格-加工程文件预览-布局改-cols-10",
+      "date": "2026-11-13",
+      "tags": [
+        "决策"
+      ],
+      "distinct": [],
+      "evidence": [
+        "12-源码照搬/外壳/scenarios/creative.json::bl-files"
+      ],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 927
+    },
+    {
+      "path": "决策\\2026-11-13-角色链路实测-低模人形-自动权重-GLB带skin.md",
+      "kind": "决策",
+      "title": "角色链路实测-低模人形-自动权重-GLB带skin-可行但只到blockout",
+      "date": "2026-11-13",
+      "tags": [
+        "决策"
+      ],
+      "distinct": [],
+      "evidence": [
+        "工作区/创意工坊/_脚本/2026-11-13-验证-角色绑定.py::RESULT asset=SM_Char_lo_v001"
+      ],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 961
+    },
+    {
+      "path": "决策\\2026-11-13-自动巡检-主进程每60秒扫-卡住主动广播.md",
+      "kind": "决策",
+      "title": "自动巡检-主进程每60秒扫-卡住主动广播-只告警不自动重派",
+      "date": "2026-11-13",
+      "tags": [
+        "决策"
+      ],
+      "distinct": [],
+      "evidence": [
+        "12-源码照搬/外壳/main.js::function creativeAlerts()"
+      ],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 1070
+    },
+    {
+      "path": "决策\\2026-11-13-生图接入-Seedream走工具-生图-mjs-默认模型4.md",
+      "kind": "决策",
+      "title": "生图接入-Seedream走工具-生图-mjs-默认模型4-5",
+      "date": "2026-11-13",
+      "tags": [
+        "决策"
+      ],
+      "distinct": [],
+      "evidence": [
+        "12-源码照搬/工具/生图.mjs::images/generations"
+      ],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 1006
+    },
+    {
+      "path": "决策\\2026-11-13-流水线6-4-6-6-基座改造-Rigify骨架.md",
+      "kind": "决策",
+      "title": "流水线6.4-6.6-基座改造-Rigify骨架-三件验证脚本",
+      "date": "2026-11-13",
+      "tags": [
+        "决策"
+      ],
+      "distinct": [],
+      "evidence": [
+        "12-源码照搬/创意工坊/流水线.md::### 6.5 骨架用 Rigify"
+      ],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 1221
+    },
+    {
+      "path": "决策\\2026-11-13-告警上移全局-任何场景都能收到-看板只留红条与重派按钮.md",
+      "kind": "决策",
+      "title": "告警上移全局-任何场景都能收到-看板只留红条与重派按钮",
+      "date": "2026-11-13",
+      "tags": [
+        "决策"
+      ],
+      "distinct": [],
+      "evidence": [
+        "12-源码照搬/外壳/renderer/renderers.js::watchCreativeGlobal"
+      ],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 728
+    },
+    {
+      "path": "决策\\2026-11-13-创意工坊细分十岗-原画与美术-UV与材质.md",
+      "kind": "决策",
+      "title": "创意工坊细分十岗：原画与美术、UV与材质、高模与低模拆开",
+      "date": "2026-11-13",
+      "tags": [
+        "决策"
+      ],
+      "distinct": [],
+      "evidence": [
+        "12-源码照搬/创意工坊/流水线.md::一个 AI 面板 = 一条独立会话 = 一个岗位"
+      ],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 1397
+    },
+    {
+      "path": "决策\\2026-11-13-创意工坊分四岗-导演兼制片-建模-材质灯光.md",
+      "kind": "决策",
+      "title": "创意工坊分四岗：导演兼制片/建模/材质灯光/技美质检",
+      "date": "2026-11-13",
+      "tags": [
+        "决策"
+      ],
+      "distinct": [],
+      "evidence": [
+        "12-源码照搬/创意工坊/流水线.md::一个 AI 面板 = 一条独立会话 = 一个岗位"
+      ],
+      "expires": "",
+      "consolidatedInto": "定论/blender.md",
+      "size": 910
+    },
+    {
+      "path": "决策\\2026-11-13-交付按资产打包-资产目录一名一包-资产-mjs.md",
+      "kind": "决策",
+      "title": "交付按资产打包-资产目录一名一包-资产-mjs-建包与check",
+      "date": "2026-11-13",
+      "tags": [
+        "决策"
+      ],
+      "distinct": [],
+      "evidence": [
+        "12-源码照搬/工具/资产.mjs::function cmdCheck()"
+      ],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 1177
+    },
+    {
+      "path": "决策\\2026-11-13-Blender-真嵌入用-SetParent-子窗.md",
+      "kind": "决策",
+      "title": "Blender 真嵌入用 SetParent 子窗-失败自动退回贴合",
+      "date": "2026-11-13",
+      "tags": [
+        "决策"
+      ],
+      "distinct": [],
+      "evidence": [
+        "12-源码照搬/外壳/main.js::rawMode === 'owner' || rawMode === 'child'"
+      ],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 692
+    },
+    {
+      "path": "决策\\2026-11-13-Blender-接入收敛成-工具-Blender-mjs.md",
+      "kind": "决策",
+      "title": "Blender 接入收敛成 工具\\Blender.mjs 一条入口",
+      "date": "2026-11-13",
+      "tags": [
+        "决策"
+      ],
+      "distinct": [],
+      "evidence": [
+        "12-源码照搬/工具/Blender.mjs::node 工具\\Blender.mjs probe"
+      ],
+      "expires": "",
+      "consolidatedInto": "定论/blender.md",
+      "size": 562
+    },
+    {
+      "path": "决策\\2026-11-13-Blender-全屏调整铺满工作区.md",
+      "kind": "决策",
+      "title": "Blender 全屏调整铺满工作区-退出走全局快捷键",
+      "date": "2026-11-13",
+      "tags": [
+        "决策"
+      ],
+      "distinct": [],
+      "evidence": [
+        "12-源码照搬/外壳/main.js::ipcMain.handle('blender:embedFullscreen'"
+      ],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 575
+    },
+    {
+      "path": "决策\\2026-11-13-Blender-便携版装在-工作区-工具.md",
+      "kind": "决策",
+      "title": "Blender 便携版装在 工作区_工具，不进系统目录",
+      "date": "2026-11-13",
+      "tags": [
+        "决策"
+      ],
+      "distinct": [],
+      "evidence": [
+        "12-源码照搬/引擎数据/.dsh/机器配置.json::blenderExe"
+      ],
+      "expires": "",
+      "consolidatedInto": "定论/blender.md",
+      "size": 1027
+    },
+    {
+      "path": "坑\\2026-11-13-SetParent-真子窗会随壳丢窗口-Blender.md",
+      "kind": "坑",
+      "title": "SetParent 真子窗会随壳丢窗口-Blender 变僵尸进程",
+      "date": "2026-11-13",
+      "tags": [
+        "坑"
+      ],
+      "distinct": [],
+      "evidence": [
+        "12-源码照搬/外壳/main.js::const embedMode = (rawMode === 'owner' || rawMode === 'child') ? rawMode : 'clip'"
+      ],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 728
+    },
+    {
+      "path": "坑\\2026-11-13-PowerShell-脚本必须-UTF-8-带.md",
+      "kind": "坑",
+      "title": "PowerShell 脚本必须 UTF-8 带 BOM",
+      "date": "2026-11-13",
+      "tags": [
+        "坑"
+      ],
+      "distinct": [],
+      "evidence": [
+        "12-源码照搬/外壳/scripts/blender-embed-agent.ps1::UTF-8 带 BOM"
+      ],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 397
+    },
+    {
+      "path": "坑\\2026-11-13-Blender-内置后被自己放大成悬浮窗.md",
+      "kind": "坑",
+      "title": "Blender 内置后被自己放大成悬浮窗",
+      "date": "2026-11-13",
+      "tags": [
+        "坑"
+      ],
+      "distinct": [],
+      "evidence": [
+        "12-源码照搬/外壳/scripts/blender-embed-agent.ps1::$state.NextPin = $now.AddMilliseconds(250)"
+      ],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 762
+    },
+    {
+      "path": "坑\\2026-11-13-Blender-内置-MainWindowHandle-为-0.md",
+      "kind": "坑",
+      "title": "Blender 内置：MainWindowHandle 为 0、窗口压成一条、标题栏还在",
+      "date": "2026-11-13",
+      "tags": [
+        "坑"
+      ],
+      "distinct": [],
+      "evidence": [
+        "12-源码照搬/外壳/scripts/blender-embed-agent.ps1::$h = [DshBlender.Win]::FindWindowWPtr(\"GHOST_WindowClass\", [IntPtr]::Zero)"
+      ],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 1604
+    },
+    {
+      "path": "定论\\blender.md",
+      "kind": "定论",
+      "title": "blender",
+      "date": "2026-11-13",
+      "tags": [
+        "定论",
+        "blender"
+      ],
+      "distinct": [],
+      "evidence": [
+        "D:/codeData/myself/luanyujia-workbench/12-源码照搬/引擎数据/.dsh/场景记忆/创意工坊/决策/2026-11-13-创意工坊分四岗-导演兼制片-建模-材质灯光.md::多 agent = 多 AI 面板 = 多条独立会话；交接只走工单+回执（派发.mjs / 回执.mjs）",
+        "D:/codeData/myself/luanyujia-workbench/12-源码照搬/引擎数据/.dsh/场景记忆/创意工坊/决策/2026-11-13-Blender-接入收敛成-工具-Blender-mjs.md::probe 认环境: 装没装/跑没跑/桥接通不通/工程根"
+      ],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 2586
+    }
+  ]
+}
