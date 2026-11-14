@@ -31,7 +31,9 @@ const head = (m) => console.log('\n== ' + m + ' ==');
 
 // ---------- 1) 语法 ----------
 head('1. JS 语法');
-for (const f of ['main.js', 'preload.js', 'renderer/renderer.js', 'renderer/renderers.js', 'renderer/scene-icons.js', 'stock-store.js', 'oa-store.js', 'oa-ssh.js']) {
+// 2026-11-14 修：这份"必须存在"清单里原来还有 stock-store.js / oa-store.js / oa-ssh.js，
+//   它们是 2026-11-04「公开副本清理」时删掉的行残（行情/OA 残留），清单没跟着改 ⇒ 每次固定 3 条 warning。
+for (const f of ['main.js', 'preload.js', 'renderer/renderer.js', 'renderer/renderers.js', 'renderer/scene-icons.js']) {
   if (!exists(f)) { warn(f + ' 不存在，跳过'); continue; }
   const r = spawnSync(process.execPath, ['--check', path.join(ROOT, f)], { encoding: 'utf8' });
   if (r.status === 0) ok(f);
@@ -346,8 +348,12 @@ if (exists('renderer/index.html')) {
 } else bad('renderer/index.html 缺失（窗口会空白）');
 
 // 8.5 启动脚本与图标
-for (const f of ['start.vbs', 'icon.ico', 'scripts/check-gui.mjs', 'scripts/backup-gui.mjs', 'scripts/restore-gui.mjs',
-  'scripts/check-injected.mjs', 'scripts/sessions.mjs', 'scripts/engine-before.mjs', 'scripts/engine-after.mjs']) {
+//   2026-11-14 修：这份清单原来还要求 backup-gui.mjs / restore-gui.mjs / check-injected.mjs / engine-before.mjs ——
+//   这四个是**内部维护脚本**，2026-11-04「公开副本清理」时已明确删除（见 更新清单.md 该日条目），
+//   清单没跟着改 ⇒ check-gui 每次固定报 4 条 warning，把真正的缺件淹了。
+//   现在的职责分工：备份/回退 = 工具\引擎快照.mjs；升级后核对 = scripts\engine-after.mjs；注入契约 = 测试.mjs 的 IPC 配对项。
+for (const f of ['start.vbs', 'icon.ico', 'scripts/check-gui.mjs', 'scripts/sessions.mjs',
+  'scripts/engine-after.mjs', '../工具/引擎快照.mjs']) {
   if (exists(f)) ok(f + ' 存在');
   else warn(f + ' 缺失');
 }
@@ -370,9 +376,22 @@ for (const f of ['start.vbs', 'icon.ico', 'scripts/check-gui.mjs', 'scripts/back
 // 所以固定并入自检：9.1 注入脚本能否解析（宿主 node --check 通过 ≠ 注入进去的脚本能跑）；
 // 9.2 每个场景声明的 sessionTitle/pinTarget 是否命中引擎里真实存在的会话。
 head('9. AI 面板：注入脚本与场景↔会话对照');
-for (const s of ['scripts/check-injected.mjs', 'scripts/sessions.mjs']) {
+// 9.1 注入脚本：check-injected.mjs 是 2026-11-04 随内部维护脚本一起删掉的，
+//     它当年查的是"注入进 webview 的脚本能否解析"。这件事现在由 scripts\测试.mjs 的
+//     「IPC 配对 + 全量语法」两项覆盖（渲染层脚本本身就是被注入/执行的那份），这里不再重复跑；
+//     有独立脚本时仍优先用它（保留扩展位）。
+if (exists('scripts/check-injected.mjs')) {
+  const r = spawnSync(process.execPath, ['scripts/check-injected.mjs'], { cwd: ROOT, encoding: 'utf8' });
+  const lines = (String(r.stdout || '') + String(r.stderr || '')).split(/\r?\n/).filter((l) => l.trim());
+  if (r.status === 0) ok('check-injected.mjs → ' + (lines[lines.length - 1] || '通过'));
+  else { bad('check-injected.mjs 未通过：'); for (const l of lines.slice(-6)) console.log('      ' + l.trim()); }
+} else {
+  ok('注入脚本契约 → 由 测试.mjs 的 IPC 配对 / 全量语法两项覆盖（check-injected.mjs 已随内部脚本下线）');
+}
+// 9.2 场景↔会话对照
+for (const s of ['scripts/sessions.mjs']) {
   if (!exists(s)) { warn(s + ' 缺失，跳过'); continue; }
-  const r = spawnSync(process.execPath, [s, ...(s.includes('sessions') ? ['--check'] : [])], { cwd: ROOT, encoding: 'utf8' });
+  const r = spawnSync(process.execPath, [s, '--check'], { cwd: ROOT, encoding: 'utf8' });
   const out = String(r.stdout || '') + String(r.stderr || '');
   const lines = out.split(/\r?\n/).filter((l) => l.trim());
   const badLines = lines.filter((l) => /^✗/.test(l.trim()));
@@ -468,13 +487,23 @@ if (exists('scripts/backup-gui.mjs')) {
 }
 
 // 引擎侧扩展点（技能 / 插件）结构是否正确
-// 引擎目录：2026-10-10 起 main.js 把它改成了「与本工作台同级」自动推导（带写死兜底），
-// 所以这里两种写法都认 —— 先认老的字面量，认不到再取推导式里那个兜底字面量。
+// 引擎目录：2026-10-10 起 main.js 把它改成了「与本工作台同级」自动推导（带写死兜底）。
+// 2026-11-14 修：原来只认「const HARNESS_DIR = '字面量'」与「return '字面量'」两种写法，
+//   而 main.js 现在是 `path.join(path.dirname(__dirname), '引擎')` 的推导式 ⇒ 两条正则都落空，
+//   第 10.6 / 11 节一直在"读不到引擎目录"的情况下跳过（门禁白跑）。改成先按同级推导、再退回正则字面量。
 const _mainSrc = read('main.js');
-const harnessDir = ((_mainSrc.match(/const HARNESS_DIR = '([^']+)'/) || [])[1])
-  || ((_mainSrc.match(/HARNESS_DIR[\s\S]{0,600}?return '([^']+)'/) || [])[1]);
+const harnessDir = (() => {
+  const derived = path.resolve(path.dirname(ROOT), '引擎')
+  if (fs.existsSync(derived)) return derived
+  const lit = (_mainSrc.match(/const HARNESS_DIR = '([^']+)'/) || [])[1]
+  return lit || ''
+})();
 if (harnessDir && fs.existsSync(harnessDir)) {
-  const skillsDir = path.join(harnessDir, '.dsh', 'skills');
+  // 2026-11-14 修路径口径：技能与插件**不在引擎目录里**——
+  //   技能在引擎 home 的 skills\（打包版 = 引擎数据\.dsh\skills），插件源在 12-源码照搬\插件。
+  //   原来按 harnessDir\.dsh\skills / harnessDir\插件 找 ⇒ 打包版永远"没找到"（白报两条 warning）。
+  const dshHome = process.env.DSH_CUSTOMER_HOME || path.join(path.dirname(ROOT), '引擎数据', '.dsh');
+  const skillsDir = path.join(dshHome, 'skills');
   if (fs.existsSync(skillsDir)) {
     const entries = fs.readdirSync(skillsDir, { withFileTypes: true });
     // 约定：下划线开头 = 说明/文档目录，不是技能（例如 `_说明/技能体系.md`），不要求 SKILL.md
@@ -489,7 +518,7 @@ if (harnessDir && fs.existsSync(harnessDir)) {
     for (const m of missing) bad('技能「' + m + '」里没有 SKILL.md → 技能不会被加载（目录名要与 frontmatter 的 name 一致；纯说明目录请用下划线开头）');
     if (strayFiles.length) warn('技能根目录有散落文件：' + strayFiles.join(', ') + '（技能应各自一个文件夹）');
   } else warn('没找到 ' + skillsDir + '（技能根目录）');
-  const pluginDir = path.join(harnessDir, '插件');
+  const pluginDir = path.join(path.dirname(ROOT), '插件');
   if (fs.existsSync(pluginDir)) {
     const convention = fs.existsSync(path.join(pluginDir, '开发约定.md'));
     const n = fs.readdirSync(pluginDir, { withFileTypes: true }).filter((e) => e.isDirectory()).length;
