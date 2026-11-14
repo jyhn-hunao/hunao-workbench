@@ -22034,39 +22034,74 @@ renderers['feature-board'] = (body, meta, head) => {
         note.textContent = '失败';
         return;
       }
-      const g = (desk.groups || []).filter((x) => x.id === GROUP)[0];
-      if (!g) {
+      // 1d'. 两块面板的版式：GROUP='all' 时不再「一组一块」，改成一条滚动流 + 组内分类计数
+      const all = (!GROUP || GROUP === 'all');
+      const gset = all ? (desk.groups || []) : (desk.groups || []).filter((x) => x.id === GROUP);
+      if (!gset.length) {
         listBox.innerHTML = '';
         listBox.appendChild(el('div', 'ft-empty', '这台机器上没有「' + GROUP + '」这一组（登记表改过？）'));
         note.textContent = '空';
         return;
       }
+      const stats = desk.stats || {};
       listBox.innerHTML = '';
-      listBox.appendChild(el('div', 'ft-grp-h', g.title + ' · ' + g.features.length + ' 项'));
-      if (g.plain) listBox.appendChild(el('div', 'ft-grp-p', g.plain));
-      // 1d. 认知层的三件事：按「什么时候用」排（后端已排好）、低频默认折叠、顶上给一条搜索
-      //     卡片只隐藏不重建 —— 搜索/展开来回切不会把已跑出来的输出弄丢
+      // 顶部统计带：先回答「一共多少、分几类、哪些是日常」，再往下才是卡片
+      const sb = el('div', 'ft-stat');
+      const chip = (t, v) => {
+        const c = el('span', 'ft-chip');
+        c.appendChild(el('b', '', String(v)));
+        c.appendChild(el('span', '', ' ' + t));
+        sb.appendChild(c);
+      };
+      chip('项功能', stats.features || 0);
+      chip('个动作', stats.actions || 0);
+      chip('组', stats.groups || 0);
+      chip('日常', stats.daily || 0);
+      chip('低频', stats.rare || 0);
+      listBox.appendChild(sb);
+      // 每类一行小计：分类统计贴在这里，不用自己去数卡片
+      const chipRow = el('div', 'ft-chiprow');
+      gset.forEach((g) => {
+        const c = el('span', 'ft-chip dim');
+        c.appendChild(el('b', '', String(g.features.length)));
+        c.appendChild(el('span', '', ' ' + g.title));
+        chipRow.appendChild(c);
+      });
+      listBox.appendChild(chipRow);
+
+      // 认知层的两件事：按「什么时候用」排（后端已排好）、低频默认折叠；搜索跨全部组
+      // 卡片只隐藏不重建 —— 搜索/展开来回切不会把已跑出来的输出弄丢
       const bar = el('div', 'ft-bar');
       const search = el('input', 'ft-search');
-      search.placeholder = '搜功能 / 用途 / 脚本…';
+      search.placeholder = all ? '搜全部 ' + (stats.features || 0) + ' 项：功能名 / 用途 / 脚本 / 按钮…' : '搜功能 / 用途 / 脚本…';
       bar.appendChild(search);
       const cnt = el('span', 'ft-bar-n', '');
       bar.appendChild(cnt);
       listBox.appendChild(bar);
 
       const cards = [];
+      const secs = [];
       let rareOn = false;
-      g.features.forEach((f) => {
-        const c = cardOf(f);
-        c.dataset.freq = f.freq || 'weekly';
-        c.dataset.fid = f.id;
-        c.dataset.group = g.title;
-        c.dataset.q = (f.name + ' ' + (f.plain || '') + ' ' + f.script + ' ' + (f.actions || []).map((a) => a.label).join(' ')).toLowerCase();
-        cards.push(c);
-        listBox.appendChild(c);
+      gset.forEach((g) => {
+        const sec = el('div', 'ft-sec');
+        sec.appendChild(el('div', 'ft-sec-h', g.title + ' · ' + g.features.length + ' 项'));
+        if (g.plain) sec.appendChild(el('div', 'ft-grp-p', g.plain));
+        listBox.appendChild(sec);
+        const own = [];
+        g.features.forEach((f) => {
+          const c = cardOf(f);
+          c.dataset.freq = f.freq || 'weekly';
+          c.dataset.fid = f.id;
+          c.dataset.group = g.title;
+          c.dataset.q = (f.name + ' ' + (f.plain || '') + ' ' + f.script + ' ' + (f.actions || []).map((a) => a.label).join(' ')).toLowerCase();
+          cards.push(c);
+          own.push(c);
+          sec.appendChild(c);
+        });
+        secs.push({ sec: sec, cards: own });
       });
 
-      // 低频折叠开关（放在列表尾部，不挡常用项）
+      // 低频折叠开关（全面板一个，不挡常用项）
       const rareN = cards.filter((c) => c.dataset.freq === 'rare').length;
       const moreBtn = el('button', 'ft-more-t', '低频 ' + rareN + ' 项（平时用不到，出问题再展开）');
       moreBtn.type = 'button';
@@ -22075,16 +22110,34 @@ renderers['feature-board'] = (body, meta, head) => {
       const emptyTip = el('div', 'ft-empty ft-hide', '没有匹配的功能');
       listBox.appendChild(emptyTip);
 
+      // 症状带：原来独立的第 9 块收进这条窄带里 —— 不要求人记功能名，只记「出什么事」
+      if (all && (desk.triage || []).length) {
+        const strip = el('div', 'ft-sym');
+        strip.appendChild(el('span', 'ft-sym-h', '出什么事点什么：'));
+        desk.triage.forEach((t) => {
+          const b = el('button', 'ft-sym-b', t.symptom);
+          b.type = 'button';
+          b.title = (t.tip || '') + ' → ' + (t.featureName || '') + ' · ' + (t.actionLabel || '');
+          b.addEventListener('click', (ev) => { ev.stopPropagation(); jumpTo(t.feature); });
+          strip.appendChild(b);
+        });
+        listBox.appendChild(strip);
+      }
+
       function applyFilter() {
         const q = (search.value || '').trim().toLowerCase();
         let n = 0, hiddenRare = 0;
-        cards.forEach((c) => {
-          const rare = c.dataset.freq === 'rare';
-          const hit = !q || c.dataset.q.indexOf(q) >= 0;
-          if (rare && !q && !rareOn) hiddenRare += 1;
-          const vis = hit && (!rare || !!q || rareOn);
-          c.style.display = vis ? '' : 'none';
-          if (vis) n += 1;
+        secs.forEach((s) => {
+          let vis = 0;
+          s.cards.forEach((c) => {
+            const rare = c.dataset.freq === 'rare';
+            const hit = !q || c.dataset.q.indexOf(q) >= 0;
+            if (rare && !q && !rareOn) hiddenRare += 1;
+            const show = hit && (!rare || !!q || rareOn);
+            c.style.display = show ? '' : 'none';
+            if (show) { vis += 1; n += 1; }
+          });
+          s.sec.style.display = vis ? '' : 'none';      // 整组都被过滤掉时，组标题一起收起
         });
         if (rareN) {
           moreBtn.style.display = q ? 'none' : '';
@@ -22112,8 +22165,8 @@ renderers['feature-board'] = (body, meta, head) => {
         setTimeout(() => c.classList.remove('ft-flash'), 1600);
       };
 
-      const actN = g.features.reduce((a, f) => a + f.actions.length, 0);
-      note.textContent = (manual ? '刚刷新 · ' : '') + g.features.length + ' 项 / ' + actN + ' 个动作';
+      const actN = gset.reduce((a, g) => a + g.features.reduce((b, f) => b + f.actions.length, 0), 0);
+      note.textContent = (manual ? '刚刷新 · ' : '') + (all ? (stats.features || 0) + ' 项' : gset[0].features.length + ' 项') + ' / ' + actN + ' 个动作';
       // 60 秒缓存是有代价的：告诉人这份开关状态是什么时候查的，别拿三小时前的当真
       const stAt = (st && st.at) ? '开关状态查于 ' + agoStr(st.at / 1000) + '（60 秒内复用缓存，点 ↻ 可重查）' : '开关状态这次没查成';
       foot.textContent = '开关类改完要重启整壳才生效；只读项随便点。' + stAt + ' · 配置：' + (arr[1] && arr[1].file || '');
@@ -22208,6 +22261,25 @@ renderers['feature-config'] = (body, meta, head) => {
       pair('日常 / 低频', String(st.daily || 0) + ' / ' + String(st.rare || 0) + ' 项');
       box.appendChild(kv);
       box.appendChild(el('div', 'ft-grp-p', '这 ' + (st.features || 0) + ' 项原来都只能敲命令（node 工具\\xxx.mjs）；现在每项都有按钮，写操作与只读操作分开标。'));
+
+      // 最近操作：原来独立的第 8 块收进这里 —— 「刚才那下成没成」和偏好、日志在同一块看
+      const rc = (desk && desk.recent) || [];
+      box.appendChild(el('div', 'ft-grp-h', '最近操作'));
+      if (rc.length) {
+        const lb = el('div', 'ft-log');
+        rc.forEach((r) => {
+          const line = el('div', 'ft-log-r');
+          line.appendChild(el('span', 'ft-dot ' + (r.ok ? 'ok' : 'err'), r.ok ? '✓' : '✗'));
+          line.appendChild(el('span', 'ft-log-n',
+            (r.at ? agoStr(r.at / 1000) + ' · ' : '') + r.feature + ' · ' + r.action
+            + (r.ok ? '' : (r.reason ? ' · ' + r.reason : ' · 没说原因'))
+            + (r.hits > 1 ? ' · 点过 ' + r.hits + ' 次' : '')));
+          lb.appendChild(line);
+        });
+        box.appendChild(lb);
+      } else {
+        box.appendChild(el('div', 'ft-grp-p', '还没有记录：任意功能跑一次，这里按时间倒序列出最近 10 条（成没成、卡在哪一行）。'));
+      }
 
       const fileRow = el('div', 'ft-cfg-row');
       fileRow.appendChild(el('div', 'ft-cfg-mid', '配置文件：' + ((arr[0] && arr[0].file) || '—')));

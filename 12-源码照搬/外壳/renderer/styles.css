@@ -6727,6 +6727,36 @@ html[data-theme="light"] .kneu-btn { border-color: var(--line-2); }
 .ft-list { display: flex; flex-direction: column; gap: 8px; }
 .ft-grp-h { font-size: 13px; font-weight: 600; color: var(--text); }
 .ft-grp-p { font-size: 11.5px; line-height: 1.55; color: var(--text-dim); }
+/* 两块版式：顶部统计带（先回答「多少、分几类」）+ 组小节（一条滚动流里分类）+ 底部症状带 */
+.ft-stat { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
+.ft-chip {
+  display: inline-flex; align-items: baseline; gap: 3px;
+  font-size: 10.5px; padding: 2px 7px; border-radius: 999px;
+  border: 1px solid var(--border); color: var(--text-dim); background: var(--bg-panel);
+}
+.ft-chip b { font-size: 13px; font-weight: 600; color: var(--text); }
+.ft-chip.dim b { font-size: 12px; }
+.ft-chiprow { display: flex; gap: 5px; flex-wrap: wrap; }
+.ft-sec {
+  display: flex; flex-direction: column; gap: 8px;
+  padding-top: 10px; border-top: 1px dashed var(--border);
+}
+.ft-sec:first-child { padding-top: 0; border-top: 0; }
+.ft-sec-h { font-size: 12.5px; font-weight: 600; color: var(--accent); letter-spacing: .2px; }
+.ft-sym {
+  display: flex; align-items: center; gap: 5px; flex-wrap: wrap;
+  padding-top: 8px; border-top: 1px dashed var(--border);
+}
+.ft-sym-h { font-size: 11px; color: var(--text-dim); }
+.ft-sym-b {
+  font-size: 10.5px; padding: 2px 8px; cursor: pointer;
+  border: 1px solid var(--border); border-radius: 999px;
+  background: var(--bg-panel); color: var(--text);
+}
+.ft-sym-b:hover { border-color: var(--accent); color: var(--accent); }
+.ft-dot { font-size: 11px; flex: 0 0 auto; width: 14px; text-align: center; }
+.ft-dot.ok { color: var(--ok); }
+.ft-dot.err { color: var(--err); }
 .ft-card {
   display: flex; flex-direction: column; gap: 6px; padding: 8px 9px;
   border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--bg-panel);
