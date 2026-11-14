@@ -1,12 +1,12 @@
 {
  "areas": [
   {
-   "id": "command",
+   "id": "memory",
    "name": "记忆",
-   "owner": "cmd-chat",
-   "memory": "场景记忆/命令",
-   "file": "areas/command.md",
-   "panel": "cmd-chat"
+   "owner": "mem-chat",
+   "memory": "场景记忆/记忆",
+   "file": "areas/memory.md",
+   "panel": "mem-chat"
   },
   {
    "id": "bilibili",
