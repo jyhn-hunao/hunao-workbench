@@ -763,6 +763,19 @@
     return { cls: lvl, txt: pct + '%' };
   }
   var HELP = { at: 0, rows: [], err: null, ready: false, noField: false };
+  // 2026-11-16：帮手分组头原来调 foldHead，但全仓没有这个函数（b5cfada 模板带进来就是悬空）。
+  //   这里补实现：复用 .tbs-row / .tbs-caret 既有样式；只返回元素，click 由调用方绑（折叠逻辑各在一处）。
+  function foldHead(box, open, icon, title, count, hint) {
+    var head = el('div', 'tbs-row tbs-fold');
+    head.appendChild(el('span', 'tbs-row-ico', icon));
+    var mid = el('div', 'tbs-row-mid');
+    mid.appendChild(el('div', 'tbs-row-t', title + (count != null ? '（' + count + '）' : '')));
+    if (hint) mid.appendChild(el('div', 'tbs-row-s', hint));
+    head.appendChild(mid);
+    head.appendChild(el('span', 'tbs-caret', open ? '▾' : '▸'));
+    head.title = [title, hint].filter(Boolean).join('\n');
+    return head;
+  }
   function buildHelpers(box) {
     var on = 0;
     HELP.rows.forEach(function (h) { if (glowOf(h.fullId) === true) on++; });
@@ -1844,6 +1857,19 @@
     return { cls: lvl, txt: pct + '%' };
   }
   var HELP = { at: 0, rows: [], err: null, ready: false, noField: false };
+  // 2026-11-16：帮手分组头原来调 foldHead，但全仓没有这个函数（b5cfada 模板带进来就是悬空）。
+  //   这里补实现：复用 .tbs-row / .tbs-caret 既有样式；只返回元素，click 由调用方绑（折叠逻辑各在一处）。
+  function foldHead(box, open, icon, title, count, hint) {
+    var head = el('div', 'tbs-row tbs-fold');
+    head.appendChild(el('span', 'tbs-row-ico', icon));
+    var mid = el('div', 'tbs-row-mid');
+    mid.appendChild(el('div', 'tbs-row-t', title + (count != null ? '（' + count + '）' : '')));
+    if (hint) mid.appendChild(el('div', 'tbs-row-s', hint));
+    head.appendChild(mid);
+    head.appendChild(el('span', 'tbs-caret', open ? '▾' : '▸'));
+    head.title = [title, hint].filter(Boolean).join('\n');
+    return head;
+  }
   function buildHelpers(box) {
     var on = 0;
     HELP.rows.forEach(function (h) { if (glowOf(h.fullId) === true) on++; });

@@ -1845,11 +1845,14 @@ ipcMain.handle('site:probe', (e, url) => {
   const u = String(url || '');
   if (!/^https?:\/\//i.test(u)) return { ok: false, err: 'bad-url' };
   return new Promise((resolve) => {
-    let mod = null, req = null;
+    let mod = null, req = null, timer = null;
+    // 2026-11-16：done / timer 必须提到 try 外 —— 原来 done 是 try 块里的 const，
+    //   catch 里引用它就是 ReferenceError（探活一异常就变 reject），
+    //   而且异常早于 timer 声明时还会在 clearTimeout(timer) 上再撞一次 TDZ。
+    const done = (ok, status) => { if (timer) clearTimeout(timer); resolve({ ok: ok, status: status || 0 }); };
     try {
       mod = u.toLowerCase().indexOf('https:') === 0 ? require('https') : require('http');
-      const done = (ok, status) => { clearTimeout(timer); resolve({ ok: ok, status: status || 0 }); };
-      const timer = setTimeout(() => { try { req && req.destroy(); } catch (x) { warnOnce("main", x) } done(false, 0); }, 6000);
+      timer = setTimeout(() => { try { req && req.destroy(); } catch (x) { warnOnce("main", x) } done(false, 0); }, 6000);
       req = mod.get(u, { headers: { 'User-Agent': 'kun-probe/1.0' } }, (res) => {
         // 2xx / 3xx 视为在线
         const code = res.statusCode || 0;

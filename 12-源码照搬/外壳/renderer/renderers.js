@@ -7283,9 +7283,9 @@ function startBiliProbe(wv, meta) {
       el2.autoplay = true; el2.muted = true; el2.playsInline = true;
       el2.setAttribute('muted', '');
       el2.setAttribute('playsinline', '');
-      el2.addEventListener('error', function () {
+      el2.addEventListener('error', function (ev) {
         try { el2.remove() } catch (e) { wbWarn(e) }
-        if (window.__wbWarn) window.__wbWarn(e, 'boot-video:' + id)
+        if (window.__wbWarn) window.__wbWarn(ev, 'boot-video:' + id)
         else if (window.console) window.console.warn('[boot] 启动片加载失败，回退 CSS 动画：' + want)
       })
       ov.insertBefore(el2, ov.firstChild);
@@ -7395,7 +7395,7 @@ function startBiliProbe(wv, meta) {
   try {
     var F = window.app && window.app.file;
     if (F && F.read) {
-      if (!window.__bpwTicks) window.__bpwTicks = 0; if (++window.__bpwTicks % 5 === 0) log('tick ' + window.__bpwTicks + ' hidden=' + document.hidden);
+      if (!window.__bpwTicks) window.__bpwTicks = 0; if (++window.__bpwTicks % 5 === 0) console.log('tick ' + window.__bpwTicks + ' hidden=' + document.hidden);
       Promise.resolve(F.read(CFG)).then(function (r) {
         var txt = (typeof r === 'string') ? r : ((r && (r.text || r.content)) || '');
         var id = 'classic';
@@ -9238,7 +9238,7 @@ renderers.chart = (body, meta, panelHead) => {
       ctx.fillText(txt, bx + 7, 14);
       // 底部时间轴：在光标同一列贴一个"日期药丸"，直接把光标那根的日期标出来
       //（这样十字光标不用回到顶部信息条里找日期，鼠标在哪天一眼就看到）
-      if (period !== 'min') {
+      if (state.period !== 'min') {
         const dtxt = shortDate(dates[idx]);
         const dw = ctx.measureText(dtxt).width + 10;
         let dbx = x(idx) - dw / 2;
@@ -19491,7 +19491,7 @@ renderers.neuron = (body, meta, head) => {
           var ab = el('button', 'kneu-seg' + (c.cls || '') + ' kneu-anom-b', c.t);
           ab.type = 'button';
           ab.title = '点开：是哪几条、为什么、怎么处理';
-          ab.addEventListener('click', function (ev) { ev.stopPropagation(); showAnom(c.anom); });
+          ab.addEventListener('click', function (ev) { ev.stopPropagation(); anomOpen(c.anom); });
           stat.appendChild(ab);
         } else {
           stat.appendChild(el('span', 'kneu-seg' + (c.cls || ''), c.t));
@@ -22451,6 +22451,16 @@ renderers['feature-config'] = (body, meta, head) => {
   }
   const box = el('div', 'ft-cfg');
   body.appendChild(box);
+
+  // 2026-11-16：本面板的「最近操作」要显示相对时间，但 agoStr 只定义在 feature-board 里，
+  //   这里取不到 ⇒ 只要有一条记录带 r.at，整块渲染就 ReferenceError 断掉。补一份本地面板用的。
+  function agoStr(sec) {
+    const d = Math.max(0, Math.floor(Date.now() / 1000) - (Number(sec) || 0));
+    if (!sec) return '';
+    if (d < 60) return '刚刚';
+    if (d < 3600) return Math.floor(d / 60) + ' 分钟前';
+    return Math.floor(d / 3600) + ' 小时前';
+  }
 
   function rowToggle(title, sub, key) {
     const row = el('div', 'ft-cfg-row');
