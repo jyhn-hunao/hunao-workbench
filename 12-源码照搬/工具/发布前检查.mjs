@@ -179,6 +179,31 @@ portability()
   }
 }
 
+// ⑦ 未定义检查闸（2026-11-16 加）：no-undef 抓「引用了不存在 / 不在作用域里的变量」。
+//   起因：换会话回滚分支的 body0（只在另一函数里定义）→ ReferenceError 把真实首因盖掉；
+//   全仓随后扫出同类的 catch/try 作用域越界、改名漏改调用点共 6 类 7 处。
+//   与其它闸不同，它需要 eslint：没有就明确打「未执行」，**不计命中也不冒充通过**。
+{
+  const t = path.join(ROOT, '工具', '未定义检查.mjs')
+  if (!fs.existsSync(t)) {
+    console.log('⚠ 找不到 未定义检查.mjs ⇒ 跳过未定义闸')
+  } else {
+    const r = spawnSync(process.execPath, [t], { cwd: ROOT, encoding: 'utf8', timeout: 300000 })
+    const lines = String((r.stdout || '') + (r.stderr || '')).split(/\r?\n/).filter(Boolean)
+    if (r.status === 0) {
+      console.log('✓ 未定义闸：no-undef 0 命中')
+    } else if (r.status === 2) {
+      console.log('· 未定义闸：未执行（' + (lines[lines.length - 1] || '没有 eslint').replace(/^·\s*/, '') + '）—— 不算通过')
+    } else {
+      hits += 1
+      const head = lines.find((l) => l.startsWith('✗')) || '有未定义变量（或检查超时）'
+      console.log('✗ 未定义闸：' + head.trim())
+      lines.filter((l) => l.startsWith('   ')).slice(0, 3).forEach((l) => console.log(l))
+      console.log('   处置：node 工具\\未定义检查.mjs 看全量，修掉引用再交付')
+    }
+  }
+}
+
 console.log('')
 if (hits) { console.log('命中 ' + hits + ' 处红线 ⇒ 不出包'); process.exit(1) }
 console.log('✓ 红线检查通过（0 命中）')
