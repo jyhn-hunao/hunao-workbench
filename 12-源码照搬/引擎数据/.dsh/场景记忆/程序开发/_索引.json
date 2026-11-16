@@ -1,7 +1,7 @@
 {
   "version": 1,
   "scene": "程序开发",
-  "generatedAt": "2026-11-16T10:08:44.501Z",
+  "generatedAt": "2026-11-16T10:25:46.879Z",
   "entries": [
     {
       "path": "坑\\2026-11-16-换会话-1-3-崩-body0-回滚引用局部变量.md",
@@ -19,6 +19,25 @@
       "expires": "",
       "consolidatedInto": "",
       "size": 613
+    },
+    {
+      "path": "坑\\2026-11-16-全仓-no-undef-扫出6类7处悬空引用.md",
+      "kind": "坑",
+      "title": "全仓-no-undef-扫出6类7处悬空引用",
+      "date": "2026-11-16",
+      "tags": [
+        "坑",
+        "作用域",
+        "静态检查"
+      ],
+      "distinct": [],
+      "evidence": [
+        "12-源码照搬\\外壳\\main.js::const done = (ok, status) => { if (timer) clearTimeout(timer)",
+        "12-源码照搬\\工具\\未定义检查.mjs::no-undef"
+      ],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 896
     },
     {
       "path": "决策\\2026-11-13-社交场景消息流面板落地.md",
@@ -896,6 +915,18 @@
     },
     {
       "path": "归档\\场景私有记忆-202611161806-ca13be.md",
+      "kind": "归档",
+      "title": "程序开发 · 场景私有记忆",
+      "date": "",
+      "tags": [],
+      "distinct": [],
+      "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 7434
+    },
+    {
+      "path": "归档\\场景私有记忆-202611161825-ca13be.md",
       "kind": "归档",
       "title": "程序开发 · 场景私有记忆",
       "date": "",
