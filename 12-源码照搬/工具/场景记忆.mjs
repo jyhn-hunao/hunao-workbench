@@ -422,6 +422,9 @@ function cmdHandover(arg) {
   const fidx = path.join(dir, '_文件索引.md')
   if (fs.existsSync(fidx)) fs.appendFileSync(fidx, `| \`归档\\${file}\` | 交接前快照（只进不改） | 留档 | ${NOW().toISOString().slice(0, 10)} |\n`, 'utf8')
   audit('handover', name, { archive: file })
+  // 2026-11-16：归档\ 自 11-14 起也进索引 ⇒ 交接每归档一份新文件必须立刻刷索引，
+  //   否则紧跟其后的 check 一定报「索引缺 1 个文件」，换会话在 1/3 就卡住。
+  cmdIndex(name, true)
   cmdStamp(name)
   // 2026-10-28（宿主定）：「写入即索引」——交接完顺手把各场景 §〇 灌进记忆库（记了就能搜；失败不影响交接）
   // 2026-11-12：公开版没有 记忆库.mjs，直接跳过并说清楚，别再假装「已入库」

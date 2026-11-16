@@ -260,6 +260,11 @@ if (DRY) {
 // 5. transcript 模式：脚本自己写 §〇（本轮默认路径）
 function writeTranscriptHandoff() {
   step('1/3', '交接', '读取旧会话 transcript…');
+  // 2026-11-16：先把 §〇 原文留一份。后面任何一环失败都要能真回滚 ——
+  //   旧代码回滚时引用的是 rewriteSec0ToPointers() 里的局部 body0，作用域外取不到，
+  //   一失败就抛 ReferenceError，把真正的失败原因（索引缺文件 / 校验不过）全盖掉。
+  const handoffSaved = fs.readFileSync(HANDOFF, 'utf8');
+  const rollback = () => { try { fs.writeFileSync(HANDOFF, handoffSaved, 'utf8'); } catch (e) { /* 回滚写不动就保住原错误，别再抛 */ } };
   const ev = readEvents(transcript);
   if (!ev) fail(5, '读不到旧会话 transcript（' + (transcript || '文件不存在') + '）⇒ 未换会话');
   const all = collectTurns(ev).map((t) => Object.assign(t, { user: stripReminders(t.user) }));
@@ -291,14 +296,16 @@ function writeTranscriptHandoff() {
     const st = runMem('stamp');
     if (st.stdout) say(String(st.stdout).trimEnd());
     if (st.status !== 0) {
+      rollback();
       if (st.stderr) console.error(String(st.stderr).trimEnd());
-      fail(5, '盖章（stamp）失败（退出码 ' + st.status + '）⇒ 未换会话');
+      fail(5, '盖章（stamp）失败（退出码 ' + st.status + '，已回滚 §〇）⇒ 未换会话');
     }
     const chk = runMem('check');
     if (chk.status !== 0) {
+      rollback();
       const first = String(chk.stdout || '').split(/\r?\n/).filter((l) => l.includes('✗')).slice(0, 4).join('；');
       if (chk.stdout) console.error(String(chk.stdout).trimEnd());
-      fail(5, '交接校验没过：' + (first || '见上方输出') + ' ⇒ 未换会话');
+      fail(5, '交接校验没过：' + (first || '见上方输出') + '（已回滚 §〇）⇒ 未换会话');
     }
     step('1/3', '交接', '旧会话没有新的业务轮次 ⇒ 沿用现有 §〇（已刷新时间戳 + stamp）');
     return { turns: 0 };
@@ -309,8 +316,9 @@ function writeTranscriptHandoff() {
   const h = runMem('交接');
   if (h.stdout) say(String(h.stdout).trimEnd());
   if (h.status !== 0) {
+    rollback();
     if (h.stderr) console.error(String(h.stderr).trimEnd());
-    fail(5, '场景记忆交接命令失败（退出码 ' + h.status + '）⇒ 未换会话');
+    fail(5, '场景记忆交接命令失败（退出码 ' + h.status + '，已回滚 §〇）⇒ 未换会话');
   }
 
   // 5.2 面板级交接文件：完整摘要写独立文件（容量宽松、各面板互不覆盖）
@@ -325,12 +333,12 @@ function writeTranscriptHandoff() {
     fs.writeFileSync(panelFile, composePanelHandover({
       turns: turns, allTurns: all.length, oldId: oldId, when: when, panelId: PANEL, panelTitle: panelTitle, sceneName: sceneName, pinTarget: pinTarget,
     }), 'utf8');
-  } catch (e) { fail(5, '写面板交接文件失败：' + ((e && e.message) || e) + ' ⇒ 未换会话'); }
+  } catch (e) { rollback(); fail(5, '写面板交接文件失败：' + ((e && e.message) || e) + ' ⇒ 未换会话（已回滚 §〇）'); }
 
   // 5.3 §〇 第 1 节 = 每面板一行指针（旧完整交接已进 归档\ 与 面板交接\，不再往 §〇 塞正文）
   //   这条同时解掉两个老毛病：① 两个 AI 面板抢同一段 §〇；② 整段 §〇 4 KB 红线一撞就”换不动”。
   const rw = rewriteSec0ToPointers({ note: when + ' · 最近 ' + turns.length + ' 轮' });
-  if (!rw.ok) fail(5, rw.why + ' ⇒ 未换会话；先精简第 2–5 节（指针行本身只有几十字节）');
+  if (!rw.ok) { rollback(); fail(5, rw.why + ' ⇒ 未换会话；先精简第 2–5 节（指针行本身只有几十字节）'); }
   step('1/3', '交接', '已写面板交接（' + turns.length + ' 轮）→ §〇 只留指针（' + rw.bytes + ' B）');
 
   // 5.4 无条件 stamp 再校验：定位卡可能刚被项目切换/上次换会话改过，卡指纹就会过期；
@@ -338,13 +346,13 @@ function writeTranscriptHandoff() {
   const st = runMem('stamp');
   if (st.stdout) say(String(st.stdout).trimEnd());
   if (st.status !== 0) {
-    fs.writeFileSync(HANDOFF, body0, 'utf8');
+    rollback();
     if (st.stderr) console.error(String(st.stderr).trimEnd());
     fail(5, '盖章（stamp）失败（退出码 ' + st.status + '，已回滚 §〇）⇒ 未换会话');
   }
   const chk = runMem('check');
   if (chk.status !== 0) {
-    fs.writeFileSync(HANDOFF, body0, 'utf8');
+    rollback();
     const first = String(chk.stdout || '').split(/\r?\n/).filter((l) => l.includes('✗')).slice(0, 4).join('；');
     if (chk.stdout) console.error(String(chk.stdout).trimEnd());
     if (chk.stderr) console.error(String(chk.stderr).trimEnd());
