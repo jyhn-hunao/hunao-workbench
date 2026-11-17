@@ -40,7 +40,7 @@
 | 外壳静态测试（端口单一真源 / 静默 catch / IPC 配对 / 场景契约 / 渲染器注册 / 图标唯一 / 全量语法） | `node 12-源码照搬\外壳\scripts\测试.mjs`（`npm test` 同效；`--json` 给 CI，`--only ports,ipc` 跑单项） | `12-源码照搬/外壳/scripts/测试.mjs` |
 | 场景与会话核对 | `node 12-源码照搬\外壳\scripts\sessions.mjs --check` | `12-源码照搬/外壳/scripts/sessions.mjs:12` |
 | 建会话 | `node 12-源码照搬\外壳\scripts\建会话.mjs --title "场景名"` | `12-源码照搬/外壳/scripts/建会话.mjs:13` |
-| 换会话（建新 + 归档旧 + 回写绑定；**换前过场景 check + 项目记忆体检**） | `node 12-源码照搬\外壳\scripts\换会话.mjs <面板id> --go` | `12-源码照搬/外壳/scripts/换会话.mjs:7` |
+| 换会话（建新 + 归档旧 + 回写绑定；**换前过场景 check + 项目记忆体检**：结构错硬拦，词表空/缺 evidence 只提示，`--strict-memory` 恢复硬拦） | `node 12-源码照搬\外壳\scripts\换会话.mjs <面板id> --go` | `12-源码照搬/外壳/scripts/换会话.mjs:7` |
 | 场景记忆自检 | `node 12-源码照搬\工具\场景记忆.mjs check --场景 <目录名>` | `12-源码照搬/工具/场景记忆.mjs` `cmdCheck` |
 | 场景记忆写一条（自动 frontmatter + 索引 + 同轮 check + 静默沉淀，§五 不再追加正文；可选 `--取代/--过期/--相关`） | `node 12-源码照搬\工具\场景记忆.mjs 写 --场景 <场景> --类 决策\|坑 --标题 "x" --要点 "a\|b" --证据 "<路径>::<片段>"` | `12-源码照搬/工具/场景记忆.mjs` `cmdWrite` |
 | 场景记忆拆分（存量 §五 条目 → 一条一个文件，先 `--dry` 看计划） | `node 12-源码照搬\工具\场景记忆.mjs 拆 --场景 <场景> [--dry]` | `12-源码照搬/工具/场景记忆.mjs` `cmdSplit` |
