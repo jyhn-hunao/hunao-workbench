@@ -107,6 +107,14 @@ let serverProc = null;
 let logTail = '';
 let harnessToken = null;
 
+// 2026-11-17 · token 传给子脚本：2026-11-14 起 server.log 里的 token 被打成 `token=***`（防泄露），
+//   但脚本们（建会话/换会话/sessions/归档/改名/派发）仍是「从日志正则取 token」⇒ 闸门放行后必然
+//   「换不到 cookie」。token 本体只留在内存，所以改由壳在 spawn 时注入 DSH_TOKEN，
+//   脚本侧统一走 工具\引擎token.mjs（env 优先、日志兜底）。
+function scriptEnv(extra) {
+  return Object.assign({}, process.env, harnessToken ? { DSH_TOKEN: harnessToken } : {}, extra || {});
+}
+
 function log(line) {
   // 2026-11-14 · token 脱敏：引擎会把自己的启动 URL（`…?token=xxx`）打到 stdout，原来整行进 server.log
   //   ⇒ 45 次启动就留了 45 个明文 token（server.log 还常被拿去发给别人看）。
@@ -1475,7 +1483,7 @@ function runOnboardProject(root) {
     if (!fs.existsSync(script)) { resolve({ ok: false, err: '找不到接入脚本：' + script }); return; }
     const nodeExe = resolveNodeExe();
     // 脚本按 DSH_GUI_BASE 的端口取 token、按 DSH_HOME 找会话：显式给一遍，别让它退回 3080 或 C 盘
-    const env = Object.assign({ DSH_GUI_BASE: BASE, DSH_HOME: DSH_HOME, DSH_LOG: LOG_FILE }, process.env);
+    const env = scriptEnv({ DSH_GUI_BASE: BASE, DSH_HOME: DSH_HOME, DSH_LOG: LOG_FILE });
     let cmd = nodeExe, args = [script, '--root', root];
     if (!nodeExe) { env.ELECTRON_RUN_AS_NODE = '1'; cmd = process.execPath; }
     execFile(cmd, args, { cwd: __dirname, env: env, timeout: 120000, windowsHide: true, maxBuffer: 4 * 1024 * 1024 },
@@ -1634,7 +1642,7 @@ function sessionCreate(title, cwd) {
     if (!fs.existsSync(script)) { resolve({ ok: false, err: '找不到建会话脚本：' + script }); return; }
     try { fs.mkdirSync(cwd, { recursive: true }); } catch (e) { warnOnce("main", e) }
     const nodeExe = resolveNodeExe();
-    const env = Object.assign({ DSH_GUI_BASE: BASE, DSH_HOME: DSH_HOME, DSH_LOG: LOG_FILE }, process.env);
+    const env = scriptEnv({ DSH_GUI_BASE: BASE, DSH_HOME: DSH_HOME, DSH_LOG: LOG_FILE });
     let cmd = nodeExe, args = [script, '--title', title, '--cwd', cwd, '--no-seed'];
     if (!nodeExe) { env.ELECTRON_RUN_AS_NODE = '1'; cmd = process.execPath; }
     execFile(cmd, args, { cwd: __dirname, env, timeout: 120000, windowsHide: true, maxBuffer: 4 * 1024 * 1024 },
@@ -4968,8 +4976,8 @@ const TOPBAR_ROOT = path.dirname(__dirname);   // <工作台>
 // 跑 node 脚本：本体是 Electron，没有独立 node ⇒ 先试 ELECTRON_RUN_AS_NODE，失败再退回 PATH 上的 node
 function topbarRun(script, args, timeout) {
   const tries = [
-    { exe: process.execPath, env: Object.assign({}, process.env, { ELECTRON_RUN_AS_NODE: '1' }) },
-    { exe: 'node', env: process.env }
+    { exe: process.execPath, env: scriptEnv({ ELECTRON_RUN_AS_NODE: '1' }) },
+    { exe: 'node', env: scriptEnv() }
   ];
   let last = '';
   for (const t of tries) {
@@ -5008,8 +5016,8 @@ function topbarWorkbenchSessions() {
 function topbarRunAsync(script, args, timeout) {
   return new Promise((resolve) => {
     const tries = [
-      { exe: process.execPath, env: Object.assign({}, process.env, { ELECTRON_RUN_AS_NODE: '1' }) },
-      { exe: 'node', env: process.env }
+      { exe: process.execPath, env: scriptEnv({ ELECTRON_RUN_AS_NODE: '1' }) },
+      { exe: 'node', env: scriptEnv() }
     ];
     let last = '';
     const attempt = (i) => {
@@ -5904,7 +5912,7 @@ function runRotate(panelId, opts, onStage) {
         cwd: __dirname,
         // DSH_ROTATE_SELF_RELOAD=0：GUI 模式下脚本不写 reload-panels.cmd，由渲染层只重载本面板；
         //   命令行手动跑时没有渲染层，脚本才写 cmd 让壳帮忙（那时才用 all）。
-        env: Object.assign({}, process.env, { DSH_HOME: DSH_HOME, DSH_ROTATE_SELF_RELOAD: '0' }),
+        env: scriptEnv({ DSH_HOME: DSH_HOME, DSH_ROTATE_SELF_RELOAD: '0' }),
         windowsHide: true,
       });
     } catch (e) {

@@ -31,6 +31,7 @@ const PROJECT = path.resolve(SHELL, '..');                       // 12-源码照
 const DSH_HOME = process.env.DSH_HOME || path.join(PROJECT, '引擎数据', '.dsh');
 // 端口真源：唯一实现在 工具\环境.mjs（env > 机器配置 > 默认），脚本里不再写字面量（2026-11-13）
 import { port } from '../../工具/环境.mjs';
+import { engineTokens } from '../../工具/引擎token.mjs';
 const BASE = process.env.DSH_GUI_BASE || process.env.DSH_WEB_URL || ('http://127.0.0.1:' + port('dsh'));
 const PORT = (() => { try { return new URL(BASE).port || '80'; } catch (e) { return ''; } })();
 const LOG = process.env.DSH_LOG || path.join(SHELL, 'server.log');
@@ -143,10 +144,7 @@ function findWorkspace() {
 
 // ── token → 签名 cookie（必须 redirect:'manual'）──
 async function connect() {
-  const toks = fs.existsSync(LOG)
-    ? [...fs.readFileSync(LOG, 'utf8').matchAll(/dsh web:\s*http:\/\/127\.0\.0\.1:(\d+)\/\?token=([A-Za-z0-9_\-]{16,})/g)]
-        .filter((m) => !PORT || m[1] === PORT).map((m) => m[2]).reverse()
-    : [];
+  const toks = engineTokens(LOG, PORT);
   for (const t of toks.slice(0, 3)) {
     try {
       const r = await fetch(BASE + '/?token=' + t, { redirect: 'manual' });

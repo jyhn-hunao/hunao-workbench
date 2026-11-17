@@ -19,6 +19,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DSH_HOME = process.env.DSH_HOME || '<盘根>:\\software\\DSH全场景工作助手\\引擎\\.dsh';
 // 端口真源：唯一实现在 工具\环境.mjs（env > 机器配置 > 默认），脚本里不再写字面量（2026-11-13）
 import { port } from '../../工具/环境.mjs';
+import { engineTokens } from '../../工具/引擎token.mjs';
 const BASE = process.env.DSH_GUI_BASE || process.env.DSH_WEB_URL || ('http://127.0.0.1:' + port('dsh'));
 const WS = path.join(DSH_HOME, 'storages', 'workspace.json');
 const argv = process.argv.slice(2);
@@ -29,15 +30,10 @@ const say = (s) => console.log(s);
 const readWs = () => JSON.parse(fs.readFileSync(WS, 'utf8'));
 const archivedIds = () => new Set((readWs().global || {}).archivedSessionIds || []);
 
-// token：GUI 启动时会把带 token 的地址写进 server.log
+// token：壳 spawn 子脚本时注入 DSH_TOKEN（2026-11-14 起日志里的 token 已打码，只能当兜底）
 function findToken() {
-  for (const f of ['server.log']) {
-    const p = path.join(root, f);
-    if (!fs.existsSync(p)) continue;
-    const m = [...fs.readFileSync(p, 'utf8').matchAll(/\?token=([A-Za-z0-9._-]{8,})/g)];
-    if (m.length) return m[m.length - 1][1];
-  }
-  return '';
+  const toks = engineTokens(path.join(root, 'server.log'), '');
+  return toks[0] || '';
 }
 
 async function connect() {

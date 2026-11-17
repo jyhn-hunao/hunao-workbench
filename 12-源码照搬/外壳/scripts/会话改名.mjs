@@ -11,6 +11,7 @@ if (!sid || !title) {
 }
 // 端口真源：唯一实现在 工具\环境.mjs（env > 机器配置 > 默认），脚本里不再写字面量（2026-11-13）
 import { port } from '../../工具/环境.mjs';
+import { engineTokens } from '../../工具/引擎token.mjs';
 const BASE = process.env.DSH_GUI_BASE || process.env.DSH_WEB_URL || ('http://127.0.0.1:' + port('dsh'));
 const DSH_HOME = process.env.DSH_HOME || '<盘根>:/DSH/引擎/.dsh';
 // token 在「外壳」的 server.log 里（不是 引擎 目录）；两个位置都试
@@ -24,10 +25,7 @@ const LOG = [
 
 // token 正则跟随 BASE 的端口（原来写死 3080：引擎默认跑 3083 时取不到 token）
 const PORT = (() => { try { return new URL(BASE).port || '80'; } catch (e) { return ''; } })();
-const toks = fs.existsSync(LOG)
-  ? [...fs.readFileSync(LOG, 'utf8').matchAll(/dsh web:\s*http:\/\/127\.0\.0\.1:(\d+)\/\?token=([A-Za-z0-9_\-]{16,})/g)]
-      .filter((m) => !PORT || m[1] === PORT).map((m) => m[2]).reverse()
-  : [];
+const toks = engineTokens(LOG, PORT);
 let cookie = '';
 for (const t of toks.slice(0, 3)) {
   try {

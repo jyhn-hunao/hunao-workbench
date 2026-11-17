@@ -16,6 +16,7 @@ import { fileURLToPath } from 'node:url';
 import crypto from 'node:crypto';
 // 2026-11-13：端口真源在 环境.mjs（env > 机器配置 > 默认），本文件不再写字面量端口。
 import { port } from './环境.mjs';
+import { engineTokens } from './引擎token.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const ROOT = path.resolve(HERE, '..');                         // 12-源码照搬
@@ -140,10 +141,7 @@ export function finalTextOf(events, turn) {
 export async function getCookie() {
   const log = path.join(SHELL, 'server.log');
   const port = (() => { try { return new URL(BASE).port || '80'; } catch { return ''; } })();
-  const toks = fs.existsSync(log)
-    ? [...fs.readFileSync(log, 'utf8').matchAll(/dsh web:\s*http:\/\/127\.0\.0\.1:(\d+)\/\?token=([A-Za-z0-9_\-]{16,})/g)]
-        .filter((m) => !port || m[1] === port).map((m) => m[2]).reverse()
-    : [];
+  const toks = engineTokens(log, port);
   for (const t of toks.slice(0, 3)) {
     try {
       const r = await fetch(BASE + '/?token=' + t, { redirect: 'manual' });

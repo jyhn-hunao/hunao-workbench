@@ -23,6 +23,7 @@ import { execFileSync } from 'node:child_process';
 import { unzstdAll } from '../../工具/派发-公共.mjs';
 // 2026-11-13：端口真源收敛到 工具\环境.mjs（env > 机器配置 > 默认），本文件不再写字面量端口。
 import { port } from '../../工具/环境.mjs';
+import { engineTokens } from '../../工具/引擎token.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PROJECT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -475,10 +476,7 @@ if (rotating && !STRAY) {
         const BASE = process.env.DSH_GUI_BASE || process.env.DSH_WEB_URL || ('http://127.0.0.1:' + port('dsh'));
         // token 正则跟随 BASE 的端口（原来写死 3080：引擎默认跑 3083 时取不到 token）
         const PORT = (() => { try { return new URL(BASE).port || '80'; } catch (e) { return ''; } })();
-        const toks = fs.existsSync(LOG)
-          ? [...fs.readFileSync(LOG, 'utf8').matchAll(/dsh web:\s*http:\/\/127\.0\.0\.1:(\d+)\/\?token=([A-Za-z0-9_\-]{16,})/g)]
-              .filter((m) => !PORT || m[1] === PORT).map((m) => m[2]).reverse()
-          : [];
+        const toks = engineTokens(LOG, PORT);
         let cookie = '';
         for (const t of toks.slice(0, 3)) {
           try {
@@ -851,10 +849,7 @@ if (rotating && STRAY) {
         const BASE = process.env.DSH_GUI_BASE || process.env.DSH_WEB_URL || ('http://127.0.0.1:' + port('dsh'));   // 端口真源见 工具\环境.mjs
         // token 正则跟随 BASE 的端口（原来写死 3080：引擎默认跑 3083 时取不到 token）
         const PORT = (() => { try { return new URL(BASE).port || '80'; } catch (e) { return ''; } })();
-        const toks = fs.existsSync(LOG)
-          ? [...fs.readFileSync(LOG, 'utf8').matchAll(/dsh web:\s*http:\/\/127\.0\.0\.1:(\d+)\/\?token=([A-Za-z0-9_\-]{16,})/g)]
-              .filter((m) => !PORT || m[1] === PORT).map((m) => m[2]).reverse()
-          : [];
+        const toks = engineTokens(LOG, PORT);
         let cookie = '';
         for (const t of toks.slice(0, 3)) {
           try {
