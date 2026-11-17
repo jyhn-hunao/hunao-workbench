@@ -153,6 +153,10 @@ contextBridge.exposeInMainWorld('app', {
       checkout: (repo, rev, opts) => ipcRenderer.invoke('kun:git:checkout', repo, rev, opts),
       commit: (repo, files, message, opts) => ipcRenderer.invoke('kun:git:commit', repo, files, message, opts),
       log: (repo, rev) => ipcRenderer.invoke('kun:git:log', repo, rev),
+      // 面板本机配置（2026-11-17）：变更单 = IDEA 那种「自定义命名的文件分组」+ 不参与提交的路径规则；
+      //   落 外壳\data\git-变更单.json，按仓库绝对路径分桶。缺这两个 API = 旧预加载 ⇒ 面板能开、配置只存内存。
+      listsGet: () => ipcRenderer.invoke('kun:git:lists-get'),
+      listsSet: (repo, one) => ipcRenderer.invoke('kun:git:lists-set', repo, one),
       // 切分支 / 拉远程：写操作（只动工作区）。工作区脏时主进程默认拒绝，传 {force:true} 才继续。
       switch: (repo, name, opts) => ipcRenderer.invoke('kun:git:switch', repo, name, opts),
       fetch: (repo) => ipcRenderer.invoke('kun:git:fetch', repo),

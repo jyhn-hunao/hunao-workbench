@@ -6239,6 +6239,13 @@ html[data-theme="dark"] .kneu-dot { box-shadow: 0 0 5px rgba(255, 255, 255, .22)
 .g-list { padding: 2px 0 4px; }
 /* 状态统计胶囊：一眼看出这次改动的规模（原来这个位置只有「全选 · N 个文件」一句灰字） */
 .g-sum { display: flex; align-items: center; flex-wrap: wrap; gap: 5px; padding: 8px 10px 7px; border-bottom: 1px solid var(--line-2); }
+/* 双击查看方式：内容 / 改动，二选一。放在变更统计行右侧，不额外占工具栏 */
+.g-openmode { margin-left: auto; flex: none; display: inline-flex; align-items: center; gap: 2px; font-size: 10.5px; color: var(--text-dim); }
+.g-openmode-l { margin-right: 2px; }
+.g-om { height: 18px; padding: 0 6px; border: 1px solid var(--line-1); border-radius: 9px;
+  background: transparent; color: var(--text-dim); font-size: 10.5px; line-height: 1; cursor: pointer; }
+.g-om:hover { color: var(--text); border-color: var(--accent); }
+.g-om.is-on { color: var(--text); border-color: var(--accent); background: var(--accent-soft); }
 .g-chip { display: inline-flex; align-items: center; height: 17px; padding: 0 7px; border-radius: 9px;
   font-size: 10.5px; font-weight: 600; letter-spacing: .2px; color: var(--text-dim);
   background: color-mix(in srgb, var(--text-dim) 12%, transparent); }
@@ -6259,6 +6266,7 @@ html[data-theme="dark"] .kneu-dot { box-shadow: 0 0 5px rgba(255, 255, 255, .22)
 .g-file { display: flex; gap: 7px; align-items: center; height: 27px; padding: 0 10px 0 7px; cursor: pointer;
   border-left: 2px solid transparent; }
 .g-file:hover { background: var(--bg-panel-hover); }
+.g-file.is-sel { background: var(--accent-soft); }
 /* 行左侧状态色带：扫一眼就知道这行是改 / 增 / 删 / 重命名（比只看一个字母快） */
 .g-file.is-mod { border-left-color: color-mix(in srgb, var(--warn) 55%, transparent); }
 .g-file.is-new { border-left-color: color-mix(in srgb, var(--ok) 55%, transparent); }
@@ -6318,7 +6326,7 @@ html[data-theme="dark"] .kneu-dot { box-shadow: 0 0 5px rgba(255, 255, 255, .22)
 .g-ask { position: absolute; left: 8px; right: 8px; bottom: 8px; z-index: 30; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 8px 10px; border: 1px solid var(--line-1); border-radius: 8px; background: var(--bg-panel); box-shadow: 0 6px 20px rgba(0,0,0,.18); }
 .g-ask-t { font-size: 11.5px; }
 .g-btn { border: 1px solid var(--line-1); background: transparent; color: inherit; border-radius: 5px; padding: 2px 10px; font-size: 11.5px; cursor: pointer; }
-.g-msg { position: absolute; left: 8px; right: 8px; bottom: 8px; z-index: 25; padding: 6px 10px; border-radius: 6px; font-size: 11.5px; background: var(--bg-panel); border: 1px solid var(--line-1); box-shadow: 0 4px 14px rgba(0,0,0,.15); }
+.g-msg { position: absolute; left: 8px; right: 8px; top: 6px; z-index: 65; padding: 6px 10px; border-radius: 6px; font-size: 11.5px; background: var(--bg-panel); border: 1px solid var(--line-1); box-shadow: 0 4px 14px rgba(0,0,0,.15); }
 .g-pop { position: absolute; z-index: 40; top: 34px; left: 8px; width: 320px; max-width: calc(100% - 16px); max-height: 70%; overflow: auto; background: var(--bg-panel); border: 1px solid var(--line-1); border-radius: 8px; box-shadow: 0 10px 28px rgba(0,0,0,.22); padding: 6px; }
 .g-pop-search { width: 100%; margin-bottom: 4px; }
 .g-pop-head { font-size: 10.5px; color: var(--text-dim); padding: 6px 6px 2px; }
@@ -6331,7 +6339,7 @@ html[data-theme="dark"] .kneu-dot { box-shadow: 0 0 5px rgba(255, 255, 255, .22)
 .g-up { color: var(--ok); font-size: 10.5px; flex: none; }
 .g-down { color: var(--err); font-size: 10.5px; flex: none; }
 
-.g-menu { position: fixed; z-index: 60; min-width: 190px; padding: 4px; background: var(--bg-panel); border: 1px solid var(--line-1); border-radius: 8px; box-shadow: 0 12px 30px rgba(0,0,0,.24); font-size: 12px; }
+.g-menu { position: fixed; z-index: 60; min-width: 190px; max-height: 70vh; overflow-y: auto; padding: 4px; background: var(--bg-panel); border: 1px solid var(--line-1); border-radius: 8px; box-shadow: 0 12px 30px rgba(0,0,0,.24); font-size: 12px; }
 .g-menu-item { height: 26px; display: flex; align-items: center; padding: 0 10px; border-radius: 5px; cursor: pointer; white-space: nowrap; }
 .g-menu-item:hover { background: var(--bg-panel-hover); }
 .g-menu-item.is-off { opacity: .42; cursor: default; }
@@ -6340,11 +6348,14 @@ html[data-theme="dark"] .kneu-dot { box-shadow: 0 0 5px rgba(255, 255, 255, .22)
 
 .g-chead { display: flex; align-items: center; gap: 8px; height: 26px; padding: 0 10px; border-bottom: 1px solid var(--line-1); color: var(--text-dim); font-size: 11px; }
 .g-ck { width: 13px; height: 13px; margin: 0; flex: none; cursor: pointer; accent-color: var(--accent); }
-/* 提交区：轻微托底 + 加重分隔线，让「上半截是清单、下半截是操作」一眼分开 */
-.g-commitbox { border-top: 1px solid var(--line-2); padding: 8px 10px 10px; display: flex; flex-direction: column; gap: 6px;
-  background: color-mix(in srgb, var(--text) 2.5%, transparent); }
+/* 提交区：吸在面板底部（滚动文件列表时按钮和输入框始终在手边） */
+.g-commitbox { position: sticky; bottom: 0; z-index: 3; border-top: 1px solid var(--line-2); padding: 8px 10px 10px;
+  display: flex; flex-direction: column; gap: 6px; background: var(--bg-panel);
+  box-shadow: 0 -8px 16px color-mix(in srgb, var(--text) 6%, transparent); }
 .g-cbox-h { display: flex; align-items: baseline; gap: 8px; }
 .g-cbox-t { font-size: 11.5px; font-weight: 600; color: var(--text); }
+.g-cbox-g { font-size: 10.5px; color: var(--warn); }
+.g-cbox-g:empty { display: none; }
 .g-cbox-n { margin-left: auto; font-size: 10.5px; color: var(--text-dim); }
 .g-msginput { width: 100%; box-sizing: border-box; resize: vertical; min-height: 52px; max-height: 140px; border: 1px solid var(--line-1); border-radius: 6px; background: transparent; color: inherit; font: inherit; font-size: 12px; line-height: 1.5; padding: 6px 8px; outline: none; }
 .g-msginput:focus { border-color: var(--accent); }
@@ -6355,6 +6366,104 @@ html[data-theme="dark"] .kneu-dot { box-shadow: 0 0 5px rgba(255, 255, 255, .22)
 
 .g-pop-hint { padding: 2px 6px 6px; font-size: 10.5px; color: var(--text-dim); border-top: 1px solid var(--line-1); margin-top: 4px; }
 .g-pop-row.is-sel { background: var(--accent-soft); }
+
+/* ---------- 变更单 / 不参与提交：scope 栏 + 分组树 + 卡片弹层（2026-11-17 重做）----------
+   宿主原话「你好好设计一下UI和交互，现在太反人类了」：
+   入口从工具栏图标挪到「变更」页签顶部；组头本身是拖拽落点；管理 / 规则 / 移动都改成卡片，
+   一次只做一件事。颜色全部走设计令牌，浅色主题自动跟随。 */
+.g-cbar { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 5px; padding: 5px 8px;
+  border-bottom: 1px solid var(--line-1); background: var(--bg-panel); }
+.g-cbar-t { flex: none; font-size: 10.5px; color: var(--text-dim); letter-spacing: .3px; }
+.g-cbar-dd { min-width: 0; max-width: 58%; height: 22px; padding: 0 8px; border: 1px solid var(--line-1); border-radius: 5px;
+  background: var(--bg-panel); color: var(--text); font-size: 11.5px; font-weight: 600; cursor: pointer;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.g-cbar-dd:hover { border-color: var(--accent); color: var(--accent); }
+.g-cbar-btn { flex: none; height: 22px; min-width: 22px; padding: 0 5px; border: 1px solid transparent; border-radius: 5px;
+  background: transparent; color: var(--text-dim); font-size: 12px; line-height: 1; cursor: pointer; }
+.g-cbar-btn:hover { background: var(--bg-panel-hover); border-color: var(--line-1); color: var(--text); }
+.g-cbar-skip { font-size: 10.5px; color: var(--text-dim); }
+.g-cbar-skip.is-on { color: var(--warn); }
+.g-cbar-skip:hover { color: var(--warn); }
+.g-cbar-back { margin-left: auto; flex: none; font-size: 10.5px; color: var(--accent); cursor: pointer; }
+.g-cbar-back:hover { text-decoration: underline; }
+
+/* 分组树：组头 = 组级全选 + 折叠 + 名字 + 计数 + 提交 / ⋯；组体按暂存状态画小子头 */
+.g-cgrp { padding: 0 0 2px; }
+.g-cgrp + .g-cgrp { border-top: 1px solid var(--line-1); }
+.g-cgrph { display: flex; align-items: center; gap: 5px; min-height: 28px; padding: 3px 8px 3px 6px; }
+.g-cgrph:hover { background: var(--bg-panel-hover); }
+.g-cgrp-arrow { flex: none; width: 12px; text-align: center; color: var(--text-dim); font-size: 10px; cursor: pointer; }
+.g-cgrp-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-weight: 600; font-size: 11.5px; color: var(--text); cursor: pointer; }
+.g-cgrp-act { margin-left: auto; flex: none; display: flex; align-items: center; gap: 2px; }
+.g-mini { height: 18px; padding: 0 6px; border: 1px solid transparent; border-radius: 4px; background: transparent;
+  color: var(--text-dim); font-size: 10px; line-height: 1; cursor: pointer; }
+.g-mini:hover { color: var(--text); background: var(--bg-panel-hover); border-color: var(--line-1); }
+.g-mini:disabled { opacity: .45; cursor: default; }
+.g-mini-danger:hover { color: var(--err); border-color: var(--err); }
+.g-mini.is-armed { color: var(--err); border-color: var(--err); background: color-mix(in srgb, var(--err) 12%, transparent); }
+.g-cgrp-b { margin: 0 0 2px 12px; border-left: 1px solid var(--line-1); }
+.g-cgrp-b .g-file { padding-left: 6px; }
+.g-cgrp-empty { padding: 7px 10px 9px; color: var(--text-dim); font-size: 10.5px; line-height: 1.6; }
+.g-subh { display: flex; align-items: center; gap: 5px; padding: 5px 10px 2px 6px; font-size: 10px; color: var(--text-dim); }
+.g-cgrph.is-drop, .g-cgrp-b.is-drop { background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent); }
+.g-file.is-drag { opacity: .45; }
+.g-empty-acts { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+
+/* 卡片弹层：遮罩 + 居中卡片（只盖住 Git 面板，不打断别的面板）；标题栏 / 可滚动主体 / 固定底部按钮 */
+.g-mask { position: absolute; inset: 0; z-index: 70; display: flex; align-items: center; justify-content: center;
+  padding: 12px; background: rgba(0, 0, 0, .34); }
+.g-modal { width: min(480px, 100%); max-height: 100%; display: flex; flex-direction: column;
+  background: var(--bg-panel); color: var(--text); border-radius: var(--r-md, 10px);
+  box-shadow: var(--sh-3); overflow: hidden; }
+.g-modal-h { display: flex; align-items: center; gap: 8px; padding: 12px 14px 8px; border-bottom: 1px solid var(--line-1); }
+.g-modal-t { font-size: 13px; font-weight: 600; }
+.g-modal-x { margin-left: auto; width: 22px; height: 22px; font-size: 12px; }
+.g-modal-sub { padding: 7px 14px 0; font-size: 11px; line-height: 1.55; color: var(--text-dim); }
+.g-modal-b { padding: 8px 14px 4px; overflow: auto; min-height: 0; flex: 1 1 auto; }
+.g-modal-f { display: flex; justify-content: flex-end; gap: 8px; padding: 10px 14px 12px; border-top: 1px solid var(--line-1); }
+.g-modal-in { width: 100%; box-sizing: border-box; height: 28px; border: 1px solid var(--line-1); border-radius: 5px;
+  background: transparent; color: inherit; padding: 0 8px; font-size: 12px; outline: none; }
+.g-modal-in:focus { border-color: var(--accent); }
+.g-modal-hint { padding: 6px 2px 0; font-size: 10.5px; line-height: 1.55; color: var(--text-dim); }
+
+/* 变更单管理 / 规则列表 */
+.g-mlist { border: 1px solid var(--line-1); border-radius: 6px; overflow: auto; max-height: 260px; }
+.g-mrow { display: flex; align-items: center; gap: 6px; padding: 4px 8px; border-bottom: 1px solid var(--line-1); }
+.g-mrow:last-child { border-bottom: 0; }
+.g-min { flex: 1 1 auto; min-width: 0; height: 24px; border: 1px solid transparent; border-radius: 4px;
+  background: transparent; color: var(--text); font: inherit; font-size: 11.5px; font-weight: 600; padding: 0 4px; outline: none; }
+.g-min:hover { border-color: var(--line-1); }
+.g-min:focus { border-color: var(--accent); background: var(--bg-panel); }
+.g-mrow-n { flex: none; font-size: 10.5px; color: var(--text-dim); }
+.g-mrow-rule { flex: 1 1 auto; min-width: 0; font-family: var(--mono); font-size: 10.5px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.g-madd { display: flex; gap: 6px; margin-top: 10px; align-items: center; }
+.g-madd .g-modal-in { flex: 1 1 auto; width: auto; min-width: 0; }
+.g-mchips { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; padding: 2px 0 8px; }
+.g-mini-t { flex: none; font-size: 10.5px; color: var(--text-dim); margin-right: 2px; }
+.g-chip2 { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; height: 19px;
+  padding: 0 7px; border: 1px solid var(--line-1); border-radius: 9px; background: transparent;
+  color: var(--text-dim); font-size: 10px; cursor: pointer; }
+.g-chip2:hover { color: var(--accent); border-color: var(--accent); }
+.g-chip2.is-on { color: var(--ok); border-color: var(--ok); cursor: default; }
+
+/* 移动 / 排除的粒度选项 */
+.g-mopts { display: flex; flex-direction: column; gap: 5px; margin: 6px 0 8px; }
+.g-opt { display: flex; align-items: center; gap: 8px; padding: 7px 9px; border: 1px solid var(--line-1); border-radius: 6px; cursor: pointer; }
+.g-opt:hover { background: var(--bg-panel-hover); }
+.g-opt input { flex: none; accent-color: var(--accent); }
+.g-opt-t { flex: none; width: 92px; font-size: 11.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.g-opt-d { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 10.5px; color: var(--text-dim); }
+
+/* 行尾只留「⊘ 不提交」徽标（组头已经表明归属，不再每行挂组名） */
+.g-cl { flex: none; max-width: 88px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  height: 16px; line-height: 16px; padding: 0 6px; border-radius: 8px; font-size: 10px;
+  color: var(--warn); background: color-mix(in srgb, var(--warn) 16%, transparent); cursor: pointer; }
+.g-cl:hover { text-decoration: underline; }
+.g-file.is-skip { opacity: .55; }
+.g-pop-add { color: var(--accent); cursor: pointer; }
 
 /* ---------- 顶栏「省 token」用量面板（2026-11-11 按用户截图反馈重做）----------
    之前每个元素都用内联 style 写死深色（文字 #e6edf3 / 次要 #8b949e），浅色主题下变成
@@ -6476,6 +6585,7 @@ html[data-theme] .git-pop,
 html[data-theme] .g-ask,
 html[data-theme] .g-msg,
 html[data-theme] .g-pop,
+html[data-theme] .g-modal,
 html[data-theme] .g-menu {
   background: var(--bg-panel);
   color: var(--text);

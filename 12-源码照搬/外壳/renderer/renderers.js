@@ -17033,7 +17033,9 @@ renderers['file'] = (body, meta, head) => {
     pane.appendChild(bar); pane.appendChild(list);
     wrap.appendChild(pane);
     // showIgnored：是否显示被 .gitignore 忽略的条目（默认藏；面板标题行的「已忽略 N」开关翻它）
-    var state = { root: '', atDrives: false, showIgnored: false };   // atDrives：drives 模式下停在「此电脑」盘符列表
+    // want：外部（Git 面板）要求「定位到某个文件」时记完整路径；父目录加载完后由 applyLocated 选中并滚到可见
+    var state = { root: '', atDrives: false, showIgnored: false, want: '' };
+    var wantTimer = 0;
 
     // —— 工具条内容 ——
     if (isLocal) {
@@ -17123,9 +17125,25 @@ renderers['file'] = (body, meta, head) => {
       state.cpath = cpath;
     }
 
+    // 外部（Git 面板）要求定位：父目录加载完以后，把目标文件行 / 缩略图卡片选中并滚到中间
+    function applyLocated() {
+      if (!state.want) return;
+      var want = String(state.want).toLowerCase();
+      state.want = '';
+      var nodes = list.querySelectorAll('[data-full]');
+      for (var i = 0; i < nodes.length; i++) {
+        var full = String(nodes[i].getAttribute('data-full') || '').toLowerCase();
+        if (full !== want) continue;
+        Array.prototype.forEach.call(list.querySelectorAll('.oa-file-row.sel, .oa-thumb.sel'), function (x) { x.classList.remove('sel'); });
+        nodes[i].classList.add('sel');
+        try { nodes[i].scrollIntoView({ block: 'center' }); } catch (e) { wbWarn(e); }
+        return;
+      }
+    }
+
     function rows(list2, onOpen, onEnter) {
       list.innerHTML = '';
-      if (!list2 || !list2.length) { list.appendChild(mk('div', 'oa-file-empty', '（空目录）')); return; }
+      if (!list2 || !list2.length) { list.appendChild(mk('div', 'oa-file-empty', '（空目录）')); applyLocated(); return; }
 
       // ★ 素材预览：图片 + 视频，一排两个（缩略图网格）
       //   本地：直接 file:// 出图 / 出首帧（大素材、几十 MB 的贴图也不卡；失败自动退回 IPC 读图）
@@ -17142,6 +17160,7 @@ renderers['file'] = (body, meta, head) => {
                              : (state.root || '').replace(/\/+$/, '') + '/' + it.name;
           var isVideo = isVid(it.name);
           var card = mk('div', 'oa-thumb');
+          card.setAttribute('data-full', full);
           var box = mk('div', 'oa-thumb-box');
           var ph = mk('div', 'oa-thumb-ph', isVideo ? '🎬' : '🖼');
           box.appendChild(ph);
@@ -17227,10 +17246,12 @@ renderers['file'] = (body, meta, head) => {
         });
         list.appendChild(grid);
       }
-      if (!rest.length && medGrid.length) return;
+      if (!rest.length && medGrid.length) { applyLocated(); return; }
 
       rest.forEach(function (it) {
+        var rowFull = (state.root || '').replace(/[\\/]+$/, '') + (isLocal ? '\\' : '/') + it.name;
         var row = mk('div', 'file-row oa-file-row' + (it.ign ? ' oa-file-ignored' : ''));
+        row.setAttribute('data-full', rowFull);
         row.appendChild(mk('span', 'oa-file-ic', it.isDir ? '📁' : '📄'));
         row.appendChild(mk('span', 'oa-file-name', it.name));
         row.appendChild(mk('span', 'oa-file-size', it.isDir ? '' : fmtSize(it.size)));
@@ -17292,6 +17313,7 @@ renderers['file'] = (body, meta, head) => {
         });
         list.appendChild(row);
       });
+      applyLocated();
     }
 
     // ★ drives 模式：「此电脑」盘符列表（C / D / E / F）—— 只有场景 json 配了 drives 时才会走到这儿
@@ -17449,7 +17471,23 @@ renderers['file'] = (body, meta, head) => {
         }).catch(function (e) { showTip('读取异常：' + e.message, 5000); });
       }
     }
-    return { side: side, load: load };
+    // 定位到某个文件：只服务本地栏。先把父目录列出来，rows() 画完后 applyLocated 选中并滚到可见。
+    //   Git 面板双击「直接看文件内容」时调它；普通 open(目录) 的语义不变。
+    function locate(full) {
+      if (!isLocal) return false;
+      var f = normWin(full);
+      if (!f) return false;
+      var i = f.lastIndexOf('\\');
+      if (i < 1) return false;
+      var dir = f.slice(0, i);
+      if (/^[A-Za-z]:$/.test(dir)) dir += '\\';
+      state.want = f;
+      clearTimeout(wantTimer);
+      wantTimer = setTimeout(function () { state.want = ''; }, 8000);
+      load(dir);
+      return true;
+    }
+    return { side: side, load: load, locate: locate };
   }
 
   var panes = [];
@@ -17476,6 +17514,7 @@ renderers['file'] = (body, meta, head) => {
 
   // 2026-10-20（宿主：预览首页点文件夹 ⇒ 让这块文件管理跳过去）—— 对外挂一个极小的 API：
   //   预览面板（view）用 window.__kunFiles[面板id].open(路径) 调；同一个文档里，不需要新 IPC。
+  //   2026-11-17 加 locate(文件路径)：Git 面板双击「直接看文件内容」时，翻到父目录并选中那一行。
   //   ⚠ 面板重建（⟳）必须把旧的那份删掉，否则预览会调到已经 dispose 的旧闭包。
   try {
     var myId = String((meta && meta.id) || '');
@@ -17486,6 +17525,12 @@ renderers['file'] = (body, meta, head) => {
         var lp = panes.filter(function (x) { return x.side === 'local'; })[0];
         if (!lp) return false;
         lp.load(p); return true;
+      },
+      locate: function (p) {
+        if (disposed || !p) return false;
+        var lp = panes.filter(function (x) { return x.side === 'local'; })[0];
+        if (!lp || !lp.locate) return false;
+        return lp.locate(p);
       }
     };
   } catch (e) { wbWarn(e) }
@@ -20744,7 +20789,7 @@ renderers.neuron = (body, meta, head) => {
 //   历史：左提交列表（图谱点 + 摘要 + 作者·时间），右详情（提交信息 + 改动文件，点文件看 diff）。
 //   变更：文件列表（状态字母 + 路径），点一行在预览面板看 diff。
 renderers.git = function (body, meta) {
-  var repo = String((meta && meta.repo) || '');
+  var repo = String((meta && meta.repo) || '').trim();
   body.innerHTML = '';
 
   var wrap = el('div', 'g-wrap');
@@ -20778,9 +20823,221 @@ renderers.git = function (body, meta) {
 
   var dead = false, data = null, tab = 'changes', sel = '', detail = null, busy = false, picker = false;
   var picked = {}, draftMsg = '', amendOn = false, committing = false;
+  // 双击变更文件看什么（2026-11-17 宿主：「要可选择两种方式查看…默认为直接查看文件」）：
+  //   'file' = 直接看工作区文件内容（默认）；'diff' = 看改动视图。记在 localStorage，切面板还在。
+  var openMode = 'file';
+  try { if (localStorage.getItem('app.git.openMode') === 'diff') openMode = 'diff'; } catch (e) { wbWarn(e); }
   var viewRev = '', logData = null;
+  // 变更单 / 不参与提交（2026-11-17）：配置落 外壳\data\git-变更单.json，按仓库绝对路径分桶。
+  //   cfg = 当前仓库这一份；active = 'all'（全部）| 'default'（未归组）| 某个变更单 id。
+  var cfgAll = { v: 1, repos: {} };
+  var cfg = { lists: [], active: 'all', exclude: [], drafts: { all: '', default: '' } };
+  var cfgLoaded = false;
+  var popMode = '', popBtn = null, scopeBtn = null;
+  var cfgTimer = 0, cfgSaving = false, cfgAgain = false;
+  var draftTimer = 0;
+  var curModal = null;                 // 打开中的卡片层（变更单管理 / 不提交规则 / 移动文件）
+  var draggingPath = '';               // 正在拖的文件（拖到组头上就归进去）
+  var collapsed = {};                  // 用户手动折叠过的组（没记录的组：空组默认折叠，有文件默认展开）
+  // 自动刷新（2026-11-17 宿主：「分支的提交更新不会实时刷新」）：
+  //   以前只有「打开面板」和「点 ⟳」两个时机读 git ⇒ AI 会话或用命令行提交完，面板还停在旧样子。
+  //   每 2 秒只 stat 几个 .git 文件的 mtime+size 当指纹（子毫秒级），指纹变了才真跑 git；
+  //   另配 20 秒一次的全量读，兜住工作区改动与「几分钟前」这类相对时间。
+  var liveTimer = 0, slowTimer = 0, liveBusy = false, liveSig = '', gitStamp = '';
   function api() { return (window.app && window.app.git) || null; }
   function msg(t) { var d = el('div', 'g-msg', t); wrap.appendChild(d); setTimeout(function () { if (d.parentNode) d.remove(); }, 6000); }
+  /* ---------- 变更单（自定义命名的文件分组）+ 不参与提交 ---------- */
+  // 2026-11-17 宿主：「idea 里的 new changelist，这样我自己区分出文件」+「指定某个区域的文件不参与提交」。
+  //   ① 变更单 = 一组路径的命名集合，只决定「变更」页签显示哪些文件、提交哪些文件，不动 git 索引；
+  //      没归进任何单的文件算「未归组」，active='all' 时就是原来的全部列表。
+  //   ② 不参与提交 = 路径规则（目录前缀 / 单文件 / 通配），命中的文件照样列出来（置灰 + ⊘ 徽标），
+  //      但勾选框禁用、提交时强制过滤 —— 防手滑，不代替 .gitignore。
+  //   ③ 配置只存本机（外壳\data\git-变更单.json，按仓库分桶），不写进仓库、不跟 git 走。
+  function tip(t, bad) {
+    try {
+      if (typeof window.__tbsToast === 'function') { window.__tbsToast(t, !!bad, bad ? 8000 : 2600); return; }
+    } catch (e) { wbWarn(e); }
+    msg(t);
+  }
+  function cfgApi() {
+    var a = api();
+    return (a && a.listsGet && a.listsSet) ? a : null;
+  }
+  function cleanName(s) { return String(s == null ? '' : s).replace(/\s+/g, ' ').trim().slice(0, 24); }
+  function uid() { return 'l' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
+  function findIn(lists, id) {
+    for (var i = 0; i < (lists || []).length; i++) if (lists[i].id === id) return lists[i];
+    return null;
+  }
+  function findList(id) { return findIn(cfg.lists, id); }
+  function listOfPath(p) {
+    for (var i = 0; i < cfg.lists.length; i++) if (cfg.lists[i].files.indexOf(p) >= 0) return cfg.lists[i];
+    return null;
+  }
+  function listName(id) {
+    if (id === 'default') return '未归组';
+    var l = findList(id);
+    return l ? l.name : '全部';
+  }
+  // 路径规则：目录前缀（"12-源码照搬/引擎数据/" 带不带结尾 / 都认）、单文件、含 * ? 的通配。
+  //   通配里没有 / 就只比文件名（*.log 能盖住任意目录），有 / 就比整条仓库相对路径。
+  function ruleHit(path, rule) {
+    var p = String(path == null ? '' : path).replace(/\\/g, '/');
+    var r = String(rule == null ? '' : rule).replace(/\\/g, '/').replace(/^\.\//, '').trim().replace(/\/+$/, '');
+    if (!r) return false;
+    if (r.indexOf('*') >= 0 || r.indexOf('?') >= 0) {
+      var esc = r.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.');
+      var re = new RegExp('^' + esc + '$');
+      var base = p.slice(p.lastIndexOf('/') + 1);
+      return re.test(r.indexOf('/') < 0 ? base : p);
+    }
+    return p === r || p.indexOf(r + '/') === 0;
+  }
+  function skipRule(path) {
+    for (var i = 0; i < cfg.exclude.length; i++) if (ruleHit(path, cfg.exclude[i])) return cfg.exclude[i];
+    return '';
+  }
+  function isSkip(path) { return !!skipRule(path); }
+  function visibleChanges() {
+    var ch = (data && data.changes) || [];
+    if (cfg.active === 'all') return ch;
+    if (cfg.active === 'default') return ch.filter(function (c) { return !listOfPath(c.path); });
+    var l = findList(cfg.active);
+    if (!l) return ch;
+    return ch.filter(function (c) { return l.files.indexOf(c.path) >= 0; });
+  }
+  // 当前仓库的口径数字（下拉 / 组头 / 提交区都用这一套，避免三处各算一遍）
+  function countOfList(l) {
+    return ((data && data.changes) || []).filter(function (c) { return l.files.indexOf(c.path) >= 0; }).length;
+  }
+  function unassignedCount() {
+    return ((data && data.changes) || []).filter(function (c) { return !listOfPath(c.path); }).length;
+  }
+  function groupKeyOf(c) {
+    var l = listOfPath(c.path);
+    return l ? l.id : 'default';
+  }
+  function checkedFiles() {
+    return visibleChanges().filter(function (c) { return picked[c.path] === true && !isSkip(c.path); });
+  }
+  // 每个变更单（含未归组）都有自己的提交信息草稿：切组时自动换，不会把上一组的话带过来
+  function draftOf(id) {
+    if (id === 'default') return String(cfg.drafts.default || '');
+    var l = findList(id);
+    return l ? String(l.msg || '') : String(cfg.drafts.all || '');
+  }
+  function stashDraft() {
+    if (cfg.active === 'default') { cfg.drafts.default = draftMsg; return; }
+    var l = findList(cfg.active);
+    if (l) l.msg = draftMsg; else cfg.drafts.all = draftMsg;
+  }
+  function clearDraft() {
+    if (cfg.active === 'default') cfg.drafts.default = '';
+    else {
+      var l = findList(cfg.active);
+      if (l) l.msg = ''; else cfg.drafts.all = '';
+    }
+    draftMsg = '';
+  }
+  // 变更列表分组：命名变更单按创建顺序在前，未归组永远在最后（全部视图里连空组也画出来，空组是拖拽落点）
+  function buildGroups(ch) {
+    var groups = [];
+    cfg.lists.forEach(function (l) {
+      groups.push({
+        key: l.id, name: l.name, list: l,
+        files: ch.filter(function (c) { return l.files.indexOf(c.path) >= 0; })
+      });
+    });
+    groups.push({
+      key: 'default', name: '未归组', list: null,
+      files: ch.filter(function (c) { return !listOfPath(c.path); })
+    });
+    if (cfg.active === 'default') return groups.filter(function (g) { return g.key === 'default'; });
+    if (cfg.active !== 'all') return groups.filter(function (g) { return g.key === cfg.active; });
+    return groups;
+  }
+  function isCollapsed(g) {
+    var v = collapsed[g.key];
+    return v === undefined ? !g.files.length : !!v;
+  }
+  // 变更表刷新后收口：文件已经不在改动里了，就从变更单里摘掉（别让旧路径越攒越多）
+  function pruneLists(changes) {
+    var alive = {};
+    (changes || []).forEach(function (c) { alive[c.path] = 1; });
+    var dirty = false;
+    cfg.lists.forEach(function (l) {
+      var next = l.files.filter(function (p) { return alive[p]; });
+      if (next.length !== l.files.length) { l.files = next; dirty = true; }
+    });
+    if (dirty) saveCfg();
+  }
+  function sanitizeCfg(one) {
+    var out = { lists: [], active: 'all', exclude: [], drafts: { all: '', default: '' } };
+    if (!one || typeof one !== 'object') return out;
+    (Array.isArray(one.lists) ? one.lists : []).forEach(function (l) {
+      if (!l || typeof l !== 'object') return;
+      var name = cleanName(l.name);
+      if (!name) return;
+      var id = String(l.id || uid());
+      if (findIn(out.lists, id)) id = uid();
+      // 文件路径统一成 git 的写法（正斜杠），手改过 JSON 也不会对不上
+      var seenF = {}, files = [];
+      (Array.isArray(l.files) ? l.files : []).forEach(function (p) {
+        if (typeof p !== 'string') return;
+        var v = p.replace(/\\/g, '/');
+        if (!v || seenF[v]) return;
+        seenF[v] = 1;
+        files.push(v);
+      });
+      out.lists.push({ id: id, name: name, files: files, msg: String(l.msg || '').slice(0, 2000) });
+    });
+    var act = String(one.active || 'all');
+    out.active = (act === 'all' || act === 'default' || !!findIn(out.lists, act)) ? act : 'all';
+    var seen = {};
+    (Array.isArray(one.exclude) ? one.exclude : []).forEach(function (r) {
+      var v = String(r || '').replace(/\\/g, '/').replace(/^\.\//, '').trim().replace(/\/+$/, '');
+      if (!v || seen[v]) return;
+      seen[v] = 1;
+      out.exclude.push(v);
+    });
+    out.exclude = out.exclude.slice(0, 100);
+    var dr = (one.drafts && typeof one.drafts === 'object') ? one.drafts : {};
+    out.drafts = {
+      all: String(dr.all || '').slice(0, 2000),
+      default: String(dr.default || '').slice(0, 2000)
+    };
+    return out;
+  }
+  async function loadCfg() {
+    cfgLoaded = true;
+    var a = cfgApi();
+    cfg = { lists: [], active: 'all', exclude: [], drafts: { all: '', default: '' } };
+    if (!a) { draftMsg = ''; return; }    // 旧预加载：配置只在内存里，功能照用，重启即失
+    var r = null;
+    try { r = await a.listsGet(); } catch (e) { wbWarn(e); }
+    if (r && r.ok && r.data && typeof r.data === 'object') cfgAll = r.data;
+    if (!cfgAll.repos || typeof cfgAll.repos !== 'object' || Array.isArray(cfgAll.repos)) cfgAll.repos = {};
+    cfg = sanitizeCfg(cfgAll.repos[repo]);
+    draftMsg = draftOf(cfg.active);
+    if (data && data.ok) { pruneLists(data.changes); renderChanges(); }
+  }
+  function saveCfg() {
+    if (cfgTimer) clearTimeout(cfgTimer);
+    cfgTimer = setTimeout(function () { flushCfg(); }, 250);
+  }
+  async function flushCfg() {
+    cfgTimer = 0;
+    var a = cfgApi();
+    if (!a) return;
+    var one = { lists: cfg.lists, active: cfg.active, exclude: cfg.exclude, drafts: cfg.drafts };
+    if (cfgSaving) { cfgAgain = true; return; }
+    cfgSaving = true;
+    var r = null;
+    try { r = await a.listsSet(repo, one); } catch (e) { r = { ok: false, err: String((e && e.message) || e) }; }
+    cfgSaving = false;
+    if (!r || !r.ok) { tip('✗ 变更单没存上：' + ((r && r.err) || '未知错误'), true); return; }
+    if (cfgAgain) { cfgAgain = false; flushCfg(); }
+  }
   // git 的 porcelain 状态码是两位（X = 暂存区，Y = 工作区），未跟踪是 "??"、忽略是 "!!"；
   // 面板一行只放得下一个字母，先归一，否则 14px 的窄格里会挤成 "??"（宿主：前面的问号是什么）。
   function stLetter(c) {
@@ -20849,10 +21106,11 @@ renderers.git = function (body, meta) {
   }
 
   /* ---------- 变更 ---------- */
-  // 视觉分层（2026-11-12 宿主：「纯文本的内容太多了，没法区分」）：
-  //   ① 顶部一行状态计数胶囊 + 代码增删（main.js 已经给了 diff --shortstat）；
-  //   ② 按 已暂存 / 未暂存 / 未跟踪 分组，组头带彩点与条数，空组不画（顺序照 IDEA）；
-  //   ③ 每行 = 彩色状态块 + 类型徽标 + 暗目录 + 亮文件名，行左侧一条状态色带。
+  // 视觉分层（2026-11-17 按「太反人类了」重做）：
+  //   ① 顶部 scope 栏：当前变更单 + 新建 + 不提交规则入口；
+  //   ② 每个变更单一个组头（组级全选 / 折叠 / 提交 / ⋯），组内再按 已暂存 / 未暂存 / 未跟踪 画小子头；
+  //   ③ 每行 = 勾选框 + 彩色状态块 + 类型徽标 + 暗目录 + 亮文件名，只给「⊘ 不提交」挂行尾徽标；
+  //   ④ 底部 sticky 提交区，跟着当前变更单走，草稿也按组分开存。
   //   颜色一律走设计令牌（--warn/--ok/--err/--accent），浅色主题自动跟随。
   function stageGroup(code) {
     var raw = String(code == null ? '' : code);
@@ -20878,26 +21136,67 @@ renderers.git = function (body, meta) {
     var ds = String((data && data.diffStat) || '');
     var ins = Number((ds.match(/(\d+) insertion/) || [null, 0])[1]);
     var del = Number((ds.match(/(\d+) deletion/) || [null, 0])[1]);
-    if (ins || del) {
+    // 增删行数是整仓口径：只在「全部」里显示，别让单组里的人对不上自己的文件
+    if (cfg.active === 'all' && (ins || del)) {
       sum.appendChild(el('span', 'g-chip is-add', '+' + ins));
       sum.appendChild(el('span', 'g-chip is-rm', '−' + del));
     }
+    var modeBox = el('span', 'g-openmode');
+    modeBox.appendChild(el('span', 'g-openmode-l', '双击看'));
+    [['file', '内容', '直接看工作区文件内容（默认）'], ['diff', '改动', '看 git 改动 diff']].forEach(function (x) {
+      var b = el('button', 'g-om' + (openMode === x[0] ? ' is-on' : ''), x[1]);
+      b.title = x[2];
+      b.addEventListener('click', function () { setOpenMode(x[0]); });
+      modeBox.appendChild(b);
+    });
+    sum.appendChild(modeBox);
     return sum;
   }
-  // 勾选变了就地更新「已勾选 n / m」，不整块重绘（重绘会把刚点的复选框焦点弹掉）
-  function updatePickedCount() {
-    var elN = paneChanges.querySelector('.g-cbox-n');
-    if (!elN || !data || !data.changes) return;
-    elN.textContent = '已勾选 ' + data.changes.filter(function (c) { return picked[c.path] !== false; }).length + ' / ' + data.changes.length;
-  }
-  function changeRow(c) {
-    var row = el('div', 'g-file ' + codeCls(c.code));
+  // 勾选语义（2026-11-17 宿主：「默认不要选中任何文件」）：picked 只记**手动勾上**的路径，
+  //   没记录的路径一律按「不勾」算 —— 新出现的文件、刚刷出来的变更，默认都不进提交。
+  function checkedCount() { return checkedFiles().length; }
+  function mkCk(checked, disabled) {
     var ck = document.createElement('input');
     ck.type = 'checkbox';
     ck.className = 'g-ck';
-    ck.checked = picked[c.path] !== false;
+    ck.checked = !!checked;
+    ck.disabled = !!disabled;
+    return ck;
+  }
+  // 勾选变了就地同步：全选框、组头框、提交区计数（不整块重绘，免得点一下就丢焦点）
+  function updateChecks() {
+    var vis = visibleChanges();
+    var sel = vis.filter(function (c) { return !isSkip(c.path); });
+    var n = checkedFiles().length;
+    var all = paneChanges.querySelector('.g-chead .g-ck');
+    if (all) {
+      all.checked = sel.length > 0 && n === sel.length;
+      all.indeterminate = n > 0 && n < sel.length;
+    }
+    var heads = paneChanges.querySelectorAll('.g-cgrph .g-ck');
+    for (var i = 0; i < heads.length; i++) {
+      var key = heads[i].getAttribute('data-grp');
+      var gs = sel.filter(function (c) { return groupKeyOf(c) === key; });
+      var gn = gs.filter(function (c) { return picked[c.path] === true; }).length;
+      heads[i].checked = gs.length > 0 && gn === gs.length;
+      heads[i].indeterminate = gn > 0 && gn < gs.length;
+      heads[i].disabled = !gs.length;
+    }
+    var elN = paneChanges.querySelector('.g-cbox-n');
+    if (elN) elN.textContent = '已勾选 ' + n + ' / ' + sel.length;
+    var elG = paneChanges.querySelector('.g-cbox-g');
+    if (elG) {
+      var keys = {}, kc = 0;
+      checkedFiles().forEach(function (c) { var k = groupKeyOf(c); if (!keys[k]) { keys[k] = 1; kc++; } });
+      elG.textContent = (cfg.active === 'all' && kc > 1) ? ('跨 ' + kc + ' 个变更单') : '';
+    }
+  }
+  function changeRow(c) {
+    var skip = skipRule(c.path);
+    var row = el('div', 'g-file is-in-group ' + codeCls(c.code) + (skip ? ' is-skip' : ''));
+    var ck = mkCk(!skip && picked[c.path] === true, !!skip);   // 命中「不参与提交」：能看 diff，但不能勾
     ck.addEventListener('click', function (e) { e.stopPropagation(); });
-    ck.addEventListener('change', function () { picked[c.path] = ck.checked; updatePickedCount(); });
+    ck.addEventListener('change', function () { picked[c.path] = ck.checked; updateChecks(); });
     row.appendChild(ck);
     var st = el('span', 'g-st ' + codeCls(c.code), stLetter(c.code));
     st.title = stWord(c.code);
@@ -20908,64 +21207,207 @@ renderers.git = function (body, meta) {
     if (bits.dir) pw.appendChild(el('span', 'g-dir', bits.dir));
     pw.appendChild(el('span', 'g-fname', bits.name));
     row.appendChild(pw);
-    row.title = c.path + '（点行在预览里看 diff；勾选框决定是否提交）';
-    row.addEventListener('click', function () { openDiff(c.path, row); });
+    if (skip) {
+      var b1 = el('span', 'g-cl is-skip', '⊘ 不提交');
+      b1.title = '命中「不参与提交」规则：' + skip + '\n点这里打开规则管理（删掉这条就恢复）';
+      b1.addEventListener('click', function (e) { e.stopPropagation(); openSkipManager(); });
+      row.appendChild(b1);
+    }
+    row.title = c.path + (skip ? '（已设为不参与提交）' : '')
+      + '（单击选中；双击看' + (openMode === 'diff' ? '改动 diff' : '文件内容')
+      + '；勾选框决定是否提交；拖到组头可归组）';
+    // 单击只选中：双击要等两次 click 都发完才触发，如果 click 里直接开 diff，双击会先闪一次变化视图
+    row.addEventListener('click', function () {
+      Array.prototype.forEach.call(paneChanges.querySelectorAll('.g-file.is-sel'), function (x) { x.classList.remove('is-sel'); });
+      row.classList.add('is-sel');
+    });
+    // 双击按当前模式打开：默认直接看工作区文件内容；切到改动模式才是原来的 diff
+    row.addEventListener('dblclick', function (e) {
+      if (e.target && e.target.closest && e.target.closest('input, .g-cl')) return;   // 双击勾选框 / ⊘ 徽标不算打开文件
+      openChange(c, row);
+    });
+    row.addEventListener('contextmenu', function (e) { e.preventDefault(); e.stopPropagation(); openFileMenu(c, e.clientX, e.clientY); });
+    row.draggable = true;
+    row.addEventListener('dragstart', function (e) {
+      draggingPath = c.path;
+      row.classList.add('is-drag');
+      try { e.dataTransfer.setData('text/plain', c.path); e.dataTransfer.effectAllowed = 'move'; } catch (err) { wbWarn(err); }
+    });
+    row.addEventListener('dragend', function () { draggingPath = ''; row.classList.remove('is-drag'); });
     return row;
   }
-  function changeGroup(g, rows) {
-    var box = el('div', 'g-grp');
-    var gh = el('div', 'g-grph');
-    gh.appendChild(el('span', 'g-grp-dot ' + g.cls));
-    gh.appendChild(el('span', 'g-grp-t', g.t));
-    gh.appendChild(el('span', 'g-grp-n', String(rows.length)));
-    gh.title = g.hint;
-    box.appendChild(gh);
-    var list = el('div', 'g-list');
-    rows.forEach(function (c) { list.appendChild(changeRow(c)); });
-    box.appendChild(list);
+  // 组折叠：用户点过就按用户的来；没点过时，空组折叠、有文件的组展开
+  function toggleGroup(g, arrow, body) {
+    var v = !isCollapsed(g);
+    collapsed[g.key] = v;
+    body.style.display = v ? 'none' : '';
+    arrow.textContent = v ? '▸' : '▾';
+  }
+  // 把文件拖到组头 / 组体上 = 归进这个变更单（「未归组」= 从变更单里移出）
+  function bindDrop(zone, g) {
+    zone.addEventListener('dragover', function (e) {
+      if (!draggingPath) return;
+      e.preventDefault();
+      try { e.dataTransfer.dropEffect = 'move'; } catch (err) { wbWarn(err); }
+      zone.classList.add('is-drop');
+    });
+    zone.addEventListener('dragleave', function (e) {
+      if (zone.contains(e.relatedTarget)) return;
+      zone.classList.remove('is-drop');
+    });
+    zone.addEventListener('drop', function (e) {
+      if (!draggingPath) return;
+      e.preventDefault();
+      zone.classList.remove('is-drop');
+      var p = draggingPath;
+      draggingPath = '';
+      var target = g.list ? g.list.id : 'default';
+      if (groupKeyOf({ path: p }) === target) return;
+      collapsed[g.key] = false;                  // 落点组展开，让人看见文件进去了
+      movePaths([p], target);
+      tip('已移动到「' + (g.list ? g.name : '未归组') + '」');
+    });
+  }
+  // 组头「提交」：切到这一组 + 跳到提交框；不是立刻提交，仍然要先勾文件
+  function commitScope(g) {
+    setActive(g.key);
+    setTimeout(function () {
+      var ta = paneChanges.querySelector('.g-msginput');
+      if (ta) { try { ta.focus(); } catch (e) { wbWarn(e); } }
+    }, 0);
+  }
+  function groupBlock(g) {
+    var box = el('div', 'g-cgrp');
+    var head = el('div', 'g-cgrph');
+    head.setAttribute('data-grp', g.key);
+    var selectable = g.files.filter(function (c) { return !isSkip(c.path); });
+    var allCk = mkCk(selectable.length > 0 && selectable.every(function (c) { return picked[c.path] === true; }), !selectable.length);
+    allCk.setAttribute('data-grp', g.key);
+    allCk.title = '勾上 / 取消这一组里所有可提交的文件';
+    allCk.addEventListener('click', function (e) { e.stopPropagation(); });
+    allCk.addEventListener('change', function () {
+      g.files.forEach(function (c) { if (!isSkip(c.path)) picked[c.path] = allCk.checked; });
+      updateChecks();
+    });
+    head.appendChild(allCk);
+    var arrow = el('span', 'g-cgrp-arrow', isCollapsed(g) ? '▸' : '▾');
+    var name = el('span', 'g-cgrp-name', g.name);
+    name.title = '点名字折叠 / 展开这一组';
+    head.appendChild(arrow); head.appendChild(name);
+    head.appendChild(el('span', 'g-grp-n', String(g.files.length)));
+    var act = el('div', 'g-cgrp-act');
+    if (g.files.length) {
+      var bGo = el('button', 'g-mini', '提交');
+      bGo.title = '切到这一组并跳到提交框（还要先勾文件）';
+      bGo.addEventListener('click', function (e) { e.stopPropagation(); commitScope(g); });
+      act.appendChild(bGo);
+    }
+    var bMore = el('button', 'g-mini', '⋯');
+    bMore.title = '更多：提交本组 / 重命名 / 移动本组 / 删除';
+    bMore.addEventListener('click', function (e) { e.stopPropagation(); openGroupMenu(g, bMore); });
+    act.appendChild(bMore);
+    head.appendChild(act);
+    head.title = g.list
+      ? ('变更单「' + g.name + '」：把文件拖到组头上就归进来')
+      : '未归组的改动：把文件拖到这里 = 从变更单移出';
+
+    var body = el('div', 'g-cgrp-b');
+    body.style.display = isCollapsed(g) ? 'none' : '';
+    arrow.addEventListener('click', function (e) { e.stopPropagation(); toggleGroup(g, arrow, body); });
+    name.addEventListener('click', function (e) { e.stopPropagation(); toggleGroup(g, arrow, body); });
+
+    if (!g.files.length) {
+      body.appendChild(el('div', 'g-cgrp-empty', g.list
+        ? '这个变更单还是空的：把文件拖到组名上，或右键文件 →「移动到变更单…」'
+        : '没有未归组的改动'));
+    } else {
+      var buckets = { staged: [], unstaged: [], untracked: [] };
+      g.files.forEach(function (c) { buckets[stageGroup(c.code)].push(c); });
+      var multi = ['staged', 'unstaged', 'untracked'].filter(function (k) { return buckets[k].length; }).length > 1;
+      [['staged', '已暂存', 'is-mod', '已 git add：这部分会原样进这次提交'],
+        ['unstaged', '未暂存', 'is-warn', '还没 git add（提交时面板会按勾选的路径补 add）'],
+        ['untracked', '未跟踪', 'is-new', '新文件，还没进版本库']].forEach(function (x) {
+        if (!buckets[x[0]].length) return;
+        if (multi) {                        // 只有一种状态时不加小标题，少一层噪音
+          var sh = el('div', 'g-subh');
+          sh.appendChild(el('span', 'g-grp-dot ' + x[2]));
+          sh.appendChild(el('span', '', x[1] + ' ' + buckets[x[0]].length));
+          sh.title = x[3];
+          body.appendChild(sh);
+        }
+        buckets[x[0]].forEach(function (c) { body.appendChild(changeRow(c)); });
+      });
+    }
+    box.appendChild(head); box.appendChild(body);
+    bindDrop(head, g);
+    bindDrop(body, g);
     return box;
   }
-  function renderChanges() {
-    paneChanges.innerHTML = '';
-    var ch = (data && data.changes) || [];
-    if (!ch.length) { paneChanges.appendChild(el('div', 'g-empty', '工作区干净 —— 没有未提交的改动')); return; }
-
-    // 1) 摘要：一眼看出这次改动的规模（改几处 / 增删多少行）
-    paneChanges.appendChild(changeSummary(ch));
-
-    // 2) 全选
-    var head = el('div', 'g-chead');
-    var ckAll = document.createElement('input');
-    ckAll.type = 'checkbox';
-    ckAll.className = 'g-ck';
-    ckAll.checked = ch.every(function (c) { return picked[c.path] !== false; });
-    ckAll.addEventListener('change', function () { ch.forEach(function (c) { picked[c.path] = ckAll.checked; }); renderChanges(); });
-    head.appendChild(ckAll);
-    head.appendChild(el('span', 'g-chead-t', '全选 · ' + ch.length + ' 个文件'));
-    paneChanges.appendChild(head);
-
-    // 3) 分组：已暂存 → 未暂存 → 未跟踪
-    var buckets = { staged: [], unstaged: [], untracked: [] };
-    ch.forEach(function (c) { buckets[stageGroup(c.code)].push(c); });
-    [['staged', '已暂存', 'is-mod', '已 git add：这部分会原样进这次提交'],
-      ['unstaged', '未暂存', 'is-warn', '还没 git add（提交时面板会按勾选的路径补 add）'],
-      ['untracked', '未跟踪', 'is-new', '新文件，还没进版本库']].forEach(function (x) {
-      if (!buckets[x[0]].length) return;
-      paneChanges.appendChild(changeGroup({ cls: x[2], t: x[1], hint: x[3] }, buckets[x[0]]));
-    });
-
-    // 4) 提交区
+  // 顶部一行：变更单切换 + 新建 + 不参与提交（都在「变更」页签里，不再塞进工具栏）
+  function scopeBar() {
+    var bar = el('div', 'g-cbar');
+    bar.appendChild(el('span', 'g-cbar-t', '变更单'));
+    scopeBtn = el('button', 'g-cbar-dd', listName(cfg.active) + ' ▾');
+    scopeBtn.title = '切换变更单（只影响「变更」页签显示与提交范围）';
+    scopeBtn.addEventListener('click', function (e) { e.stopPropagation(); openScopePop(); });
+    bar.appendChild(scopeBtn);
+    var add = el('button', 'g-cbar-btn', '＋ 新建');
+    add.title = '新建变更单（给一组文件起个名字）';
+    add.addEventListener('click', function () { openListManager(true); });
+    bar.appendChild(add);
+    var skip = el('button', 'g-cbar-btn g-cbar-skip' + (cfg.exclude.length ? ' is-on' : ''), '⊘ 不提交 ' + cfg.exclude.length);
+    skip.title = '不参与提交的区域：' + cfg.exclude.length + ' 条规则（点击管理）';
+    skip.addEventListener('click', function () { openSkipManager(); });
+    bar.appendChild(skip);
+    if (cfg.active !== 'all') {
+      var back = el('span', 'g-cbar-back', '查看全部');
+      back.title = '回到所有变更';
+      back.addEventListener('click', function () { setActive('all'); });
+      bar.appendChild(back);
+    }
+    return bar;
+  }
+  function emptyScope() {
+    var box = el('div', 'g-empty');
+    box.appendChild(el('div', '', cfg.active === 'all'
+      ? '工作区干净 —— 没有未提交的改动'
+      : ('「' + listName(cfg.active) + '」里没有改动。')));
+    var acts = el('div', 'g-empty-acts');
+    if (cfg.active !== 'all') {
+      var b1 = el('button', 'g-btn', '查看全部');
+      b1.addEventListener('click', function () { setActive('all'); });
+      acts.appendChild(b1);
+    }
+    var l = findList(cfg.active);
+    if (l) {
+      var b2 = el('button', 'g-btn', '删除这个变更单');
+      b2.addEventListener('click', function () {
+        confirmModal('删除变更单「' + l.name + '」', '只删分组，不动工作区文件；里面的文件会回到「未归组」。', '删除', function () { delList(l.id); });
+      });
+      acts.appendChild(b2);
+    }
+    if (acts.childNodes.length) box.appendChild(acts);
+    return box;
+  }
+  function commitBox(ch, canSel) {
     var box = el('div', 'g-commitbox');
     var cbh = el('div', 'g-cbox-h');
-    cbh.appendChild(el('span', 'g-cbox-t', '提交'));
-    cbh.appendChild(el('span', 'g-cbox-n', '已勾选 ' + ch.filter(function (c) { return picked[c.path] !== false; }).length + ' / ' + ch.length));
+    cbh.appendChild(el('span', 'g-cbox-t', '提交' + (cfg.active !== 'all' ? ' · ' + listName(cfg.active) : '')));
+    cbh.appendChild(el('span', 'g-cbox-g', ''));
+    cbh.appendChild(el('span', 'g-cbox-n', '已勾选 ' + checkedCount() + ' / ' + canSel.length));
     box.appendChild(cbh);
     var ta = document.createElement('textarea');
     ta.className = 'g-msginput';
-    ta.placeholder = '提交信息（格式自由，不校验）';
+    ta.placeholder = '提交信息（这个变更单专用，切组会自动换；格式自由，不校验）';
     ta.rows = 3;
     ta.value = draftMsg;
-    ta.addEventListener('input', function () { draftMsg = ta.value; });
+    // 草稿按组存：打字 1.5 秒后落盘，切组 / 提交 / 关面板都不会把话丢在输入框里
+    ta.addEventListener('input', function () {
+      draftMsg = ta.value;
+      if (draftTimer) clearTimeout(draftTimer);
+      draftTimer = setTimeout(function () { stashDraft(); saveCfg(); }, 1500);
+    });
+    ta.addEventListener('change', function () { stashDraft(); saveCfg(); });
     box.appendChild(ta);
 
     var acts = el('div', 'g-acts');
@@ -20987,15 +21429,52 @@ renderers.git = function (body, meta) {
     acts.appendChild(bCommit);
     acts.appendChild(bPush);
     box.appendChild(acts);
-    paneChanges.appendChild(box);
+    return box;
+  }
+  function renderChanges(resetTop) {
+    var st = paneChanges.scrollTop;
+    paneChanges.innerHTML = '';
+    paneChanges.appendChild(scopeBar());
+    var ch = visibleChanges();
+    var canSel = ch.filter(function (c) { return !isSkip(c.path); });
+    if (!ch.length) {
+      paneChanges.appendChild(emptyScope());
+      paneChanges.scrollTop = resetTop ? 0 : st;
+      return;
+    }
+
+    // 1) 摘要：一眼看出这次改动的规模（只在「全部」里显示仓库级增删，避免和单组对不上）
+    paneChanges.appendChild(changeSummary(ch));
+
+    // 2) 全选（只算「可提交」的行：命中不参与提交的禁选）
+    var head = el('div', 'g-chead');
+    var ckAll = mkCk(canSel.length > 0 && canSel.every(function (c) { return picked[c.path] === true; }), !canSel.length);
+    ckAll.addEventListener('change', function () {
+      ch.forEach(function (c) { if (!isSkip(c.path)) picked[c.path] = ckAll.checked; });
+      updateChecks();
+    });
+    head.appendChild(ckAll);
+    var allT = el('span', 'g-chead-t', '全选 · ' + canSel.length + ' 个可提交文件' + (ch.length > canSel.length ? '（⊘ 跳过 ' + (ch.length - canSel.length) + '）' : ''));
+    allT.title = '默认一个都不勾：勾哪些就提交哪些；⊘ 的行被「不参与提交」规则挡住，提交时一定不含它们';
+    head.appendChild(allT);
+    paneChanges.appendChild(head);
+
+    // 3) 变更单分组：每个组头都能折叠 / 全选 / 提交 / 拖动落点
+    buildGroups(ch).forEach(function (g) { paneChanges.appendChild(groupBlock(g)); });
+
+    // 4) 提交区（跟着当前变更单走；sticky 吸在面板底部）
+    paneChanges.appendChild(commitBox(ch, canSel));
+    updateChecks();
+    paneChanges.scrollTop = resetTop ? 0 : st;
   }
 
   async function doCommit(push) {
     var a = api();
     if (!a || !a.commit) { msg('这次启动的界面还没有提交能力 ⇒ 重启一次工作台'); return; }
     if (committing) return;
-    var files = ((data && data.changes) || []).filter(function (c) { return picked[c.path] !== false; }).map(function (c) { return c.path; });
-    if (!files.length) { msg('先勾选要提交的文件'); return; }
+    // 提交范围 = 当前变更单里**手动勾上**且没被「不参与提交」规则挡住的文件（缺一层都不提交）
+    var files = checkedFiles().map(function (c) { return c.path; });
+    if (!files.length) { msg('先勾选要提交的文件（⊘ 标记的不参与提交）'); return; }
     var message = String(draftMsg || '').trim();
     if (!message && !amendOn) { msg('提交信息不能为空（或用 Amend 复用上一条）'); return; }
     committing = true;
@@ -21004,9 +21483,12 @@ renderers.git = function (body, meta) {
     try { res = await a.commit(repo, files, message, { amend: amendOn, push: push }); } catch (e) { res = { ok: false, err: String((e && e.message) || e) }; }
     committing = false;
     if (!res || !res.ok) { renderChanges(); msg('✗ ' + ((res && res.err) || '提交失败')); return; }
-    draftMsg = '';
+    clearDraft();
     picked = {};
     amendOn = false;
+    // 提交掉的路径从变更单里摘掉（它们已经不是「改动」了）；剩下的归组关系留着
+    cfg.lists.forEach(function (l) { l.files = l.files.filter(function (p) { return files.indexOf(p) < 0; }); });
+    saveCfg();
     await load();
     setTab('log');
     msg(push ? (res.pushed ? '已提交并推送' : '已提交，推送失败：' + res.pushErr) : '已提交');
@@ -21114,23 +21596,95 @@ renderers.git = function (body, meta) {
     return false;
   }
 
+  // 双击变更文件：两种查看方式（宿主 2026-11-17 原话「要可选择两种方式查看，而不是默认预览变化视图，默认为直接查看文件」）
+  //   'file' 默认 = 工作区文件内容；'diff' = 现有改动视图。摘要行右侧两个小按钮二选一，右键菜单也能单次指定。
+  function setOpenMode(mode) {
+    if (mode !== 'diff') mode = 'file';
+    if (openMode === mode) return;
+    openMode = mode;
+    try { localStorage.setItem('app.git.openMode', openMode); } catch (e) { wbWarn(e); }
+    tip('双击变更文件：' + (openMode === 'file' ? '直接看文件内容' : '看改动 diff'));
+    if (data && data.ok) renderChanges();
+  }
+  // 仓库相对路径 → 本机绝对路径（git 面板只跑 Windows 壳；斜杠统一成反斜杠）
+  function repoFull(rel) {
+    var root = String(repo || '').replace(/[\\/]+/g, '\\').replace(/\\+$/, '');
+    var p = String(rel || '').replace(/\\/g, '/').replace(/^\/+/, '').replace(/\//g, '\\');
+    return root + '\\' + p;
+  }
+  // 「直接看文件内容」时，代码/文本类强制按文本打开：预览面板默认会把 .html 渲染成网页，
+  //   但这里用户要看的是文件本体（源码），不是渲染效果。图片/PDF/Office 仍交给预览面板按类型处理。
+  function previewKind(rel) {
+    var m = /\.([A-Za-z0-9]+)$/.exec(String(rel || ''));
+    var e = m ? m[1].toLowerCase() : '';
+    return /^(md|markdown|txt|json|jsonc|js|mjs|cjs|ts|tsx|jsx|css|scss|less|py|bat|cmd|ps1|vbs|ini|cfg|conf|log|csv|srt|ass|vtt|yaml|yml|xml|sql|toml|sh|env|gitignore|html?|vue|java|c|h|cpp|cs|go|rs|php|rb|swift|kt)$/.test(e)
+      ? 'text' : undefined;
+  }
+  // 文件面板对外挂的是 window.__kunFiles[面板id]（见 renderers['file'] 末尾）。
+  //   场景 json 的 git 面板写了 filesPanel 就用它，没写就退回当前唯一的那个文件面板。
+  function fileApi() {
+    var m = (window.__kunFiles || {});
+    var id = String((meta && meta.filesPanel) || '');
+    if (id && m[id]) return m[id];
+    var ks = Object.keys(m);
+    return ks.length ? m[ks[0]] : null;
+  }
+  function locateInFiles(rel) {
+    var fa = fileApi();
+    if (!fa) return false;
+    var full = repoFull(rel);
+    try {
+      if (typeof fa.locate === 'function') return !!fa.locate(full);
+      // 老版本文件面板没 locate：至少把父目录翻过去（不能选中，但别什么都不做）
+      if (typeof fa.open === 'function') { fa.open(full.replace(/\\[^\\]+$/, '')); return true; }
+    } catch (e) { wbWarn(e, 'git.locateFiles'); }
+    return false;
+  }
+  function openWorkFile(rel, row) {
+    var VP = null;
+    try { VP = (typeof flowFindView === 'function') ? flowFindView(meta && meta.viewPanel) : null; } catch (e) { VP = null; }
+    if (!VP || typeof VP.show !== 'function') {
+      msg('这块场景没有预览面板，看不了文件内容：' + rel);
+      return;
+    }
+    var full = repoFull(rel);
+    if (row) row.classList.add('g-busy');
+    try {
+      VP.show({ path: full, title: String(rel || ''), kind: previewKind(rel), noRemember: false });
+    } catch (e) {
+      wbWarn(e, 'git.openWorkFile');
+      if (row) row.classList.remove('g-busy');
+      msg('预览打不开：' + ((e && e.message) || e));
+      return;
+    }
+    if (row) row.classList.remove('g-busy');
+    // 「看文件时文件目录面板要定位到该文件」：送预览后立刻让文件面板翻到父目录并选中这一行
+    if (!locateInFiles(rel)) msg('文件内容已送到预览，但文件面板没有定位能力（重启一次工作台试试）');
+  }
+  function openChange(c, row) {
+    if (openMode === 'diff') { openDiff(c.path, row); return; }
+    // 工作区已删除的文件没有内容可看，退回删除 diff —— 不能给一张空预览
+    if (stLetter(c.code) === 'D') { tip('工作区里这个文件已删除，改看删除 diff'); openDiff(c.path, row); return; }
+    openWorkFile(c.path, row);
+  }
+
   async function openDiff(rel, row) {
     var a = api();
     if (!a || !a.diff) { msg('这次启动的界面还没有 diff 能力 ⇒ 重启一次工作台'); return; }
-    row.classList.add('g-busy');
+    if (row) row.classList.add('g-busy');
     var d = null;
     try { d = await a.diff(repo, rel); } catch (e) { d = { ok: false, err: String((e && e.message) || e) }; }
-    row.classList.remove('g-busy');
+    if (row) row.classList.remove('g-busy');
     if (!d || !d.ok) { msg('✗ ' + ((d && d.err) || '取 diff 失败')); return; }
     if (!previewTo(d.path, rel + '（工作区改动）')) msg('diff 已生成，但这块场景没有预览面板可显示：' + d.path);
   }
   async function openCommitFile(hash, rel, row) {
     var a = api();
     if (!a || !a.diff) { msg('这次启动的界面还没有 diff 能力 ⇒ 重启一次工作台'); return; }
-    row.classList.add('g-busy');
+    if (row) row.classList.add('g-busy');
     var d = null;
     try { d = await a.diff(repo, rel, hash); } catch (e) { d = { ok: false, err: String((e && e.message) || e) }; }
-    row.classList.remove('g-busy');
+    if (row) row.classList.remove('g-busy');
     if (!d || !d.ok) { msg('✗ ' + ((d && d.err) || '取 diff 失败')); return; }
     if (!previewTo(d.path, rel + ' @ ' + String(hash || '').slice(0, 7))) msg('diff 已生成，但这块场景没有预览面板可显示：' + d.path);
   }
@@ -21303,7 +21857,12 @@ renderers.git = function (body, meta) {
   }
 
   /* ---------- 分支选择（IDEA 的 branch 下拉） ---------- */
-  function closePop() { pop.style.display = 'none'; pop.innerHTML = ''; picker = false; }
+  function closePop() {
+    pop.style.display = 'none';
+    pop.innerHTML = '';
+    pop.style.width = ''; pop.style.left = ''; pop.style.top = ''; pop.style.maxHeight = '';
+    picker = false; popMode = ''; popBtn = null;
+  }
   function currentCommits() {
     return (logData && logData.ok && logData.commits) || (data && data.commits) || [];
   }
@@ -21358,9 +21917,18 @@ renderers.git = function (body, meta) {
   }
 
   function openPop() {
-    if (picker) { closePop(); return; }
+    if (picker && popMode === 'branch') { closePop(); return; }
     if (!data || !data.ok) { msg('还没读到分支信息，先 ⟳'); return; }
     picker = true;
+    popMode = 'branch';
+    popBtn = btnBranch;
+    pop.innerHTML = '';
+    pop.scrollTop = 0;
+    // scope 下拉会改宽高/位置，分支下拉回到 CSS 默认（工具栏下方一整块）
+    pop.style.width = '';
+    pop.style.left = '';
+    pop.style.top = '';
+    pop.style.maxHeight = '';
     closeMenu();
     var search = document.createElement('input');
     search.className = 'g-filter g-pop-search';
@@ -21431,6 +21999,503 @@ renderers.git = function (body, meta) {
     setTimeout(function () { try { search.focus(); } catch (e) { wbWarn(e) } }, 0);
   }
 
+  /* ---------- 变更单 / 不参与提交：卡片式弹层 ---------- */
+  // 2026-11-17 宿主：「你好好设计一下UI和交互，现在太反人类了」——
+  //   旧版把所有东西塞进工具栏「◧」的一个长弹层里，入口看不见、层级也分不清。
+  //   新版：变更单切换在「变更」页签顶部一条 scope 栏；管理 / 规则 / 移动 / 排除各用一张卡片，
+  //   一次只做一件事，遮罩点击 / ✕ / Esc 都能关。
+  function closeModal() {
+    if (!curModal) return;
+    try { curModal.remove(); } catch (e) { wbWarn(e); }
+    curModal = null;
+  }
+  function openModal(title, sub) {
+    closeModal();
+    var mask = el('div', 'g-mask');
+    var box = el('div', 'g-modal');
+    var h = el('div', 'g-modal-h');
+    h.appendChild(el('span', 'g-modal-t', title));
+    var x = el('button', 'g-ico g-modal-x', '✕');
+    x.title = '关闭（Esc）';
+    x.addEventListener('click', closeModal);
+    h.appendChild(x);
+    box.appendChild(h);
+    if (sub) box.appendChild(el('div', 'g-modal-sub', sub));
+    var body = el('div', 'g-modal-b');
+    box.appendChild(body);
+    box.__body = body;
+    mask.appendChild(box);
+    mask.addEventListener('mousedown', function (e) { if (e.target === mask) closeModal(); });
+    wrap.appendChild(mask);
+    curModal = mask;
+    closePop();
+    closeMenu();
+    return box;
+  }
+  function confirmModal(title, sub, okLabel, onOk) {
+    var box = openModal(title, sub);
+    var foot = el('div', 'g-modal-f');
+    var no = el('button', 'g-btn', '取消');
+    no.addEventListener('click', closeModal);
+    var ok = el('button', 'g-btn g-primary', okLabel || '确定');
+    ok.addEventListener('click', function () { closeModal(); onOk(); });
+    foot.appendChild(no); foot.appendChild(ok);
+    box.appendChild(foot);
+  }
+  function openListManager(focusAdd) {
+    var box = openModal('变更单', '给一组文件起个名字，分开看、分开提交。只影响这个面板的显示与提交范围，不动 git 索引。');
+    var body = box.__body;
+    var list = el('div', 'g-mlist');
+    if (!cfg.lists.length) list.appendChild(el('div', 'g-empty', '还没有变更单：在下面输入名字就能建一个。'));
+    cfg.lists.forEach(function (l) {
+      var row = el('div', 'g-mrow');
+      var nm = document.createElement('input');
+      nm.className = 'g-min';
+      nm.value = l.name;
+      nm.title = '就地重命名（回车或失焦保存）';
+      nm.addEventListener('change', function () {
+        renameList(l.id, nm.value);
+        var now = findList(l.id);
+        if (now) nm.value = now.name;      // 重名 / 空名字被拒时把输入框拉回真名
+      });
+      row.appendChild(nm);
+      row.appendChild(el('span', 'g-mrow-n', String(countOfList(l)) + ' 个文件'));
+      var bUse = el('button', 'g-mini', cfg.active === l.id ? '当前组' : '只看这组');
+      bUse.disabled = cfg.active === l.id;
+      bUse.title = '切到这个变更单';
+      bUse.addEventListener('click', function () { setActive(l.id); closeModal(); });
+      row.appendChild(bUse);
+      var armed = false;
+      var bDel = el('button', 'g-mini g-mini-danger', '删除');
+      bDel.title = '两步确认：点一下变「确认删除」，再点一下才真删';
+      bDel.addEventListener('click', function () {
+        if (!armed) {
+          armed = true; bDel.textContent = '确认删除'; bDel.classList.add('is-armed');
+          setTimeout(function () {
+            if (!bDel.parentNode) return;
+            armed = false; bDel.textContent = '删除'; bDel.classList.remove('is-armed');
+          }, 3000);
+          return;
+        }
+        delList(l.id); openListManager();
+      });
+      row.appendChild(bDel);
+      list.appendChild(row);
+    });
+    body.appendChild(list);
+    var add = el('div', 'g-madd');
+    var inp = document.createElement('input');
+    inp.className = 'g-modal-in';
+    inp.placeholder = '新建变更单（名字，最多 24 字）';
+    inp.spellcheck = false;
+    var b = el('button', 'g-btn g-primary', '新建');
+    var doAdd = function () {
+      var id = newList(inp.value);
+      if (!id) return;
+      inp.value = '';
+      if (data && data.ok) renderChanges();
+      openListManager(true);
+    };
+    b.addEventListener('click', doAdd);
+    inp.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' || e.keyCode === 13) { e.preventDefault(); doAdd(); }
+    });
+    add.appendChild(inp); add.appendChild(b);
+    body.appendChild(add);
+    body.appendChild(el('div', 'g-modal-hint', '建完把文件拖到组头上，或右键文件 →「移动到变更单…」。删除只删分组，文件回「未归组」。'));
+    if (focusAdd) setTimeout(function () { try { inp.focus(); } catch (e) { wbWarn(e); } }, 0);
+  }
+  function openSkipManager() {
+    var box = openModal('不参与提交', '按路径排除：命中的文件照样列在变更里（置灰 + ⊘），但不进提交。只在这个面板生效，不代替 .gitignore。');
+    var body = box.__body;
+    var ch = (data && data.changes) || [];
+    // 1. 从当前改动的目录一键加规则（省得手打一长串路径）
+    var dirs = {}, order = [];
+    ch.forEach(function (c) {
+      var d = pathBits(c.path).dir;
+      if (!d || dirs[d]) return;
+      dirs[d] = 1; order.push(d);
+    });
+    if (order.length) {
+      var chips = el('div', 'g-mchips');
+      chips.appendChild(el('span', 'g-mini-t', '从当前改动的目录一键加：'));
+      order.slice(0, 10).forEach(function (d) {
+        var rule = d.replace(/\/+$/, '');
+        var on = cfg.exclude.indexOf(rule) >= 0;
+        var chip = el('button', 'g-chip2' + (on ? ' is-on' : ''), rule + (on ? ' ✓' : ''));
+        chip.title = on ? ('已经在规则里：' + rule) : ('把整个目录设成不参与提交：' + rule);
+        if (!on) chip.addEventListener('click', function () { addRule(d); openSkipManager(); });
+        chips.appendChild(chip);
+      });
+      body.appendChild(chips);
+    }
+    // 2. 已有规则 + 命中当前改动的条数
+    var rl = el('div', 'g-mlist');
+    if (!cfg.exclude.length) rl.appendChild(el('div', 'g-empty', '还没有规则。下面加一条，或用上面的目录。'));
+    cfg.exclude.forEach(function (r) {
+      var hits = ch.filter(function (c) { return ruleHit(c.path, r); }).length;
+      var row = el('div', 'g-mrow');
+      var rr = el('span', 'g-mrow-rule', r);
+      rr.title = r;
+      row.appendChild(rr);
+      row.appendChild(el('span', 'g-mrow-n', hits ? ('命中 ' + hits + ' 个改动') : '当前没命中'));
+      var x = el('button', 'g-mini', '移除');
+      x.title = '删掉这条规则（这些文件重新能提交）';
+      x.addEventListener('click', function () { delRule(r); openSkipManager(); });
+      row.appendChild(x);
+      rl.appendChild(row);
+    });
+    body.appendChild(rl);
+    // 3. 手加一条：目录前缀 / 单文件 / 通配
+    var add = el('div', 'g-madd');
+    var inp = document.createElement('input');
+    inp.className = 'g-modal-in';
+    inp.placeholder = '目录前缀（引擎数据/）· 单文件全路径 · 通配（*.log）';
+    inp.spellcheck = false;
+    var b = el('button', 'g-btn g-primary', '添加');
+    var doAdd = function () { var v = inp.value.trim(); if (!v) return; if (addRule(v)) openSkipManager(); };
+    b.addEventListener('click', doAdd);
+    inp.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' || e.keyCode === 13) { e.preventDefault(); doAdd(); }
+    });
+    add.appendChild(inp); add.appendChild(b);
+    body.appendChild(add);
+    body.appendChild(el('div', 'g-modal-hint', '目录规则会连以后新加的文件一起挡住；单个文件规则只挡这一条路径。'));
+  }
+  // scope 下拉：贴着「变更单」按钮展开，列出全部 / 未归组 / 各个组（带计数）
+  function openScopePop() {
+    if (picker && popMode === 'scope') { closePop(); return; }
+    picker = true;
+    popMode = 'scope';
+    popBtn = scopeBtn;
+    closeMenu();
+    pop.innerHTML = '';
+    pop.appendChild(el('div', 'g-pop-head', '变更单（只影响「变更」页签显示与提交范围）'));
+    function row(label, id, n, mark, title) {
+      var r = el('div', 'g-pop-row' + (mark ? ' is-sel' : ''));
+      r.appendChild(el('span', 'g-pop-check', mark ? '✓' : ''));
+      r.appendChild(el('span', 'g-pop-name', label));
+      r.appendChild(el('span', 'g-pop-when', String(n)));
+      if (title) r.title = title;
+      r.addEventListener('click', function () { setActive(id); closePop(); });
+      pop.appendChild(r);
+      return r;
+    }
+    var ch = (data && data.changes) || [];
+    row('全部（不分组）', 'all', ch.length, cfg.active === 'all', '看所有变更，提交范围也跨组');
+    row('未归组', 'default', unassignedCount(), cfg.active === 'default', '还没归进任何变更单的文件');
+    cfg.lists.forEach(function (l) {
+      row(l.name, l.id, countOfList(l), cfg.active === l.id, '只看这一组：提交也只提交这一组里勾上的');
+    });
+    pop.appendChild(el('div', 'g-menu-sep'));
+    var add = el('div', 'g-pop-row g-pop-add', '＋ 新建变更单…');
+    add.addEventListener('click', function () { closePop(); openListManager(true); });
+    pop.appendChild(add);
+    var man = el('div', 'g-pop-row', '管理变更单…');
+    man.title = '重命名 / 删除 / 看每组有多少文件';
+    man.addEventListener('click', function () { closePop(); openListManager(); });
+    pop.appendChild(man);
+    pop.appendChild(el('div', 'g-pop-hint', '点组名切换 · 文件可以拖到组头上归组 · 右键文件有更多操作'));
+    // 按触发按钮定位（宽度 260px，别铺满整块面板）
+    var wr = wrap.getBoundingClientRect();
+    var br = scopeBtn.getBoundingClientRect();
+    pop.style.width = '260px';
+    pop.style.maxHeight = '60%';
+    pop.style.left = Math.max(4, Math.min(br.left - wr.left, wrap.clientWidth - 268)) + 'px';
+    pop.style.top = (br.bottom - wr.top + 4) + 'px';
+    pop.style.display = 'block';
+  }
+
+
+  function setActive(id) {
+    if (id !== 'all' && id !== 'default' && !findList(id)) return;
+    if (cfg.active === id) return;
+    stashDraft();                       // 先把当前输入框里的字存回当前组
+    cfg.active = id;
+    draftMsg = draftOf(id);             // 再换出目标组的草稿
+    saveCfg();
+    if (data && data.ok) renderChanges(true);
+  }
+
+  function newList(name) {
+    var n = cleanName(name);
+    if (!n) { tip('变更单名字不能为空', true); return ''; }
+    if (n === '未归组' || n === '全部') { tip('「' + n + '」是内置分组名，换一个', true); return ''; }
+    if (cfg.lists.some(function (l) { return l.name === n; })) { tip('已经有同名的变更单「' + n + '」', true); return ''; }
+    var l = { id: uid(), name: n, files: [], msg: '' };
+    cfg.lists.push(l);
+    saveCfg();
+    return l.id;
+  }
+
+  function renameList(id, name) {
+    var l = findList(id), n = cleanName(name);
+    if (!l) return;
+    if (!n) { tip('变更单名字不能为空', true); return; }
+    if (n === '未归组' || n === '全部') { tip('「' + n + '」是内置分组名，换一个', true); return; }
+    if (cfg.lists.some(function (x) { return x.id !== id && x.name === n; })) { tip('已经有同名的变更单「' + n + '」', true); return; }
+    l.name = n;
+    saveCfg();
+    if (data && data.ok) renderChanges();
+  }
+
+  function delList(id) {
+    var l = findList(id);
+    if (!l) return;
+    cfg.lists = cfg.lists.filter(function (x) { return x.id !== id; });
+    if (cfg.active === id) { cfg.active = 'all'; draftMsg = draftOf('all'); }
+    saveCfg();
+    if (data && data.ok) renderChanges();
+    tip('已删除变更单「' + l.name + '」，文件回「未归组」');
+  }
+
+  function addRule(rule) {
+    var r = String(rule || '').replace(/\\/g, '/').replace(/^\.\//, '').trim().replace(/\/+$/, '');
+    if (!r) return false;
+    if (cfg.exclude.indexOf(r) >= 0) { tip('这条规则已经有了：' + r); return true; }
+    if (cfg.exclude.length >= 100) { tip('规则太多了（上限 100 条）', true); return false; }
+    cfg.exclude.push(r);
+    // 刚被排除的文件如果之前勾过，把勾去掉 —— 别留一个「看不见的已勾」状态
+    ((data && data.changes) || []).forEach(function (c) {
+      if (ruleHit(c.path, r)) delete picked[c.path];
+    });
+    saveCfg();
+    if (data && data.ok) renderChanges();
+    tip('已加入「不参与提交」：' + r);
+    return true;
+  }
+
+  function delRule(rule) {
+    cfg.exclude = cfg.exclude.filter(function (x) { return x !== rule; });
+    saveCfg();
+    if (data && data.ok) renderChanges();
+    tip('已移除规则：' + rule);
+  }
+
+  function openMenuAtPoint(x, y, w0, h0) {
+    menuOpen = true;
+    menu.style.display = 'block';
+    var w = menu.offsetWidth || w0 || 200, h = menu.offsetHeight || h0 || 160;
+    menu.style.left = Math.min(x, window.innerWidth - w - 8) + 'px';
+    menu.style.top = Math.min(y, window.innerHeight - h - 8) + 'px';
+  }
+  function openMenuAtEl(anchor, w0, h0) {
+    var r = anchor.getBoundingClientRect();
+    openMenuAtPoint(r.right - (w0 || 210), r.bottom + 4, w0 || 210, h0 || 180);
+  }
+  // 组头的「⋯」：提交本组 / 勾选 / 重命名 / 移动 / 删除
+  function openGroupMenu(g, anchor) {
+    menu.innerHTML = '';
+    function item(label, fn, disabled, title) {
+      var it = el('div', 'g-menu-item' + (disabled ? ' is-off' : ''), label);
+      if (title) it.title = title;
+      if (!disabled && fn) it.addEventListener('click', function () { closeMenu(); fn(); });
+      else it.addEventListener('click', closeMenu);
+      menu.appendChild(it);
+    }
+    if (g.files.length) {
+      item('提交这一组…', function () { commitScope(g); }, false, '切到这一组并跳到提交框（仍要先勾文件）');
+      item('勾选这一组全部', function () {
+        g.files.forEach(function (c) { if (!isSkip(c.path)) picked[c.path] = true; });
+        updateChecks();
+      }, false, '只勾可提交的；⊘ 的行会被跳过');
+      item('清空这一组勾选', function () {
+        g.files.forEach(function (c) { delete picked[c.path]; });
+        updateChecks();
+      });
+      menu.appendChild(el('div', 'g-menu-sep'));
+    }
+    if (g.list) {
+      item('重命名…', function () {
+        askName('重命名变更单', g.name, function (name) { renameList(g.list.id, name); });
+      });
+      item('把这一组移到别的变更单…', function () { moveModal(g.list.files, true); }, !g.list.files.length, '整组文件一起换组');
+      item('移出变更单（回「未归组」）', function () {
+        movePaths(g.list.files, 'default');
+        tip('已移出「' + g.name + '」');
+      }, !g.list.files.length);
+      menu.appendChild(el('div', 'g-menu-sep'));
+      item('删除这个变更单', function () {
+        confirmModal('删除变更单「' + g.name + '」', '只删分组，不动工作区文件；里面的文件会回到「未归组」。', '删除', function () { delList(g.list.id); });
+      });
+    } else {
+      item('把这一组里勾选的文件归到新变更单…', function () {
+        var ps = g.files.filter(function (c) { return picked[c.path] === true && !isSkip(c.path); })
+          .map(function (c) { return c.path; });
+        if (!ps.length) { tip('先勾上这一组里要移动的文件', true); return; }
+        moveModal(ps);
+      }, false, '只动这一组里已经勾上的文件');
+    }
+    openMenuAtEl(anchor, 210, 190);
+  }
+  function openFileMenu(c, x, y) {
+    menu.innerHTML = '';
+    function item(label, fn, disabled, title) {
+      var it = el('div', 'g-menu-item' + (disabled ? ' is-off' : ''), label);
+      if (title) it.title = title;
+      if (!disabled && fn) it.addEventListener('click', function () { closeMenu(); fn(); });
+      else it.addEventListener('click', closeMenu);
+      menu.appendChild(it);
+    }
+    item('复制路径', function () { copyText(c.path); });
+    menu.appendChild(el('div', 'g-menu-sep'));
+    // 单次指定查看方式：不想改全局双击习惯时，从这里直接选
+    item('看文件内容', function () {
+      if (stLetter(c.code) === 'D') { tip('工作区里这个文件已删除，没有内容可看；请用「看改动 diff」', true); return; }
+      openWorkFile(c.path);
+    });
+    item('看改动 diff', function () { openDiff(c.path); });
+    // 勾了多个文件时，右键其中一个就把勾选的一起移动 —— 比一个个拖快
+    var all = checkedFiles().map(function (x) { return x.path; });
+    var paths = (all.length > 1 && all.indexOf(c.path) >= 0) ? all : [c.path];
+    var anyGrouped = paths.some(function (p) { return !!listOfPath(p); });
+    menu.appendChild(el('div', 'g-menu-sep'));
+    item((paths.length > 1 ? '移动勾选的 ' + paths.length + ' 个文件…' : '移动到变更单…'), function () { moveModal(paths); });
+    item('从变更单移出', function () { movePaths(paths, 'default'); tip('已移出到「未归组」'); }, !anyGrouped, anyGrouped ? '' : '本来就没归组');
+    item('新建变更单并移入…', function () {
+      askName('新建变更单', '', function (name) {
+        var id = newList(name);
+        if (id) movePaths(paths, id);
+      });
+    });
+    menu.appendChild(el('div', 'g-menu-sep'));
+    item('设为不参与提交…', function () { openFileSkip(c); }, false, '选「仅这个文件」或「整个目录」');
+    openMenuAtPoint(x, y, 230, 210);
+  }
+  // 单文件设排除：别默认整目录 —— 二选一，写清规则长什么样
+  function openFileSkip(c) {
+    var bits = pathBits(c.path);
+    var box = openModal('设成不参与提交', c.path);
+    var body = box.__body;
+    body.appendChild(el('div', 'g-modal-sub', '命中后这个文件照样列出来（置灰 + ⊘），但不进提交。选一种粒度：'));
+    var opts = el('div', 'g-mopts');
+    var gname = 'g-sk-' + Math.random().toString(36).slice(2, 8);
+    function opt(label, rule, desc, checked) {
+      var row = el('label', 'g-opt');
+      var radio = document.createElement('input');
+      radio.type = 'radio'; radio.name = gname; radio.checked = !!checked;
+      row.appendChild(radio);
+      row.appendChild(el('span', 'g-opt-t', label));
+      row.appendChild(el('span', 'g-opt-d', desc));
+      row.title = label + '：' + desc;
+      row.addEventListener('click', function () { radio.checked = true; });
+      opts.appendChild(row);
+      return radio;
+    }
+    var r1 = opt('仅这个文件', c.path, '规则：' + c.path, true);
+    var r2 = bits.dir ? opt('整个目录', bits.dir, '规则：' + bits.dir + '（连以后新加的文件一起挡住）', false) : null;
+    if (!bits.dir) opts.appendChild(el('div', 'g-modal-hint', '这个文件在仓库根目录，没有上级目录可选。'));
+    body.appendChild(opts);
+    var foot = el('div', 'g-modal-f');
+    var no = el('button', 'g-btn', '取消'); no.addEventListener('click', closeModal);
+    var ok = el('button', 'g-btn g-primary', '确定');
+    ok.addEventListener('click', function () {
+      var rule = (r2 && !r1.checked) ? bits.dir : c.path;
+      closeModal();
+      addRule(rule);
+    });
+    foot.appendChild(no); foot.appendChild(ok);
+    box.appendChild(foot);
+  }
+  // 移动文件：单选目标组 + 新建并移动（不再在平铺菜单里堆十几个组名）
+  function moveModal(paths, wholeGroup) {
+    paths = (paths || []).filter(function (p) { return typeof p === 'string' && p; });
+    if (!paths.length) { tip('没有可移动的文件', true); return; }
+    var sub = wholeGroup
+      ? ('把这一组 ' + paths.length + ' 个文件一起换到：')
+      : ((paths.length > 1 ? '把勾选的 ' : '把「') + (paths.length > 1 ? paths.length + ' 个文件' : pathBits(paths[0]).name) + '移动到：');
+    var box = openModal('移动到变更单', sub);
+    var body = box.__body;
+    var opts = el('div', 'g-mopts');
+    var gname = 'g-mv-' + Math.random().toString(36).slice(2, 8);
+    var radios = [];
+    function opt(label, id, desc, checked) {
+      var row = el('label', 'g-opt');
+      var radio = document.createElement('input');
+      radio.type = 'radio'; radio.name = gname; radio.setAttribute('data-id', id); radio.checked = !!checked;
+      row.appendChild(radio);
+      row.appendChild(el('span', 'g-opt-t', label));
+      row.appendChild(el('span', 'g-opt-d', desc));
+      row.addEventListener('click', function () { radio.checked = true; });
+      opts.appendChild(row);
+      radios.push(radio);
+      return radio;
+    }
+    var allDefault = paths.every(function (p) { return !listOfPath(p); });
+    var firstList = cfg.lists[0] || null;
+    opt('未归组', 'default', '从变更单移出', !allDefault);
+    cfg.lists.forEach(function (l) {
+      opt(l.name, l.id, countOfList(l) + ' 个文件', allDefault && firstList && firstList.id === l.id);
+    });
+    var oNew = opt('新建变更单…', 'new', '先起个名字，再移进去', !cfg.lists.length && allDefault);
+    body.appendChild(opts);
+    var ni = document.createElement('input');
+    ni.className = 'g-modal-in';
+    ni.placeholder = '新建的名字（在这里打字会自动选中「新建变更单」）';
+    ni.spellcheck = false;
+    ni.addEventListener('input', function () { if (ni.value.trim()) oNew.checked = true; });
+    body.appendChild(ni);
+    if (wholeGroup) body.appendChild(el('div', 'g-modal-hint', '只有还在改动里的文件会被移动；已经提交掉的老路径会自动收口。'));
+    var foot = el('div', 'g-modal-f');
+    var no = el('button', 'g-btn', '取消'); no.addEventListener('click', closeModal);
+    var ok = el('button', 'g-btn g-primary', '移动');
+    ok.addEventListener('click', function () {
+      var sel = null;
+      for (var i = 0; i < radios.length; i++) if (radios[i].checked) { sel = radios[i]; break; }
+      if (!sel) { tip('先选一个目标', true); return; }
+      var id = sel.getAttribute('data-id');
+      if (id === 'new') {
+        var name = cleanName(ni.value);
+        if (!name) { tip('新建要先起个名字', true); ni.focus(); return; }
+        id = newList(name);
+        if (!id) return;
+      }
+      closeModal();
+      movePaths(paths, id);
+      tip('已移动到「' + (id === 'default' ? '未归组' : (findList(id) ? findList(id).name : '目标组')) + '」');
+    });
+    foot.appendChild(no); foot.appendChild(ok);
+    box.appendChild(foot);
+  }
+  function movePaths(paths, id) {
+    var want = findList(id);
+    paths.forEach(function (p) {
+      cfg.lists.forEach(function (l) { l.files = l.files.filter(function (x) { return x !== p; }); });
+      if (want && want.files.indexOf(p) < 0) want.files.push(p);
+    });
+    saveCfg();
+    if (data && data.ok) renderChanges();
+  }
+
+  // 输入名字：卡片式，不再往面板底部塞一条绝对定位的小输入框
+  function askName(title, initial, onOk) {
+    var box = openModal(title);
+    var body = box.__body;
+    var inp = document.createElement('input');
+    inp.className = 'g-modal-in';
+    inp.value = String(initial || '');
+    inp.spellcheck = false;
+    inp.placeholder = '最多 24 个字';
+    body.appendChild(inp);
+    var done = function () {
+      var v = cleanName(inp.value);
+      if (!v) { tip('名字不能为空', true); inp.focus(); return; }
+      closeModal();
+      onOk(v);
+    };
+    inp.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' || e.keyCode === 13) { e.preventDefault(); done(); }
+    });
+    var foot = el('div', 'g-modal-f');
+    var no = el('button', 'g-btn', '取消');
+    no.addEventListener('click', closeModal);
+    var ok = el('button', 'g-btn g-primary', '确定');
+    ok.addEventListener('click', done);
+    foot.appendChild(no); foot.appendChild(ok);
+    box.appendChild(foot);
+    setTimeout(function () { try { inp.focus(); inp.select(); } catch (e) { wbWarn(e); } }, 0);
+  }
+
   async function switchTo(name, isRemote, force) {
     var a = api();
     if (!a || !a.switch) { msg('这次启动的界面还没有切分支能力 ⇒ 重启一次工作台'); return; }
@@ -21469,9 +22534,125 @@ renderers.git = function (body, meta) {
     msg(r && r.ok ? '已 fetch，远程分支已更新' : '✗ ' + ((r && r.err) || 'fetch 失败'));
   }
 
+  /* ---------- 自动刷新 ---------- */
+  // 1. 指纹：只看 .git 里几个「一动就说明版本库变了」的文件，避免每 2 秒拉起 5~6 个 git 进程（Windows 上每次约 100ms）。
+  //    .git/logs/HEAD 最灵：提交、切分支、reset、merge、rebase 都会往它追加一行；index 管暂存；FETCH_HEAD 管 fetch。
+  //    当前分支的 ref 与 upstream 的 remote-tracking ref 也一起看，push/切分支后不用等慢轮询。
+  function stampFiles() {
+    var g = String(repo).replace(/[\\/]+$/, '') + '/.git';
+    var b = String((data && (data.current || data.branch)) || '');
+    var up = String((data && data.upstream) || '');
+    var f = [g + '/logs/HEAD', g + '/index', g + '/FETCH_HEAD', g + '/packed-refs', g + '/HEAD'];
+    if (b && b !== 'HEAD') f.push(g + '/refs/heads/' + b);
+    if (up) { f.push(g + '/refs/remotes/' + up); f.push(g + '/logs/refs/remotes/' + up); }
+    return f;
+  }
+  // 2. 读指纹：并行 stat，任何一项读不到就记 '-'（仓库刚被删/换盘也不会把刷新拖死）
+  function readStamp() {
+    var F = window.app && window.app.file;
+    if (!F || !F.stat) return Promise.resolve('');
+    return Promise.all(stampFiles().map(function (p) {
+      return Promise.resolve(F.stat(p)).then(function (st) {
+        return p + ':' + (st && st.exists ? (st.mtime + '.' + st.size) : '-');
+      }, function () { return p + ':-'; });
+    })).then(function (rows) { return rows.join('|'); });
+  }
+  // 3. 内容签名：真正决定「界面要不要重画」的是分支 / 变更 / 提交 / ahead·behind，不是 mtime
+  function sigOf(r) {
+    if (!r || !r.ok) return 'err:' + ((r && r.err) || '');
+    var ch = (r.changes || []).map(function (c) { return c.code + ' ' + c.path; }).join('\n');
+    var cm = (r.commits || []).map(function (c) { return (c.full || c.hash) + ' ' + c.date + ' ' + c.subject; }).join('\n');
+    var bl = ((r.branches && r.branches.local) || []).map(function (b) {
+      return [b.name, b.upstream, b.ahead, b.behind, b.subject].join('~');
+    }).join('\n');
+    var br = ((r.branches && r.branches.remote) || []).map(function (b) { return b.name + '~' + (b.subject || ''); }).join('\n');
+    return [r.ok, r.current, r.branch, r.upstream, r.ahead, r.behind, r.diffStat || '', ch, cm, bl, br].join('\u0001');
+  }
+  // 4. 用户正在输入提交信息 / 过滤词时先不动界面：重画会把 textarea 重建，光标和焦点会丢
+  function typingInPanel() {
+    var ae = document.activeElement;
+    if (!ae) return false;
+    var tag = String(ae.tagName || '').toUpperCase();
+    if (tag !== 'INPUT' && tag !== 'TEXTAREA') return false;
+    return wrap.contains(ae);
+  }
+  // 5. 重画当前页签并接回滚动位置（勾选 / 草稿 / 选中提交都是变量，重画本身不会丢）
+  function rerenderPane() {
+    if (!data || !data.ok) return;
+    if (tab === 'changes') {
+      var s1 = paneChanges.scrollTop;
+      renderChanges();
+      paneChanges.scrollTop = s1;
+    } else {
+      var s2 = paneLog.scrollTop;
+      renderLog();
+      paneLog.scrollTop = s2;
+    }
+  }
+  // 6. 读一次 git：内容没变就只更新签名、不动 DOM（mtime 变了但数据一样的情况很常见，比如只是 git 碰了下 index）
+  //    返回 true = 这一份可以用（含「读了但内容没变」）；false = 读失败，调用方别把指纹记为已消费，下一拍还要再试。
+  async function pullPanel() {
+    var a = api();
+    if (!a || !a.panel) return true;
+    var r = null;
+    try { r = await a.panel(repo); } catch (e) { wbWarn(e); return false; }
+    if (dead) return true;
+    // 读的这 200~300ms 里用户可能已经开始提交、或者点进提交框/分支下拉 ⇒ 这一拍作废（吃掉指纹、不重画），
+    // 别抢焦点、别把菜单顶掉；真变了的内容由 20 秒慢拍或下一次版本库变动补上。
+    if (busy || committing || picker || menuOpen || curModal || draggingPath || typingInPanel()) return true;
+    var sig = sigOf(r);
+    if (sig === liveSig) { liveSig = sig; return true; }
+    liveSig = sig;
+    if (!r || !r.ok) return false;    // 读失败（比如外部正在 commit、index.lock）保留上一份可用数据，下一拍重试
+    if (!r.changes) r.changes = [];
+    if (!r.commits) r.commits = [];
+    var oldHead = (data && data.ok && data.commits && data.commits[0]) ? data.commits[0].hash : '';
+    data = r;
+    btnBranch.textContent = '⎇ ' + (r.current || r.branch || '?');
+    tabChanges.textContent = '变更' + (r.changes.length ? ' ' + r.changes.length : '');
+    tabLog.textContent = '历史' + (r.commits.length ? ' ' + r.commits.length : '');
+    // 勾选状态按新路径表收口：消失的文件丢掉，新出现的文件默认不勾（picked 只记「手动勾上」的路径）
+    var keep = {};
+    r.changes.forEach(function (c) { if (picked[c.path] === true) keep[c.path] = true; });
+    picked = keep;
+    // 变更单归属也按新路径表收口（提交掉的、revert 掉的路径不再挂着）
+    pruneLists(r.changes);
+    // 原来选中的就是最新一条 ⇒ 新提交上来后跟到新的最新一条；选中老提交则原地不动（别抢用户正在看的东西）
+    var newHead = (r.commits[0] && r.commits[0].hash) || '';
+    if (oldHead && sel === oldHead && newHead && newHead !== oldHead) sel = newHead;
+    var cur = r.current || r.branch || '';
+    if (viewRev && viewRev === cur) { viewRev = ''; logData = null; }
+    // 正在看别的分支 ⇒ 那份历史也重读（历史页签没显示时只更新 logData，切回去就是新的）
+    if (viewRev) await refreshLog();
+    if (tab === 'changes') rerenderPane();
+    else if (!viewRev) rerenderPane();
+    return true;
+  }
+  // 7. 一拍：面板可见、窗口在前台、没有正在跑的 git 操作、没有开着菜单/分支下拉、没在打字，才去读
+  async function liveTick(force) {
+    if (dead || liveBusy) return;
+    if (!repo) return;
+    if (!data) return;                 // 首次读取还没回来：等它，别发两份 git
+    if (document.hidden) return;
+    if (busy || committing) return;
+    if (picker || menuOpen || curModal || draggingPath) return;
+    if (!wrap.getClientRects().length) return;   // 面板被收起 / 不在当前页签：不读
+    if (typingInPanel()) return;
+    var a = api();
+    if (!a || !a.panel) return;
+    liveBusy = true;
+    try {
+      var st = force ? '' : await readStamp();
+      if (!force && st && st === gitStamp) return;
+      var ok = await pullPanel();
+      if (st && ok) gitStamp = st;   // 读失败就不消费指纹 ⇒ 下一拍重试（外部 commit 期间 index.lock 常见）
+    } catch (e) { wbWarn(e); } finally { liveBusy = false; }
+  }
+
   /* ---------- 主流程 ---------- */
   async function load() {
     if (dead) return;
+    if (!cfgLoaded) await loadCfg();      // 变更单 / 不参与提交的配置要先就位，第一屏才不会闪一下「全部」
     closeMenu();               // 重载后旧菜单锚点已经过时，先关掉
     var a = api();
     paneChanges.innerHTML = '';
@@ -21495,12 +22676,20 @@ renderers.git = function (body, meta) {
     btnBranch.textContent = '⎇ ' + (r.current || r.branch || '?');
     tabChanges.textContent = '变更' + (r.changes.length ? ' ' + r.changes.length : '');
     tabLog.textContent = '历史' + (r.commits.length ? ' ' + r.commits.length : '');
+    // 手动刷新也按新路径表收口勾选（消失的文件不要留一个「已勾」的幽灵）
+    var keep = {};
+    (r.changes || []).forEach(function (c) { if (picked[c.path] === true) keep[c.path] = true; });
+    picked = keep;
+    liveSig = sigOf(r);        // 手动刷新/操作后的这一份就是新基线，下一拍不会白重画一次
+    pruneLists(r.changes);
     if (tab === 'changes') renderChanges(); else renderLog();
   }
 
   function setTab(t) {
     tab = t;
     closeMenu();
+    closePop();
+    closeModal();
     tabChanges.classList.toggle('is-on', t === 'changes');
     tabLog.classList.toggle('is-on', t === 'log');
     paneChanges.style.display = t === 'changes' ? 'block' : 'none';
@@ -21515,8 +22704,21 @@ renderers.git = function (body, meta) {
   tabChanges.addEventListener('click', function () { setTab('changes'); });
   tabLog.addEventListener('click', function () { setTab('log'); });
   filter.addEventListener('input', function () { if (tab === 'log') renderLog(); });
-  var onDocDown = function (e) { if (picker && !pop.contains(e.target) && e.target !== btnBranch) closePop(); };
+  var onDocDown = function (e) {
+    if (!picker) return;
+    if (pop.contains(e.target) || e.target === popBtn) return;
+    // 弹层 / 卡片里的小输入不算「点外面」
+    if (e.target && e.target.closest && (e.target.closest('.g-ask') || e.target.closest('.g-modal') || e.target.closest('.g-mask'))) return;
+    closePop();
+  };
   document.addEventListener('mousedown', onDocDown);
+  // 面板里一滚，scope 下拉的锚点就跑了 ⇒ 直接收起（滚在弹层自己里面不算）
+  var popOut = function (e) {
+    if (!picker || curModal) return;
+    if (pop.contains(e.target) || e.target === popBtn) return;
+    closePop();
+  };
+  document.addEventListener('scroll', popOut, true);
 
   // 右键菜单的关闭：一律挂 document 的**捕获阶段** —— 面板里任何控件（按钮、滚动条、文本框）
   // 都没法用 stopPropagation 把事件拦在前面；以前只靠“点菜单项才关”，所以菜单会一直挂在那儿。
@@ -21527,7 +22729,10 @@ renderers.git = function (body, meta) {
     if (menuOpen && !menu.contains(e.target)) closeMenu();
   };
   var menuKey = function (e) {
-    if (e.key === 'Escape' || e.keyCode === 27) closeMenu();
+    if (e.key !== 'Escape' && e.keyCode !== 27) return;
+    if (curModal) { closeModal(); return; }   // 卡片层优先：Esc 先关最上面那一层
+    closeMenu();
+    closePop();
   };
   document.addEventListener('mousedown', menuOut, true);
   document.addEventListener('contextmenu', menuOut, true);
@@ -21550,6 +22755,7 @@ renderers.git = function (body, meta) {
 
   // 空白处 / 变更列表 / 工具栏右键 = 仓库级菜单（提交行、分支行各自 e.stopPropagation 拦在前面）
   var onRepoMenu = function (e) {
+    if (curModal) return;                 // 卡片打开时别在后面再叠一个仓库菜单
     var tag = (e.target && e.target.tagName) || '';
     // 输入框/文本域保留系统自己的右键编辑菜单，别拿面板菜单盖掉粘贴
     if (tag === 'INPUT' || tag === 'TEXTAREA') return;
@@ -21559,11 +22765,32 @@ renderers.git = function (body, meta) {
   };
   wrap.addEventListener('contextmenu', onRepoMenu);
 
+  // 自动刷新：2 秒一拍「指纹比对」（只有 .git 动了才真跑 git），20 秒一次全量读（兜工作区改动与相对时间）。
+  //   窗口切回来（focus / visibilitychange）立刻补一拍；切走时 liveTick 里的 document.hidden 会挡住。
+  //   场景销毁时在 cleanup 里清掉定时器与监听（check-gui 第 4 项：有 setInterval 就必须返回 cleanup）。
+  var onFocusLive = function () { liveTick(true); };
+  var onVisLive = function () { if (!document.hidden) liveTick(true); };
+  window.addEventListener('focus', onFocusLive);
+  document.addEventListener('visibilitychange', onVisLive);
+  liveTimer = setInterval(function () { if (!dead) liveTick(false); }, 2000);
+  slowTimer = setInterval(function () { if (!dead) liveTick(true); }, 20000);
+
   load();
   return function () {
     dead = true;
+    if (liveTimer) { clearInterval(liveTimer); liveTimer = 0; }
+    if (slowTimer) { clearInterval(slowTimer); slowTimer = 0; }
+    // 还有没落盘的变更单配置 ⇒ 卸载前补写一次（别让刚改的名字 / 规则 / 草稿丢掉）
+    if (draftTimer) { clearTimeout(draftTimer); draftTimer = 0; }
+    stashDraft();
+    if (cfgTimer) { clearTimeout(cfgTimer); cfgTimer = 0; flushCfg(); }
+    window.removeEventListener('focus', onFocusLive);
+    document.removeEventListener('visibilitychange', onVisLive);
     closeMenu();
+    closePop();
+    closeModal();
     document.removeEventListener('mousedown', onDocDown);
+    document.removeEventListener('scroll', popOut, true);
     document.removeEventListener('mousedown', menuOut, true);
     document.removeEventListener('contextmenu', menuOut, true);
     document.removeEventListener('wheel', menuOut, { capture: true });

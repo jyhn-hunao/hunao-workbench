@@ -6831,3 +6831,40 @@ ipcMain.handle('kun:git:log', async (_e, repo, rev) => {
   });
   return { ok: true, rev: ref, commits };
 });
+
+// ---- git 面板的本机配置：变更单（自定义命名的文件分组）+ 不参与提交的路径规则 ----
+//   2026-11-17 宿主：「idea 里的 new changelist」+「指定某个区域的文件不参与提交」。
+//   落 外壳\data\git-变更单.json（本机运行数据，不入库，.gitignore 已挡 data/）；按仓库绝对路径分桶，切项目不串。
+const GIT_CFG_FILE = path.join(__dirname, 'data', 'git-变更单.json');
+async function readGitCfg() {
+  try {
+    const o = JSON.parse(await fs.promises.readFile(GIT_CFG_FILE, 'utf8'));
+    return (o && typeof o === 'object' && !Array.isArray(o)) ? o : { v: 1, repos: {} };
+  } catch (e) {
+    // 文件不存在 = 还没建过，按空配置起；读坏了（半截 JSON / 权限）要留痕，别让人以为配置自己没了
+    if (e && e.code !== 'ENOENT') warnOnce('git-变更单', e);
+    return { v: 1, repos: {} };
+  }
+}
+ipcMain.handle('kun:git:lists-get', async () => ({ ok: true, data: await readGitCfg() }));
+ipcMain.handle('kun:git:lists-set', async (_e, repo, one) => {
+  const key = String(repo || '').trim();
+  if (!key) return { ok: false, err: '缺少仓库路径' };
+  if (!one || typeof one !== 'object' || Array.isArray(one)) return { ok: false, err: '配置格式不对（要一个对象）' };
+  // 读-改-写：只覆盖本仓库这一桶，另一个窗口管别的仓库时不会被我这边的旧快照冲掉
+  const all = await readGitCfg();
+  if (!all.repos || typeof all.repos !== 'object' || Array.isArray(all.repos)) all.repos = {};
+  all.repos[key] = one;
+  all.v = 1;
+  let text = '';
+  try { text = JSON.stringify(all, null, 2); } catch (e) { return { ok: false, err: '配置序列化失败：' + String((e && e.message) || e) }; }
+  if (text.length > (2 << 20)) return { ok: false, err: '配置过大（>2MB），没有写入' };
+  try {
+    await fs.promises.mkdir(path.dirname(GIT_CFG_FILE), { recursive: true });
+    // 1) 先写临时文件再 rename：写到一半断电也不会留下半截 JSON
+    const tmp = GIT_CFG_FILE + '.' + process.pid + '.tmp';
+    await fs.promises.writeFile(tmp, text, 'utf8');
+    await fs.promises.rename(tmp, GIT_CFG_FILE);
+    return { ok: true };
+  } catch (e) { return { ok: false, err: String((e && e.message) || e) }; }
+});
