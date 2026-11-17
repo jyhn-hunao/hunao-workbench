@@ -5919,7 +5919,23 @@ function runRotate(panelId, opts, onStage) {
       const all = out + (errOut ? '\n' + errOut : '');
       const ok = code === 0;
       // 失败时只挑「真正原因」给按钮显示（整段 stdout 会被 CSS 省略成一行，用户看不到真因）
-      const reason = ok ? '' : (all.split(/\r?\n/).filter((l) => /^\s*[·✗]/.test(l) || /先别急|轮换失败|换不到|结构闸|超时|失败|引擎没在跑/.test(l)).slice(0, 3).join(' ') || errMsg || ('脚本退出码 ' + code)).slice(0, 300);
+      // 2026-11-17：原来 /^\s*[·✗]/ 会把 1/3 的良性提示（「· 记忆库未安装…交接本身已完成」）
+      //   也当成失败原因，于是 toast 读起来像「失败：记忆库未安装」——把成功信息读成了失败。
+      //   改成：先取 ✗ 行；没有再取「先别急」下面列出的闸门问题；最后才退到通用过滤。
+      const NOISE = /记忆库未安装|跳过入库|交接本身已完成|·\s*(跳过|项目记忆体检：跳过)/;
+      let reason = '';
+      if (!ok) {
+        const lines = all.split(/\r?\n/);
+        const errs = lines.filter((l) => /^\s*✗/.test(l));
+        if (errs.length) reason = errs.slice(0, 2).join(' ');
+        else {
+          const gi = lines.findIndex((l) => /先别急/.test(l));
+          const gate = gi >= 0 ? lines.slice(gi + 1).filter((l) => /^\s*·/.test(l)) : [];
+          if (gate.length) reason = gate.slice(0, 3).map((l) => l.trim()).join(' ');
+        }
+        reason = reason || lines.filter((l) => /^\s*[·✗]/.test(l) && !NOISE.test(l)).slice(0, 3).join(' ') || errMsg || ('脚本退出码 ' + code);
+      }
+      reason = String(reason || '').slice(0, 300);
       const warn = ok ? (((all.match(/^WARN:\s*(.+)$/m) || [])[1]) || '').trim() : '';
       const newId = ((all.match(/^NEWID:\s*(session-[0-9a-f-]{8,})\s*$/m) || [])[1]
         || (all.match(/新会话已建[：:]\s*(session-[0-9a-f-]{8,})/) || [])[1] || '').trim();
