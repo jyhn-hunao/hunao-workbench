@@ -9,7 +9,7 @@
 | 场景 / 面板 | `code-dev` / `cd-ai-home`（`AI·工作区`）+ `cd-ai`（`AI·项目`） |
 | 工作区会话 | `程序开发·工作区` / `session-ca13beb5-8504-4595-b6aa-dfad124e2db6`（面板 `cd-ai-home`，cwd = `12-源码照搬\工作区`） |
 | 当前项目（pinTarget 首项） | `mlw`（换项目时会变，换完回写） |
-| 会话 id | `session-84fb6098-2d59-41ee-868e-b3e43440fc62`（面板 `cd-ai`，cwd = 该项根） |
+| 会话 id | `session-3ecfde06-65ad-4461-81c0-3056bf747f0d`（面板 `cd-ai`，cwd = 该项根） |
 | 主技能 / 记忆 | `code-dev` + `project-onboarding`；场景记忆 `...\程序开发\` |
 
 我负责：给任何项目写/改代码，按规范铁律 + 项目 `AGENTS.md` 交付。不管生活类活。
