@@ -756,7 +756,8 @@ function cmdDoctor(root, flags) {
 
   // 1. 结构：直接复用 check，只取结论（不再写第二套判据）
   const chk = spawnSync(process.execPath, [self, 'check', '--project', root], { encoding: 'utf8' })
-  const chkBad = String(chk.stdout || '').split(/\r?\n/).filter(l => l.trim().startsWith('✗'))
+  // 收集时去掉 check 自带的行首「✗ 」：problems 统一在这里加前缀，否则会打印成「✗ ✗ 索引过期」
+  const chkBad = String(chk.stdout || '').split(/\r?\n/).filter(l => l.trim().startsWith('✗')).map(l => l.trim().replace(/^✗\s+/, ''))
   if (chk.status === 0) lines.push('结构：✓ 通过')
   else { lines.push('结构：✗ ' + chkBad.length + ' 项'); problems.push(...chkBad.slice(0, 3)) }
 
