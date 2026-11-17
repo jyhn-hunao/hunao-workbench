@@ -128,6 +128,7 @@
 - **换机器/换盘符**：先跑 `node 12-源码照搬\外壳\scripts\环境适配.mjs`（只读体检），再 `--apply`；会话必须在新机器重建（`--rotate` 或逐面板 `换会话.mjs --go`），搬 id 无效。记忆数据：旧机 `工具\记忆打包.mjs 打包` → 新机 `恢复 --包`（可回滚）→ `索引 --all` + `check --all`；双机同步以 git 为主，同一场景同一时段只在一台写。契约见 `doc/机制可移植性规范.md`、`doc/记忆可移植性与同步规范.md`。
 - **引擎契约随版本漂移**：`建会话.mjs` 依赖「server.log 取 token → 换 cookie → POST /api/<method>」这套现状（`12-源码照搬/外壳/scripts/建会话.mjs:54`），引擎升级后要重跑一次建会话验证。
 - **引擎生命周期归壳所有**：引擎必须由壳拉起（`启动.vbs` → `main.js` 的 spawn 计划），token 由壳从引擎 stdout 捕获（`main.js:401-403`）。⛔ 不得在壳外 `Stop-Process`/`Start-Process` 自行重启引擎——外部重启后旧 token 立刻失效，界面报 `dsh web authentication required`（白屏）。要重载插件或换引擎版本，重启整壳，不要只重启引擎。
+- **引擎 token 只在壳内存里（2026-11-17 补）**：2026-11-14 起 `server.log` 里的 `?token=` 被打成 `token=***`（防日志外发泄露）。脚本一律走 `12-源码照搬/工具/引擎token.mjs`：壳 spawn 子进程时注入 `DSH_TOKEN`（env 优先），日志只作兜底。⛔ 新脚本别自己正则翻 `server.log` 取 token —— 必然「换不到 cookie」。手工跑 CLI 时没有 `DSH_TOKEN`，只能在壳里点按钮或先设该环境变量。
 - **自检认两套引擎布局**（2026-11-12 已修，勿再按旧记忆判断）：`自检.mjs` 同时探 `引擎/lib/bin.js`（打包版，当前本机）与 `引擎/apps/cli/lib/bin.js`（源码版）；两者都不在、且端口上也没有引擎在跑时才会报「缺引擎」，别当自己改坏。
 - **sessionId 是本机数据**：换机器后场景面板必然空白，先跑 `sessions.mjs --check` 再怀疑代码。
 - **`main.js` 单文件 260 KB**：改动前先定位到行，避免整文件重排产生巨型 diff。
