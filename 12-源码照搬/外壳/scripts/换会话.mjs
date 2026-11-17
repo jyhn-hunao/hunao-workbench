@@ -26,7 +26,8 @@
 //   ⑦ 自证：读 §〇 里本面板那行指针，验证它指的文件真的存在（相对路径曾在这里死过链）
 //   ⑧ 机器可读输出 NEWID / OLDID；GUI 模式下由渲染层自己 reload 本面板（不再广播 all）
 //   ⑨ 项目记忆体检（2026-11-13 B 批②）：按「会话 cwd → pinTarget → 场景唯一」三级解析出面板所属项目根，
-//      再跑 `记忆.mjs 体检`（✗ 拦、⚠ 只提示）；解析不到唯一项目就明确跳过，不凭目录名猜项目。
+//      再跑 `记忆.mjs 体检`。2026-11-17 改成分级：结构错 / 证据失效 ⇒ ✗ 拦；词表空 / 缺 evidence 这类欠账 ⇒
+//      △ 只提示、照常换（`--strict-memory` 恢复“欠账也拦”）。解析不到唯一项目就明确跳过，不凭目录名猜项目。
 //
 // 交接文件路径不再靠硬编码表：默认按场景 json 的 `name` 解析
 //   `<引擎数据>\.dsh\场景记忆\<场景名>\场景私有记忆.md`，表里登记过的优先（用于非标路径）。
@@ -343,9 +344,24 @@ if (st && !st.stale && st.pct < 50) say('\n（提示：这条才 ' + st.pct + '%
     const warn = out.split(/\r?\n/).filter((x) => x.includes('⚠')).slice(0, 2).join('；');
     if (ok) say('\n· 项目记忆体检：✓ 通过（' + projRoot + '）' + (warn ? '（提醒：' + warn.slice(0, 120) + '）' : ''));
     else {
-      const detail = out.split(/\r?\n/).filter((x) => x.includes('✗')).slice(0, 6).join('；');
-      // 2026-11-17：处置命令必须放句首 —— toast 只截前 300 字，放句尾会被截掉，用户就看不到该跑什么。
-      problems.push('项目记忆体检没过（' + projRoot + '）⇒ 先跑 `node "' + PROJ_TOOL + '" 体检 --project "' + projRoot + '"` 修完再换；问题：' + (detail || '体检失败'));
+      // 只认行首 ✗ 的条目；末尾的「结论：✗ N 个问题」是汇总行，不能当硬问题（否则永远降级不了）。
+      const bad = out.split(/\r?\n/).map((x) => x.trim()).filter((x) => /^✗/.test(x));
+      // 2026-11-17：分级 —— 「词表空 / 缺 evidence」是数据欠账（检索不全、无法自证），
+      //   不影响记忆正确性，也不该拦住一次日常换会话；结构坏、证据失效才是真会误导新会话的硬伤。
+      //   要恢复“欠账也硬拦”的老行为，加 --strict-memory。起因见 2026-11-17 用户反馈：
+      //   “每次换会话都要现场整理记忆，太繁琐”。
+      // 只认这两种欠账；其它任何 ✗ 一律按硬伤拦（宁可多拦，不能放过结构错）
+      const isDebt = (x) => /词表\.json 是空的|缺证据/.test(x);
+      const debt = bad.filter(isDebt);
+      const hard = bad.filter((x) => !isDebt(x));
+      if (!hard.length && !flags.has('--strict-memory')) {
+        say('\n· 项目记忆体检：△ ' + debt.length + ' 项欠账、不拦换会话（' + (debt[0] || '体检 exit 1').trim().slice(0, 200) + '）');
+        say('  （欠账不影响接力正确性；建议收工时跑 `' + PROJ_TOOL + '` 体检 补词表/evidence。要严格拦就加 --strict-memory）');
+      } else {
+        const detail = (hard.length ? hard : bad).slice(0, 6).join('；');
+        // 2026-11-17：处置命令必须放句首 —— toast 只截前 300 字，放句尾会被截掉，用户就看不到该跑什么。
+        problems.push('项目记忆体检没过（' + projRoot + '）⇒ 先跑 `node "' + PROJ_TOOL + '" 体检 --project "' + projRoot + '"` 修完再换；问题：' + (detail || '体检失败'));
+      }
     }
   }
 }
