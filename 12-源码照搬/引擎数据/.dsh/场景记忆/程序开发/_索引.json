@@ -1,8 +1,42 @@
 {
   "version": 1,
   "scene": "程序开发",
-  "generatedAt": "2026-11-16T10:25:46.879Z",
+  "generatedAt": "2026-11-17T01:54:46.531Z",
   "entries": [
+    {
+      "path": "坑\\2026-11-17-日志脱敏只改了壳没改脚本-换会话卡死在换不到.md",
+      "kind": "坑",
+      "title": "日志脱敏只改了壳没改脚本，换会话卡死在换不到 cookie",
+      "date": "2026-11-17",
+      "tags": [
+        "坑"
+      ],
+      "distinct": [],
+      "evidence": [
+        "12-源码照搬/外壳/main.js::token 本体只留在内存"
+      ],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 598
+    },
+    {
+      "path": "定论\\场景记忆.md",
+      "kind": "定论",
+      "title": "场景记忆",
+      "date": "2026-11-17",
+      "tags": [
+        "定论",
+        "场景记忆"
+      ],
+      "distinct": [],
+      "evidence": [
+        "D:/codeData/myself/luanyujia-workbench/12-源码照搬/引擎数据/.dsh/场景记忆/程序开发/坑/2026-11-13-壳外重启引擎会导致白屏.md::引擎必须由壳 spawn，token 由壳从引擎 stdout 捕获（main.js:401-403）",
+        "D:/codeData/myself/luanyujia-workbench/12-源码照搬/引擎数据/.dsh/场景记忆/程序开发/决策/2026-11-11-零散会话的交接落点-引擎数据-dsh-场景记忆.md::2026-11-11（会话治理·跨项目）：零散会话的交接落点 `引擎数据\\.dsh\\场景记忆\\其他会话临时项目信息交接文"
+      ],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 3828
+    },
     {
       "path": "坑\\2026-11-16-换会话-1-3-崩-body0-回滚引用局部变量.md",
       "kind": "坑",
@@ -150,8 +184,8 @@
         "12-源码照搬/外壳/main.js::引擎在外部重启后旧 token 立刻失效"
       ],
       "expires": "",
-      "consolidatedInto": "",
-      "size": 490
+      "consolidatedInto": "定论/场景记忆.md",
+      "size": 533
     },
     {
       "path": "坑\\2026-11-13-NapCat-安装包本机下不动.md",
@@ -463,8 +497,8 @@
       "distinct": [],
       "evidence": [],
       "expires": "",
-      "consolidatedInto": "",
-      "size": 1167
+      "consolidatedInto": "定论/场景记忆.md",
+      "size": 1210
     },
     {
       "path": "决策\\2026-11-11-记忆能力改造定稿.md",
@@ -523,8 +557,8 @@
       "distinct": [],
       "evidence": [],
       "expires": "",
-      "consolidatedInto": "",
-      "size": 978
+      "consolidatedInto": "定论/场景记忆.md",
+      "size": 1021
     },
     {
       "path": "决策\\2026-11-11-排卡在加载页先比日志顺序-别先怀疑网络.md",
@@ -927,6 +961,18 @@
     },
     {
       "path": "归档\\场景私有记忆-202611161825-ca13be.md",
+      "kind": "归档",
+      "title": "程序开发 · 场景私有记忆",
+      "date": "",
+      "tags": [],
+      "distinct": [],
+      "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 7434
+    },
+    {
+      "path": "归档\\场景私有记忆-202611170931-ca13be.md",
       "kind": "归档",
       "title": "程序开发 · 场景私有记忆",
       "date": "",

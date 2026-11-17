@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-11-16T10:25:46.885Z",
+  "generatedAt": "2026-11-17T01:54:46.539Z",
   "scenes": [
     {
       "name": "本地电脑",
@@ -27,10 +27,10 @@
         "cd-ai",
         "cd-ai-home"
       ],
-      "entries": 67,
+      "entries": 70,
       "hasPrivate": true,
       "hasIdentity": true,
-      "updatedAt": "2026-11-16T10:25:46.884Z"
+      "updatedAt": "2026-11-17T01:54:46.537Z"
     },
     {
       "name": "创意工坊",
