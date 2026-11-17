@@ -15133,9 +15133,11 @@ renderers.harness = (body, meta, head) => {
     // 长状态文字不再把按钮挤到换行/裁切；小字自身用省略号收尾（CSS .harness-diag）。
     acts.appendChild(reloadBtn);
     acts.appendChild(diag);
-    // 2026-11-12（自动化改造）：面板「换会话」= 一条链路跑完 写交接 → 建新 → 改绑（json/定位卡/索引）→ 归档旧 → 重载本面板。
+    // 2026-11-12（自动化改造）：面板「换会话」= 一条链路跑完 写交接 → 建新 → 改绑（json/定位卡/索引）→ 归档旧 → 重建本面板。
     //   · 按钮标签只显示阶段（换会话 1/3 · 2/3 · 3/3），不放结果文字（结果走顶栏 toast）；
-    //   · 成功由渲染层自己重载本面板（主进程传 DSH_ROTATE_SELF_RELOAD=0，不写 reload-panels.cmd，避免全面板闪）；
+    //   · 成功由渲染层自己整场重建本面板所在的场景（主进程传 DSH_ROTATE_SELF_RELOAD=0，不写 reload-panels.cmd）——
+    //     **不能只 reload**：分区名带着绑定的 sessionId 后 8 位（panelPartition），旧 webview 的注入脚本里也还是旧 id，
+    //     只 reload 会继续读旧分区里"已归档的旧会话"⇒ 引擎退到无会话欢迎页（「选择工作区」空白页，标题行报「未切到」）。
     //   · 主进程按 sceneId 互斥，并发点击会直接收到 busy，而不是两边同时改一份 json。
     if (meta && meta.id && window.app && typeof window.app.harnessRotate === 'function') {
       // 全局只订阅一次：进度 / 完成都按 panelId 找到对应面板的按钮标签与重载器
@@ -15173,13 +15175,30 @@ renderers.harness = (body, meta, head) => {
         } catch (e) { wbWarn(e) }
       }
       const rot = el('button', 'file-refresh', '换会话');
-      rot.title = '把这个面板换成一条新会话：写面板交接 → 建新 → 改绑（场景 json / 定位卡 / 身份索引）→ 归档旧 → 重载本面板。压力到阈值且空闲时会自动做同样的事。';
-      // 本面板的重载器：自动换会话完成后按 panelId 调它，只重载这一块，别整页刷
+      rot.title = '把这个面板换成一条新会话：写面板交接 → 建新 → 改绑（场景 json / 定位卡 / 身份索引）→ 归档旧 → 重建本面板。压力到阈值且空闲时会自动做同样的事。';
+      // 本面板的重载器：自动换会话完成后按 panelId 调它，只重建这一块所在的场景，别整页刷
       window.__harnessReload = window.__harnessReload || {};
       window.__harnessReload[meta.id] = () => {
         try {
           if (!wv) return;
-          // 换过主会话 = 这个面板要回到 json 那条；先摘掉会话条的临时覆盖，否则重载后又显示旧临时会话
+          // 2026-11-17（P0：换会话后面板停在「选择工作区」空白页）：换会话改了场景 json 的绑定，
+          //   但 webview 的分区名带绑定 sessionId 后 8 位（见 panelPartition），注入脚本的 SESSION_ID 也是创建时的旧值
+          //   ⇒ 旧分区里 dsh.sessions.current 仍是**已归档的旧会话**，只 reload 引擎就打不开它，退到无会话欢迎页。
+          //   ⇒ 必须按新 meta 重建（新分区 + 新 SESSION_ID）；只重建"本窗口网格里确实挂着的这一个面板"，
+          //     在别的窗口/场景的，由那个窗口自己重建（这里 if 不成立就退回单面板 reload）。
+          const sid = String(meta.id || '').replace(/["\\]/g, '\\$&');
+          const here = document.querySelector('.panel[data-panel-id="' + sid + '"]');
+          if (here && typeof window.APP_RELOAD_SCENE === 'function') {
+            const sceneId = String((here.__meta && here.__meta.scenario) || meta.scenario || '');
+            const done = window.APP_RELOAD_SCENE(sceneId || undefined);
+            if (done && typeof done.catch === 'function') {
+              done.catch((e) => {
+                try { window.__tbsToast('面板重建失败：' + ((e && e.message) || e) + '（可切走再切回本场景）', true, 8000); } catch (x) { wbWarn(x) }
+              });
+            }
+            return;
+          }
+          // 兜底：面板不在这张网格里（别的窗口会自己重建）⇒ 老做法，先摘掉会话条的临时覆盖再 reload
           const back = () => { try { if (wv && wv.reload) wv.reload(); } catch (e) { wbWarn(e) } };
           if (typeof wv.executeJavaScript === 'function') {
             wv.executeJavaScript("try{sessionStorage.removeItem('app_pin_override')}catch(e){}; 'ok'")
@@ -15207,8 +15226,8 @@ renderers.harness = (body, meta, head) => {
           if (r && r.ok) {
             notify('换会话完成 · 新会话 ' + (r.newId || '(未返回 id)')
               + (r.elapsed ? ' · ' + r.elapsed + ' 秒' : '') + (r.warn ? ' · ' + r.warn : ''), false, 6000);
-            // 只重载本面板：新会话 id 已写进场景 json，重载后这块 webview 就绑到新会话
-            // 走 __harnessReload（它先摘掉会话条的临时覆盖，否则重载后还显示旧临时会话）
+            // 只重建本面板所在的场景：新会话 id 已写进场景 json，重建后这块 webview 才拿到新分区 + 新绑定
+            // （只 reload 会继续读旧分区里已归档的旧会话 ⇒ 空白欢迎页「选择工作区」）
             setTimeout(() => {
               const back = window.__harnessReload[meta.id];
               if (typeof back === 'function') back();
@@ -15476,8 +15495,9 @@ renderers.harness = (body, meta, head) => {
         return String(row.textContent || '').replace(/\\s+/g, ' ').trim();
       } catch (e) { return ''; }
     };
-    // 页面标题 =「<会话名> — DSH 本地构建」：去掉后缀就是会话名（应用自己写的，最权威）
-    const stripSuffix = (s) => String(s == null ? '' : s).replace(/\s*[—–\-]\s*DSH.*$/, '').trim();
+    // 页面标题 =「<会话名> — DSH 本地构建」/「<会话名> — DeepSeek Harness」：去掉后缀就是会话名（应用自己写的，最权威）
+    // ⚠ 本行在模板字符串里：正则的反斜杠必须写两个（写一个会被模板吃掉，guest 侧拿到的是残缺正则 —— 2026-11-17 修）
+    const stripSuffix = (s) => String(s == null ? '' : s).replace(/\\s*[—–\\-]\\s*(?:DSH|DeepSeek Harness).*$/i, '').trim();
     // 纯页签名（聊天区顶栏里第一个文本常常只是页签名"对话"），不能当成会话名
     const isTabLabel = (s) => /^(对话|chat|新视图|new view)$/i.test(String(s || '').trim());
     // 当前**已打开**的会话名。⚠ 顺序很重要（2026-09-14 修）：
@@ -15488,7 +15508,7 @@ renderers.harness = (body, meta, head) => {
     // 都读不到时返回 ''（例如停在"新会话/欢迎页"）。
     const titleOf = () => {
       const dt = stripSuffix(document.title);
-      if (dt && dt !== 'DSH 本地构建') return dt;
+      if (dt && dt !== 'DSH 本地构建' && dt !== 'DeepSeek Harness') return dt;
       try {
         const sel = document.querySelector('[aria-selected="true"]');
         const st = rowTitle(sel);
@@ -15587,6 +15607,11 @@ renderers.harness = (body, meta, head) => {
         sessionTitle: SESSION_TITLE,
         sessionId: SESSION_ID,
         stored: (() => { const s = readSel(); return (s && s.sessionId) ? String(s.sessionId) : ''; })(),
+        // 2026-11-17：换会话后新会话是 0 轮空会话，引擎把它画成 hero 页；
+        //   宿主据此把"已绑定的空会话"认成正常态，别误报「未切到」。
+        //   两个旗标分开：hero=「探索未至之境」；locked=输入框被锁成「选择一个工作区开始」。
+        blankPage: (() => { try { const b = (document.body && document.body.innerText) || ''; return b.indexOf('探索未至之境') >= 0; } catch (e) { return false; } })(),
+        lockedPicker: (() => { try { const b = (document.body && document.body.innerText) || ''; return b.indexOf('选择一个工作区开始') >= 0; } catch (e) { return false; } })(),
         // 2026-11-12：guest 写对了键但没法自己重载（侧栏隐藏、点不到行）⇒ 留信号让宿主重载
         needReloadAt: (window.__pinNeedHostReloadAt || 0),
         // 2026-11-12（P0）：引擎到底把「当前会话」存哪个键 —— 不一致时把这几个键名记进 server.log
@@ -15995,8 +16020,17 @@ renderers.harness = (body, meta, head) => {
           try { if (window.app && window.app.diagLog) window.app.diagLog('[pin] mismatch expected=' + d.sessionId + ' stored=' + (d.stored || '') + ' partition=' + (wv.getAttribute('partition') || '') + ' lsKeys=' + ((d.lsKeys || []).join(','))); } catch (e) { wbWarn(e) }
         }
         const unbound = !d.sessionId && !d.sessionTitle && !(d.targets || []).length && !(d.bound && d.bound.title);
+        // 2026-11-17：0 轮空会话在引擎里就是 hero 页 —— 存储里指向的正是本面板的会话时，这是**正常态**，
+        //   不能再显示「未切到」（用户会以为面板坏了）。真正没切到 = 存储不一致或指向的是别的会话行。
+        const storedMatch = !!d.sessionId && String(d.stored || '') === String(d.sessionId);
+        const emptyOk = !ok && !boundOk && idOk && storedMatch && !!d.blankPage && !d.lockedPicker;
+        // 空会话页但输入框还被锁成「选择一个工作区开始」⇒ 引擎里的工作区兜底没生效（补丁丢了 / 没重启整壳）
+        const lockedOk = !ok && !boundOk && idOk && storedMatch && !!d.lockedPicker;
         pinTxt = unbound ? '○ 未绑定 · 面板自由选会话'
-          : (boundOk ? '✓ 已钉绑定' : (ok ? '✓ 已钉' : ('未切到 · ' + (live || '读不到当前会话'))));
+          : (boundOk ? '✓ 已钉绑定' : (ok ? '✓ 已钉'
+            : (emptyOk ? '✓ 已绑定 · 空会话（可直接开聊）'
+              : (lockedOk ? '⚠ 已绑定 · 但引擎还要选工作区（补丁/重启未生效）'
+                : ('未切到 · ' + (live || '读不到当前会话'))))));
         if (unbound) diag.title = '该面板未绑定任何会话（场景 json 里没写 sessionTitle / sessionId / pinTarget）\n' +
           '面板停在它当前显示的会话上，不会被自动切换，也不再去找侧栏。\n' +
           '要重新绑定：给该面板补 sessionTitle + sessionId，再切一次场景即可（改了就会立刻生效）。';
@@ -16031,19 +16065,90 @@ renderers.harness = (body, meta, head) => {
     } catch (e) { wbWarn(e) }
   };
 
-  const load = async () => {
+  // 2026-11-17（「启动后显示『引擎尚未就绪』，要点一次『重新加载』才正常」）：
+  //   引擎冷启动实测 60–70s（pnpm 兜底入口），而 harness:ready 广播时 token 往往还没打印出来
+  //   ⇒ 面板第一次渲染必然撞在「没就绪」上。从前这里写完一行提示就 return、什么都不再试，
+  //   只能靠人点一次「重新加载」。现在两条自动通道都不依赖用户：
+  //     ① harness:ready 广播一到立刻重来（不等轮询）；
+  //     ② 自己短轮询兜底（间隔 1.5s，最长 3 分钟；超时才提示看 server.log 并留手动「重试」）。
+  const WAIT_RETRY_MS = 1500;         // 未就绪时的自动重试间隔
+  const WAIT_MAX_MS = 180000;         // 自动重试上限（冷启动 70s 量级留足余量）
+  let waitTimer = null;
+  let waitSince = 0;
+  let waitText = '';
+  let unhookReady = null;
+  let loading = false;                // 串行化：自动重试 / 手动点「重试」不并发建两份 webview
+  const clearWait = () => { if (waitTimer) { clearTimeout(waitTimer); waitTimer = null; } };
+  const retryBtn = el('button', 'file-refresh', '🔄 重试');
+  retryBtn.title = '立刻再问一次引擎是否就绪（一般不用点，界面会自己进来）';
+  retryBtn.addEventListener('click', () => {
+    if (loading) return;            // 正在问引擎（一次最多 10s），别并发再发一次
+    clearWait();
+    waitSince = 0;
+    waitText = '';
+    msg.textContent = '正在加载对话窗口…';
+    load();
+  });
+  const paintWait = (text) => {
+    if (text !== waitText) { msg.textContent = text; waitText = text; }
+    if (retryBtn.parentNode !== msg) msg.appendChild(retryBtn);
+  };
+  // 就绪广播在 preload 里是持久监听（没有退订）⇒ 全局只挂一个，各面板把自己的「重来」登记/摘除。
+  const readyHook = window.__harnessReadyHook || (window.__harnessReadyHook = { subs: {}, installed: false, seq: 0 });
+  const hookReady = (fn) => {
+    const key = String(meta.id || 'harness') + ':' + (readyHook.seq = (readyHook.seq || 0) + 1);
+    readyHook.subs[key] = fn;
+    if (!readyHook.installed) {
+      readyHook.installed = true;
+      try {
+        if (window.app && typeof window.app.onHarnessReady === 'function') {
+          window.app.onHarnessReady(() => {
+            Object.keys(readyHook.subs).forEach((k) => {
+              try { readyHook.subs[k](); } catch (e) { wbWarn(e) }
+            });
+          });
+        }
+      } catch (e) { wbWarn(e) }
+    }
+    return () => { try { delete readyHook.subs[key]; } catch (e) { wbWarn(e) } };
+  };
+  const scheduleRetry = (delay) => {
     if (disposed) return;
+    clearWait();
+    if (!waitSince) waitSince = Date.now();
+    if (Date.now() - waitSince > WAIT_MAX_MS) {
+      paintWait('引擎启动超时：已等 ' + Math.round((Date.now() - waitSince) / 1000) + ' 秒仍未就绪 · 可点「重试」，或看 外壳\\server.log');
+      return;
+    }
+    waitTimer = setTimeout(() => { waitTimer = null; load(); }, delay);
+  };
+
+  const load = async () => {
+    if (disposed || loading) return;
+    loading = true;
     try {
-      // 2026-11-11：面板打开时也可能撞上「端口先通、token 后到」⇒ 用渲染层的统一等待（最多 10s），
-      // 别因为一次 isHarnessReady()=false 就停到「引擎尚未就绪」等人点重试。
+      // 1. 等引擎（端口通 ≠ token 到手）：面板可能在引擎冷启动期间就被画出来
       const ready = await waitHarnessReady();
+      if (disposed) return;
       if (!ready) {
-        msg.textContent = 'Harness 引擎尚未就绪。请稍候或点击「重试」。';
-        const retry = el('button', 'file-refresh', '🔄 重试');
-        retry.addEventListener('click', () => { msg.textContent = '正在加载对话窗口…'; load(); });
-        msg.appendChild(retry);
+        // 2a. 没就绪 ⇒ 登记「就绪广播一到就重来」+ 定时兜底，不再停成死页面等人点「重新加载」
+        if (!unhookReady) unhookReady = hookReady(() => { scheduleRetry(0); });
+        // 引擎当前阶段（init/check/spawn/wait/ready/error）由主进程给：区分「还在启动」和「就绪但 token 没到」
+        let st = '';
+        try { const v = await window.app.bootState(); st = (v && v.stage) || ''; } catch (e) { st = ''; }
+        if (disposed) return;
+        if (st === 'error') paintWait('引擎启动失败 · 可点「重试」重试启动，或看 外壳\\server.log');
+        else if (st === 'ready') paintWait('引擎已就绪，正在等 token（到手后自动进入，不用点）…');
+        else paintWait('引擎正在启动，界面就绪后自动进入…');
+        scheduleRetry(WAIT_RETRY_MS * (st === 'error' ? 2 : 1));
         return;
       }
+      // 2b. 就绪了 ⇒ 撤掉等待通道，避免后续广播再触发一次重复加载
+      clearWait();
+      waitSince = 0;
+      waitText = '';
+      if (unhookReady) { try { unhookReady(); } catch (e) { wbWarn(e) } unhookReady = null; }
+      // 3. 拿到带 token 的地址后才挂 webview
       const url = await window.app.getHarnessUrl();
       body.innerHTML = '';
       wv = document.createElement('webview');
@@ -16077,12 +16182,16 @@ renderers.harness = (body, meta, head) => {
       body.appendChild(wv);
     } catch (e) {
       msg.textContent = '加载失败：' + (e && e.message || e);
+    } finally {
+      loading = false;
     }
   };
   load();
   // 场景切换清理：停止注入定时器（webview DOM 由 loadScenario 统一移除）
   return () => {
     disposed = true;
+    clearWait();
+    if (unhookReady) { try { unhookReady(); } catch (e) { wbWarn(e) } unhookReady = null; }
     if (hostTimer) clearInterval(hostTimer);
     if (pinTimer) clearInterval(pinTimer);
     if (switchCleanup) { try { switchCleanup(); } catch (e) { wbWarn(e) } }
