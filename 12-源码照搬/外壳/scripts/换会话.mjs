@@ -344,14 +344,17 @@ if (st && !st.stale && st.pct < 50) say('\n（提示：这条才 ' + st.pct + '%
     if (ok) say('\n· 项目记忆体检：✓ 通过（' + projRoot + '）' + (warn ? '（提醒：' + warn.slice(0, 120) + '）' : ''));
     else {
       const detail = out.split(/\r?\n/).filter((x) => x.includes('✗')).slice(0, 6).join('；');
-      problems.push('项目记忆体检没过（' + projRoot + '）：' + (detail || '体检失败') + ' ⇒ 先跑 `node "' + PROJ_TOOL + '" 体检 --project "' + projRoot + '"` 修完再换');
+      // 2026-11-17：处置命令必须放句首 —— toast 只截前 300 字，放句尾会被截掉，用户就看不到该跑什么。
+      problems.push('项目记忆体检没过（' + projRoot + '）⇒ 先跑 `node "' + PROJ_TOOL + '" 体检 --project "' + projRoot + '"` 修完再换；问题：' + (detail || '体检失败'));
     }
   }
 }
 if (problems.length) {
   say('\n⚠ 先别急：');
   for (const x of problems) say('  · ' + x);
-  say('\n（没真动任何东西）');
+  // 2026-11-17：原来写「没真动任何东西」。从「交接并换会话」进来时 1/3 已经写了交接，
+  //   这句会让人误以为连交接都没写；改成只承诺本脚本范围内的事实。
+  say('\n（没换会话：预检就停住了，面板仍绑旧会话）');
   process.exit(3);
 }
 
