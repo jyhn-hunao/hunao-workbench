@@ -81,7 +81,9 @@ contextBridge.exposeInMainWorld('app', {
   // ---- 社交场景 · 消息流（2026-11-13）----
   // 缺这个命名空间 = 主进程/preload 还是旧的 ⇒ so-msg 面板显示「重启一次工作台」，不会假装有数据。
   social: {
-    flow: (args) => ipcRenderer.invoke('social:flow', args)
+    flow: (args) => ipcRenderer.invoke('social:flow', args),
+    viewGet: () => ipcRenderer.invoke('social:view-get'),
+    viewSet: (patch) => ipcRenderer.invoke('social:view-set', patch)
   },
   // ---- QQ 个人号桥接（SnowLuma，2026-11-13）----
   // 随壳启动/退出；面板上的齿轮按钮用它确认"起没起"，没起就先拉起再开窗口。

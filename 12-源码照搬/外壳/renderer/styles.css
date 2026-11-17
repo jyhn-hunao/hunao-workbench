@@ -6698,6 +6698,17 @@ html[data-theme="light"] .kneu-btn { border-color: var(--line-2); }
 .mf-who { font-weight: 600; color: var(--text); }
 .mf-text { white-space: pre-wrap; word-break: break-word; color: var(--text); }
 .mf-empty { color: var(--text-dim); font-size: 13px; line-height: 1.6; padding: 10px 2px; }
+/* 管理工具栏（2026-11-17）：时间范围 / 搜索 / 加载更早 / 归档 / 条数统计 */
+.mf-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; flex: 0 0 auto; }
+.mf-tools .file-refresh { font-size: 12px; }
+.mf-range, .mf-search {
+  height: 26px; padding: 0 8px; border: 1px solid var(--border); border-radius: 6px;
+  background: var(--bg-panel); color: var(--text); font-size: 12px; outline: none;
+}
+.mf-range option { background: var(--bg-panel); color: var(--text); }
+.mf-range:focus, .mf-search:focus { border-color: var(--accent); }
+.mf-search { flex: 1 1 150px; min-width: 110px; }
+.mf-count { margin-left: auto; font-size: 12px; color: var(--text-dim); white-space: nowrap; }
 
 /* ---- 社交 · 平台卡片面板（chan，2026-11-13）----
    一个平台一格卡片：加平台 = social.json 里多一个 type:"chan" 面板，不用改渲染代码。

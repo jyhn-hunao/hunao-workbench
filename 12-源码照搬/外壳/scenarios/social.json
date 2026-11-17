@@ -1,7 +1,7 @@
 {
   "id": "social",
   "name": "社交",
-  "description": "社交：只做通道。这里没有 AI 会话——消息流的来源是「胡闹的大肥鱼」人格场景的会话。面板按平台分格：每个平台一格卡片（type:chan，meta.channel 指定平台），加平台 = 再加一个 chan 面板；右侧「全部消息」保留合并流用于对时。通道参数与排障口径记在 场景记忆\\社交\\，人格与对话记忆归 场景记忆\\胡闹的大肥鱼\\",
+  "description": "社交：只做通道。这里没有 AI 会话——消息流的来源是「胡闹的大肥鱼」人格场景的会话。面板按平台分格：每个平台一格卡片（type:chan，meta.channel 指定平台），加平台 = 再加一个 chan 面板；右侧「全部消息」保留合并流用于对时，底部「SnowLuma 桥接」是桥接控制台面板（type:embed）。通道参数与排障口径记在 场景记忆\\社交\\，人格与对话记忆归 场景记忆\\胡闹的大肥鱼\\",
   "layout": "grid",
   "theme": "dark",
   "cols": 4,
@@ -13,6 +13,7 @@
       "type": "chan",
       "channel": "qq",
       "console": "snowluma",
+      "consolePanel": "sl-console",
       "sessionTitle": "胡闹的大肥鱼",
       "sessionId": "session-861de8a2-9bf1-4251-ac21-441240d1e0bd",
       "col": 1,
@@ -48,6 +49,23 @@
       "row": 1,
       "w": 2,
       "h": 6
+    },
+    {
+      "id": "sl-console",
+      "title": "SnowLuma 桥接",
+      "sub": "QQ 个人号控制台 · 本机 5099 · 进程页可区分两个账号",
+      "type": "embed",
+      "url": "http://127.0.0.1:5099/",
+      "bridgeUrl": true,
+      "partition": "persist:webai-snowluma",
+      "startBridge": true,
+      "failHint": "SnowLuma 还没起来或还在启动：点「▶ 启动 SnowLuma」让壳拉起来，再点「🔄 重试」。日志在 外壳\\data\\桥接\\snowluma.log。",
+      "expand": true,
+      "embedToggle": true,
+      "col": 1,
+      "row": 7,
+      "w": 4,
+      "h": 7
     }
   ],
   "first": false

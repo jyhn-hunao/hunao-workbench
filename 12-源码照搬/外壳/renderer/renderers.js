@@ -6706,23 +6706,185 @@ renderers.view = (body, meta, head) => {
 renderers.msgflow = function (body, meta, head) {
   body.classList.add('mf-panel');
   var POLL_MS = 4000;
-  var st = { channels: [], messages: [], err: '', at: 0, title: '', found: false, busy: false, toasted: false };
+  var st = { channels: [], messages: [], err: '', at: 0, title: '', found: false, busy: false, toasted: false,
+    range: '7', q: '', archivedBefore: 0, page: null, loadedMore: false, loadingMore: false };
+
+  // 视图偏好优先存主进程 userData（2026-11-17：localStorage 可能被清理软件连带清掉）；
+  // localStorage 只作兜底/一次性迁移。⚠ 归档游标只影响这个面板的显示，不动会话转录。
+  try {
+    var savedRange = localStorage.getItem('app.social.msg.range');
+    if (savedRange && ['today', '7', '30', 'all'].indexOf(savedRange) >= 0) st.range = savedRange;
+    st.archivedBefore = Math.max(0, Number(localStorage.getItem('app.social.msg.archivedBefore')) || 0);
+  } catch (e) { wbWarn(e) }
 
   var chips = document.createElement('div');
   chips.className = 'mf-chips';
   var list = document.createElement('div');
   list.className = 'mf-list';
+  var tools = document.createElement('div');
+  tools.className = 'mf-tools';
+  body.appendChild(tools);
   body.appendChild(chips);
   body.appendChild(list);
 
-  // ---------- 标题栏「⚙ 桥接」：按需打开 SnowLuma 控制台（用户要求：设置按钮打开，不常驻面板）----------
-  // 点一下：先确认运行时在不在（随壳启动已经拉过一次）→ 没在跑就先让主进程拉起 → 再开浮动窗口。
-  // 窗口本体复用顶栏那套 webview（WEB_AI 里 hidden 的 snowluma 条目），不另造一套窗口/登录态。
+  // ---------- 管理工具栏（2026-11-17）：范围 / 搜索 / 更早 / 归档 / 计数 ----------
+  // 为什么放在面板 body 顶上而不是标题行：标题行已经有「⚙ 桥接」，再塞四个控件会挤成一团；
+  // 这里跟消息列表同一列，范围/搜索是"看哪些消息"的一部分。
+  var rangeSel = document.createElement('select');
+  rangeSel.className = 'mf-range';
+  rangeSel.title = '时间范围';
+  [['today', '今天'], ['7', '7 天'], ['30', '30 天'], ['all', '全部']].forEach(function (o) {
+    var op = document.createElement('option');
+    op.value = o[0];
+    op.textContent = o[1];
+    rangeSel.appendChild(op);
+  });
+  rangeSel.value = st.range;
+
+  var search = document.createElement('input');
+  search.className = 'mf-search';
+  search.type = 'search';
+  search.placeholder = '搜消息…';
+  search.title = '按正文关键字过滤（300ms 防抖）';
+
+  var more = document.createElement('button');
+  more.className = 'file-refresh';
+  more.textContent = '⬅ 更早';
+  more.title = '往前翻 50 条（只读，不改源数据）';
+
+  var archBtn = document.createElement('button');
+  archBtn.className = 'file-refresh';
+  archBtn.textContent = '📦 归档';
+  archBtn.title = '只隐藏这个面板里早于今天 0 点的消息（不动会话转录）';
+
+  var unarchBtn = document.createElement('button');
+  unarchBtn.className = 'file-refresh';
+  unarchBtn.textContent = '↩ 恢复';
+  unarchBtn.title = '取消归档游标，恢复显示全部消息';
+
+  var count = document.createElement('span');
+  count.className = 'mf-count';
+
+  tools.appendChild(rangeSel);
+  tools.appendChild(search);
+  tools.appendChild(more);
+  tools.appendChild(archBtn);
+  tools.appendChild(unarchBtn);
+  tools.appendChild(count);
+
+  rangeSel.addEventListener('change', function () {
+    st.range = rangeSel.value;
+    try { localStorage.setItem('app.social.msg.range', st.range); } catch (e) { wbWarn(e) }
+    savePrefs({ range: st.range });
+    st.loadedMore = false;
+    load({ reset: true });
+  });
+
+  var searchTimer = null;
+  search.addEventListener('input', function () {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(function () {
+      st.q = String(search.value || '').trim();
+      st.loadedMore = false;
+      load({ reset: true });
+    }, 300);
+  });
+
+  more.addEventListener('click', function () {
+    if (st.busy || st.loadingMore) return;
+    if (!st.messages.length) return;
+    var first = st.messages[0];
+    if (!first || !first.at) return;
+    st.loadingMore = true;
+    // +1ms：同一毫秒的多条消息不丢；前端 mergeMessages 会按 at|role|text 去重
+    load({ prepend: true, before: first.at + 1, limit: 50 });
+  });
+
+  archBtn.addEventListener('click', function () {
+    var d = new Date();
+    d.setHours(0, 0, 0, 0);
+    st.archivedBefore = d.getTime();
+    try { localStorage.setItem('app.social.msg.archivedBefore', String(st.archivedBefore)); } catch (e) { wbWarn(e) }
+    savePrefs({ archivedBefore: st.archivedBefore });
+    drawTools();
+    load({ reset: true });
+    toast('已归档到今天 0 点：更早的消息不再显示（源数据没动）', false);
+  });
+
+  unarchBtn.addEventListener('click', function () {
+    st.archivedBefore = 0;
+    try { localStorage.removeItem('app.social.msg.archivedBefore'); } catch (e) { wbWarn(e) }
+    savePrefs({ archivedBefore: 0 });
+    drawTools();
+    load({ reset: true });
+    toast('已恢复显示全部消息', false);
+  });
+
+  // 范围 → since（毫秒）；今天 = 今天 0 点，7 天 = 今天 0 点往前 6 天（含今天共 7 天）
+  function rangeSince() {
+    var d = new Date();
+    var t0 = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+    if (st.range === 'today') return t0;
+    if (st.range === '7') return t0 - 6 * 86400000;
+    if (st.range === '30') return t0 - 29 * 86400000;
+    return 0;
+  }
+  function effectiveSince() {
+    var since = rangeSince();
+    if (st.archivedBefore) since = Math.max(since, st.archivedBefore);
+    return since;
+  }
+  function msgKey(m) { return String(m.at || 0) + '|' + String(m.role || '') + '|' + String(m.text || ''); }
+  function mergeMessages(a, b) {
+    var map = {};
+    (a || []).concat(b || []).forEach(function (m) {
+      if (!m) return;
+      var k = msgKey(m);
+      if (!map[k]) map[k] = m;
+    });
+    return Object.keys(map).map(function (k) { return map[k]; })
+      .sort(function (x, y) { return (x.at || 0) - (y.at || 0); });
+  }
+  function drawTools() {
+    var total = st.page ? st.page.total : st.messages.length;
+    var shown = st.messages.length;
+    var hasMore = !!(st.page && st.page.hasMore);
+    if (hasMore && st.page && shown >= total) hasMore = false;   // 已经加载全了就别再提示「更早还有」
+    var txt = '共 ' + total + ' 条 · 显示 ' + shown + ' 条';
+    if (hasMore) txt += ' · 更早还有';
+    if (st.page && st.page.truncated) txt += ' · 缓存只留最近 2 万条';
+    count.textContent = txt;
+    more.disabled = !hasMore || st.loadingMore;
+    unarchBtn.style.display = st.archivedBefore ? '' : 'none';
+  }
+  // 视图偏好走主进程 userData（localStorage 只作兜底/迁移）；写失败不阻断面板
+  function applyPrefs(p) {
+    if (!p) return;
+    // 主进程还没存过（exists:false）⇒ 保留 localStorage 里的旧值，别用默认值盖掉它
+    if (p.exists) {
+      if (p.range && ['today', '7', '30', 'all'].indexOf(p.range) >= 0) st.range = p.range;
+      if (Number.isFinite(Number(p.archivedBefore)) && Number(p.archivedBefore) >= 0) st.archivedBefore = Number(p.archivedBefore);
+    }
+    rangeSel.value = st.range;
+    drawTools();
+  }
+  function savePrefs(patch) {
+    var api = window.app && window.app.social;
+    if (api && typeof api.viewSet === 'function') {
+      Promise.resolve(api.viewSet(patch)).catch(function (e) { wbWarn(e) });
+    }
+  }
+
+  // ---------- 标题栏「⚙ 桥接」：按需打开 SnowLuma 控制台（2026-11-17 改成面板，不再开浮动窗）----------
+  // 点一下：先确认运行时在不在（随壳启动已经拉过一次）→ 没在跑就先让主进程拉起 →
+  //   再把「社交」场景里的 `sl-console` 面板滚到眼前并展开（面板本体是 embed，见本文件 renderers.embed）。
+  // 为什么不再用 webai-win：用户嫌它是弹窗（可拖动、盖在界面上、关掉就没了）；面板跟场景一起布局。
+  // 面板不存在（比如当前在别的场景）就明说，不偷偷切场景。
   if (head && head.appendChild) {
     var bridgeBtn = document.createElement('button');
     bridgeBtn.className = 'file-refresh';
     bridgeBtn.textContent = '⚙ 桥接';
-    bridgeBtn.title = '打开 SnowLuma 桥接控制台（QQ 个人号通道）：起来没起来 → 没起就先拉起 → 再开窗口。'
+    bridgeBtn.title = '打开 SnowLuma 桥接控制台（QQ 个人号通道）：起来没起来 → 没起就先拉起 → 再展开「社交」场景里的控制台面板。'
       + '控制台是本地页面（127.0.0.1:5099），随工作台启动，关工作台时一起收。';
     bridgeBtn.addEventListener('click', function () {
       var api = window.app && window.app.bridge;
@@ -6736,9 +6898,12 @@ renderers.msgflow = function (body, meta, head) {
           return;
         }
         try {
-          if (typeof window.__kunWebAiOpen === 'function') window.__kunWebAiOpen('snowluma', true);
-          else toast('开窗失败：网页窗口组件还没就绪（点右上角 ⟳ 刷新一次界面再点）', true);
-        } catch (e) { toast('开窗失败：' + String((e && e.message) || e), true); }
+          if (typeof window.__kunOpenPanel !== 'function') {
+            toast('控制台面板组件还没就绪（点右上角 ⟳ 刷新一次界面再点）', true);
+          } else if (!window.__kunOpenPanel('sl-console', { expand: true })) {
+            toast('控制台面板不在当前场景：先切到「社交」场景再点', true);
+          }
+        } catch (e) { toast('打开控制台面板失败：' + String((e && e.message) || e), true); }
         if (r.starting) toast('桥接在启动，控制台 1~2 秒后出现', false, 4000);
         // 控制台是本地服务，登录只有 admin 一个账号：首次点开提示一次密码（来自本机配置，不写进界面）
         if (r.passwordHint && !window.__slHinted) {
@@ -6813,7 +6978,12 @@ renderers.msgflow = function (body, meta, head) {
 
   // ---------- 画消息 ----------
   // 2. 一条一行：「她」靠右、「对面」靠左；上方是时间 + 说话人，下方是正文（换行保留）
-  function drawList() {
+  function drawList(opts) {
+    var opt = opts || {};
+    var oldH = 0, oldTop = 0;
+    if (opt.keepScroll) {
+      try { oldH = list.scrollHeight; oldTop = list.scrollTop; } catch (e) { wbWarn(e) }
+    }
     clearAll(list);
     if (st.err) {
       var e2 = document.createElement('div');
@@ -6825,9 +6995,11 @@ renderers.msgflow = function (body, meta, head) {
     if (!st.messages.length) {
       var e3 = document.createElement('div');
       e3.className = 'mf-empty';
-      e3.textContent = st.found
-        ? '还没有消息。通道接上后，对面发进来的话会出现在这里。'
-        : '场景会话的转录没找到（可能刚换过会话）：' + (meta.sessionId || '未绑定 sessionId');
+      e3.textContent = st.q
+        ? '没有匹配「' + st.q + '」的消息。'
+        : (st.found
+          ? '这个筛选范围内还没有消息（切到「全部」或点「↩ 恢复」看看更早的）。'
+          : '场景会话的转录没找到（可能刚换过会话）：' + (meta.sessionId || '未绑定 sessionId'));
       list.appendChild(e3);
       return;
     }
@@ -6851,61 +7023,106 @@ renderers.msgflow = function (body, meta, head) {
       row.appendChild(txt);
       list.appendChild(row);
     });
-    // 滚到底：新消息在末尾 ⇒ 默认看最新一句（用户手动上翻时不打断）
-    try {
-      var near = list.scrollHeight - list.scrollTop - list.clientHeight < 80;
-      if (near || !list.__seen) list.scrollTop = list.scrollHeight;
-      list.__seen = true;
-    } catch (e) { wbWarn(e) }
+    if (opt.keepScroll) {
+      // 往前加载更早：保住视口里那条消息的位置（否则列表会跳回顶/底）
+      try { list.scrollTop = Math.max(0, oldTop + (list.scrollHeight - oldH)); } catch (e) { wbWarn(e) }
+    } else {
+      // 滚到底：新消息在末尾 ⇒ 默认看最新一句（用户手动上翻时不打断）
+      try {
+        var near = list.scrollHeight - list.scrollTop - list.clientHeight < 80;
+        if (near || !list.__seen) list.scrollTop = list.scrollHeight;
+        list.__seen = true;
+      } catch (e) { wbWarn(e) }
+    }
   }
 
   // ---------- 取数 ----------
-  function load() {
+  // opts.prepend = 往前翻（把结果拼到现有列表前面）
+  // opts.merge   = 轮询时把新消息并进现有列表（用户已经加载过更早，旧页别丢）
+  // 其余（范围/搜索切换）走默认：整列表替换成最新一页
+  function load(opts) {
+    var opt = opts || {};
     if (st.busy) return;
     var api = window.app && window.app.social;
     if (!api || typeof api.flow !== 'function') {
       st.err = '需重启一次工作台：主进程/preload 还是旧的（没有 social.flow）';
-      drawChips(); drawList();
+      drawChips(); drawList(); drawTools();
       return;
     }
     st.busy = true;
-    Promise.resolve(api.flow({
+    var p = Promise.resolve(api.flow({
       sessionId: String(meta.sessionId || ''),
       sessionTitle: String(meta.sessionTitle || ''),
-      limit: 40
+      limit: opt.limit || 50,
+      since: effectiveSince(),
+      before: opt.before || 0,
+      q: st.q
     })).then(function (r) {
       st.busy = false;
+      st.loadingMore = false;
       if (!r || r.ok === false) {
         st.err = '取不到消息流：' + ((r && r.error) || '主进程没返回数据');
         if (!st.toasted) { st.toasted = true; toast(st.err, true); }
-        drawChips(); drawList();
+        drawChips(); drawList(); drawTools();
         return;
       }
       st.err = '';
       st.toasted = false;
       st.channels = r.channels || [];
-      st.messages = r.messages || [];
+      st.page = r.page || null;
       st.at = r.at || Date.now();
       st.title = (r.session && r.session.title) || '';
       st.found = !!(r.session && r.session.found);
-      drawChips(); drawList();
+      if (opt.prepend) {
+        st.messages = mergeMessages(r.messages || [], st.messages);
+        st.loadedMore = true;
+      } else if (opt.merge) {
+        st.messages = mergeMessages(st.messages, r.messages || []);
+      } else {
+        st.messages = r.messages || [];
+        st.loadedMore = false;
+      }
+      drawChips(); drawTools();
+      drawList({ keepScroll: !!opt.prepend });
     }).catch(function (e) {
       st.busy = false;
+      st.loadingMore = false;
       st.err = '取不到消息流：' + String((e && e.message) || e);
       if (!st.toasted) { st.toasted = true; toast(st.err, true); }
-      drawChips(); drawList();
+      drawChips(); drawList(); drawTools();
     });
+    return p;
   }
 
-  drawChips();
-  drawList();
-  load();
-  // 3. 轮询：窗口看不见时不发请求（省得后台白跑）
-  var timer = setInterval(function () {
-    try { if (document.hidden) return; } catch (e) { wbWarn(e) }
-    load();
-  }, POLL_MS);
-  return function () { clearInterval(timer); };
+  // 1. 先读主进程持久化的视图偏好（localStorage 只作兜底/迁移），再画消息
+  var legacyRange = st.range;
+  var legacyArchived = st.archivedBefore;
+  var prefsReady = (window.app && window.app.social && typeof window.app.social.viewGet === 'function')
+    ? Promise.resolve(window.app.social.viewGet()).then(function (p) {
+        var had = !!(p && p.exists);
+        applyPrefs(p);
+        // 主进程还没存过 ⇒ 把 localStorage 里的旧偏好迁过去（一次性）
+        if (!had && (legacyRange !== '7' || legacyArchived)) {
+          savePrefs({ range: legacyRange, archivedBefore: legacyArchived });
+        }
+      }).catch(function (e) { wbWarn(e); })
+    : Promise.resolve();
+
+  var dead = false;
+  var timer = null;
+  prefsReady.then(function () {
+    if (dead) return;
+    drawChips();
+    drawTools();
+    drawList();
+    load({ reset: true });
+    // 3. 轮询：窗口看不见时不发请求；用户加载过更早就合并，保旧页
+    timer = setInterval(function () {
+      try { if (document.hidden) return; } catch (e) { wbWarn(e) }
+      load({ merge: st.loadedMore });
+    }, POLL_MS);
+  });
+  return function () { dead = true; if (timer) clearInterval(timer); };
 };
 
 // ============ chan：一个平台一格卡片（2026-11-13）============
@@ -6938,10 +7155,11 @@ renderers.chan = function (body, meta, head) {
     try { if (typeof window.__tbsToast === 'function') window.__tbsToast(msg, !!bad, bad ? 8000 : 3000); } catch (e) { wbWarn(e) }
   }
 
-  // ---------- 卡片右上「⚙ 控制台」：只在 meta.console 指定时出现，复用桥接那套（没起就先拉起）----------
+  // ---------- 卡片右上「⚙ 控制台」：只在 meta.console 指定时出现（2026-11-17：打开面板，不再弹窗）----------
+  // meta.consolePanel 指定场景里的面板 id（默认 sl-console）；没起就先让壳拉起，再滚过去展开。
   function openConsole() {
     var api = window.app && window.app.bridge;
-    var key = String(meta.console || '');
+    var panelId = String(meta.consolePanel || 'sl-console');
     var prep = (api && typeof api.snowlumaStart === 'function')
       ? api.snowlumaStart()
       : Promise.resolve({ ok: false, error: '需重启一次工作台：主进程/preload 还是旧的（没有 bridge.snowlumaStart）' });
@@ -6950,8 +7168,11 @@ renderers.chan = function (body, meta, head) {
         toast('控制台没起来：' + ((r && r.error) || '未知原因') + '（细节见 外壳\\data\\桥接\\snowluma.log）', true);
         return;
       }
-      if (typeof window.__kunWebAiOpen === 'function') window.__kunWebAiOpen(key, true);
-      else toast('开窗失败：网页窗口组件还没就绪（点右上角 ⟳ 刷新一次界面再点）', true);
+      if (typeof window.__kunOpenPanel !== 'function') {
+        toast('控制台面板组件还没就绪（点右上角 ⟳ 刷新一次界面再点）', true);
+      } else if (!window.__kunOpenPanel(panelId, { expand: true })) {
+        toast('控制台面板不在当前场景：先切到「社交」场景再点', true);
+      }
     }).catch(function (e) { toast('控制台启动失败：' + String((e && e.message) || e), true); });
   }
 
@@ -6975,7 +7196,7 @@ renderers.chan = function (body, meta, head) {
       var btn = document.createElement('button');
       btn.className = 'file-refresh ch-console';
       btn.textContent = '⚙ 控制台';
-      btn.title = '打开该平台的协议端控制台（本地页面，随工作台启停）';
+      btn.title = '滚到下面的 SnowLuma 控制台面板并展开（本地页面，随工作台启停）';
       btn.addEventListener('click', function () { btn.disabled = true; openConsole().then(function () { btn.disabled = false; }); });
       head1.appendChild(btn);
     }
@@ -7605,7 +7826,7 @@ function startBiliProbe(wv, meta) {
 })();
 
 renderers.embed = (body, meta, head) => {  body.classList.add('embed-panel');
-  const url = String(meta.url || '');
+  let url = String(meta.url || '');
   const A = window.app && window.app.app;   // app = 宿主通用能力（开外链/定位路径），不占任何场景命名空间
   const pid = String(meta.id || 'panel');
   const storeKey = 'app.embed.on.' + pid;
@@ -7705,8 +7926,11 @@ renderers.embed = (body, meta, head) => {  body.classList.add('embed-panel');
     clearCards();
     wv = document.createElement('webview');
     wv.className = 'embed-wv';
-    // partition 必须在首次导航前设好；面板 id 决定分区名，避免和 harness 的会话分区混用
-    wv.setAttribute('partition', 'persist:embed-' + pid.replace(/[^A-Za-z0-9_-]/g, '_'));
+    // partition 必须在首次导航前设好；默认按面板 id 分区，避免和 harness 的会话分区混用。
+    // 场景 json 写了 meta.partition 就用它 —— 要和旧的浮动窗口共用登录态时用（SnowLuma 就是这种）。
+    wv.setAttribute('partition', meta.partition
+      ? String(meta.partition)
+      : 'persist:embed-' + pid.replace(/[^A-Za-z0-9_-]/g, '_'));
     // UA 也必须在首次导航前设好（加载后再改要重载才生效）
     const ua = resolveEmbedUA(meta.userAgent);
     if (ua) wv.setAttribute('useragent', ua);
@@ -7749,6 +7973,26 @@ renderers.embed = (body, meta, head) => {  body.classList.add('embed-panel');
     }
     const status = el('div', 'embed-fail-status', '');
     const row = el('div', 'embed-actions');
+    // 本机服务型面板（SnowLuma）失败时多一个「启动」按钮：壳有 start()，别让用户去外面开
+    if (meta.startBridge && window.app && window.app.bridge
+        && typeof window.app.bridge.snowlumaStart === 'function') {
+      const sb = makeBtn(meta.startLabel || '▶ 启动 SnowLuma',
+        '让壳把 SnowLuma 拉起来（起不来先看 外壳\\data\\桥接\\snowluma.log）', 'file-refresh embed-btn');
+      sb.addEventListener('click', () => {
+        sb.disabled = true;
+        Promise.resolve(window.app.bridge.snowlumaStart()).then((r) => {
+          if (r && r.ok) {
+            status.textContent = r.starting ? '正在启动…（1~2 秒后自动重试）' : '已在运行，正在重试…';
+            autoRetry();
+          } else {
+            status.textContent = '启动失败：' + ((r && r.error) || '未知原因');
+          }
+        }).catch((e) => {
+          status.textContent = '启动失败：' + String((e && e.message) || e);
+        }).then(() => { sb.disabled = false; });
+      });
+      row.appendChild(sb);
+    }
     if (launchPaths.length) {
       const lb = makeBtn(meta.launchLabel || '🖥 桌面启动', '按场景 json 里配的启动器把桌面程序拉起来', 'file-refresh embed-btn');
       lb.addEventListener('click', () => launch(status));
@@ -7836,9 +8080,22 @@ renderers.embed = (body, meta, head) => {  body.classList.add('embed-panel');
     head.appendChild(acts);
   }
 
-  if (!url) { showMsg('这个面板没有配置 url。'); return () => { disposed = true; stopRetry(); }; }
+  const start = () => {
+    if (!url) { showMsg('这个面板没有配置 url。'); return; }
+    setEmbedded(embedded);   // 按记下来的状态进入：内置 or 取消内置
+  };
 
-  setEmbedded(embedded);   // 按记下来的状态进入：内置 or 取消内置
+  // 本机服务（SnowLuma）：端口来自 外壳\data\桥接.json，不能写死在场景 json 里。
+  // 先向壳问一次 status 里的真实 url，拿到再挂 webview —— 否则会先用兜底端口加载一次（白报错）。
+  const B = window.app && window.app.bridge;
+  if (meta.bridgeUrl && B && typeof B.snowlumaStatus === 'function') {
+    Promise.resolve(B.snowlumaStatus()).then(function (r) {
+      if (r && r.url) url = String(r.url);
+      start();
+    }).catch(function (e) { wbWarn(e); start(); });
+  } else {
+    start();
+  }
 
   return () => { disposed = true; stopRetry(); };
 };
@@ -12066,8 +12323,9 @@ var WEB_AI = [
     url: 'https://www.kimi.com/' },
   // ---- SnowLuma 桥接控制台（2026-11-13）----
   // 本机服务（不是外网站点）：QQ 个人号协议端的 WebUI，端口跟 外壳\data\桥接.json 走（默认 5099）。
-  // **hidden: true** ⇒ 不进顶栏那排图标：用户要求它"作为设置按钮才打开，不是常驻入口"，
-  //   入口在「社交」场景 `so-msg` 面板标题右边的 ⚙ 桥接 按钮（见 renderers.msgflow）。
+  // **hidden: true** ⇒ 不进顶栏那排图标。2026-11-17 起主入口改成「社交」场景的 `sl-console`
+  //   embed 面板（⚙ 桥接 / ⚙ 控制台 按钮滚过去展开，见 renderers.msgflow / renderers.chan）；
+  //   这条保留作备用入口（直接开浮动窗口时还能用）。分区与面板共用 `persist:webai-snowluma`。
   // noWarm ⇒ 不预热：壳刚起时 SnowLuma 可能还在拉起来，预热只会请求到一个"拒绝连接"。
   // 同一个 webview 分区 `persist:webai-snowluma` ⇒ 登录一次，之后点开就是登录好的。
   { key: 'snowluma', name: 'SnowLuma 桥接', icon: 'assets/webai/snowluma.png', fallback: 'S',
@@ -12412,6 +12670,24 @@ function webAiToggle(key, forceShow) {
 // 为什么挂 window 而不是让画布直接调 webAiToggle：⟳ 会**重新求值整个文件**（页面上下文不变），
 //   挂 window 上每次重跑都会被新函数覆盖、不会留旧闭包；画布那边取不到时**当场出提示**，不会静默失败。
 window.__kunWebAiOpen = webAiToggle;
+// ---- 打开/展开「当前场景里的某个面板」（2026-11-17：SnowLuma 控制台从浮动窗改成面板）----
+// 面板元素由 makePanel 打上 data-panel-id；这里只找**当前场景**里的那一个。
+// ⚠ 找不到就返回 false，由调用方提示"先切到社交场景"——不偷偷切场景（切场景会重建整个 grid，
+//   别的面板状态、展开态都会被收掉，用户会莫名少一块）。
+// opts.expand = true 时顺手点 ▲（面板 json 要写 "expand": true 才有这个按钮）。
+window.__kunOpenPanel = function (panelId, opts) {
+  const id = String(panelId || '').trim();
+  if (!id) return false;
+  let wrap = null;
+  try { wrap = document.querySelector('.panel[data-panel-id="' + id.replace(/"/g, '\\"') + '"]'); } catch (e) { wrap = null; }
+  if (!wrap) return false;
+  try { wrap.scrollIntoView({ block: 'start', behavior: 'smooth' }); } catch (e) { wbWarn(e) }
+  if (opts && opts.expand) {
+    const btn = wrap.querySelector('.panel-expand');
+    if (btn && !expandedStateOf(wrap)) { try { btn.click(); } catch (e) { wbWarn(e) } }
+  }
+  return true;
+};
 // ★给网页版 AI 桥的"确保挂载"入口（v3.17，2026-09-23）★
 // 为什么需要：桥要往某个站的 <webview> 里打脚本，而**没挂到 DOM 上的 webview 拒绝执行**
 //   （electron：`The WebView must be attached to the DOM`）⇒ 一问就 0 字失败，报错还看不懂。

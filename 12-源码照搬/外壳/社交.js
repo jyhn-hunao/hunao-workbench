@@ -241,15 +241,121 @@ function resolveByTitle(dshHome, title) {
   return best;
 }
 
-// 9. 对外：一条 flow() 拿全（消息 + 通道 + 会话信息）
+// 9. 缓存（2026-11-17）：三个面板（QQ 卡 / 飞书卡 / 全部消息）每 4 秒各调一次 flow()，
+//    不缓存就是每 4 秒全量解压 3 次 —— 消息越多越慢。缓存以「文件 size + mtimeMs」为失效条件：
+//    文件没变（没有新消息）就直接复用；变了只重解压一次（同文件的并发调用共用同一个 Promise）。
+//    ⚠ 缓存的只是「精简消息」，不是 events —— 一份几万条 events 的原始对象会把内存撑爆。
+const MAX_TRANSCRIPT_FILES = 4;
+const MAX_CACHED_MESSAGES = 20000;
+const CHANNEL_CACHE_MS = 10000;
+const TITLE_CACHE_MS = 30000;
+
+// 9.1 过滤：since / before / q 都可选；语义是「时间升序全集里取子集」，分页由调用方切片
+//     · since  只留 >= since（时间范围：今天 / 7 天 / 30 天 / 归档游标）
+//     · before 只留 < before（「加载更早」：传当前最早一条 +1ms，同毫秒的消息不丢，前端再去重）
+//     · q      正文包含关键字（不区分大小写）
+function filterMessages(messages, o) {
+  const since = Number((o && o.since) || 0);
+  const before = Number((o && o.before) || 0);
+  const q = String((o && o.q) || '').trim().toLowerCase();
+  if (!since && !before && !q) return messages || [];
+  return (messages || []).filter(function (m) {
+    if (since && m.at < since) return false;
+    if (before && m.at >= before) return false;
+    if (q && String(m.text || '').toLowerCase().indexOf(q) < 0) return false;
+    return true;
+  });
+}
+
+// 10. 对外：一条 flow() 拿全（消息 + 通道 + 会话信息 + 分页元信息）
 function createService(opts) {
   const dshHome = (opts && opts.dshHome) || process.env.DSH_HOME || '';
+  const trCache = new Map();      // file -> { size, mtimeMs, messages|null, events, truncated }
+  const trInflight = new Map();   // file -> Promise<{messages, events, truncated}|null>
+  let chCache = null;             // { at, value: channels[] }（模板，返回前浅拷贝）
+  const titleCache = new Map();   // title -> { at, value: {id, at}|null }
+
+  function statOf(file) {
+    try {
+      const s = fs.statSync(file);
+      return { size: s.size, mtimeMs: s.mtimeMs };
+    } catch (e) { return null; }
+  }
+
+  function trimTrCache() {
+    while (trCache.size > MAX_TRANSCRIPT_FILES) {
+      const first = trCache.keys().next().value;
+      trCache.delete(first);
+    }
+  }
+
+  // 10.1 读一份转录（带缓存 + 单飞）：文件变了才重解压；解不开缓存 null，文件没变不反复重试
+  function loadAllMessages(file) {
+    const st = statOf(file);
+    if (!st) { trCache.delete(file); return Promise.resolve(null); }
+    const hit = trCache.get(file);
+    if (hit && hit.size === st.size && hit.mtimeMs === st.mtimeMs) {
+      trCache.delete(file); trCache.set(file, hit);   // LRU：最近用过的挪到末尾
+      return Promise.resolve(hit.messages
+        ? { messages: hit.messages, events: hit.events, truncated: hit.truncated }
+        : null);
+    }
+    if (trInflight.has(file)) return trInflight.get(file);
+    const p = Promise.resolve().then(function () {
+      const events = readEvents(file);
+      if (!events) {
+        trCache.set(file, { size: st.size, mtimeMs: st.mtimeMs, messages: null, events: 0, truncated: false });
+        trimTrCache();
+        return null;
+      }
+      let messages = messagesOf(events, 0);   // 0 = 全量（不截最后 N 条）
+      let truncated = false;
+      if (messages.length > MAX_CACHED_MESSAGES) {
+        messages = messages.slice(-MAX_CACHED_MESSAGES);
+        truncated = true;
+      }
+      trCache.set(file, { size: st.size, mtimeMs: st.mtimeMs, messages, events: events.length, truncated });
+      trimTrCache();
+      return { messages, events: events.length, truncated };
+    }).then(function (v) { trInflight.delete(file); return v; },
+           function (e) { trInflight.delete(file); throw e; });
+    trInflight.set(file, p);
+    return p;
+  }
+
+  // 10.2 通道探测结果缓存 10 秒：探端口是网络操作，3 个面板各 4 秒探一次没必要
+  async function cachedChannelStates() {
+    const now = Date.now();
+    if (chCache && now - chCache.at < CHANNEL_CACHE_MS) {
+      return chCache.value.map(function (c) { return Object.assign({}, c); });
+    }
+    const v = await channelStates(dshHome);
+    chCache = { at: now, value: v.map(function (c) { return Object.assign({}, c); }) };
+    return v;
+  }
+
+  // 10.3 标题认会话缓存 30 秒（换会话后面板的 sessionId 通常已经换了，走不到这里）
+  function cachedResolveByTitle(title) {
+    const key = String(title || '').trim();
+    if (!key) return null;
+    const now = Date.now();
+    const hit = titleCache.get(key);
+    if (hit && now - hit.at < TITLE_CACHE_MS) return hit.value;
+    const v = resolveByTitle(dshHome, key);
+    titleCache.set(key, { at: now, value: v });
+    if (titleCache.size > 16) titleCache.delete(titleCache.keys().next().value);
+    return v;
+  }
+
   return {
     async flow(args) {
       const a = args || {};
       const sessionId = String(a.sessionId || '');
       const sessionTitle = String(a.sessionTitle || '');
       const limit = Math.max(1, Math.min(200, Number(a.limit) || 40));
+      const since = Number(a.since) || 0;
+      const before = Number(a.before) || 0;
+      const q = String(a.q || '').trim();
 
       // 1) 先按面板给的 sessionId 找转录
       let sid = sessionId;
@@ -257,31 +363,37 @@ function createService(opts) {
       let resolvedBy = file ? 'id' : '';
       // 2) 找不到（换过会话 / 面板还没绑）⇒ 按标题重新认一条，别让面板永远空着
       if (!file && sessionTitle) {
-        const hit = resolveByTitle(dshHome, sessionTitle);
+        const hit = cachedResolveByTitle(sessionTitle);
         if (hit) {
           sid = hit.id;
           file = transcriptOf(dshHome, sid);
           resolvedBy = file ? 'title' : '';
         }
       }
-      const events = file ? readEvents(file) : null;
-      const messages = events ? messagesOf(events, limit) : [];
-      const channels = await channelStates(dshHome);
 
-      // 3) 按平台归堆：卡片面板要「这个平台今天几条、最后一条是谁说的什么」
-      //    口径：today 用本机日历日比；last 取该平台最后一条（role 用 them/her 原值）
+      // 3) 取全量消息（缓存命中就不重解压），再按 since/before/q 过滤，最后取最后 limit 条
+      const loaded = file ? await loadAllMessages(file) : null;
+      const all = loaded ? loaded.messages : [];
+      // base = 整个筛选范围（时间范围 + 搜索，不分页）；filtered = 再按 before 切到「更早」那一页
+      const base = filterMessages(all, { since, q });
+      const filtered = before ? filterMessages(base, { before }) : base;
+      const page = filtered.slice(-limit);
+
+      // 4) 通道状态（缓存 10 秒），再按平台归堆统计 —— 统计基于 base（整个范围），
+      //    这样卡片上的「今日 / 近 N 条」不会被 limit 或分页截断成假数
+      const channels = await cachedChannelStates();
       const dayStart = new Date();
       dayStart.setHours(0, 0, 0, 0);
       const t0 = dayStart.getTime();
       const byKey = {};
-      for (const m of messages) {
+      for (const m of base) {
         const k = m.key || 'other';
         (byKey[k] = byKey[k] || []).push(m);
       }
       for (const c of channels) {
         const arr = byKey[c.key] || [];
         c.n = arr.length;
-        c.today = arr.filter((m) => m.at >= t0).length;
+        c.today = arr.filter(function (m) { return m.at >= t0; }).length;
         const last = arr.length ? arr[arr.length - 1] : null;
         c.last = last ? { at: last.at, role: last.role, text: last.text } : null;
       }
@@ -295,14 +407,22 @@ function createService(opts) {
           title: sessionTitle,
           found: !!file,
           resolvedBy,
-          events: events ? events.length : 0
+          events: loaded ? loaded.events : 0
         },
         channels,
         others: other.length,
-        messages
+        messages: page,
+        // 5) 分页/搜索元信息：前端拿它画「共 N 条 / 显示 M 条 / 加载更早 / 缓存截断」
+        page: {
+          total: base.length,
+          returned: page.length,
+          hasMore: filtered.length > page.length,
+          oldestAt: page.length ? page[0].at : 0,
+          truncated: !!(loaded && loaded.truncated)
+        }
       };
     }
   };
 }
 
-module.exports = { createService, unzstdAll, readEvents, transcriptOf, messagesOf, textOf, channelStates, probePort, resolveByTitle, platformOf };
+module.exports = { createService, unzstdAll, readEvents, transcriptOf, messagesOf, textOf, channelStates, probePort, resolveByTitle, platformOf, filterMessages };

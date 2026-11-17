@@ -5294,6 +5294,43 @@ ipcMain.handle('usage:list', () => usageSvc.list());
 const socialService = socialSvc.createService({ dshHome: DSH_HOME });
 ipcMain.handle('social:flow', (e, args) => socialService.flow(args || {}));
 
+// ---- 社交消息流的视图偏好（2026-11-17）----
+// 只存两个值：时间范围（today/7/30/all）+ 归档游标（毫秒）。为什么放主进程 userData：
+//   localStorage 可能被清理软件连带清掉；这里丢了也只是回默认，不影响消息源（transcript 只读）。
+// 不引入 SQLite：消息缓存是进程内派生数据，重启重算一次即可，这点量级用不着数据库。
+const SOCIAL_RANGES = ['today', '7', '30', 'all'];
+function socialViewFile() { return path.join(app.getPath('userData'), 'social-view.json'); }
+function readSocialView() {
+  const def = { range: '7', archivedBefore: 0, exists: false };
+  try {
+    const o = JSON.parse(fs.readFileSync(socialViewFile(), 'utf8'));
+    return {
+      range: SOCIAL_RANGES.indexOf(o.range) >= 0 ? o.range : '7',
+      archivedBefore: Number.isFinite(Number(o.archivedBefore)) ? Math.max(0, Number(o.archivedBefore)) : 0,
+      exists: true
+    };
+  } catch (e) {
+    if (e && e.code !== 'ENOENT') warnOnce('main', e);   // 文件不存在是正常态（第一次跑）
+    return def;
+  }
+}
+function writeSocialView(patch) {
+  const cur = readSocialView();
+  const p = patch || {};
+  const next = {
+    range: SOCIAL_RANGES.indexOf(p.range) >= 0 ? p.range : cur.range,
+    archivedBefore: p.archivedBefore !== undefined && Number.isFinite(Number(p.archivedBefore))
+      ? Math.max(0, Number(p.archivedBefore)) : cur.archivedBefore
+  };
+  try {
+    fs.mkdirSync(path.dirname(socialViewFile()), { recursive: true });
+    fs.writeFileSync(socialViewFile(), JSON.stringify(next, null, 2) + '\n', 'utf8');
+  } catch (e) { warnOnce('main', e); }
+  return Object.assign({}, next, { exists: true });
+}
+ipcMain.handle('social:view-get', () => readSocialView());
+ipcMain.handle('social:view-set', (e, patch) => writeSocialView(patch));
+
 // ---- QQ 个人号桥接（SnowLuma，2026-11-13）----
 // 用户要求：随工作台一起启动、省掉单独启动；控制台不常驻面板，由「社交」场景里的齿轮按钮按需开窗。
 // 生命周期归壳（和引擎同一条规矩）：壳退出时把子进程一起收掉，不在壳外单开一只。
