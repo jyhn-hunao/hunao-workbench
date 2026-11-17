@@ -39,8 +39,8 @@
 | 环境自检 | `node 12-源码照搬\外壳\scripts\自检.mjs` | `12-源码照搬/外壳/scripts/自检.mjs:2` |
 | 外壳静态测试（端口单一真源 / 静默 catch / IPC 配对 / 场景契约 / 渲染器注册 / 图标唯一 / 全量语法） | `node 12-源码照搬\外壳\scripts\测试.mjs`（`npm test` 同效；`--json` 给 CI，`--only ports,ipc` 跑单项） | `12-源码照搬/外壳/scripts/测试.mjs` |
 | 场景与会话核对 | `node 12-源码照搬\外壳\scripts\sessions.mjs --check` | `12-源码照搬/外壳/scripts/sessions.mjs:12` |
-| 建会话 | `node 12-源码照搬\外壳\scripts\建会话.mjs --title "场景名"` | `12-源码照搬/外壳/scripts/建会话.mjs:13` |
-| 换会话（建新 + 归档旧 + 回写绑定；**换前过场景 check + 项目记忆体检**：结构错硬拦，词表空/缺 evidence 只提示，`--strict-memory` 恢复硬拦） | `node 12-源码照搬\外壳\scripts\换会话.mjs <面板id> --go` | `12-源码照搬/外壳/scripts/换会话.mjs:7` |
+| 建会话 | `node 12-源码照搬\外壳\scripts\建会话.mjs --title "场景名"`（默认不写开场消息；`--seed` 才写） | `12-源码照搬/外壳/scripts/建会话.mjs:13` |
+| 换会话（建新 + 归档旧 + 回写绑定；**换前过场景 check + 项目记忆体检**：结构错硬拦，词表空/缺 evidence 只提示，`--strict-memory` 恢复硬拦；**默认不写开场消息，交接由「记忆回响」每轮 pre-step 注入**；零散会话 `--stray` 例外仍 seed） | `node 12-源码照搬\外壳\scripts\换会话.mjs <面板id> --go` | `12-源码照搬/外壳/scripts/换会话.mjs:7` |
 | 场景记忆自检 | `node 12-源码照搬\工具\场景记忆.mjs check --场景 <目录名>` | `12-源码照搬/工具/场景记忆.mjs` `cmdCheck` |
 | 场景记忆写一条（自动 frontmatter + 索引 + 同轮 check + 静默沉淀，§五 不再追加正文；可选 `--取代/--过期/--相关`） | `node 12-源码照搬\工具\场景记忆.mjs 写 --场景 <场景> --类 决策\|坑 --标题 "x" --要点 "a\|b" --证据 "<路径>::<片段>"` | `12-源码照搬/工具/场景记忆.mjs` `cmdWrite` |
 | 场景记忆拆分（存量 §五 条目 → 一条一个文件，先 `--dry` 看计划） | `node 12-源码照搬\工具\场景记忆.mjs 拆 --场景 <场景> [--dry]` | `12-源码照搬/工具/场景记忆.mjs` `cmdSplit` |
@@ -127,6 +127,7 @@
 - **端口默认值只有两处真源**：`12-源码照搬/启动.vbs`（`env("DSH_PORT")`，给壳与引擎定值）和 `main.js`（`DSH_PORT` 的进程级兜底）。其余脚本**一律**走 `工具\环境.mjs` 的 `port('dsh' | 'site' | 'preview' | 'webAi')`（优先级 env > `机器配置.json` > 默认），2026-11-13 已把散在 12 处的 `3083` 字面量全部收敛；`scripts/测试.mjs` 会拦截新出现的字面量。与其它 DSH 实例（常见 3080）冲突时**用 `DSH_PORT` / `SITE_PORT` 环境变量覆盖**，⛔ 不要直接改脚本里的数字（改一处会连到别的引擎），也不要在壳外重启引擎。
 - **换机器/换盘符**：先跑 `node 12-源码照搬\外壳\scripts\环境适配.mjs`（只读体检），再 `--apply`；会话必须在新机器重建（`--rotate` 或逐面板 `换会话.mjs --go`），搬 id 无效。记忆数据：旧机 `工具\记忆打包.mjs 打包` → 新机 `恢复 --包`（可回滚）→ `索引 --all` + `check --all`；双机同步以 git 为主，同一场景同一时段只在一台写。契约见 `doc/机制可移植性规范.md`、`doc/记忆可移植性与同步规范.md`。
 - **引擎契约随版本漂移**：`建会话.mjs` 依赖「server.log 取 token → 换 cookie → POST /api/<method>」这套现状（`12-源码照搬/外壳/scripts/建会话.mjs:54`），引擎升级后要重跑一次建会话验证。
+- **记忆回响插件升级适配（2026-11-17 补）**：插件只装在 profile 的 `node_modules\dsh-memory-recall`，引擎整目录替换不覆盖；但引擎若改 `agent/pre-step` 契约，插件会静默退回 `next()`（对话不断、记忆不注入）。升级后先搜 `server.log` 的 `[memory-recall] 已挂载`，再在绑定面板发一条消息验证；重装用 `node 12-源码照搬\工具\记忆回响.mjs --apply` + 重启整壳。换会话/建会话默认不写开场消息（`--seed` 回退），交接全靠这个插件。
 - **引擎生命周期归壳所有**：引擎必须由壳拉起（`启动.vbs` → `main.js` 的 spawn 计划），token 由壳从引擎 stdout 捕获（`main.js:401-403`）。⛔ 不得在壳外 `Stop-Process`/`Start-Process` 自行重启引擎——外部重启后旧 token 立刻失效，界面报 `dsh web authentication required`（白屏）。要重载插件或换引擎版本，重启整壳，不要只重启引擎。
 - **引擎 token 只在壳内存里（2026-11-17 补）**：2026-11-14 起 `server.log` 里的 `?token=` 被打成 `token=***`（防日志外发泄露）。脚本一律走 `12-源码照搬/工具/引擎token.mjs`：壳 spawn 子进程时注入 `DSH_TOKEN`（env 优先），日志只作兜底。⛔ 新脚本别自己正则翻 `server.log` 取 token —— 必然「换不到 cookie」。手工跑 CLI 时没有 `DSH_TOKEN`，只能在壳里点按钮或先设该环境变量。
 - **自检认两套引擎布局**（2026-11-12 已修，勿再按旧记忆判断）：`自检.mjs` 同时探 `引擎/lib/bin.js`（打包版，当前本机）与 `引擎/apps/cli/lib/bin.js`（源码版）；两者都不在、且端口上也没有引擎在跑时才会报「缺引擎」，别当自己改坏。
