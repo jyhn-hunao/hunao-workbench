@@ -7,7 +7,7 @@
 | 项 | 值 |
 |---|---|
 | 场景 / 面板 | `code-dev` / `cd-ai-home`（`AI·工作区`）+ `cd-ai`（`AI·项目`） |
-| 工作区会话 | `程序开发·工作区` / `session-ca13beb5-8504-4595-b6aa-dfad124e2db6`（面板 `cd-ai-home`，cwd = `12-源码照搬\工作区`） |
+| 工作区会话 | `程序开发·工作区` / `session-e0306764-02f1-430b-a35d-959b75c62120`（面板 `cd-ai-home`，cwd = `12-源码照搬\工作区`） |
 | 当前项目（pinTarget 首项） | `mlw`（换项目时会变，换完回写） |
 | 会话 id | `session-3ecfde06-65ad-4461-81c0-3056bf747f0d`（面板 `cd-ai`，cwd = 该项根） |
 | 主技能 / 记忆 | `code-dev` + `project-onboarding`；场景记忆 `...\程序开发\` |
