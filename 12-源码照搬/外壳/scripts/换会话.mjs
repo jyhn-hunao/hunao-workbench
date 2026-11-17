@@ -6,7 +6,8 @@
 //   node "<工作台>\外壳\scripts\换会话.mjs" site-ai     空跑：打印计划，不动任何东西
 //   node "<工作台>\外壳\scripts\换会话.mjs" site-ai --go   真换（用户只要记到这一条）
 //   可加 --force：交接文件超过 2 小时也照换（会有警告，仍要求文件存在）
-//   可加 --no-seed：不给新会话写开场消息（默认写；看到轮次真的开始就取消，最多 3 秒）
+//   默认不写开场消息（2026-11-17）：交接由「记忆回响」插件每轮 pre-step 注入；--seed 恢复旧行为（看到轮次真的开始就取消，最多 3 秒）
+//   零散会话（--stray）例外：没有场景绑定 ⇒ 插件反查不到，默认仍写开场消息（--no-seed 可关）
 //
 //   零散会话（没有场景/面板的那些）—— 走同一入口，加 --stray：
 //   node "…\scripts\换会话.mjs" --stray                     列出所有零散会话
@@ -237,7 +238,8 @@ if (flags.has('--stray')) {
   const pass = q ? ['--rotate', q, '--stray'] : ['--stray'];
   if (q && !flags.has('--go')) pass.push('--dry');
   if (flags.has('--force')) pass.push('--force');
-  if (flags.has('--no-seed')) pass.push('--no-seed');
+  if (flags.has('--seed')) pass.push('--seed');
+  else if (flags.has('--no-seed')) pass.push('--no-seed');   // 零散会话默认仍 seed：插件反查不到场景，注入不了
   const ai = argv.indexOf('--adopt');
   if (ai > -1) pass.push('--adopt', argv[ai + 1] || '');
   const hi = argv.indexOf('--handoff');
@@ -374,14 +376,14 @@ if (problems.length) {
   process.exit(3);
 }
 
-const cmd = ['"' + SESSIONS + '"', '--rotate', id, '--handoff', '"' + handoff + '"', '--defer-archive', ...(flags.has('--force') ? ['--force'] : []), ...(flags.has('--no-seed') ? ['--no-seed'] : [])];
+const cmd = ['"' + SESSIONS + '"', '--rotate', id, '--handoff', '"' + handoff + '"', '--defer-archive', ...(flags.has('--force') ? ['--force'] : []), ...(flags.has('--seed') ? ['--seed'] : [])];
 say('\n' + (flags.has('--go') ? '▶ 开始换会话（真执行）' : '▶ 空跑计划（去掉 --go 之外什么都没发生；真要换加 --go）') + '\n');
 say('  内部执行（--defer-archive：旧会话先不动，等 json/定位卡都写成功后才归档）：node ' + cmd.join(' ') + '\n');
 
 if (!flags.has('--go')) {
   // 空跑：把 sessions.mjs 的计划原样透出来
   try {
-    say(runNode(SESSIONS, ['--rotate', id, '--handoff', handoff, '--defer-archive', '--dry', ...(flags.has('--force') ? ['--force'] : []), ...(flags.has('--no-seed') ? ['--no-seed'] : [])]));
+    say(runNode(SESSIONS, ['--rotate', id, '--handoff', handoff, '--defer-archive', '--dry', ...(flags.has('--force') ? ['--force'] : []), ...(flags.has('--seed') ? ['--seed'] : [])]));
   } catch (e) {
     if (e.stdout) say(String(e.stdout));
     if (e.stderr) console.error(String(e.stderr));
@@ -401,7 +403,7 @@ if (!flags.has('--go')) {
   let out = '';
   try {
     out = runNode(SESSIONS, ['--rotate', id, '--handoff', handoff, '--defer-archive',
-      ...(flags.has('--force') ? ['--force'] : []), ...(flags.has('--no-seed') ? ['--no-seed'] : [])]);
+      ...(flags.has('--force') ? ['--force'] : []), ...(flags.has('--seed') ? ['--seed'] : [])]);
     say(out);
   } catch (e) {
     if (e.stdout) say(String(e.stdout));

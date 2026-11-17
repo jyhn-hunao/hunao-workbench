@@ -395,7 +395,7 @@ if (rotating && !STRAY) {
   const argv = process.argv.slice(2);
   const dry = argv.includes('--dry');
   const force = argv.includes('--force');
-  const seedIt = !argv.includes('--no-seed');   // 默认：建完给新会话塞一条开场消息并立刻打断（空会话不进侧边栏）
+  const seedIt = argv.includes('--seed');   // 默认不写开场消息：交接由「记忆回响」插件每轮注入（--seed 恢复旧行为）
   // 2026-11-12：--defer-archive ⇒ 本次**不**改名/归档旧会话，交给上层（换会话.mjs）在
   //   「json + 定位卡 + 名册」全部回写成功之后再归档。这是把归档从流程中段挪到最后一步的开关：
   //   旧顺序（先归档 → 再回写）一旦回写失败，面板就指着一条已归档的会话，打开是空白。
@@ -466,6 +466,7 @@ if (rotating && !STRAY) {
       say('  2) 旧会话 ' + oldId + ' 改名为「' + archTitle + '」（= 归档，数据零删除）');
       if (deferArchive) say('  2b) --defer-archive：本步本次**不做**；上层（换会话.mjs）在 json/定位卡/名册都写成功后，才单独调 归档会话.mjs');
       say('  3) 回写 ' + path.relative(root, hit.sc.__path) + ' 里面板 ' + hit.p.id + ' 的 sessionId');
+      say('  · 交接：默认不写开场消息，由「记忆回响」插件每轮 pre-step 注入（需插件已装 + 整壳已重启；--seed 可回退）');
       say('  4) 自动跑 --check 验收' + (scenOverride ? '（用了 --scenario，跳过）' : ''));
 
       if (dry) say('\n--dry：以上都没执行。去掉 --dry 即真做。');
@@ -543,7 +544,8 @@ if (rotating && !STRAY) {
                 ? ' 旧会话已真归档（侧边栏里不再显示；工作台设置页「取消归档」可恢复）'
                 : ' 归档没成 ⇒ 旧会话还会留在侧边栏里；补一次：node scripts\\归档会话.mjs ' + oldId + ' --go'));
               }
-              // ④ 塞一条开场消息再打断：空会话不会出现在侧边栏（2026-09-21 用户实测），有内容才会。
+              // ④ （仅 --seed）塞一条开场消息再打断：空会话不会出现在侧边栏（2026-09-21 实测）；
+              //    默认不写 —— 交接由「记忆回响」插件每轮 pre-step 注入，面板切会话走直连通道，不靠侧栏行。
               //   2026-11-12：开场消息明确写出**场景与面板**（用户报「切换后不告知所处场景」）；
               //   不再固定等 10 秒，改成轮询 transcript 看到 user/message / turn/start 就取消（最多 3 秒）。
               if (seedIt && !adopt) {
@@ -590,7 +592,7 @@ if (rotating && !STRAY) {
                   + '（注入：' + (seedMem ? seedMem.tag + ' ' + seedMem.size + ' B' : '无正文，仅路径') + '；共 ' + seedTxt.length + ' B）' + (pr.status === 200 ? '' : ' ' + String(pr.t).slice(0, 160)));
                 if (!seedSeen) say('    （3 秒内没看到轮次开始就取消了；开场消息通常已入队，侧边栏可能晚一点出现）');
                 say('  ' + (cx.status === 200 ? '✓' : '✗ HTTP ' + cx.status) + ' 已打断这轮（开场消息明令它别干活，所以这轮不会动任何东西）' + (cx.status === 200 && cx.j && cx.j.result && cx.j.result.value ? '（accepted=' + cx.j.result.value.accepted + '）' : ''));
-              } else say('  （--no-seed：没写开场消息 ⇒ 新会话是空的，侧边栏可能要等它被打开过才显示）');
+              } else say('  （默认不写开场消息：交接由「记忆回响」插件每轮注入；侧边栏可能要等它被打开过才显示，--seed 恢复旧行为）');
               // ⑤ 原子回写 json（先备份）
               const bdir = path.join(root, 'data', 'scenario-backup');
               fs.mkdirSync(bdir, { recursive: true });
@@ -715,7 +717,7 @@ if (rotating && !STRAY) {
 //   ① 找交接文档（`--handoff` 指定；不给就按标题去 `其他会话临时项目信息交接文档\` 里匹配）
 //   ② 建新会话（挂同 workspace，否则掉进「未分组」）或 `--adopt` 认领一条已建好的
 //   ③ 旧会话改名「已归档 · X · 日期」+ **真归档**（带活动时自动 stopActivity 重试）
-//   ④ 给新会话写开场消息再打断（空会话不进侧边栏）
+//   ④ 给新会话写开场消息再打断（零散会话没有场景绑定，插件注入不了 ⇒ 默认仍 seed；--no-seed 可关）
 //   ⑤ 把交接文档里的旧会话 id 换成新会话（新会话读到的就是它自己）
 // 记忆落点（零散会话唯一）：`<工作台>\引擎\场景记忆\其他会话临时项目信息交接文档\<会话名>-<YYYYMMDD-HHMM>.md`
 // 用法：
@@ -728,7 +730,7 @@ if (rotating && STRAY) {
   const argv = process.argv.slice(2);
   const dry = argv.includes('--dry');
   const force = argv.includes('--force');
-  const seedIt = !argv.includes('--no-seed');
+  const seedIt = !argv.includes('--no-seed');   // 零散会话默认 seed：插件靠 scenario JSON 反查，零散会话查不到
   const valOf = (k) => { const i = argv.indexOf(k); return i > -1 ? String(argv[i + 1] || '') : ''; };
   const adopt = valOf('--adopt');
   let handoff = valOf('--handoff');
@@ -839,7 +841,7 @@ if (rotating && STRAY) {
       say('\n计划：');
       say('  1) ' + (adopt ? '认领已建好的会话 ' + adopt + '（挂进同 workspace，让它出现在侧边栏）' : '在 ' + cwd + ' 新建会话，命名「' + base + '」'));
       say('  2) 旧会话 ' + oldId + ' 改名「' + archTitle + '」+ **真归档**（侧边栏里不再显示）');
-      say('  3) 给新会话写一条开场消息（读交接文档）再立刻打断 —— 空会话不进侧边栏，有内容才看得见');
+      say('  3) 给新会话写一条开场消息（读交接文档）再立刻打断 —— 零散会话没有场景绑定、插件注入不了，默认仍写；--no-seed 可关');
       say('  4) 把交接文档里的旧会话 id 改成新会话（这样新会话读到的就是它自己）');
       say('  （零散会话没有场景 json：不回写、不用跑 --check）');
 

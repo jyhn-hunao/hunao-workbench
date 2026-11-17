@@ -7,12 +7,12 @@
 //
 // ⚠ 两条实测铁律（抄自 sessions.mjs，别改）：
 //   ① **必须传 workspaceId**：侧边栏按 workspace 分组，只传 cwd 建出来的会话会掉进「未分组」（2026-09-21 实测）；
-//   ② **空会话不进侧边栏**：默认建完塞一条开场消息再打断（`--no-seed` 可关）。
+//   ② **默认不写开场消息**（2026-11-17）：交接由「记忆回响」插件每轮注入；`--seed` 才走旧的“开场 + 打断”。
 //
 // 用法：
 //   node scripts\建会话.mjs --title "设计杂活"                       # 默认挂 <临时目录> 的工作区
 //   node scripts\建会话.mjs --title "设计杂活" --cwd "<资料库>"        # 换工作区
-//   node scripts\建会话.mjs --title "设计杂活" --no-seed --dry        # 空跑，不真建
+//   node scripts\建会话.mjs --title "设计杂活" --seed --dry           # 空跑，不真建
 //   输出最后一行就是 sessionId（可直接抄进 scenarios\*.json）。
 
 import fs from 'node:fs';
@@ -35,9 +35,9 @@ const val = (k, d) => { const i = argv.indexOf(k); return i >= 0 && argv[i + 1] 
 const title = val('--title', '');
 const cwd = val('--cwd', path.join(PROJECT, '工作区'));   // 默认 <本夹>\工作区
 const dry = argv.includes('--dry');
-const seedIt = !argv.includes('--no-seed');
+const seedIt = argv.includes('--seed');
 
-if (!title) { console.error('用法：node 外壳\\scripts\\建会话.mjs --title "会话名" [--cwd "<本夹>\\工作区"] [--no-seed] [--dry]'); process.exit(2); }
+if (!title) { console.error('用法：node 外壳\\scripts\\建会话.mjs --title "会话名" [--cwd "<本夹>\\工作区"] [--seed] [--dry]'); process.exit(2); }
 // cwd 不存在就先建：新机器克隆后 `工作区\` 是空的（根 .gitignore 挡着它不进库），
 // 不建的话引擎会收到一个不存在的 cwd。只读盘/无权限时不拦，让引擎自己报清楚。
 try { fs.mkdirSync(cwd, { recursive: true }); } catch (e) { /* 交给引擎报错 */ }
@@ -94,7 +94,7 @@ const rn = await rpc('session/rename', { request: { sessionId: newId, title } })
 if (rn.status !== 200) die('改名失败（HTTP ' + rn.status + '）⇒ 别把 id 写进 json');
 say('✓ 已命名为「' + title + '」');
 
-// ── 开场消息（空会话不进侧边栏）+ 立刻打断（这轮不许干活）──
+// ── （仅 --seed）开场消息 + 立刻打断（这轮不许干活；侧边栏要等它被打开过才显示）──
 if (seedIt) {
   const seedTxt = '你是「' + title + '」场景的 AI 助手。现在只回一句话「已读」即可 —— '
     + '不要读任何文件、不要调用任何工具、不要开始干活，等用户下一条指令。';
@@ -105,7 +105,7 @@ if (seedIt) {
   await new Promise((r) => setTimeout(r, 10000));   // 太早取消 = 这轮没真开始 = 会话仍是空 = 侧边栏看不到
   const cx = await rpc('session/cancel', { request: { sessionId: newId } });
   say((pr.status === 200 ? '✓' : '✗ HTTP ' + pr.status) + ' 开场消息   ' + (cx.status === 200 ? '✓' : '✗ HTTP ' + cx.status) + ' 已打断（这轮不会动任何东西）');
-} else say('（--no-seed：没写开场消息，侧边栏可能要等它被打开过才显示）');
+} else say('（默认不写开场消息：交接由「记忆回响」插件每轮注入；侧边栏可能要等它被打开过才显示，--seed 恢复旧行为）');
 
 say('\nsessionId = ' + newId);
 say('下一步：把下面两行写进 scenarios\\<场景id>.json 的 AI 面板：');

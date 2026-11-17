@@ -430,8 +430,8 @@ async function waitPromptHandoff() {
 function rotate(force) {
   step('2/3', '建会话', '开始轮换…');
   return new Promise((resolve) => {
-    // 2026-11-12：保留开场消息（新会话要知道自己属于哪个场景/面板）；sessions.mjs 已改成
-    //   轮询 transcript 看轮次真的开始就取消（最多 3 秒），不再固定等 10 秒。
+    // 2026-11-17：默认不写开场消息——交接由「记忆回响」插件每轮 pre-step 注入；
+    //   --seed 才走旧行为（轮询 transcript 看轮次真的开始就取消，最多 3 秒）。
     const args = [path.join(SHELL, 'scripts', '换会话.mjs'), PANEL, '--go'];
     if (force) args.push('--force');
     let child;
