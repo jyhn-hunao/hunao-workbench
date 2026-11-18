@@ -27,15 +27,24 @@ function patchText() {
   return fs.existsSync(PATCH) ? fs.readFileSync(PATCH, 'utf8') : ''
 }
 
-function status() {
+function statusInfo() {
   const inst = fs.existsSync(path.join(DEST, 'index.js'))
   const inPatch = patchText().includes(MARK)
   const m = (patchText().match(new RegExp('name: "' + MARK + '"[\\s\\S]*?mode: (\\w+)')) || [])[1] || ''
-  console.log('插件文件：' + (inst ? '已装 ' + DEST : '未装'))
-  console.log('patch 登记：' + (inPatch ? '已登记' : '未登记'))
-  console.log('注入模式：' + (m || (inPatch ? 'enforce（默认）' : '—')))
+  return {
+    at: Date.now(), installed: inst, registered: inPatch,
+    mode: m || (inPatch ? 'enforce' : null),
+    source: PATCH, pluginPath: DEST,
+  }
+}
+function status() {
+  const s = statusInfo()
+  if (argv.includes('--json')) { console.log(JSON.stringify(s, null, 0)); return s.installed && s.registered }
+  console.log('插件文件：' + (s.installed ? '已装 ' + DEST : '未装'))
+  console.log('patch 登记：' + (s.registered ? '已登记' : '未登记'))
+  console.log('注入模式：' + (s.mode || '—'))
   console.log('profile：' + PROFILE)
-  return inst && inPatch
+  return s.installed && s.registered
 }
 
 function ensurePatch(m) {

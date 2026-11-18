@@ -72,19 +72,39 @@ function dumpHasGuard() {
   }
 }
 
+// 副本里的 patch 才是模式真源（--mode 只在写的时候用）
+function modeOf() {
+  try {
+    const t = fs.readFileSync(path.join(DEST, 'cordis.patch.yml'), 'utf8');
+    const m = t.match(/mode:\s*(\w+)/);
+    return m ? m[1] : '';
+  } catch (e) { return ''; }
+}
+
 if (has('--status') || (!has('--on') && !has('--off') && !has('--dry'))) {
+  const modeNow = modeOf();
+  let logLines = 0;
+  try { logLines = fs.readFileSync(LOG, 'utf8').trim().split('\n').filter(Boolean).length; } catch (e) { logLines = 0; }
+  // --json 是快查：不跑 dump-config（它要起一次引擎、可能超过界面的 25 秒探针超时）
+  if (has('--json')) {
+    console.log(JSON.stringify({
+      at: Date.now(), installed: installed, inBundles: inBundles,
+      mode: modeNow || null, source: PKG_FILE,
+      bundlePatch: path.join(DEST, 'cordis.patch.yml'),
+      log: { path: LOG, lines: logLines },
+      engine: null,
+    }, null, 0));
+    process.exit(0);
+  }
   console.log('源码：' + SRC);
   console.log('副本：' + (installed ? '已复制到 ' + DEST : '未安装'));
   console.log('profile bundles：' + (inBundles ? '已包含 ' + BUNDLE : '未包含'));
+  console.log('模式：' + (modeNow || '未装 / 副本里没写'));
   const d = dumpHasGuard();
   if (!d.ok) console.log('引擎视图：跑不动 dump-config —— ' + d.err);
   else console.log('引擎视图：' + (d.hit ? '✓ 组进树里了（token-guard 在配置里）' : '✗ 配置里没有 token-guard（重启也不会加载）'));
-  if (fs.existsSync(LOG)) {
-    const n = fs.readFileSync(LOG, 'utf8').trim().split('\n').filter(Boolean).length;
-    console.log('日志：' + LOG + '（' + n + ' 行）');
-  } else {
-    console.log('日志：还没有（重启并跑一次任务后才会有）');
-  }
+  if (logLines) console.log('日志：' + LOG + '（' + logLines + ' 行）');
+  else console.log('日志：还没有（重启并跑一次任务后才会有）');
   if (!inBundles) console.log('\n要装：node 工具\\守卫开关.mjs --on    然后重启工作台');
   process.exit(0);
 }

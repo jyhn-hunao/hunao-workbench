@@ -2,7 +2,7 @@
 // 同步人格引用.mjs（原名 同步桥接路由.mjs）—— 把「引用人格会话」的地方一次性对齐（2026-11-13）
 //
 // 为什么要泛化：换一条人格会话后，引用旧 id 的不止 QQ 桥接，还有社交场景里按平台分的卡片
-//   （social.json 的 ch-qq / ch-feishu / so-msg）。只改一处 = 卡片读到空会话、QQ 消息投进已归档的会话。
+//   （social.json 的 ch-hub / so-msg）。只改一处 = 卡片读到空会话、QQ 消息投进已归档的会话。
 //
 // 唯一真源：外壳\scenarios\pet.json 的 panel `pet-ai`（sessionId + sessionTitle）。
 // 同步范围：
@@ -68,7 +68,14 @@ for (const f of files) {
 }
 
 // 2. QQ 桥接配置：routes.private 全部对齐（插件重启后才会重新读）
-if (fs.existsSync(CONF)) {
+//    设置闸门：设置弹窗 channels.qq.autoSyncRoute === false ⇒ 不自动改（原来这个开关没人读，等于死配置）
+const SET_DATA = path.join(ROOT, '外壳', 'data', 'pet', '设置.json');
+const SET_DEF = path.join(ROOT, '外壳', 'pet', '设置.默认.json');
+const chanCfg = Object.assign({}, (readJson(SET_DEF) || {}).channels || {}, (readJson(SET_DATA) || {}).channels || {});
+const qqAuto = ((chanCfg.qq || {}).autoSyncRoute) !== false;
+if (!qqAuto) {
+  say('⚠ 设置里关了「QQ 路由自动对齐」（channels.qq.autoSyncRoute=false）⇒ 跳过桥接配置；换会话后它会指旧会话，需要你手动改');
+} else if (fs.existsSync(CONF)) {
   const cfg = readJson(CONF);
   if (!cfg) { say('✗ 插件配置不是合法 JSON：' + CONF); process.exit(3); }
   const routes = (cfg.routes && cfg.routes.private) || {};

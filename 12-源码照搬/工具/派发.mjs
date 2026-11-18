@@ -11,7 +11,7 @@
 //   node 工具\派发.mjs --to session-cd20... "任务" --no-watch --timeout 1800
 //   node 工具\派发.mjs --to "mlw" "任务" --dry        # 只核对会话与派发单，不投递
 //   node 工具\派发.mjs --to "mlw" "任务" --mandate "只改 工具\X.mjs，不动引擎、不提交"   # 本次授权范围
-//   node 工具\派发.mjs --to "创意工坊·原画概念" --parent <外层单号> "工单内容"           # 分层派发：回执自动上浮到根派发方
+//   node 工具\派发.mjs --to "程序开发·项目" --parent <外层单号> "工单内容"           # 分层派发：回执自动上浮到根派发方
 //
 // 约定：--from 不写就是当前会话（DSH_SESSION_ID）；--to 按会话标题逐字相等或 session id 认；
 //   --project 按 `_共享记忆\项目.json` 的 name / aliases 认项目，再按 cwd 找该项目当前会话

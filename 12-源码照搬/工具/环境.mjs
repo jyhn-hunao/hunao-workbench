@@ -25,7 +25,7 @@ export const IS_WIN = process.platform === 'win32'
 export const MACHINE_FILE =
   process.env.DSH_MACHINE_FILE || path.join(WORKBENCH_ROOT, '引擎数据', '.dsh', '机器配置.json')
 
-const DEFAULT_PORTS = { dsh: 3083, site: 31238, preview: 31240, webAi: 31239 }
+const DEFAULT_PORTS = { dsh: 3083, site: 31238, preview: 31240, webAi: 31239, wechat: 31241 }
 
 // 3. 读机器配置：缺失或坏 JSON 一律返回 {}（不抛）。
 //    它是「可选覆盖层」，缺了要退回相对推导；只有下游真的解析不到值时才抛。
@@ -51,7 +51,10 @@ export function sceneMemoryRoot() {
 // 5. 端口：env > 机器配置 > 默认。
 //    ⛔ 除这里与 启动.vbs / main.js 的默认值外，别处不许再写字面量端口。
 export function port(name) {
-  const envKey = { dsh: 'DSH_PORT', site: 'SITE_PORT', preview: 'PREVIEW_PORT', webAi: 'WEB_AI_PORT' }[name]
+  const envKey = {
+    dsh: 'DSH_PORT', site: 'SITE_PORT', preview: 'PREVIEW_PORT',
+    webAi: 'WEB_AI_PORT', wechat: 'WECHAT_PORT'
+  }[name]
   if (envKey && process.env[envKey]) return Number(process.env[envKey])
   const fromFile = (MACHINE.ports || {})[name]
   if (fromFile) return Number(fromFile)

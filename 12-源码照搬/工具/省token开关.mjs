@@ -22,7 +22,6 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 
@@ -30,7 +29,6 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));          // 12-源码
 const BASE = path.resolve(HERE, '..');                              // 12-源码照搬
 const DSH_HOME = process.env.DSH_HOME || path.join(BASE, '引擎数据', '.dsh');
 const DEFAULT_FILE = path.join(DSH_HOME, 'profiles', 'web', 'cordis.patch.yml');
-const ENGINE_BIN = path.join(BASE, '引擎', 'lib', 'bin.js');
 
 const BEGIN = '# >>> 省token · 工具\\省token开关.mjs 管理（--off 删掉这一整段）';
 const END = '# <<< 省token';
@@ -99,36 +97,39 @@ const i0 = b.findIndex((l) => l.trim() === BEGIN);
 const i1 = b.findIndex((l) => l.trim() === END);
 const on = i0 >= 0 && i1 > i0;
 
-// 状态：dump-config 才是真话（配置里写了 disabled:false 也不代表插件真装上）
-function dumpCheck() {
-  try {
-    const out = execFileSync(process.execPath, [ENGINE_BIN, '--profile', 'web', '--dump-config'], {
-      encoding: 'utf8', timeout: 120000, env: Object.assign({}, process.env, { DSH_HOME })
-    });
-    const lines = out.split(/\r?\n/);
-    const idx = lines.findIndex((l) => /^-\s*id:\s*compaction-basic\s*$/.test(l));
-    if (idx < 0) return { known: false, note: 'dump 里没找到 compaction-basic' };
-    const chunk = lines.slice(idx, idx + 6).join('\n');
-    return { known: true, disabled: /disabled:\s*true/.test(chunk), raw: chunk.split('\n').slice(0, 3).join(' | ') };
-  } catch (e) {
-    return { known: false, note: '跑不动 dump-config：' + ((e && e.message) || e) };
-  }
-}
-
-if (has('--status') || (!has('--on') && !has('--off') && !has('--dry'))) {
-  console.log('配置文件：' + file);
-  console.log('脚本块：' + (on ? '已写入（第 ' + (i0 + 1) + '–' + (i1 + 1) + ' 行）' : '未写入（= 出厂状态，省 token 的三条都没开）'));
-  const d = dumpCheck();
-  // ⛔ dump-config 默认**不读 user layer**（dsh-app-boot 里 userLayer:false 就是默认 dump），
-  //    所以它永远看不到这一段；别拿它判断"没生效"。这里只自证「文件里有这一段、整份 YAML 能解析」。
-  void d;
+// 状态对象：给功能台读（--status --json）；字段只报真值，解析不到给 null。
+// ⛔ dump-config 默认不读 user layer，看不到这一段，别拿它判断「没生效」；
+//    这里只自证「文件里有这一段、整份 YAML 能解析」。
+function statusJson() {
+  const seg = on ? b.slice(i0, i1 + 1).join('\n') : '';
+  const pick = (re) => { const m = seg.match(re); return m ? Number(m[1]) : null; };
+  let yaml = { ok: true };
   try {
     const reqYaml = createRequire(path.join(BASE, '引擎', 'node_modules', '_.js'));
     reqYaml('js-yaml').load(fs.readFileSync(file, 'utf8'));
-    console.log('配置校验：YAML 可解析 ✓（真正生效以重启后的行为为准）');
   } catch (e) {
-    console.log('配置校验：✗ ' + String((e && e.message) || e));
+    yaml = { ok: false, error: String((e && e.message) || e).slice(0, 160) };
   }
+  return {
+    at: Date.now(), installed: true, on: !!on, source: file,
+    lines: on ? [i0 + 1, i1 + 1] : [],
+    values: {
+      thresholdRatio: pick(/thresholdRatio:\s*([0-9.]+)/),
+      retainRatio: pick(/retainRatio:\s*([0-9.]+)/),
+      prunerThresholdChars: pick(/thresholdChars:\s*([0-9.]+)/),
+      prunerHeadChars: pick(/headChars:\s*([0-9.]+)/),
+      prunerTailChars: pick(/tailChars:\s*([0-9.]+)/),
+    },
+    yaml: yaml,
+  };
+}
+
+if (has('--status') || (!has('--on') && !has('--off') && !has('--dry'))) {
+  const sj = statusJson();
+  if (has('--json')) { console.log(JSON.stringify(sj, null, 0)); process.exit(0); }
+  console.log('配置文件：' + file);
+  console.log('脚本块：' + (on ? '已写入（第 ' + (i0 + 1) + '–' + (i1 + 1) + ' 行）' : '未写入（= 出厂状态，省 token 的三条都没开）'));
+  console.log('配置校验：' + (sj.yaml.ok ? 'YAML 可解析 ✓（真正生效以重启后的行为为准）' : '✗ ' + sj.yaml.error));
   if (!on) console.log('\n要开：node 工具\\省token开关.mjs --on   然后重启工作台');
   process.exit(0);
 }

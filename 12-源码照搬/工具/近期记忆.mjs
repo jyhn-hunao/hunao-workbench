@@ -213,6 +213,9 @@ if (cmd === '生成') {
     let n = 0;
     for (const s of sceneNames()) {
       if (s === PERSONA_SCENE) { say('· 跳过 ' + s + '（归 人格记忆.mjs）'); continue; }
+      // 纯界面场景（如「工作台控制台」）不绑会话、也没有 场景记忆 目录：--all 时跳过，
+      // 不能让一个「只用来点按钮」的场景把整条命令打成 exit 2（2026-11-18 功能台体检发现）
+      if (!fs.existsSync(path.join(MEM_ROOT, s))) { say('· 跳过 ' + s + '（没有 场景记忆 目录）'); continue; }
       doGenerate(s); n++;
     }
     say('共处理 ' + n + ' 个场景');
