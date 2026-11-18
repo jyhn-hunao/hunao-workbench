@@ -1,7 +1,7 @@
 {
   "id": "pet",
   "name": "胡闹的大肥鱼",
-  "description": "胡闹的大肥鱼：人格本体场景。只有一条「人格会话」——她是谁、怎么说、记得什么，都在 引擎数据\\.dsh\\场景记忆\\胡闹的大肥鱼\\。标题栏「⚙ 设置」点开是参数弹窗（主动性 / 能做什么 / 什么要先问你 / 免打扰 / 场景路由 / 最近派发），参数落 外壳\\data\\pet\\设置.json（本机，不入库）。别的场景（社交 / B站 / 程序开发 / 命令 / 本地电脑 / 自我复盘）只按 _场景索引.md 来取用，不复制人格；社交场景只负责通道，回复由本场景这条会话生成。3D 形象（Blender 出 GLB → 工作台渲染）暂不做，接口约定见 外壳\\pet3d\\说明.md。",
+  "description": "胡闹的大肥鱼：人格本体场景。只有一条「人格会话」——她是谁、怎么说、记得什么，都在 引擎数据\\.dsh\\场景记忆\\胡闹的大肥鱼\\。标题栏「⚙ 设置」点开是参数弹窗（主动性 / 能做什么 / 什么要先问你 / 免打扰 / 场景路由 / 最近派发），参数落 外壳\\data\\pet\\设置.json（本机，不入库）。别的场景（社交 / B站 / 程序开发 / 命令 / 本地电脑 / 自我复盘）只按 _场景索引.md 来取用，不复制人格；社交场景只负责通道，回复由本场景这条会话生成。3D 形象（外部 GLB → 工作台渲染）已接入 `pet-3d` 面板，接口约定与素材说明见 外壳\\pet3d\\说明.md。",
   "layout": "grid",
   "theme": "dark",
   "cols": 3,
@@ -16,9 +16,11 @@
       "w": 2,
       "h": 6,
       "sessionTitle": "胡闹的大肥鱼",
-      "sessionId": "session-861de8a2-9bf1-4251-ac21-441240d1e0bd",
+      "sessionId": "session-3b4debec-abf6-43a9-bbb6-737a265f3550",
       "settingsBtn": "pet",
       "sessionRail": false,
+      "chatStyle": "bubble",
+      "hideThinking": true,
       "pinTarget": [
         "胡闹的大肥鱼"
       ]
@@ -29,9 +31,22 @@
       "sub": "总入口的派发台：待批准 / 定时触发 / 超时未回执；每 60 秒自动扫，批准与补投都要你点按钮",
       "type": "dispatch-board",
       "col": 3,
+      "row": 4,
+      "w": 1,
+      "h": 3
+    },
+    {
+      "id": "pet-3d",
+      "title": "大肥鱼 · 3D",
+      "sub": "实时 3D 形象：GLB + three.js toon 渲染 + 描边，状态随人格会话事件（idle/thinking/speaking/listening）",
+      "type": "embed",
+      "col": 3,
       "row": 1,
       "w": 1,
-      "h": 6
+      "h": 3,
+      "url": "@site:/pet3d/",
+      "embedToggle": false,
+      "scrollbar": false
     }
   ],
   "first": true

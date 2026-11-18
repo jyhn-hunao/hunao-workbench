@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-// 桌宠自检.mjs —— 把「审批策略 / 路由 / 主动闸门」当成可回归的行为测一遍（2026-11-13）
+// 桌宠自检.mjs —— 把「路由 / 审批策略 / 动作类型 / 主动闸门」当成可回归的行为测一遍（2026-11-13；2026-11-18 加审批四类与动作推断）
 //
-// 为什么要它：这三条是桌宠的规矩（谁能派、要不要人点头、什么时候能主动），
+// 为什么要它：这几条是桌宠的规矩（谁能派、要不要人点头、什么时候能主动），
 //   改设置面板、改路由、改注入都可能把它们改坏。用固定用例钉住，跑一次就知道有没有回归。
 // 只读真配置做「默认值」参考，不读写真实次数账（主动闸门用临时 stateFile）。
 //
@@ -48,6 +48,24 @@ const S2 = JSON.parse(JSON.stringify(S));
 S2.approval.read = 'ask';
 const p5 = pet.dispatchPolicy('B站有什么新视频', { to: 'B站', level: 'read' }, S2);
 t('设置「只读也要问」⇒ read 升 confirm', p5.level === 'confirm', p5.reason);
+
+// 2.1 动作类型 + 三类审批（2026-11-18 补）：write_code / write_mem / outbound 原来是死配置，没人读
+const S3 = JSON.parse(JSON.stringify(S));
+S3.approval.write_code = 'never';
+const p6 = pet.dispatchPolicy('改下项目里的 bug', { to: '程序开发·工作区', level: 'confirm' }, S3);
+t('write_code 设禁止 ⇒ 派代码活直接禁', p6.level === 'never', p6.reason);
+const S4 = JSON.parse(JSON.stringify(S));
+S4.approval.write_mem = 'ask';
+const p7 = pet.dispatchPolicy('整理一下记忆', { to: '记忆', level: 'read' }, S4);
+t('write_mem 设先问 ⇒ 记忆类 read 升 confirm', p7.level === 'confirm', p7.reason);
+const S5 = JSON.parse(JSON.stringify(S));
+S5.approval = { read: 'read', write_mem: 'read', write_code: 'read', outbound: 'read' };   // 面板保存的旧值域
+const p8 = pet.dispatchPolicy('B站有什么新视频', { to: 'B站', level: 'read' }, S5);
+t('面板值域 read 归一为 auto ⇒ 只读直接派', p8.level === 'read' && p8.confirm === false, p8.reason);
+const p9 = pet.dispatchPolicy('发条消息给社交', { to: '社交通道', level: 'confirm', action: 'outbound' }, S);
+t('显式 action=outbound ⇒ 按 outbound 审批', p9.action === 'outbound', p9.reason);
+t('动作类型推断：开发/本机 ⇒ write_code', pet.actionOfRoute({ to: '程序开发·工作区' }) === 'write_code' && pet.actionOfRoute({ to: '本地电脑' }) === 'write_code', '');
+t('动作类型推断：记忆 ⇒ write_mem，B站 ⇒ read', pet.actionOfRoute({ to: '记忆' }) === 'write_mem' && pet.actionOfRoute({ to: 'B站' }) === 'read', '');
 
 // 3. 主动闸门：档位 / 免打扰（含跨零点）/ 每小时上限，计数独立记账
 const tmpState = path.join(ROOT, '外壳', 'data', 'pet', '自检-主动.json');

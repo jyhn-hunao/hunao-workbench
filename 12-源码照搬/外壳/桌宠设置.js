@@ -74,7 +74,13 @@ function resolveRoute(text, settings) {
 }
 
 // 4. 派发日志：一行一次，落在人格场景记忆里（面板「最近派发」也从这里读）
-function logPath() { return path.join(DSH_HOME, '场景记忆', '胡闹的大肥鱼', '派发日志.md'); }
+//    路径读设置里的 log.dispatchLog（相对 DSH_HOME），不写死 —— 否则改了设置也不生效
+function logPath(settings) {
+  let rel = '';
+  try { rel = String(((settings || getSettings()).log || {}).dispatchLog || ''); } catch (e) { rel = ''; }
+  if (!rel) rel = path.join('场景记忆', '胡闹的大肥鱼', '派发日志.md');
+  return path.isAbsolute(rel) ? rel : path.join(DSH_HOME, rel);
+}
 function ensureLog() {
   const f = logPath();
   fs.mkdirSync(path.dirname(f), { recursive: true });
@@ -173,23 +179,62 @@ function channelOf(text) {
   for (const re of CHANNEL_PREFIX) if (re.test(t)) return 'im';
   return '';
 }
+
+const ACTION_LABEL = { read: '只看资料', write_mem: '记下事情', write_code: '改代码 / 仓库', outbound: '对外发消息' };
+
+// 6.1 动作类型：路由条目可写 action；没写就按「去哪个场景」推
+//      记忆场景 = 写记忆；开发 / 本机 / 命令 = 改代码；其余 = 只读
+//      outbound 不靠场景名猜（B站 是查视频不是对外发），要对外就显式写 action: "outbound"
+//      为什么要有：设置弹窗的 approval 四类一直有值没人读，等于四格里只有一格生效（2026-11-18 实测）
+function actionOfRoute(rv) {
+  if (rv && rv.action) return String(rv.action);
+  const to = String((rv && rv.to) || '');
+  if (/记忆/.test(to)) return 'write_mem';
+  if (/程序开发|本地电脑|命令/.test(to)) return 'write_code';
+  return 'read';
+}
+
+// 6.2 审批值归一：面板存 read / confirm / never，默认文件写 auto / ask / never —— 两套都认
+//      原来只认 auto，面板存进来的 read 被当成「要问」，连只读派发都进待批准队列（2026-11-18 修）
+function approvalAsk(v, dft) {
+  const x = String(v == null ? dft : v).toLowerCase();
+  if (x === 'never' || x === 'deny' || x === '禁止') return 'never';
+  if (x === 'confirm' || x === 'ask' || x === '先问我') return 'ask';
+  return 'auto';
+}
+
+// 6.3 审批策略：一处判定，所有入口（桌宠.mjs 派 / 未来面板按钮 / 定时任务）都调它，别各写一份
+//    输入：text 原话、rv 路由命中 {to, level, action?}、settings
+//    输出：{ level: read|confirm|never, confirm, reason, action }
+//    规则（顺序即优先级）：
+//      a) 通道来的一律降一级（QQ/飞书 前缀）——防止「那头的我」指使她改仓库/对外发消息
+//      b) 动作类型对应的 approval（read / write_mem / write_code / outbound）为 never ⇒ 直接禁
+//      c) 该动作要求先问（ask / confirm）⇒ 只读级也要升到 confirm
+//      d) 路由自带的 never 最高
 function dispatchPolicy(text, rv, settings) {
   const s = settings || getSettings();
   const ap = s.approval || {};
   const rank = { read: 0, confirm: 1, never: 2 };
-  const base = rank[(rv && rv.level) || 'confirm'];
-  let level = base == null ? 1 : base;
+  let level = rank[(rv && rv.level) || 'confirm'];
+  if (level == null) level = 1;
   const reasons = [];
+  const action = actionOfRoute(rv);
+  const label = ACTION_LABEL[action] || action;
+
   if (channelOf(text)) {
     level = Math.min(2, level + 1);
     reasons.push('来自外部通道的指令，权限降一级');
   }
-  if ((ap.read || 'auto') !== 'auto' && level === 0) {
-    level = 1;
-    reasons.push('设置里「只看资料」也要求先问');
+  const cls = approvalAsk(ap[action], 'auto');
+  if (cls === 'never') {
+    return { level: 'never', confirm: false, reason: reasons.concat('设置里「' + label + '」是禁止').join('；'), action };
   }
-  if (level >= 2) return { level: 'never', confirm: false, reason: reasons.concat('该场景被设为禁止').join('；') };
-  return { level: level === 1 ? 'confirm' : 'read', confirm: level === 1, reason: reasons.join('；') || '按路由级别执行' };
+  if (cls === 'ask' && level === 0) {
+    level = 1;
+    reasons.push('设置里「' + label + '」要求先问');
+  }
+  if (level >= 2) return { level: 'never', confirm: false, reason: reasons.concat('该场景被设为禁止').join('；'), action };
+  return { level: level === 1 ? 'confirm' : 'read', confirm: level === 1, reason: reasons.join('；') || '按路由级别执行', action };
 }
 
 // 7. 主动闸门：档位 + 免打扰 + 每小时上限（计数落盘，跨进程有效）
@@ -229,9 +274,9 @@ function proactiveGate(settings, opts) {
 }
 
 module.exports = {
-  DEFAULT_FILE, DATA_FILE, DSH_HOME,
+  DEFAULT_FILE, DATA_FILE, DSH_HOME, ACTION_LABEL,
   getSettings, setSettings, resolveRoute,
   logPath, logDispatch, tailLog,
   petSession, listScenes, personaStats,
-  channelOf, dispatchPolicy, proactiveGate
+  channelOf, actionOfRoute, approvalAsk, dispatchPolicy, proactiveGate
 };

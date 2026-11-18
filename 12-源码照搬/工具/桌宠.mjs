@@ -91,6 +91,16 @@ function runDispatch(text, opt) {
   if (!String(text || '').trim()) { say('✗ 缺少 --文本 "<原话>"'); return { code: 4 }; }
 
   const settings = pet.getSettings();
+  // 自动触发（定时 / 桥接）先过主动闸门：档位「少吭声」、免打扰时段、本小时超限 ⇒ 跳过不派
+  // 为什么放在这里：定时器在壳里每 30 秒扫一次，原来直接派，等于「主动性 / 免打扰」三格全白设
+  if (o.auto) {
+    const g = pet.proactiveGate(settings, { record: !o.dry });
+    if (!g.ok) {
+      pet.logDispatch({ at: new Date().toISOString(), text, to: '—', level: 'auto', ok: false, summary: '主动闸门跳过：' + g.reason, ms: 0, ticket: '' });
+      say('✗ 自动触发被主动闸门跳过：' + g.reason);
+      return { code: 6 };
+    }
+  }
   // 工具白名单是硬门：设置里没让「派活」，直接拒绝，不靠模型自觉（2026-11-13）
   const allow = (settings.tools || {}).allow || [];
   const deny = (settings.tools || {}).deny || [];
@@ -148,6 +158,7 @@ function cmdDispatch() {
   const r = runDispatch(String(val('--文本', '')), {
     dry: has('--dry'),
     confirmed: has('--确认'),
+    auto: has('--自动'),
     timeoutSec: val('--超时', '600')
   });
   return r.code;
