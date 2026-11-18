@@ -1,8 +1,40 @@
 {
   "version": 1,
   "scene": "程序开发",
-  "generatedAt": "2026-11-17T01:54:46.531Z",
+  "generatedAt": "2026-11-18T09:22:03.207Z",
   "entries": [
+    {
+      "path": "坑\\2026-11-18-桌宠设置六项死配置-面板能改但没人读.md",
+      "kind": "坑",
+      "title": "桌宠设置六项死配置-面板能改但没人读",
+      "date": "2026-11-18",
+      "tags": [
+        "坑"
+      ],
+      "distinct": [],
+      "evidence": [
+        "12-源码照搬\\外壳\\桌宠设置.js::function actionOfRoute(rv)"
+      ],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 1218
+    },
+    {
+      "path": "坑\\2026-11-18-引擎0-2-1起Agent没有sessionId.md",
+      "kind": "坑",
+      "title": "引擎0.2.1起Agent没有sessionId-记忆回响静默不注入",
+      "date": "2026-11-18",
+      "tags": [
+        "坑"
+      ],
+      "distinct": [],
+      "evidence": [
+        "12-源码照搬\\引擎\\node_modules\\@deepseek-ai\\dsh-agent-loop\\lib\\index.js::this.session = session"
+      ],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 1120
+    },
     {
       "path": "坑\\2026-11-17-日志脱敏只改了壳没改脚本-换会话卡死在换不到.md",
       "kind": "坑",

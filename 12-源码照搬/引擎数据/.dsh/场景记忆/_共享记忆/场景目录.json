@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-11-17T01:54:46.539Z",
+  "generatedAt": "2026-11-18T09:22:03.387Z",
   "scenes": [
     {
       "name": "本地电脑",
@@ -15,7 +15,7 @@
       "entries": 4,
       "hasPrivate": true,
       "hasIdentity": true,
-      "updatedAt": "2026-11-14T10:02:40.420Z"
+      "updatedAt": "2026-11-18T09:22:02.923Z"
     },
     {
       "name": "程序开发",
@@ -27,36 +27,23 @@
         "cd-ai",
         "cd-ai-home"
       ],
-      "entries": 70,
+      "entries": 72,
       "hasPrivate": true,
       "hasIdentity": true,
-      "updatedAt": "2026-11-17T01:54:46.537Z"
-    },
-    {
-      "name": "创意工坊",
-      "id": "creative",
-      "panels": [
-        "cw-live",
-        "cw-ai",
-        "cw-board",
-        "cw-files"
-      ],
-      "entries": 19,
-      "hasPrivate": true,
-      "hasIdentity": true,
-      "updatedAt": "2026-11-14T10:02:40.403Z"
+      "updatedAt": "2026-11-18T09:22:03.213Z"
     },
     {
       "name": "胡闹的大肥鱼",
       "id": "pet",
       "panels": [
         "pet-ai",
-        "pet-dog"
+        "pet-dog",
+        "pet-3d"
       ],
-      "entries": 8,
+      "entries": 14,
       "hasPrivate": true,
       "hasIdentity": true,
-      "updatedAt": "2026-11-14T10:02:40.535Z"
+      "updatedAt": "2026-11-18T09:22:03.284Z"
     },
     {
       "name": "记忆",
@@ -68,20 +55,20 @@
       "entries": 12,
       "hasPrivate": true,
       "hasIdentity": true,
-      "updatedAt": "2026-11-14T10:02:40.595Z"
+      "updatedAt": "2026-11-18T09:22:03.375Z"
     },
     {
       "name": "社交",
       "id": "social",
       "panels": [
-        "ch-qq",
-        "ch-feishu",
-        "so-msg"
+        "ch-hub",
+        "so-msg",
+        "sl-console"
       ],
       "entries": 2,
       "hasPrivate": true,
       "hasIdentity": true,
-      "updatedAt": "2026-11-14T10:02:40.435Z"
+      "updatedAt": "2026-11-18T09:22:02.938Z"
     },
     {
       "name": "自我复盘",
@@ -95,7 +82,7 @@
       "entries": 26,
       "hasPrivate": true,
       "hasIdentity": true,
-      "updatedAt": "2026-11-14T10:02:40.572Z"
+      "updatedAt": "2026-11-18T09:22:03.340Z"
     },
     {
       "name": "B站",
@@ -107,7 +94,7 @@
       "entries": 0,
       "hasPrivate": true,
       "hasIdentity": true,
-      "updatedAt": "2026-11-14T10:02:40.358Z"
+      "updatedAt": "2026-11-18T09:22:02.885Z"
     }
   ]
 }

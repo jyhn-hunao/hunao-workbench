@@ -1,8 +1,80 @@
 {
   "version": 1,
   "scene": "胡闹的大肥鱼",
-  "generatedAt": "2026-11-14T06:34:27.480Z",
+  "generatedAt": "2026-11-18T09:22:03.278Z",
   "entries": [
+    {
+      "path": "决策\\2026-11-18-聊天气泡样式定稿-层2底色加细边.md",
+      "kind": "决策",
+      "title": "聊天气泡样式定稿-层2底色加细边",
+      "date": "2026-11-18",
+      "tags": [
+        "决策"
+      ],
+      "distinct": [],
+      "evidence": [
+        "12-源码照搬\\外壳\\renderer\\renderers.js::const HARNESS_BUBBLE_CSS"
+      ],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 1191
+    },
+    {
+      "path": "决策\\2026-11-18-聊天气泡与隐藏思考-靠注入CSS不碰引擎.md",
+      "kind": "决策",
+      "title": "聊天气泡与隐藏思考-靠注入CSS不碰引擎",
+      "date": "2026-11-18",
+      "tags": [
+        "决策"
+      ],
+      "distinct": [],
+      "evidence": [
+        "12-源码照搬\\外壳\\renderer\\renderers.js::const HARNESS_BUBBLE_CSS"
+      ],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 1086
+    },
+    {
+      "path": "坑\\2026-11-18-人格卡缺性格-而且-里的人格段已被交接模板覆盖.md",
+      "kind": "坑",
+      "title": "人格卡缺性格-而且§〇里的人格段已被交接模板覆盖",
+      "date": "2026-11-18",
+      "tags": [
+        "坑"
+      ],
+      "distinct": [],
+      "evidence": [
+        "12-源码照搬\\插件\\记忆回响\\index.js::function petPersonaBlock(scene)"
+      ],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 982
+    },
+    {
+      "path": "记忆\\2026-11-18-她给我定的形象：蓝发鲸鱼女仆.md",
+      "kind": "记忆",
+      "title": "她给我定的形象：蓝发鲸鱼女仆",
+      "date": "2026-11-18",
+      "tags": [],
+      "distinct": [],
+      "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 595
+    },
+    {
+      "path": "记忆\\2026-11-18-评价作品要给人话，不要报告体.md",
+      "kind": "记忆",
+      "title": "评价作品要给人话，不要报告体",
+      "date": "2026-11-18",
+      "tags": [],
+      "distinct": [],
+      "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 485
+    },
     {
       "path": "决策\\2026-11-13-设置改按钮弹窗-记忆一律走工具.md",
       "kind": "决策",
@@ -123,7 +195,19 @@
       "evidence": [],
       "expires": "",
       "consolidatedInto": "",
-      "size": 915
+      "size": 1170
+    },
+    {
+      "path": "归档\\场景私有记忆-202611180956-861de8.md",
+      "kind": "归档",
+      "title": "胡闹的大肥鱼 · 场景私有记忆",
+      "date": "",
+      "tags": [],
+      "distinct": [],
+      "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 4416
     }
   ]
 }
