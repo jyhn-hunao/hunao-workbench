@@ -1,37 +1,41 @@
 {
   "id": "social",
   "name": "社交",
-  "description": "社交：只做通道。这里没有 AI 会话——消息流的来源是「胡闹的大肥鱼」人格场景的会话。面板按平台分格：每个平台一格卡片（type:chan，meta.channel 指定平台），加平台 = 再加一个 chan 面板；右侧「全部消息」保留合并流用于对时，底部「SnowLuma 桥接」是桥接控制台面板（type:embed）。通道参数与排障口径记在 场景记忆\\社交\\，人格与对话记忆归 场景记忆\\胡闹的大肥鱼\\",
+  "description": "社交：只做通道。这里没有 AI 会话——消息流的来源是「胡闹的大肥鱼」人格场景的会话。通道不再一个平台占一个格：统一收进一个「通道」面板（type:channels），内部并列 QQ / 飞书 / 微信三列；加平台 = 在 channels 数组加一项，不再往场景里加 top-level panel。右侧「全部消息」保留合并流用于对时，底部「SnowLuma 桥接」是 QQ 控制台面板（type:embed）。微信列的「通道自检」会逐项显示鲸鲸内核/桥接/UIA/账号/插件/适配器/DSH 会话/真实发送，哪一项红就修哪一项。通道参数与排障口径记在 场景记忆\\社交\\，人格与对话记忆归 场景记忆\\胡闹的大肥鱼\\",
   "layout": "grid",
   "theme": "dark",
   "cols": 4,
   "panels": [
     {
-      "id": "ch-qq",
-      "title": "QQ",
-      "sub": "卡片 · 状态 / 账号 / 今日条数 / 最后一条",
-      "type": "chan",
-      "channel": "qq",
-      "console": "snowluma",
-      "consolePanel": "sl-console",
+      "id": "ch-hub",
+      "title": "通道",
+      "sub": "QQ / 飞书 / 微信 · 同一块区域，可收起/展开 · 微信卡右上「鲸鲸设置」",
+      "type": "channels",
+      "channels": [
+        {
+          "id": "ch-qq",
+          "key": "qq",
+          "title": "QQ",
+          "console": "snowluma",
+          "consolePanel": "sl-console"
+        },
+        {
+          "id": "ch-feishu",
+          "key": "feishu",
+          "title": "飞书"
+        },
+        {
+          "id": "ch-wechat",
+          "key": "wechat",
+          "title": "微信",
+          "selfCheck": true
+        }
+      ],
       "sessionTitle": "胡闹的大肥鱼",
-      "sessionId": "session-861de8a2-9bf1-4251-ac21-441240d1e0bd",
+      "sessionId": "session-3b4debec-abf6-43a9-bbb6-737a265f3550",
       "col": 1,
       "row": 1,
-      "w": 1,
-      "h": 6
-    },
-    {
-      "id": "ch-feishu",
-      "title": "飞书",
-      "sub": "卡片 · 未绑时显示「待」与原因",
-      "type": "chan",
-      "channel": "feishu",
-      "sessionTitle": "胡闹的大肥鱼",
-      "sessionId": "session-861de8a2-9bf1-4251-ac21-441240d1e0bd",
-      "col": 2,
-      "row": 1,
-      "w": 1,
+      "w": 2,
       "h": 6
     },
     {
@@ -40,7 +44,7 @@
       "sub": "合并流 · 按时间倒序看所有平台",
       "type": "msgflow",
       "sessionTitle": "胡闹的大肥鱼",
-      "sessionId": "session-861de8a2-9bf1-4251-ac21-441240d1e0bd",
+      "sessionId": "session-3b4debec-abf6-43a9-bbb6-737a265f3550",
       "pinTarget": [
         "胡闹的大肥鱼"
       ],

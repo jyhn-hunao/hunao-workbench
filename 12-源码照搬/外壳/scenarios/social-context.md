@@ -2,8 +2,8 @@
 
 - 场景 id：`social`
 - 一句话：**只做通道，不做人格**。这个场景没有 AI 会话；消息流的来源是「胡闹的大肥鱼」人格场景的会话，QQ / 飞书的回复也由那边生成。
-- 面板：`外壳\scenarios\social.json` —— **一个平台一格卡片**：`ch-qq`（`type:"chan"`, `channel:"qq"`，右上带「⚙ 控制台」）、`ch-feishu`（`channel:"feishu"`）；右侧 `so-msg`「全部消息」保留合并流用于对时；底部 `sl-console`（`type:"embed"`）是 SnowLuma 控制台面板。加平台 = 再加一个 `chan` 面板（`channel` 写新 key，并在 `外壳\社交.js` 的 `channelStates` 里补一条状态来源）
-- 桥接控制台：SnowLuma（QQ 个人号协议端）随工作台一起启动、一起退出；控制台是场景里的**固定面板** `sl-console`（`type:"embed"`，本机 5099，与旧浮动窗共用 `persist:webai-snowluma` 登录态），入口是 `so-msg` 标题栏「⚙ 桥接」与 `ch-qq` 卡片「⚙ 控制台」——点一下滚到面板并展开，不再弹窗。配置在 `外壳\data\桥接.json`（本机，gitignored）
+- 面板：`外壳\scenarios\social.json` —— **一个「通道」面板收所有平台**（`ch-hub`, `type:"channels"`）：内部并列 `ch-qq`（`channel:"qq"`，带「⚙ 控制台」）、`ch-feishu`、`ch-wechat`（`selfCheck:true`，带启动/停止/自检/发测试/钉账号）；每个平台不再单独占一格。右侧 `so-msg`「全部消息」保留合并流用于对时；底部 `sl-console`（`type:"embed"`）是 SnowLuma 控制台面板。加平台 = 在 `ch-hub.channels` 数组加一项（`key` 写新 key，并在 `外壳\社交.js` 的 `channelStates` 里补一条状态来源）。`ch-hub` 标题栏有「收起/展开」，收起只留三列标题。
+- 桥接控制台：SnowLuma（QQ 个人号协议端）随工作台一起启动、一起退出；控制台是场景里的**固定面板** `sl-console`（`type:"embed"`，本机 5099，与旧浮动窗共用 `persist:webai-snowluma` 登录态），入口是 `so-msg` 标题栏「⚙ 桥接」与 `ch-qq` 列「⚙ 控制台」——点一下滚到面板并展开，不再弹窗。配置在 `外壳\data\桥接.json`（本机，gitignored）
 - 记忆：`引擎数据\.dsh\场景记忆\社交\` 只放**通道参数与排障口径**；人格与对话记忆在 `场景记忆\胡闹的大肥鱼\`（`记忆\` 长期、`对话\` 流水）
 - 通道：`@xmanrui/dsh-im 5.10.0`（飞书，装在本机 web profile）+ `dsh-onebot-channel 0.15.2`（QQ 个人号，协议端用 SnowLuma 自建、已随壳启停），接法与验证清单见 `插件\社交通道\说明.md` §6.1
 

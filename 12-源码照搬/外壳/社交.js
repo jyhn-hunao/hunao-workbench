@@ -162,6 +162,8 @@ const PLATFORM_TAG = [
   // 前缀不一定在开头，所以按「任意位置出现」认，别只认行首（2026-11-13 修）。
   { key: 'qq', re: /（QQ|QQ\s*私聊|QQ 群聊|\[QQ/ },
   { key: 'feishu', re: /（飞书|飞书\s*私聊|\[飞书/ },
+  // 微信通道的 prompt 头是「（微信私聊 · 张三 说）」/「（微信群聊「群名」 · 李四 说）」
+  { key: 'wechat', re: /（微信|微信\s*私聊|微信\s*群聊|\[微信/ },
 ];
 function platformOf(text) {
   const t = String(text || '');
@@ -178,15 +180,80 @@ function bridgeConfigPath(home) {
   return fs.existsSync(b) ? b : a;
 }
 
-// 7. 通道状态：QQ 桥接（OneBot 端口 + 配置）· 飞书（插件是否装）
+// 7. 通道状态：QQ 桥接（OneBot 端口 + 配置）· 飞书（插件是否装）· 微信（壳里的微信通道状态文件）
 //    state 只有三种：ok = 真在听/真能用；warn = 装了但没通；off = 没有/没听
+const WX_STATUS_FILE = path.join(__dirname, 'data', '微信通道', '状态.json');
+
+function wechatChannelState() {
+  const st = readJson(WX_STATUS_FILE);
+  if (!st || !st.at) {
+    return {
+      key: 'wechat', label: '微信', state: 'off',
+      detail: '微信通道未启动（装好 whale_girl 后点卡片「启动」，或先点「自检」看缺哪一步）',
+      account: '未启动', accountLabel: '未启动', rawAccount: '', pinnedAccount: '', pinnedAccountLabel: '',
+      accounts: [], accountMismatch: false,
+      peer: '', console: '',
+      sessionIsolation: null,
+      running: false, installed: false, port: 0
+    };
+  }
+  const age = Date.now() - Number(st.at || 0);
+  if (!Number.isFinite(age) || age > 30000) {
+    return {
+      key: 'wechat', label: '微信', state: st.installed ? 'warn' : 'off',
+      detail: '通道状态已过期（工作台可能刚重启）：点「启动」或「自检」刷新',
+      account: String(st.account || '未登录'), accountLabel: String(st.accountLabel || st.account || '未登录'),
+      rawAccount: String(st.rawAccount || ''), pinnedAccount: String(st.pinnedAccount || ''),
+      pinnedAccountLabel: String(st.pinnedAccountLabel || st.pinnedAccount || ''),
+      accounts: Array.isArray(st.accounts) ? st.accounts : [], accountMismatch: !!st.accountMismatch,
+      peer: '', console: '',
+      sessionIsolation: st.sessionIsolation || null,
+      running: false, installed: !!st.installed, port: st.adapterPort || 0
+    };
+  }
+  const state = st.state === 'ok' || st.state === 'warn' ? st.state : 'off';
+  return {
+    key: 'wechat', label: '微信', state,
+    detail: String(st.detail || ''),
+    account: String(st.accountLabel || st.account || '未登录'),
+    accountLabel: String(st.accountLabel || st.account || '未登录'),
+    rawAccount: String(st.rawAccount || ''),
+    pinnedAccount: String(st.pinnedAccount || ''),
+    pinnedAccountLabel: String(st.pinnedAccountLabel || st.pinnedAccount || ''),
+    accounts: Array.isArray(st.accounts) ? st.accounts : [],
+    accountMismatch: !!st.accountMismatch,
+    peer: '', console: '',
+    sessionIsolation: st.sessionIsolation || null,
+    running: !!st.running,
+    installed: !!st.installed,
+    port: st.adapterPort || 0,
+    plugin: st.plugin || null
+  };
+}
+
 async function channelStates(dshHome) {
   const home = String(dshHome || '');
   const cfg = readJson(bridgeConfigPath(home));
-  const httpPort = portOf(cfg && cfg.onebotHttp, 3000);
+  // 外发闸门状态（2026-11-18）：QQ 插件可能被指到闸门端口，这时「3000 在听」不代表协议端在听。
+  // 判据：桥接配置里的 onebotHttp 指向闸门端口 ⇒ 用闸门状态里的上游结论，别把闸门画成协议端。
+  const gateSt = readJson(path.join(__dirname, 'data', '安全闸门', '状态.json'));
+  const gateCfg = readJson(path.join(__dirname, 'data', '安全闸门.json')) || {};
+  const gatePort = Number((gateCfg.qq && gateCfg.qq.listenPort) || 3100) || 3100;
+  const gateFresh = !!(gateSt && gateSt.at && Date.now() - Number(gateSt.at) < 30000);
+  const cfgHttpRaw = String((cfg && cfg.onebotHttp) || '');
+  const viaGate = !!gatePort && new RegExp('127\\.0\\.0\\.1:' + gatePort + '\\b').test(cfgHttpRaw);
   const wsPort = portOf(cfg && cfg.wsUrl, 3001);
-  const httpOn = await probePort(httpPort);
   const wsOn = await probePort(wsPort);
+  let httpPort = portOf(cfgHttpRaw, 3000);
+  let httpOn = false;
+  if (viaGate) {
+    httpPort = portOf(gateSt && gateSt.upstream, 3000);
+    const gateListening = gateFresh ? !!gateSt.listening : await probePort(gatePort);
+    httpOn = !!(gateListening && (gateFresh ? !!gateSt.upstreamOk : false));
+    if (!gateFresh) httpOn = gateListening && await probePort(httpPort);
+  } else {
+    httpOn = await probePort(httpPort);
+  }
   const on = httpOn || wsOn;
 
   const nm = path.join(home, 'profiles', 'web', 'node_modules');
@@ -199,13 +266,18 @@ async function channelStates(dshHome) {
       label: 'QQ',
       state: on ? 'ok' : (hasOnebot ? 'warn' : 'off'),
       detail: on
-        ? '协议端在听（HTTP ' + httpPort + (wsOn ? ' · WS ' + wsPort : '') + '）'
+        ? (viaGate
+          ? '协议端在听（经安全闸门 ' + gatePort + ' → ' + httpPort + (wsOn ? ' · WS ' + wsPort : '') + '）'
+          : '协议端在听（HTTP ' + httpPort + (wsOn ? ' · WS ' + wsPort : '') + '）')
         : (hasOnebot
-          ? '桥接插件已装，协议端未起（HTTP ' + httpPort + ' / WS ' + wsPort + ' 都没在听）'
+          ? (viaGate
+            ? 'QQ 已指向安全闸门，但闸门或协议端没通（闸门 ' + gatePort + ' / 上游 ' + httpPort + (wsOn ? ' · WS ' + wsPort : '') + '）'
+            : '桥接插件已装，协议端未起（HTTP ' + httpPort + ' / WS ' + wsPort + ' 都没在听）')
           : '桥接插件未装'),
       account: cfg && cfg.selfUin ? '小号 ' + cfg.selfUin : '未绑小号',
       peer: cfg && cfg.peerUin ? String(cfg.peerUin) : '',
-      console: 'snowluma'
+      console: 'snowluma',
+      gate: { enabled: !!(gateCfg.enabled), viaGate: viaGate, listening: gateFresh ? !!gateSt.listening : false }
     },
     {
       key: 'feishu',
@@ -214,7 +286,8 @@ async function channelStates(dshHome) {
       detail: hasIm ? 'dsh-im 已装，凭据与白名单在「设置 → IM机器人」绑' : 'dsh-im 未装',
       account: hasIm ? '自建应用（凭据未绑）' : '未装',
       peer: ''
-    }
+    },
+    wechatChannelState()
   ];
 }
 
