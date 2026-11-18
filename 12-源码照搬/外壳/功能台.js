@@ -4,7 +4,7 @@
 // 三条硬约定：
 //   ① 只跑白名单里的脚本：脚本路径写死在这里，界面只能传 feature id + action id + 白名单输入项；
 //   ② 不进 shell：spawn(process.execPath, [脚本, ...参数])，参数逐项进 argv，不拼命令行；
-//   ③ 配置只写「真实那一份」：开关改 profile 的 patch、生图 key 进 机器配置.json，
+//   ③ 配置只写「真实那一份」：开关改 profile 的 patch，
 //      本文件只存界面偏好（上次结果 / 常用参数），⛔ 不另造一套影子状态。
 //
 // 数据去向：外壳\data\功能台.json（本机，不入库）—— { ui: {...}, params: {...}, last: {...} }
@@ -18,7 +18,8 @@ const ROOT = path.resolve(SHELL, '..');               // 12-源码照搬
 const CFG_DIR = path.join(SHELL, 'data');
 const CFG_FILE = path.join(CFG_DIR, '功能台.json');
 const SCEN_DIR = path.join(SHELL, 'scenarios');
-const MEM_DIR = path.join(process.env.DSH_CUSTOMER_HOME || process.env.DSH_HOME || path.join(ROOT, '引擎数据', '.dsh'), '场景记忆');
+const DSH = process.env.DSH_CUSTOMER_HOME || process.env.DSH_HOME || path.join(ROOT, '引擎数据', '.dsh');
+const MEM_DIR = path.join(DSH, '场景记忆');
 
 // 1. 分组：界面按组切面板，一组一块（组名与说明直接展示给人）
 const GROUPS = [
@@ -26,7 +27,6 @@ const GROUPS = [
   { id: 'memory', title: '记忆维护', plain: '近期记忆 / 人格记忆 / 通道记忆 / 场景记忆体检与收工 —— 原来全在命令行' },
   { id: 'guard', title: '自检与发布', plain: '发布前红线、各层自检、引擎升级后接线核对（只读，跑完看输出）' },
   { id: 'flow', title: '协作与通道', plain: '人格引用同步、跨场景发消息、会话改名' },
-  { id: 'creative', title: '创意与资产', plain: '生图、资产包检查、打发布包' },
 ];
 
 // 2. 功能登记：一条 = 一个脚本 + 它能干的几件事（args 是纯函数，只吃白名单输入）
@@ -335,7 +335,7 @@ const FEATURES = [
       { id: 'run', label: '查一遍', args: () => [], okCodes: [1] },
       { id: 'json', label: '查（机器读）', args: () => ['--json'], okCodes: [1] },
       { id: 'mirror', label: '换镜像查', args: () => ['--mirror'], okCodes: [1] },
-      { id: 'offline', label: '只看上次结果', args: () => ['--offline'] },
+      { id: 'offline', label: '只看上次结果', args: () => ['--offline'], okCodes: [1] },
     ],
   },
   {
@@ -469,49 +469,8 @@ const FEATURES = [
     ],
   },
 
-  // ── 创意与资产 ────────────────────────────────────────────────────────
   {
-    id: 'gen-image', group: 'creative', name: '生图（Seedream / 火山方舟）',
-    plain: '把「提示词 + 可选参考图」换成真 PNG 落盘；创意工坊原画概念岗的三视图 / 气氛图走这里。',
-    script: '工具\\生图.mjs', timeout: 300000,
-    actions: [
-      { id: 'probe', label: '认环境', args: () => ['probe'] },
-      {
-        id: 'gen', label: '出一张', danger: 'write',
-        inputs: [
-          { key: 'prompt', label: '提示词', kind: 'text', required: true, long: true },
-          { key: 'out', label: '存到', kind: 'file', required: true, hint: '…\\概念\\xx.png' },
-          { key: 'size', label: '尺寸', kind: 'select', def: '2K', options: [{ v: '2K', t: '2K' }, { v: '4K', t: '4K' }] },
-        ],
-        args: (v) => ['gen', '--prompt', v.prompt, '--out', v.out, '--size', v.size === '4K' ? '4K' : '2K'],
-      },
-      {
-        id: 'dry', label: '只看请求体',
-        inputs: [{ key: 'prompt', label: '提示词', kind: 'text', required: true, long: true }],
-        args: (v) => ['gen', '--prompt', v.prompt, '--dry'],
-      },
-      {
-        id: 'setKey', label: '记 key', danger: 'write',
-        inputs: [{ key: 'key', label: 'ARK_API_KEY', kind: 'text', required: true, hint: 'ark-… 写进 机器配置.json，不入库' }],
-        args: (v) => ['set-key', '--key', v.key],
-      },
-    ],
-  },
-  {
-    id: 'asset-check', group: 'creative', name: '资产包检查',
-    plain: '一次一个资产、一个资产一个目录；check 看缺哪环 / GLB 有没有 skin，list 看所有包与阶段。',
-    script: '工具\\资产.mjs', timeout: 120000,
-    actions: [
-      { id: 'list', label: '列资产包', args: () => ['list'] },
-      {
-        id: 'check', label: '检查一个包',
-        inputs: [{ key: 'name', label: '资产名', kind: 'text', required: true }],
-        args: (v) => ['check', '--name', v.name],
-      },
-    ],
-  },
-  {
-    id: 'package-build', group: 'creative', name: '打发布包',
+    id: 'package-build', group: 'guard', name: '打发布包',
     plain: '把工作台层打成可分发 zip（默认不带引擎）；内置自检不过就不出包。',
     why: '出包会写盘几百 MB，界面上是危险动作：真跑要再点一次确认。',
     script: '工具\\封装.mjs', timeout: 900000,
@@ -535,20 +494,112 @@ const FEATURES = [
   },
 ];
 
+// 2b. 配置模型（2026-11-18）：每项都要有配置位，允许为空，但空必须写清为什么。
+//     kind: plugin   = 真插件，值从脚本 --status --json 读，写入走对应动作
+//           machine  = 机器层只读（机器配置.json）
+//           external = 配置真源在别处，这里只指路
+//           none     = 无持久配置（只读检查 / 一次性动作），noWhy 必填
+const CFG = {
+  'token-switch': {
+    kind: 'plugin',
+    source: '引擎数据\\.dsh\\profiles\\web\\cordis.patch.yml',
+    sourceAbs: path.join(DSH, 'profiles', 'web', 'cordis.patch.yml'),
+    action: 'on',
+    fields: [
+      { key: 'threshold', label: '摘要阈值', kind: 'number', from: 'thresholdRatio', hint: '占上下文多少就摘要（0–1）' },
+      { key: 'retain', label: '摘要后留', kind: 'number', from: 'retainRatio', hint: '保留比例，必须小于阈值' },
+    ],
+    fixed: '工具返回裁剪：4096 / 头 1536 / 尾 512（脚本内固定）',
+  },
+  'token-guard': {
+    kind: 'plugin',
+    source: '引擎数据\\.dsh\\profiles\\web\\package.json + node_modules\\dsh-token-guard\\cordis.patch.yml',
+    sourceAbs: path.join(DSH, 'profiles', 'web', 'package.json'),
+    action: 'on',
+    fields: [
+      { key: 'mode', label: '模式', kind: 'select', from: 'mode', options: [{ v: 'shadow', t: 'shadow（只记不拦）' }, { v: 'enforce', t: 'enforce（真拦）' }] },
+    ],
+  },
+  'mem-recall': {
+    kind: 'plugin',
+    source: '引擎数据\\.dsh\\profiles\\web\\cordis.patch.yml',
+    sourceAbs: path.join(DSH, 'profiles', 'web', 'cordis.patch.yml'),
+    action: 'mode',
+    fields: [
+      { key: 'mode', label: '模式', kind: 'select', from: 'mode', options: [{ v: 'shadow', t: 'shadow（只记日志）' }, { v: 'enforce', t: 'enforce（真注入）' }] },
+    ],
+  },
+  'env-selftest': {
+    kind: 'machine',
+    source: '引擎数据\\.dsh\\机器配置.json',
+    sourceAbs: path.join(DSH, '机器配置.json'),
+    note: '机器层只读：换机器 / 换盘符先跑「环境适配」，不要手改端口与路径。',
+  },
+  'sync-persona': {
+    kind: 'external',
+    source: '外壳\\scenarios\\*.json + 引擎数据\\.dsh\\qq-bridge.config.json',
+    sourceAbs: path.join(SCEN_DIR, 'pet.json'),
+    note: '唯一真源是 pet.json 的 pet-ai；这里只指路，点「对齐」才写。',
+  },
+  'pet-runtime': {
+    kind: 'external',
+    source: '外壳\\data\\pet\\设置.json + 引擎数据\\.dsh\\qq-bridge.config.json',
+    sourceAbs: path.join(SHELL, 'data', 'pet', '设置.json'),
+    note: '路由 / 主动闸门 / 桥接的设置，在「胡闹的大肥鱼」场景的 ⚙ 里改。',
+  },
+  'recent-mem': { kind: 'none', noWhy: '按场景一次性生成，没有跨次策略可配' },
+  'persona-mem': { kind: 'none', noWhy: '记忆条目按次写入，没有跨次策略可配' },
+  'channel-mem': { kind: 'none', noWhy: '按条数一次性捞取，无持久配置' },
+  'scene-mem-check': { kind: 'none', noWhy: '只读体检，没有可配项' },
+  'scene-mem-index': { kind: 'none', noWhy: '重建索引是一次性动作，无持久配置' },
+  'mem-pack': { kind: 'none', noWhy: '打包 / 恢复按次给目录，无持久配置' },
+  'scene-mem-finish': { kind: 'none', noWhy: '一次收尾动作，无持久配置' },
+  'scene-mem-maint': { kind: 'none', noWhy: '天数 / 序号按次传入，无持久配置' },
+  'mem-tool-check': { kind: 'none', noWhy: '按项目一次性体检，无持久配置' },
+  'mem-selftest': { kind: 'none', noWhy: '只读自检，无配置' },
+  'publish-check': { kind: 'none', noWhy: '只读红线检查，无配置' },
+  'pet-selftest': { kind: 'none', noWhy: '只读行为用例，无配置' },
+  'render-selftest': { kind: 'none', noWhy: '只读渲染自检，无配置' },
+  'usage-selftest': { kind: 'none', noWhy: '只读自检，无配置' },
+  'shell-test': { kind: 'none', noWhy: '只读静态测试，无配置' },
+  'engine-after': { kind: 'none', noWhy: '只读接线核对，无配置' },
+  'session-bind': { kind: 'none', noWhy: '只读绑定核对，无配置' },
+  'rename-check': { kind: 'none', noWhy: '只读五处对齐核对，无配置' },
+  'engine-update-check': { kind: 'none', noWhy: '只读版本查询，无配置' },
+  'engine-update': { kind: 'none', noWhy: '版本 / 保留份数按次传入，不在界面存' },
+  'engine-snapshot': { kind: 'none', noWhy: '代次按次传入，无持久配置' },
+  'cache-clean': { kind: 'none', noWhy: '只统计 / 真删两种一次性动作，无配置' },
+  'usage-ledger': { kind: 'none', noWhy: '按次选会话口径，无持久配置' },
+  'send-msg': { kind: 'none', noWhy: '每次发一条，无持久配置' },
+  'rename-session': { kind: 'none', noWhy: '每次改一条会话，无持久配置' },
+  'package-build': { kind: 'none', noWhy: '输出目录按次传入，无持久配置' },
+};
+
+// 2c. 界面侧策略值（2026-11-18）：原来写死在本文件里的数字，收进本机 工具策略.json。
+//     缺文件 = 用下面这份默认；改完立即生效，不需要重启整壳（只有插件配置才要重启）。
+const POLICY_FILE = path.join(CFG_DIR, '工具策略.json');
+const POLICY_DEF = {
+  statusCacheSec: 60, maxRunning: 2, outputCapChars: 40000, outputHeadChars: 2000, outputTailChars: 37000,
+  uiTextChars: 6000, logKeepPerFeature: 20, recentCount: 10, logListCount: 8,
+};
+const POLICY_RANGE = {
+  statusCacheSec: [5, 600], maxRunning: [1, 4], outputCapChars: [10000, 200000],
+  outputHeadChars: [200, 20000], outputTailChars: [1000, 190000], uiTextChars: [500, 30000],
+  logKeepPerFeature: [5, 100], recentCount: [3, 50], logListCount: [3, 30],
+};
+
 // 3. 使用频率：决定「界面上先给你看什么」。分三档，别按代码域排 —— 你按「什么时候会用」找东西。
 //    daily = 每次开工/写记忆/烧 token 时；weekly = 每周或发布前；rare = 只有出问题才想起来（默认折叠）
 const FREQ = {
-  'usage-ledger': 'daily', 'scene-gate': 'daily', 'send-msg': 'daily',
-  'pet-runtime': 'daily', 'gen-image': 'daily', 'recent-mem': 'daily',
-  'chan-mem': 'daily', 'scene-mem-check': 'daily',
-  'publish-check': 'weekly', 'shell-test': 'weekly', 'asset-check': 'weekly',
-  'memory-echo': 'weekly', 'guard-switch': 'weekly', 'token-switch': 'weekly',
-  'scene-mem-index': 'weekly', 'scene-distill': 'weekly', 'proj-mem-check': 'weekly',
-  'scene-finish': 'weekly',
+  'usage-ledger': 'daily', 'scene-mem-maint': 'daily', 'send-msg': 'daily',
+  'pet-runtime': 'daily', 'recent-mem': 'daily',
+  'channel-mem': 'daily', 'scene-mem-check': 'daily',
+  'publish-check': 'weekly', 'shell-test': 'weekly',
+  'mem-recall': 'weekly', 'token-guard': 'weekly', 'token-switch': 'weekly',
+  'scene-mem-index': 'weekly', 'mem-tool-check': 'weekly', 'scene-mem-finish': 'weekly',
   'pet-selftest': 'rare', 'render-selftest': 'rare', 'usage-selftest': 'rare',
   'env-selftest': 'rare', 'engine-after': 'rare', 'session-bind': 'rare',
-  'scene-split': 'rare', 'scene-tidy': 'rare', 'mem-selftest': 'rare',
-  'sync-persona': 'rare', 'rename-session': 'rare', 'package-build': 'rare',
+  'mem-selftest': 'rare', 'sync-persona': 'rare', 'rename-session': 'rare', 'package-build': 'rare',
 };
 const freqOf = (id) => FREQ[id] || 'weekly';
 const FREQ_N = { daily: 0, weekly: 1, rare: 2 };
@@ -562,8 +613,6 @@ const NEXT = {
   'recent-mem': ['scene-mem-check'],
   'publish-check': ['shell-test', 'package-build'],
   'shell-test': ['publish-check'],
-  'gen-image': ['asset-check'],
-  'asset-check': ['package-build'],
   'sync-persona': ['pet-runtime'],
   'session-bind': ['env-selftest'],
   'env-selftest': ['session-bind'],
@@ -634,10 +683,77 @@ function writeCfg(cfg) {
   fs.renameSync(tmp, CFG_FILE);
 }
 
-function configGet() { return { ok: true, cfg: readCfg(), file: CFG_FILE }; }
+// 4a. 工具策略：本机 外壳\data\工具策略.json；缺文件 / 坏 JSON 一律用默认（只读不写）
+function policy() {
+  const out = Object.assign({}, POLICY_DEF);
+  let raw = null;
+  try { raw = JSON.parse(fs.readFileSync(POLICY_FILE, 'utf8')); } catch (e) { return out; }
+  Object.keys(POLICY_DEF).forEach((k) => {
+    const v = Number(raw && raw[k]);
+    const rg = POLICY_RANGE[k];
+    if (Number.isFinite(v) && v >= rg[0] && v <= rg[1]) out[k] = v;
+  });
+  // 头 + 尾超过单条上限会把「留头留尾」失效，整组退回默认，不拿半套值硬跑
+  if (out.outputHeadChars + out.outputTailChars > out.outputCapChars) {
+    out.outputCapChars = POLICY_DEF.outputCapChars;
+    out.outputHeadChars = POLICY_DEF.outputHeadChars;
+    out.outputTailChars = POLICY_DEF.outputTailChars;
+  }
+  return out;
+}
+function writePolicy(next) {
+  fs.mkdirSync(CFG_DIR, { recursive: true });
+  const clean = {};
+  Object.keys(POLICY_DEF).forEach((k) => { clean[k] = Number(next[k]); });
+  const tmp = POLICY_FILE + '.tmp';
+  fs.writeFileSync(tmp, JSON.stringify(clean, null, 1), 'utf8');
+  fs.renameSync(tmp, POLICY_FILE);
+}
+// 只校验不落盘：先让整份 patch 过完校验，再写 cfg / policy，避免一半成功一半失败
+function policyApply(raw) {
+  const next = policy();
+  for (const k of Object.keys(POLICY_DEF)) {
+    if (!raw || raw[k] == null || String(raw[k]).trim() === '') continue;
+    const v = Number(raw[k]);
+    const rg = POLICY_RANGE[k];
+    if (!Number.isFinite(v) || v < rg[0] || v > rg[1]) return { error: k + ' 要在 ' + rg[0] + '–' + rg[1] + ' 之间' };
+    next[k] = v;
+  }
+  if (next.outputHeadChars + next.outputTailChars > next.outputCapChars) {
+    return { error: '头 ' + next.outputHeadChars + ' + 尾 ' + next.outputTailChars + ' 不能超过单条上限 ' + next.outputCapChars };
+  }
+  return { ok: true, next: next };
+}
+
+// 4b. 机器层与配置源：给右栏总览看的只读快照（缺失不猜值）
+function machineCfg() {
+  try { return JSON.parse(fs.readFileSync(path.join(DSH, '机器配置.json'), 'utf8')); } catch (e) { return null; }
+}
+function fileRow(label, p, note) {
+  try {
+    const st = fs.statSync(p);
+    return { label: label, path: p, exists: true, size: st.size, at: Math.floor(st.mtimeMs / 1000), note: note || '' };
+  } catch (e) {
+    return { label: label, path: p, exists: false, size: 0, at: 0, note: note || '' };
+  }
+}
+function configSources() {
+  return [
+    fileRow('cordis.patch.yml', path.join(DSH, 'profiles', 'web', 'cordis.patch.yml'), '插件真源（省 token / 记忆回响）'),
+    fileRow('profile package.json', path.join(DSH, 'profiles', 'web', 'package.json'), '插件 bundle 清单（守卫）'),
+    fileRow('机器配置.json', path.join(DSH, '机器配置.json'), '端口 / node / 路径，只读'),
+    fileRow('工具策略.json', POLICY_FILE, '本机策略值；缺文件时用代码默认'),
+  ];
+}
+
+function configGet() {
+  return { ok: true, cfg: readCfg(), file: CFG_FILE, policy: policy(), policyFile: POLICY_FILE };
+}
 function configSet(patch) {
-  const cfg = readCfg();
   const p = patch || {};
+  const pol = p.policy ? policyApply(p.policy) : null;
+  if (pol && pol.error) return { ok: false, error: pol.error, cfg: readCfg(), policy: policy(), policyFile: POLICY_FILE };
+  const cfg = readCfg();
   if (p.ui && typeof p.ui === 'object') {
     const ui = cfg.ui;
     if (typeof p.ui.confirmAgain === 'boolean') ui.confirmAgain = p.ui.confirmAgain;
@@ -664,7 +780,33 @@ function configSet(patch) {
     cfg.hits = {};
   }
   writeCfg(cfg);
-  return { ok: true, cfg: cfg, file: CFG_FILE };
+  if (pol && pol.ok) writePolicy(pol.next);
+  return { ok: true, cfg: cfg, file: CFG_FILE, policy: policy(), policyFile: POLICY_FILE };
+}
+
+// 5a. 子进程用哪个 node（2026-11-18 修「功能台一直读取中」）：
+//     本文件在 Electron 主进程里被 require，process.execPath = **electron.exe**；
+//     不带 ELECTRON_RUN_AS_NODE 去 spawn 它，等于又起一个工作台（不出 stdout、不退出），
+//     status 只能等满 25 秒超时才回，面板就整块白在「读取中」。
+//     顺序照 main.js 的 toolNode()：DSH_NODE → nvm → ProgramFiles → PATH 的 node；都没有才退回 electron 的 node 模式。
+let NODE_SPEC = null;
+function nodeSpec(extraEnv) {
+  if (!NODE_SPEC) {
+    const cands = [];
+    if (process.env.DSH_NODE) cands.push(process.env.DSH_NODE);
+    if (process.env.NVM_SYMLINK) cands.push(path.join(process.env.NVM_SYMLINK, 'node.exe'));
+    if (process.env.ProgramFiles) cands.push(path.join(process.env.ProgramFiles, 'nodejs', 'node.exe'));
+    if (process.env['ProgramFiles(x86)']) cands.push(path.join(process.env['ProgramFiles(x86)'], 'nodejs', 'node.exe'));
+    let exe = '';
+    for (let i = 0; i < cands.length; i++) {
+      try { if (fs.existsSync(cands[i])) { exe = cands[i]; break; } }
+      catch (e) { console.warn('[功能台] node 候选路径不可用', cands[i], e && e.message); }
+    }
+    if (exe) NODE_SPEC = { exe: exe, env: {} };                              // 系统 Node：工具脚本的统一口径
+    else if (process.versions && process.versions.electron) NODE_SPEC = { exe: process.execPath, env: { ELECTRON_RUN_AS_NODE: '1' } };
+    else NODE_SPEC = { exe: process.execPath || 'node', env: {} };           // 纯 node 跑（自测）
+  }
+  return { exe: NODE_SPEC.exe, env: Object.assign({}, process.env, NODE_SPEC.env, extraEnv || {}) };
 }
 
 // 5. 跑一条动作：spawn 脚本、逐项进 argv；超时或「停」都能结束；结果落 last + 历史日志 + 点击计数
@@ -685,7 +827,8 @@ function saveLog(id, actionId, text) {
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(file, '[' + ts + '] ' + id + '.' + actionId + '\n' + text, 'utf8');
     const mine = fs.readdirSync(dir).filter((n) => n.indexOf(id + '.') === 0).sort();
-    while (mine.length > 20) {
+    const keep = policy().logKeepPerFeature;
+    while (mine.length > keep) {
       const old = mine.shift();
       try { fs.unlinkSync(path.join(dir, old)); } catch (e) { if (e && e.code !== 'ENOENT') console.warn('[功能台] 旧日志删不掉', old, e.message); }
     }
@@ -699,9 +842,10 @@ function run(id, actionId, rawInputs) {
   if (!available(f)) return Promise.resolve({ ok: false, error: '脚本不在了：' + f.script });
   const key = id + '.' + actionId;
   if (RUNNING[key]) return Promise.resolve({ ok: false, error: '这条正在跑，等它回来再点（或先按「停」）' });
-  // 全局最多同时 2 条：5 个 node 一起抢 CPU 会让人以为整块卡死；不排队（排队更让人困惑）
-  if (Object.keys(RUNNING).length >= 2) {
-    return Promise.resolve({ ok: false, error: '已经在跑 2 条（同时上限 2）：等一条回来，或去那张卡点「停」再点这条' });
+  // 全局同时可跑几条：默认 2（5 个 node 一起抢 CPU 会让人以为整块卡死）；不排队（排队更让人困惑）
+  const maxRun = policy().maxRunning;
+  if (Object.keys(RUNNING).length >= maxRun) {
+    return Promise.resolve({ ok: false, error: '已经在跑 ' + maxRun + ' 条（同时上限 ' + maxRun + '）：等一条回来，或去那张卡点「停」再点这条' });
   }
   const chk = checkInputs(a, rawInputs);
   if (chk.error) return Promise.resolve({ ok: false, error: chk.error });
@@ -713,9 +857,10 @@ function run(id, actionId, rawInputs) {
   const ms = a.timeout || f.timeout || 120000;
   return new Promise((resolve) => {
     let out = '', done = false;
-    const child = spawn(process.execPath, [scriptOf(f)].concat(argv), {
+    const launch = nodeSpec({ DSH_WORKBENCH_ROOT: ROOT });
+    const child = spawn(launch.exe, [scriptOf(f)].concat(argv), {
       cwd: ROOT,
-      env: Object.assign({}, process.env, { DSH_WORKBENCH_ROOT: ROOT }),
+      env: launch.env,
       windowsHide: true,
     });
     entry.child = child;
@@ -726,9 +871,11 @@ function run(id, actionId, rawInputs) {
       try { child.kill(); } catch (e) { if (e && e.code !== 'ESRCH') console.warn('[功能台] kill 失败', e.message); }
       resolve(finish(false, '超时（' + Math.round(ms / 1000) + ' 秒）还没跑完，已杀掉', '超时'));
     }, ms);
-    // 输出上限 40000 字：超了只砍中间、头尾都留 —— 原来是一次 slice(0,40000) 砍掉尾部，
+    // 输出上限与「留头留尾」比例走工具策略（默认 4 万字 / 头 2000 / 尾 37000）：
+    // 超了只砍中间、头尾都留 —— 原来是一次 slice(0,40000) 砍掉尾部，
     // 长日志（封装 / 发布前检查）失败时 tailReason 从“被截断的尾巴”取原因，等于报错原因取错。
-    const CAP = 40000, KEEP_HEAD = 2000, KEEP_TAIL = 37000;
+    const pol = policy();
+    const CAP = pol.outputCapChars, KEEP_HEAD = pol.outputHeadChars, KEEP_TAIL = pol.outputTailChars;
     let dropped = 0;
     const push = (b) => {
       out += String(b || '');
@@ -761,7 +908,7 @@ function run(id, actionId, rawInputs) {
 
     // 5b. 收尾：last（带动作名与失败原因）/ 点击计数 / 历史日志；关掉面板再开也看得见上次结论
     function finish(ok, msg, reason) {
-      const text = out.trim().slice(0, 6000);
+      const text = out.trim().slice(0, policy().uiTextChars);
       let logPath = '';
       try { logPath = saveLog(id, actionId, out.trim()); } catch (e) { console.warn('[功能台] 历史日志异常', e && e.message); }
       try {
@@ -804,25 +951,44 @@ function kill(id, actionId) {
 }
 // 6. 只读探针：三个插件开关的当下状态（--status / --check），60 秒内复用，别每展开一次都跑 dump-config
 let STATUS_CACHE = { at: 0, data: null };
+let STATUS_JOB = null;                               // 同一时刻多块面板一起开：只起一轮子进程，其余复用它
 function status() {
-  if (STATUS_CACHE.data && Date.now() - STATUS_CACHE.at < 60000) return Promise.resolve(STATUS_CACHE.data);
+  if (STATUS_CACHE.data && Date.now() - STATUS_CACHE.at < policy().statusCacheSec * 1000) return Promise.resolve(STATUS_CACHE.data);
+  if (STATUS_JOB) return STATUS_JOB;
+  const launch = nodeSpec();
   const jobs = FEATURES.filter((f) => f.statusArgs && available(f)).map((f) => new Promise((resolve) => {
-    const child = spawn(process.execPath, [scriptOf(f)].concat(f.statusArgs), { cwd: ROOT, windowsHide: true });
+    // 结构化优先：只有 plugin 类脚本支持 --json；别的状态动作不塞未知开关
+    const args = f.statusArgs.concat(cfgOf(f.id).kind === 'plugin' ? ['--json'] : []);
+    const child = spawn(launch.exe, [scriptOf(f)].concat(args), { cwd: ROOT, env: launch.env, windowsHide: true });
     let out = '';
     const timer = setTimeout(() => { try { child.kill(); } catch (e) { if (e && e.code !== 'ESRCH') console.warn('[功能台] kill 失败', e.message); } }, 25000);
     child.stdout.on('data', (b) => { out += String(b || ''); });
     child.stderr.on('data', (b) => { out += String(b || ''); });
     child.on('close', (code) => {
       clearTimeout(timer);
-      resolve({ id: f.id, code: code, text: out.trim().slice(0, 1600) });
+      resolve({ id: f.id, code: code, text: out.trim().slice(0, 1600), json: jsonOf(out) });
     });
-    child.on('error', (e) => { clearTimeout(timer); resolve({ id: f.id, code: -1, text: '起不来：' + e.message }); });
+    child.on('error', (e) => { clearTimeout(timer); resolve({ id: f.id, code: -1, text: '起不来：' + e.message, json: null }); });
   }));
-  return Promise.all(jobs).then((rows) => {
+  STATUS_JOB = Promise.all(jobs).then((rows) => {
     const data = { ok: true, at: Date.now(), rows: rows };
     STATUS_CACHE = { at: Date.now(), data: data };
+    STATUS_JOB = null;
     return data;
   });
+  return STATUS_JOB;
+}
+
+// 6a. 从输出里取最后一段可解析的 JSON（脚本可能先打日志）；取不到返回 null
+function jsonOf(text) {
+  const s = String(text || '').trim();
+  if (!s) return null;
+  try { return JSON.parse(s); } catch (e) { /* 继续找最后一段 */ }
+  const a = s.indexOf('{'), b = s.lastIndexOf('}');
+  if (a >= 0 && b > a) {
+    try { return JSON.parse(s.slice(a, b + 1)); } catch (e) { return null; }
+  }
+  return null;
 }
 
 // 7. 界面要的两个下拉：场景（scenario）与场景记忆目录（memscene）
@@ -840,10 +1006,16 @@ function memSceneList() {
 }
 
 // 8. 清单：给界面的是「能序列化的那一半」，args 函数不出主进程
+function cfgOf(id) {
+  const c = CFG[id];
+  // 未声明 = 按「无配置」处理（测试会拦）；不在这里猜一个类型出来
+  return c ? Object.assign({}, c) : { kind: 'none', noWhy: '登记表没声明配置类型（按无配置处理）' };
+}
 function serialize(f, hits) {
   return {
     id: f.id, group: f.group, name: f.name, plain: f.plain, why: f.why || '',
     script: f.script, restart: !!f.restart, ok: available(f), freq: freqOf(f.id),
+    cfg: cfgOf(f.id),
     also: ALSO[f.id] || '',
     next: (NEXT[f.id] || []).map((nid) => {
       const nf = FEATURES.filter((x) => x.id === nid)[0];
@@ -875,7 +1047,7 @@ function recentLogs(n) {
       } catch (e) { if (e && e.code !== 'ENOENT') console.warn('[功能台] 日志元信息读不到', x, e.message); }
       return { name: x, path: full, size: size, at: at };
     });
-    return rows.sort((a, b) => b.at - a.at).slice(0, Number(n) || 8);
+    return rows.sort((a, b) => b.at - a.at).slice(0, Number(n) || policy().logListCount);
   } catch (e) {
     if (e && e.code !== 'ENOENT') console.warn('[功能台] 历史目录读不到', e.message);
     return [];
@@ -884,6 +1056,7 @@ function recentLogs(n) {
 
 function list() {
   const cfg = readCfg();
+  const pol = policy();
   const cfgHits = cfg.hits || {};
   const groups = GROUPS.map((g) => ({
     id: g.id, title: g.title, plain: g.plain,
@@ -893,7 +1066,7 @@ function list() {
       .map((f) => serialize(f, cfgHits)),
   }));
   const actions = FEATURES.reduce((a, f) => a + (f.actions || []).length, 0);
-  // 最近操作：按 at 倒序 10 条（界面那块「最近做了什么」直接读它，不用另存一份）
+  // 最近操作：按 at 倒序（条数走工具策略），界面那块「最近做了什么」直接读它，不另存一份
   const recent = Object.keys(cfg.last).map((id) => {
     const rec = cfg.last[id] || {};
     const f = featureOf(id), a = actionOf(f, rec.action);
@@ -902,7 +1075,7 @@ function list() {
       at: Number(rec.at) || 0, ok: !!rec.ok, reason: String(rec.reason || '').slice(0, 160),
       hits: Number((cfgHits[id] || 0)),
     };
-  }).sort((x, y) => y.at - x.at).slice(0, 10);
+  }).sort((x, y) => y.at - x.at).slice(0, pol.recentCount);
   const triage = TRIAGE.map((t) => {
     const f = featureOf(t.feature), a = actionOf(f, t.action);
     return {
@@ -911,9 +1084,13 @@ function list() {
       ok: !!(f && a && available(f)),
     };
   });
+  // 配置位统计：右栏要一句话说清「几项能改 / 几项只读 / 几项没有」
+  const cfgStats = { plugin: 0, machine: 0, external: 0, none: 0 };
+  FEATURES.forEach((f) => { const k = cfgOf(f.id).kind; cfgStats[k] = (cfgStats[k] || 0) + 1; });
   return {
     ok: true, file: CFG_FILE, logDir: path.join(CFG_DIR, '历史'), groups: groups, triage: triage, recent: recent,
-    logs: recentLogs(8),
+    logs: recentLogs(pol.logListCount),
+    policy: pol, policyDef: POLICY_DEF, policyFile: POLICY_FILE, configSources: configSources(), machine: machineCfg(), cfgStats: cfgStats,
     stats: { features: FEATURES.length, actions: actions, groups: GROUPS.length, daily: FEATURES.filter((f) => freqOf(f.id) === 'daily').length, rare: FEATURES.filter((f) => freqOf(f.id) === 'rare').length },
     scenes: scenarioList(), memScenes: memSceneList(),
   };
@@ -934,7 +1111,137 @@ function audit(days) {
   return { ok: true, days: d, total: rows.length, used: rows.length - stale.length, stale: stale };
 }
 
-module.exports = { list, run, status, kill, audit, configGet, configSet, CFG_FILE };
+// 9. 体检：逐条动作核「脚本在 / 开关名对得上 / 只读的真能跑」（2026-11-18）
+//    界面上的按钮最终就是一条 argv，这里按同一份登记表把 argv 拼出来核，不另写第二份命令：
+//      ① 脚本在不在（available）
+//      ② argv 里每个 --开关 在脚本源码（连同它 import 的同级 / 上一级本地模块）里出不出得现
+//         —— 防「脚本改了开关字，按钮还指旧的」这种静默按钮变砖
+//      ③ 只读、无必填输入、不依赖引擎会话的动作真跑一次，看是不是真给出结论
+//    ⛔ 写 / 破坏性动作一律不跑，只做 ①②（跑一下就会改真实配置或搬文件）。
+const BAD_OUT = [/用法[:：]/, /未知的?(命令|参数|动作|开关)/, /Unknown (command|argument|option)/i, /Cannot find module/, /ERR_MODULE_NOT_FOUND/, /SyntaxError/, /TypeError:/];
+const ENGINE_HINT = ['引擎token.mjs', 'process.env.DSH_TOKEN', 'process.env["DSH_TOKEN"]'];   // 真依赖引擎 token 才算（光在文案里提到 server.log 不算）
+
+// 9a. 拼 argv 用的假输入：只取声明过的默认值 / 下拉首项；必填项留给「界面里填」，体检不代填
+function sampleInputs(a) {
+  const v = {};
+  (a.inputs || []).forEach((s) => {
+    if (s.required) return;
+    if (s.def) v[s.key] = s.def;
+    else if (s.kind === 'select' && s.options && s.options[0]) v[s.key] = s.options[0].v;
+  });
+  return v;
+}
+const flagsOf = (argv) => (argv || []).filter((x) => typeof x === 'string' && x.indexOf('--') === 0);
+
+// 9b. 脚本全文（含它 import 的本地模块）：开关名可能在公共解析文件里
+const SRC_CACHE = {};
+function scriptTextOf(f) {
+  if (SRC_CACHE[f.script] != null) return SRC_CACHE[f.script];
+  let txt = '';
+  try {
+    const self = scriptOf(f);
+    txt = fs.readFileSync(self, 'utf8');
+    const dir = path.dirname(self);
+    const re = /from\s+['"](\.\.?\/[^'"]+)['"]/g;
+    let m = re.exec(txt);
+    while (m) {
+      const p = path.resolve(dir, m[1]);
+      try { if (fs.existsSync(p)) txt += '\n' + fs.readFileSync(p, 'utf8'); }
+      catch (e) { console.warn('[功能台] 体检读不到导入模块', m[1], e && e.message); }
+      m = re.exec(txt);
+    }
+  } catch (e) { txt = ''; }
+  SRC_CACHE[f.script] = txt;
+  return txt;
+}
+
+// 9c. 一条动作的判定：先静态，再决定要不要真跑
+function verifyOne(job) {
+  const f = job.f, a = job.a;
+  const row = { feature: f.id, name: f.name, action: a.id, label: a.label, danger: a.danger || 'read', state: '', note: '', missing: [] };
+  if (!available(f)) { row.state = 'missing-script'; row.note = '脚本不在了：' + f.script; return Promise.resolve(row); }
+  let argv;
+  try { argv = a.args(sampleInputs(a)); } catch (e) { row.state = 'args-error'; row.note = String((e && e.message) || e); return Promise.resolve(row); }
+  if (!Array.isArray(argv)) { row.state = 'args-error'; row.note = 'args() 没给出数组'; return Promise.resolve(row); }
+
+  const src = scriptTextOf(f);
+  row.missing = flagsOf(argv).filter((x) => src.indexOf(x) < 0);
+  const required = (a.inputs || []).some((s) => s.required);
+  const write = a.danger === 'write' || a.danger === 'destructive';
+  const needEngine = ENGINE_HINT.some((h) => src.indexOf(h) >= 0);
+
+  // 只核开关名就收工的三类：会改东西的、要人现场填的、要引擎 token 的
+  if (write || required || needEngine) {
+    row.state = row.missing.length ? 'flag-missing' : (write ? 'static-ok' : (required ? 'needs-input' : 'needs-engine'));
+    row.note = [
+      row.missing.length ? ('开关在脚本里找不到：' + row.missing.join(' ')) : '',
+      write ? '写/破坏性动作：只核开关名，不实跑' : '',
+      required ? '有必填输入：只在界面里填了才跑' : '',
+      needEngine ? '要引擎会话（token 只在壳里）：命令行验不了' : '',
+    ].filter(Boolean).join(' / ');
+    return Promise.resolve(row);
+  }
+
+  // 9d. 真跑：只读、无必填、不碰引擎
+  return new Promise((resolve) => {
+    const launch = nodeSpec();
+    const cap = Math.min(a.timeout || f.timeout || 60000, 90000);
+    const t0 = Date.now();
+    let text = '', done = false;
+    const cp = spawn(launch.exe, [scriptOf(f)].concat(argv), { cwd: ROOT, env: launch.env, windowsHide: true });
+    const timer = setTimeout(() => {
+      if (done) return;
+      done = true;
+      try { cp.kill(); } catch (e) { if (e && e.code !== 'ESRCH') console.warn('[功能台] 体检停不下来', e.message); }
+      row.state = 'timeout'; row.ms = Date.now() - t0; row.note = '超过 ' + Math.round(cap / 1000) + ' 秒';
+      resolve(row);
+    }, cap);
+    cp.stdout.on('data', (b) => { text += String(b || ''); });
+    cp.stderr.on('data', (b) => { text += String(b || ''); });
+    cp.on('error', (e) => {
+      if (done) return;
+      done = true; clearTimeout(timer);
+      row.state = 'spawn-error'; row.ms = Date.now() - t0; row.note = String((e && e.message) || e);
+      resolve(row);
+    });
+    cp.on('close', (code) => {
+      if (done) return;
+      done = true; clearTimeout(timer);
+      const okCodes = Array.isArray(a.okCodes) ? [0].concat(a.okCodes) : [0];
+      const bad = BAD_OUT.filter((re) => re.test(text))[0];
+      row.exit = code; row.ms = Date.now() - t0;
+      row.state = (row.missing.length || okCodes.indexOf(code) < 0 || bad) ? 'run-bad' : 'run-ok';
+      row.note = [
+        row.missing.length ? ('开关在脚本里找不到：' + row.missing.join(' ')) : '',
+        okCodes.indexOf(code) < 0 ? ('退出码 ' + code) : '',
+        bad ? ('输出像出错：' + String(bad)) : '',
+      ].filter(Boolean).join(' / ') || ('退出码 ' + code);
+      row.head = text.trim().split(/\r?\n/).slice(0, 2).join(' / ').slice(0, 200);
+      resolve(row);
+    });
+  });
+}
+
+// 9e. 全量体检：最多两条并行（再多人机都卡）；顺序按登记表，报告按功能归组
+function verify() {
+  const jobs = [];
+  FEATURES.forEach((f) => (f.actions || []).forEach((a) => jobs.push({ f: f, a: a })));
+  return new Promise((resolve) => {
+    const rows = [];
+    let next = 0, live = 0;
+    const pump = () => {
+      if (rows.length === jobs.length) { resolve({ ok: true, at: Date.now(), total: jobs.length, rows: rows }); return; }
+      while (live < 2 && next < jobs.length) {
+        const job = jobs[next]; next += 1; live += 1;
+        verifyOne(job).then((row) => { rows.push(row); live -= 1; pump(); })
+          .catch((e) => { rows.push({ feature: job.f.id, action: job.a.id, state: 'exception', note: String((e && e.message) || e) }); live -= 1; pump(); });
+      }
+    };
+    pump();
+  });
+}
+
+module.exports = { list, run, status, kill, audit, verify, configGet, configSet, CFG_FILE, POLICY_FILE };
 
 // 命令行自测：node 12-源码照搬\外壳\功能台.js [--json] [--audit 90]
 if (require.main === module) {
@@ -945,14 +1252,32 @@ if (require.main === module) {
     console.log('功能台审计 · ' + a.days + ' 天窗口：' + a.used + ' / ' + a.total + ' 项用过，' + a.stale.length + ' 项没动');
     a.stale.forEach((r) => console.log('  · [' + r.freq + '] ' + r.name + '（' + (r.at ? r.age + ' 天前' : '从未点过') + '）'));
     process.exit(0);
-  }
+  } else if (argv.indexOf('--verify') >= 0) {
+    verify().then((v) => {
+      const clean = ['run-ok', 'static-ok', 'needs-input', 'needs-engine'];
+      const bad = v.rows.filter((r) => clean.indexOf(r.state) < 0);
+      const cnt = {};
+      v.rows.forEach((r) => { cnt[r.state] = (cnt[r.state] || 0) + 1; });
+      if (process.argv.includes('--json')) console.log(JSON.stringify(v, null, 1));
+      else {
+        console.log('功能台体检 · ' + v.rows.length + ' 条动作：' + Object.keys(cnt).sort().map((k) => k + ' ' + cnt[k]).join(' / '));
+        v.rows.forEach((r) => {
+          const mark = clean.indexOf(r.state) < 0 ? '✗' : (r.state === 'run-ok' ? '✓' : '·');
+          console.log('  ' + mark + ' [' + r.feature + '.' + r.action + '] ' + r.label + ' — ' + r.state + (r.note ? '：' + r.note : ''));
+        });
+      }
+      process.exit(bad.length ? 1 : 0);
+    });
+  } else {
   const o = list();
   if (process.argv.includes('--json')) console.log(JSON.stringify(o, null, 1));
   else {
     console.log('功能台 · ' + o.stats.features + ' 个功能 / ' + o.stats.actions + ' 个动作 / ' + o.stats.groups + ' 组');
+    console.log('配置位 · 可改 ' + o.cfgStats.plugin + ' / 机器层 ' + o.cfgStats.machine + ' / 在别处 ' + o.cfgStats.external + ' / 无配置 ' + o.cfgStats.none);
     o.groups.forEach((g) => {
       console.log('[' + g.title + '] ' + g.features.length + ' 项');
       g.features.forEach((f) => console.log('  ' + (f.ok ? '✓' : '✗') + ' [' + f.freq + '] ' + f.name + ' — ' + f.actions.map((a) => a.label).join(' / ')));
     });
+  }
   }
 }
