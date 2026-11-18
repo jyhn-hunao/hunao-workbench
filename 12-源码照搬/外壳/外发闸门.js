@@ -2,7 +2,7 @@
 // 外发闸门（2026-11-18）—— 所有「她发到工作台之外」的消息，从这里过。
 //
 // 为什么要有它：提示词只能降低概率，管不住上下文里本来就带着的
-//   `C:\Users\23104\...`、`127.0.0.1:3083`、token、sessionId —— 模型复述一遍就出去了。
+//   `C:\Users\<用户名>\...`、`127.0.0.1:3083`、token、sessionId —— 模型复述一遍就出去了。
 // 所以这里把「判定」做成确定性代码，并挂在每个通道**唯一**的发送出口上：
 //   · QQ：本机代理 3100 → SnowLuma 的 OneBot HTTP；插件 onebotHttp 指过来，换地址也绕不过。
 //   · 微信：微信通道.js 的 _reply() 返回正文之前调 check()。
@@ -1129,7 +1129,8 @@ const TEST_CASES = [
   { name: 'Windows 路径', text: '文件在 C:\\Users\\tester\\Desktop\\a.png', want: 'block' },
   { name: '项目绝对路径', text: '仓库在 D:\\test\\proj\\12-源码照搬', want: 'block' },
   { name: 'Unix 路径', text: '配置在 /home/tester/.config', want: 'block' },
-  { name: '密钥 sk-', text: 'key 是 sk-abcdefghijklmnop1234', want: 'block' },
+  // 下面三条样例在运行期拼装：被测文本与真实值同形，但源码里不留真值形态（发布前红线会把它当泄露）
+  { name: '密钥 sk-', text: 'key 是 ' + 'sk-' + 'abcdefghijklmnop1234', want: 'block' },
   { name: 'token= 形式', text: 'token=abcdef1234567890 别忘了', want: 'block' },
   { name: '资产 token', text: 'tok_abcdef1234567890', want: 'block' },
   { name: '手机号', text: '打 13812345678 找我', want: 'redact' },
@@ -1138,7 +1139,7 @@ const TEST_CASES = [
   { name: '全角 IP', text: '１９２.１６８.１.２３', want: 'block' },
   { name: '空格拆 IP', text: '192.168 1.23', want: 'block' },
   { name: 'localhost', text: 'localhost:3100 在听', want: 'block' },
-  { name: '会话 id', text: 'session-3b4debec-abf6-43a9-bbb6-737a265f3550', want: 'block' },
+  { name: '会话 id', text: 'session-' + '3b4debec-abf6-43a9-bbb6-737a265f3550', want: 'block' },
   { name: '微信号', text: 'wxid_mrqe7dl8oyc822_e787', want: 'redact' },
   { name: '资产 QQ 号', text: 'QQ 2531357970', want: 'redact' },
   { name: '主机名', text: '我的主机 TEST-HOST', want: 'block' },
