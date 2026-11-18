@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>大肥鱼 · 3D</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --text: #e6e8ee;
+    --text-dim: #8b95a7;
+    --accent: #6ea8fe;
+  }
+  html, body {
+    margin: 0; height: 100%; overflow: hidden;
+    background: radial-gradient(ellipse at 50% 32%, #1a2332 0%, var(--bg) 68%);
+    font-family: system-ui, "Microsoft YaHei", sans-serif;
+    user-select: none;
+  }
+  #stage { position: fixed; inset: 0; }
+  canvas { display: block; }
+  /* 状态徽标：右下角，四态一眼可见（验收与调试用） */
+  #badge {
+    position: fixed; right: 12px; bottom: 12px;
+    padding: 5px 12px; border-radius: 999px;
+    font-size: 12px; line-height: 1;
+    color: var(--text); background: rgba(13, 17, 23, .72);
+    border: 1px solid rgba(148, 163, 184, .28);
+    display: flex; align-items: center; gap: 7px;
+    pointer-events: none; transition: border-color .3s;
+  }
+  #badge .dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--text-dim);
+  }
+  #badge.st-idle .dot { background: #7ee787; }
+  #badge.st-thinking .dot { background: #d2a8ff; }
+  #badge.st-speaking .dot { background: #6ea8fe; }
+  #badge.st-listening .dot { background: #f2cc60; }
+  /* 加载 / 失败提示：居中 */
+  #hint {
+    position: fixed; inset: 0; display: flex;
+    align-items: center; justify-content: center;
+    color: var(--text-dim); font-size: 13px;
+    pointer-events: none; text-align: center; padding: 24px;
+  }
+</style>
+</head>
+<body>
+  <div id="stage"></div>
+  <div id="badge" class="st-idle"><span class="dot"></span><span id="badge-text">待机</span></div>
+  <div id="hint">模型加载中…</div>
+  <script type="importmap">
+    { "imports": { "three": "./vendor/three.module.min.js" } }
+  </script>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
