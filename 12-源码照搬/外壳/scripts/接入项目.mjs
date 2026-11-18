@@ -221,7 +221,7 @@ if (!bind) {
 ensureProjectMemory();
 
 say('\n接下来（脚本不替你做，需要判断）：');
-say('  ① 项目规范：按 ~/.dsh/standards 的「迁移到具体项目 0–8 步」生成');
+say('  ① 项目规范：按工作台内置 12-源码照搬/引擎数据/.dsh/standards/ 的迁移要求生成');
 say('     <项目>\\AGENTS.md + doc\\提交准则.md + doc\\迁移报告.md（写「规范基线 <commit>」）');
 say('  ② 填项目记忆的业务区（领域与术语 / 数据来源与业务规则 / 接口与契约）——这三节是隔离的关键');
 say('  ③ 验收：node 外壳\\scripts\\sessions.mjs --check  与  node 工具\\场景记忆.mjs check --场景 程序开发');

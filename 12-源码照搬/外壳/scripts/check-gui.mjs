@@ -160,7 +160,6 @@ const NS_EXPECT = {
   // （HTTP 探活 site.probe / 系统浏览器打开 site.open），不读个人站的任何数据。
   // code = 程序开发场景自己的宿主能力（手机尺寸预览窗口），不是别的场景数据
   'code-urls': ['site', 'code'],
-  'bl-live': ['blender'], 'bl-folder': ['blender'],
   harness: [], dsh: ['stock', 'oa', 'site'], ctl: [], reserved: [],
   // embed = 通用内嵌渲染器（首个用户：视频工作流 窗口1 ComfyUI 控制台），只用宿主 app 能力（开外链）
   embed: [],
@@ -187,7 +186,7 @@ const NS_EXPECT = {
   //        不碰任何场景数据命名空间
   cut: ['cut']
 };
-const KNOWN_NS = ['stock', 'oa', 'site', 'blender', 'balance', 'skills', 'theme', 'notes', 'app', 'file', 'net', 'cut', 'code'];
+const KNOWN_NS = ['stock', 'oa', 'site', 'balance', 'skills', 'theme', 'notes', 'app', 'file', 'net', 'cut', 'code'];
 // 'app'（打开/定位路径）、'file'（读写本地文件）、'net'（探本机端口通不通）都是**宿主通用能力**，
 // 跟场景数据无关，任何场景都允许用，不算串场景（'file'/'net' 是 2026-09-20 加工具节点时补进来的）
 const HOST_NS = ['app', 'file', 'net'];

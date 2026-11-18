@@ -27,7 +27,7 @@ function tabDropIndex(rects, dropX) {
   return rects.length;
 }
 
-/** 固定组规则（场景 json 里 "first": true，如 Blender）：它们永远排在最前 ——
+/** 固定组规则（场景 json 里 "first": true，如总入口）：它们永远排在最前 ——
  *  拖固定标签 ⇒ 只能在自己那一组内换位；拖别的标签 ⇒ 插不到固定组前面。
  *  纯函数，好单测；这条就是"顺序不会乱"的关键。 */
 function tabClampTarget(target, dragIsPinned, fixedCount) {
@@ -313,7 +313,7 @@ var HARNESS_WIDE_PIN_JS = `(() => {
 })()`;
 // 场景 0 = index.html 里的 #harness-webview：**引擎原生界面，设计上不做任何精简注入**（不隐藏侧栏/顶栏），
 // 所以这里只投"铺满"这一件事（CSS 兜底 + JS 逐层压变量），别的布局一律不动。
-// ⚠ 只作用于 #harness-webview；各场景面板（bl-ai / oa-ai / site-ai / mk-chat）走的是本文件里的
+// ⚠ 只作用于 #harness-webview；各场景面板（oa-ai / site-ai / mk-chat）走的是本文件里的
 //   HARNESS_CHAT_CSS + HARNESS_FIX_JS 那条独立链路，两条链路共用上面这组常量，但互不干扰。
 var HARNESS_MAIN_WIDE_CSS = HARNESS_WIDE_CSS;
 function widenMainHarnessView() {

@@ -12,12 +12,12 @@ const ROOT = path.resolve(SHELL, '..');                          // 12-源码照
 const rows = [];
 const check = (name, ok, detail) => rows.push({ name, ok: !!ok, detail: detail || '' });
 
-// 0) 先探端口（引擎判断要用）：引擎 / 界面 / 9876 Blender MCP
+// 0) 先探端口（引擎判断要用）：引擎 / 界面
 const net = await import('node:net');
 const DSH_PORT = envPort('dsh');
 const SITE_PORT = envPort('site');
 const busy = [];
-for (const port of [DSH_PORT, SITE_PORT, 9876]) {
+for (const port of [DSH_PORT, SITE_PORT]) {
   await new Promise((resolve) => {
     const s = net.createConnection({ host: '127.0.0.1', port });
     s.setTimeout(400);
@@ -82,7 +82,7 @@ const miss = need.filter((f) => !fs.existsSync(path.join(SHELL, f)));
 check('外壳文件', miss.length === 0, miss.length ? '缺: ' + miss.join(',') : need.length + '/' + need.length + ' 在');
 
 // 5) 端口（只是提示）
-check('端口', true, busy.length ? '已占用: ' + busy.join(',') + '（工作台已在跑属正常）' : DSH_PORT + '/' + SITE_PORT + '/9876 都空');
+check('端口', true, busy.length ? '已占用: ' + busy.join(',') + '（工作台已在跑属正常）' : DSH_PORT + '/' + SITE_PORT + ' 都空');
 
 // 6) 私有插件落位（2026-11-12 跨机器移植必查）：插件\ 里有源码，但 profile 的 node_modules 里没落位
 //    ⇒ 引擎按 bundles 解析不到该包（表现是 did not activate / ERR_MODULE_NOT_FOUND，不是配置错）

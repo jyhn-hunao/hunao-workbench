@@ -95,6 +95,11 @@ const SEED_MEM_LIMIT = Number(process.env.DSH_SEED_MEM_LIMIT) || 4 * 1024;
 //   等于长期记忆写了也想不起来。现在每段按剩余预算截断，总预算仍是 SEED_MEM_LIMIT。
 // 人格卡口径：设置弹窗里改的「名字 / 怎么叫你 / 语气 / 自我设定」要真的进开场，
 // 否则配置只是摆设（2026-11-13）。
+const PROACTIVE_TEXT = {
+  low: '少吭声 —— 只答不说，没被问就不主动开口',
+  normal: '有事才说 —— 该提醒就提醒，不闲聊',
+  high: '会主动找你 —— 想到就说，仍受免打扰约束'
+};
 function personaBlock(sceneName) {
   const def = readJson(path.join(root, 'pet', '设置.默认.json')) || {};
   const cur = readJson(path.join(root, 'data', 'pet', '设置.json')) || {};
@@ -102,10 +107,12 @@ function personaBlock(sceneName) {
   if (!p.name || String(p.name) !== String(sceneName || '')) return '';   // 只注入给这条人格场景
   const lines = ['你是「' + p.name + '」。'];
   if (p.identity) lines.push('【我是谁】' + p.identity);
+  if (p.personality) lines.push('【性格】' + p.personality);
   if (p.speech) lines.push('【说话】' + p.speech);
   if (p.care) lines.push('【我在意什么】' + p.care);
   if (p.never) lines.push('【我绝不会】' + p.never);
-  lines.push('上面四块是「人格卡」的当前值（来自设置弹窗），照它来说话办事，别自己换人设。');
+  if (p.proactive) lines.push('【主动度】' + (PROACTIVE_TEXT[p.proactive] || String(p.proactive)));
+  lines.push('上面五块（加主动度）是「人格卡」的当前值（来自设置弹窗），照它来说话办事，别自己换人设。');
   return lines.join('\n');
 }
 

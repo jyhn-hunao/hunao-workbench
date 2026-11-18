@@ -6,7 +6,7 @@
 // 现在的规矩（新场景照这个办）：
 //   ① 常规场景 → 从本地图标库取：`renderer\assets\icons\*.svg`（Lucide 抓下来的一份，见同目录
 //      README.md；脚本 `scripts\图标库.mjs` 生成），**这里登记场景 id → 图标名**；
-//   ② 要品牌感 / 官方 logo 的（同花顺、B站、抖音、Blender…）→ 仍然走 renderers.js 的
+//   ② 要品牌感 / 官方 logo 的（同花顺、B站、抖音…）→ 仍然走 renderers.js 的
 //      SCENARIO_ICONS（手绘 SVG 或 <img> 官方图），它优先；
 //   ③ 第 ③ 层：两个都没有 ⇒ 从「兜底池」里领一个**还没被占用**的图标（见 pickUnused），
 //      所以两个场景绝不会顶同一枚图；check-gui.mjs 会把"没登记"直接报成 FAIL，催你补登记。
@@ -20,7 +20,6 @@
   var MAP = {
     'pet': 'fish',                  // 胡闹的大肥鱼：人格本体，一条鱼（原来和「社交」一起退回 🧩）
     'social': 'message-circle-more', // 社交：气泡 + 三个点 = 多平台通道 / 合并消息流（16px 下最认得出）
-    'creative': 'box',              // 创意工坊：一个立方体 = 三维建模 / 场景搭建
     'console': 'layers'             // 工作台控制台：一层层的栈 = 开关 / 记忆 / 自检 / 通道 五组归一处
   };
 

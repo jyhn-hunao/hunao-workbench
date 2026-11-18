@@ -2,7 +2,7 @@
   "name": "dsh-workbench",
   "version": "0.2.1-rc.3",
   "private": true,
-  "description": "胡闹的工作台 · 公开模板（9 场景：命令 / B站 / 自我复盘 / 本地电脑 / 程序开发 / 胡闹的大肥鱼 / 社交 / 创意工坊 / 工作台控制台）",
+  "description": "胡闹的工作台 · 公开模板（8 场景：命令 / B站 / 自我复盘 / 本地电脑 / 程序开发 / 胡闹的大肥鱼 / 社交 / 工作台控制台）",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
@@ -13,7 +13,8 @@
     "electron-builder": "^26.15.3"
   },
   "dependencies": {
-    "electron-updater": "^6.8.9"
+    "electron-updater": "^6.8.9",
+    "three": "^0.187.0"
   },
   "productName": "胡闹的工作台",
   "engines": {

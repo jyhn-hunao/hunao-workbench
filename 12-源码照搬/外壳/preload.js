@@ -29,6 +29,8 @@ contextBridge.exposeInMainWorld('app', {
     state: () => ipcRenderer.invoke('browser-sidebar:state'),
   },
   getHarnessUrl: () => ipcRenderer.invoke('harness:url'),
+  // 保命入口基础地址（2026-11-18）：场景 json 里 meta.url 写 @site:/xxx 时由 embed 渲染器用这个拼
+  siteBase: () => ipcRenderer.invoke('site:base'),
   // 渲染层诊断进 server.log（2026-11-12 P0：切会话的期望/实际要留证据）
   diagLog: (m) => ipcRenderer.send('diag:log', m),
   isHarnessReady: () => ipcRenderer.invoke('harness:ready'),
@@ -91,6 +93,45 @@ contextBridge.exposeInMainWorld('app', {
     snowlumaStatus: () => ipcRenderer.invoke('bridge:snowluma-status'),
     snowlumaStart: () => ipcRenderer.invoke('bridge:snowluma-start'),
     snowlumaStop: () => ipcRenderer.invoke('bridge:snowluma-stop')
+  },
+  // ---- 微信个人号通道（whale_girl，2026-11-18）----
+  // 缺这个命名空间 = preload/主进程还是旧的 ⇒ 微信卡片显示「重启一次工作台」，不自作聪明。
+  wechat: {
+    status: () => ipcRenderer.invoke('wechat:status'),
+    start: () => ipcRenderer.invoke('wechat:start'),
+    stop: () => ipcRenderer.invoke('wechat:stop'),
+    selfCheck: () => ipcRenderer.invoke('wechat:selfcheck'),
+    sendTest: (args) => ipcRenderer.invoke('wechat:send-test', args),
+    pinAccount: (account) => ipcRenderer.invoke('wechat:pin-account', { account: account || '' }),
+    settingsGet: () => ipcRenderer.invoke('wechat:settings-get'),
+    settingsSave: (args) => ipcRenderer.invoke('wechat:settings-save', args || {}),
+    visionTest: () => ipcRenderer.invoke('wechat:vision-test'),
+    stickerGenerate: (args) => ipcRenderer.invoke('wechat:sticker-generate', args || {}),
+    stickerSend: (args) => ipcRenderer.invoke('wechat:sticker-send', args || {}),
+    momentsRead: (args) => ipcRenderer.invoke('wechat:moments-read', args || {}),
+    momentsAction: (args) => ipcRenderer.invoke('wechat:moments-action', args || {}),
+    momentsResult: (id) => ipcRenderer.invoke('wechat:moments-result', { id: id || '' }),
+    momentsSnapshot: () => ipcRenderer.invoke('wechat:moments-snapshot'),
+    diaryGenerate: () => ipcRenderer.invoke('wechat:diary-generate'),
+    diaryRead: () => ipcRenderer.invoke('wechat:diary-read'),
+    remindersList: () => ipcRenderer.invoke('wechat:reminders-list'),
+    reminderCancel: (id) => ipcRenderer.invoke('wechat:reminder-cancel', { id: id || '' }),
+    copyText: (text) => ipcRenderer.invoke('clipboard:write', String(text || '')),
+    openPath: (p) => ipcRenderer.invoke('shell:open-path', String(p || ''))
+  },
+  // ---- 外发安全闸门（2026-11-18）----
+  // 缺这个命名空间 = preload/主进程还是旧的 ⇒ 通道面板的「安全闸门」按钮会提示重启，不会假装能配。
+  outbound: {
+    get: () => ipcRenderer.invoke('outbound:get'),
+    set: (patch) => ipcRenderer.invoke('outbound:set', patch || {}),
+    status: () => ipcRenderer.invoke('outbound:status'),
+    audit: (n) => ipcRenderer.invoke('outbound:audit', n),
+    assetsRefresh: () => ipcRenderer.invoke('outbound:assets-refresh'),
+    qqApply: () => ipcRenderer.invoke('outbound:qq-apply'),
+    qqRestore: () => ipcRenderer.invoke('outbound:qq-restore'),
+    selfCheck: () => ipcRenderer.invoke('outbound:selfcheck'),
+    test: (text, channel) => ipcRenderer.invoke('outbound:test', { text: text, channel: channel }),
+    openDir: () => ipcRenderer.invoke('outbound:open-dir')
   },
   // ---- 桌宠设置（胡闹的大肥鱼，2026-11-13）----
   // 缺这个命名空间 = preload 还是旧的 ⇒ petset 面板显示「重启一次工作台」，不假装能存。
@@ -159,12 +200,18 @@ contextBridge.exposeInMainWorld('app', {
       //   落 外壳\data\git-变更单.json，按仓库绝对路径分桶。缺这两个 API = 旧预加载 ⇒ 面板能开、配置只存内存。
       listsGet: () => ipcRenderer.invoke('kun:git:lists-get'),
       listsSet: (repo, one) => ipcRenderer.invoke('kun:git:lists-set', repo, one),
-      // 切分支 / 拉远程：写操作（只动工作区）。工作区脏时主进程默认拒绝，传 {force:true} 才继续。
+      // 切分支 / 拉远程：写操作（只动工作区）。切分支工作区脏时主进程默认拒绝，传 {force:true} 才继续。
       switch: (repo, name, opts) => ipcRenderer.invoke('kun:git:switch', repo, name, opts),
+      // fetch 只取当前分支跟踪的远端；pull 自己先判冲突（无冲突直接合，有冲突回文件清单）
       fetch: (repo) => ipcRenderer.invoke('kun:git:fetch', repo),
-      // 右键菜单的 Push / Update：push 有 upstream 就直推、没有就建跟踪；pull 先 fetch 再按 mode 合并
+      // 右键菜单 / 工具栏的 Push / Update：push 有 upstream 就直推、没有就建跟踪
       push: (repo) => ipcRenderer.invoke('kun:git:push', repo),
-      pull: (repo, opts) => ipcRenderer.invoke('kun:git:pull', repo, opts)
+      pull: (repo, opts) => ipcRenderer.invoke('kun:git:pull', repo, opts),
+      // 合并 / autostash 恢复撞车留下的冲突：逐个文件处理（2026-11-18）—— 某侧整份覆盖 / 标记已解决 / 收尾 / 放弃
+      conflictTake: (repo, file, side) => ipcRenderer.invoke('kun:git:conflict:take', repo, file, side),
+      conflictMark: (repo, file) => ipcRenderer.invoke('kun:git:conflict:mark', repo, file),
+      conflictContinue: (repo) => ipcRenderer.invoke('kun:git:conflict:continue', repo),
+      conflictAbort: (repo) => ipcRenderer.invoke('kun:git:conflict:abort', repo)
     },
     // ---- 本地抠图（2026-10-20 宿主：「智能抠图做成本地工具」）----
     // 引擎 = <工作台>\工具\抠图\venv 里的 rembg（离线，图片不出本机）；status 看引擎/模型在不在。
@@ -190,43 +237,6 @@ contextBridge.exposeInMainWorld('app', {
     list: () => ipcRenderer.invoke('skills:list'),
     open: (target) => ipcRenderer.invoke('skills:open', target)
   },
-  // ---- Blender 场景（独立命名空间）：实时画面 / 启动 / 关闭 / 工作区文件 / 窗口内置 ----
-  blender: {
-    state: (opts) => ipcRenderer.invoke('blender:state', opts),
-    launch: () => ipcRenderer.invoke('blender:launch'),
-    // 默认发 WM_CLOSE 优雅退出（有未保存改动会弹 Blender 自己的保存提示）；opts.force=true 才强杀
-    close: (opts) => ipcRenderer.invoke('blender:close', opts),
-    capture: (on) => ipcRenderer.invoke('blender:capture', on),
-    files: (relPath) => ipcRenderer.invoke('blender:files', relPath),
-    open: (target) => ipcRenderer.invoke('blender:open', target),
-    reveal: (relPath) => ipcRenderer.invoke('blender:reveal', relPath),
-    // on=false 释放回桌面；on=true 时 rect 为面板可视区的 CSS 像素矩形
-    embed: (on, rect) => ipcRenderer.invoke('blender:embed', on, rect),
-    embedMove: (rect) => ipcRenderer.invoke('blender:embedMove', rect),
-    embedStatus: () => ipcRenderer.invoke('blender:embedStatus'),
-    // 全屏调整：on=true 时 rects = { grid, panel }（都按视口 CSS px）；退出用 rects 里的 panel 原样贴回
-    embedFullscreen: (on, rects) => ipcRenderer.invoke('blender:embedFullscreen', on, rects),
-    // 主进程用 Ctrl+Alt+B 把人从全屏收回时广播（面板按钮被 Blender 盖住，靠这条同步 UI）
-    onFullscreen: (cb) => {
-      const h = (e, v) => { try { cb(v) } catch (ex) { console.warn('[blender:fullscreen] 回调出错', ex) } };
-      ipcRenderer.on('blender:fullscreen', h);
-      return () => ipcRenderer.removeListener('blender:fullscreen', h);
-    }
-  },
-  // ---- 创意工坊 · 流程看板（只读汇总：工单状态 + 回执台账，不读会话正文）----
-  creative: {
-    board: () => ipcRenderer.invoke('creative:board'),
-    // 自动巡检：后台每 60 秒扫一次，卡住就主进程主动广播（不用人盯）
-    watchState: () => ipcRenderer.invoke('creative:watchState'),
-    retry: (id) => ipcRenderer.invoke('creative:retry', id),
-    // 新建资产包（一次一个资产，一个资产一个目录）
-    assetNew: (name) => ipcRenderer.invoke('creative:assetNew', name),
-    onWatch: (cb) => {
-      const h = (e, payload) => { try { cb(payload) } catch (ex) { console.warn('[creative:watch] 回调出错', ex) } };
-      ipcRenderer.on('creative:watch', h);
-      return () => ipcRenderer.removeListener('creative:watch', h);
-    }
-  },
   // ---- 总入口 · 派发巡检（超时 / 干完未回执 / 待批准；补投与批准要人点按钮）----
   dispatch: {
     dog: () => ipcRenderer.invoke('dispatch:dog'),
@@ -240,7 +250,7 @@ contextBridge.exposeInMainWorld('app', {
     timers: () => ipcRenderer.invoke('dispatch:timers'),
     timerToggle: (id, on) => ipcRenderer.invoke('dispatch:timerToggle', id, on)
   },
-  // 2026-10-28 客户「<客户>」：把工业软件窗口内置成面板（owner-overlay，与 Blender 同一套）
+  // 2026-10-28 客户「<客户>」：把工业软件窗口内置成面板（owner-overlay）
   appwin: {
     status: (proc) => ipcRenderer.invoke('appwin:status', proc),
     launch: (exe, args) => ipcRenderer.invoke('appwin:launch', exe, args),

@@ -18,7 +18,14 @@ const mkPanel = (meta, idx) => kUtils().makePanel(meta, idx);
 // ---------- 场景切换 ----------
 const harnessView = document.getElementById('harness-view');
 const scenarioView = document.getElementById('scenario-view');
-const grid = document.getElementById('grid');
+// 场景舞台容器（每个场景一个 .scene-stage；活动场景的网格才带 id="grid"）
+const stageHost = document.getElementById('scene-stages') || (function () {
+  // 兜底：老 index.html 还没这层容器时自动建一个，别让整块界面起不来
+  const box = document.createElement('div');
+  box.id = 'scene-stages';
+  scenarioView.insertBefore(box, scenarioView.firstChild);
+  return box;
+})();
 const webview = document.getElementById('harness-webview');
 const tabsNav = document.getElementById('scenario-tabs');
 
@@ -80,8 +87,11 @@ async function reloadScene() {
   setStatus('正在热更新渲染器…', true);
   const ok = await hotReloadRenderers();
   if (!ok) return;
+  // 渲染器整份换了：后台缓存场景里的面板还是旧代码画出来的 ⇒ 全部作废，下次进入冷建
+  // （在 Harness 页按 ⟳ 时也作废，连"上次的活动场景"一起清掉）
+  dropCachedStages(currentTab && currentTab !== 'harness' ? currentTab : '', true);
   if (currentTab && currentTab !== 'harness') {
-    await loadScenario(currentTab);
+    await loadScenario(currentTab, { force: true });
     setStatus('已刷新：' + currentTab, false);
   } else {
     setStatus('渲染器已热更新（Harness 场景无需重建）', false);
@@ -659,6 +669,7 @@ window.__dshReloadScene = reloadScene;
     try {
       if (!id) return false;
       currentTab = id;
+      showView('scenario');   // 2026-11-18：从引擎视图跳场景时也要把场景视图真的切出来（否则只在后台建好了没人看见）
       Promise.resolve(loadScenario(id)).catch(function () { /* ignore */ });
       return true;
     } catch (e) { return false; }
@@ -807,8 +818,18 @@ function initBalance() {
 }
 
 function showView(name) {
+  // 切到引擎视图（场景 0）= 本地场景整屏退场：外挂真窗口这类东西必须收走，
+  // 不然它会继续挂在已经看不见的面板位置上。
+  // 这里只暂停、不销毁面板（面板里还有聊天 webview / 滚动位置，销毁一次就全丢，
+  // 而用户只是切去看引擎）。真正回收仍归 loadScenario / trimStages 的 disposeStage。
+  if (name === 'harness') {
+    window.dispatchEvent(new CustomEvent('dsh:scene-view-hidden'));
+    suspendActiveStage();     // 2026-11-18：bl/embed 等按 wb:scene-deactivate 暂停（避免后台播放/轮询）
+  }
   harnessView.classList.toggle('active', name === 'harness');
   scenarioView.classList.toggle('active', name === 'scenario');
+  // 视图切换后立刻校正一次 webview 的"停车"状态（不等 MutationObserver 的下一拍）
+  try { if (window.__dshParkSync) window.__dshParkSync(); } catch (e) { wbWarn(e) }
 }
 
 // 场景 0：加载 Harness（带 token）
@@ -975,9 +996,212 @@ function initBoot() {
 }
 
 // 场景 1..N：渲染本地场景
-// 场景隔离：每次切换场景时，先销毁上一个场景所有面板的后台任务（定时器/网络预载/扫描），
-// 再渲染新场景；面板渲染函数可返回 cleanup 函数，由这里统一调用。
-let activeCleanups = [];
+// ---------- 场景暂存（2026-11-18） ----------
+// 以前：每次切场景都 grid.innerHTML='' + 重建全部面板 ⇒ 每块 AI 面板的 <webview> 都要重新加载一遍引擎前端
+//   （1~2 秒/块），切回来像"重开一遍"；连点一下已激活的标签也会整场重建。
+// 现在：一个场景一个 stage（各自持有面板 DOM 与 webview），切走只隐藏、不销毁；回访直接显示原面板。
+//   · 缓存数：localStorage['wb.sceneCacheMax'] = 1~6（默认 3）；1 = 只留当前场景（内存占用等同旧行为）
+//   · id="grid" 只挂在活动 stage 的网格上 ⇒ renderers.js 里二十多处 getElementById('grid') 一行不用改
+//   · 切走 / 切回广播 wb:scene-deactivate / wb:scene-activate（detail.sceneId），embed 等据此暂停/收起
+//   · 面板渲染函数仍返回 cleanup（回收时调用）；切走不调用 cleanup，只有"淘汰 / 重建 / 分离"才调用
+const SCENE_CACHE_MAX = (function () {
+  try {
+    const n = parseInt(window.localStorage.getItem('wb.sceneCacheMax') || '', 10);
+    if (n >= 1 && n <= 6) return n;
+  } catch (e) { wbWarn(e, 'sceneCacheMax') }
+  return 3;
+})();
+const sceneStages = new Map();   // sceneId -> { id, name, el, grid, cleanups, alive, lastUsed, lifeOn, placeholder }
+let stageSeq = 0;                // LRU 序号
+let activeStageId = '';          // 当前显示的本地场景（它的网格带 id="grid"）
+
+function sceneLog(line) {
+  try {
+    if (window.app && window.app.diagLog) window.app.diagLog('[scene] ' + line);
+    else console.info('[scene] ' + line);
+  } catch (e) { wbWarn(e, 'sceneLog') }
+}
+
+function sceneLife(id, on) {
+  try {
+    window.dispatchEvent(new CustomEvent(on ? 'wb:scene-activate' : 'wb:scene-deactivate', { detail: { sceneId: id } }));
+  } catch (e) { wbWarn(e) }
+}
+
+// 每个 stage 只发一次"亮 / 灭"，来回切时不会把通知刷成一片
+function setStageLife(stage, on) {
+  if (!stage || stage.lifeOn === on) return;
+  stage.lifeOn = on;
+  sceneLife(stage.id, on);
+}
+
+function activateStage(stage) {
+  if (!stage) return;
+  // 1. 其它舞台退场：撤 .active、交还 id="grid"、广播"灭"（embed 等外挂面板暂停播放）
+  sceneStages.forEach(function (st) {
+    if (st.id !== stage.id) {
+      st.el.classList.remove('active');
+      if (st.grid.id === 'grid') st.grid.removeAttribute('id');
+      setStageLife(st, false);
+    }
+  });
+  // 2. 新舞台上屏；id 只给活动的这一份
+  stage.el.classList.add('active');
+  stage.grid.id = 'grid';
+  stage.lastUsed = ++stageSeq;
+  activeStageId = stage.id;
+  setStageLife(stage, true);
+  applyBadges();
+  // 场景 A⇄B：旧 stage 里的 webview 必须立刻停车（Electron guest view 不认父级的透明）
+  try { if (window.__dshParkSync) window.__dshParkSync(); } catch (e) { wbWarn(e) }
+}
+
+function suspendActiveStage() {   // 切去引擎视图：只暂停，不销毁（草稿 / 滚动 / 会话都留着）
+  const st = activeStageId ? sceneStages.get(activeStageId) : null;
+  if (st) setStageLife(st, false);
+}
+function resumeActiveStage() {
+  const st = activeStageId ? sceneStages.get(activeStageId) : null;
+  if (st) setStageLife(st, true);
+}
+
+function disposeStage(stage) {
+  if (!stage) return;
+  stage.alive = false;
+  setStageLife(stage, false);
+  // 这个 stage 里若有展开态面板，先按面板粒度收起（别把其它场景的展开态一起收掉）
+  try {
+    if (typeof collapsePanel === 'function' && stage.el) {
+      stage.el.querySelectorAll('.panel').forEach(function (w) { collapsePanel(w); });
+    }
+  } catch (e) { wbWarn(e) }
+  stage.cleanups.forEach(function (fn) { try { fn(); } catch (e) { wbWarn(e) } });
+  stage.cleanups = [];
+  // 只在 map 里还是"这一份"时才删：极少数时序下同 id 的新 stage 已经建好，不能把新的也删掉
+  if (sceneStages.get(stage.id) === stage) {
+    sceneStages.delete(stage.id);
+    if (activeStageId === stage.id) activeStageId = '';
+  }
+  try { stage.el.remove(); } catch (e) { wbWarn(e) }
+}
+
+// 场景 JSON / 渲染器 / 公司配置变了：别的缓存场景一律作废（下次进入再冷建），避免拿旧配置继续跑
+function dropCachedStages(keepId, includeActive) {
+  Array.from(sceneStages.keys()).forEach(function (id) {
+    if (id === keepId) return;
+    if (!includeActive && id === activeStageId) return;   // 活动场景默认不动（用户正看着）
+    const st = sceneStages.get(id);
+    if (st) {
+      sceneLog('缓存作废 ' + id);
+      disposeStage(st);
+    }
+  });
+}
+
+// 只留最近 SCENE_CACHE_MAX 个场景：超出按 lastUsed 淘汰最久没看的（活动场景永远不淘汰）
+function trimStages(keepId) {
+  if (sceneStages.size <= SCENE_CACHE_MAX) return;
+  const victims = [];
+  sceneStages.forEach(function (st) {
+    if (st.id !== keepId && st.id !== activeStageId) victims.push(st);
+  });
+  victims.sort(function (a, b) { return a.lastUsed - b.lastUsed; });
+  while (sceneStages.size > SCENE_CACHE_MAX && victims.length) {
+    const v = victims.shift();
+    sceneLog('淘汰 ' + v.id + '（缓存已满 ' + SCENE_CACHE_MAX + '）');
+    disposeStage(v);
+  }
+}
+
+function createStage(id, sc, gridCols) {
+  const wrap = mkEl('div', 'scene-stage');
+  wrap.dataset.sceneId = id;
+  const gridEl = mkEl('div', 'scene-grid');
+  // 列数 = 4 时清空内联样式，还原 CSS 默认（与旧 #grid 行为一致）
+  gridEl.style.gridTemplateColumns = gridCols === 4 ? '' : 'repeat(' + gridCols + ',1fr)';
+  wrap.appendChild(gridEl);
+  stageHost.appendChild(wrap);
+  const stage = {
+    id: id,
+    name: (sc && sc.name) || id,
+    sc: sc || null,          // 场景 JSON 快照：缓存命中时不再读盘（⟳ / 改 json 后走 force 重建刷新）
+    el: wrap,
+    grid: gridEl,
+    cleanups: [],
+    alive: true,
+    lastUsed: 0,
+    lifeOn: false,
+    placeholder: false
+  };
+  sceneStages.set(id, stage);
+  return stage;
+}
+
+function collapsePanelSafely() {
+  // 有面板处于「展开」态：先收起，撤掉它的 resize/ESC 监听与占位格（否则切走后残留）
+  try { if (typeof collapsePanel === 'function') collapsePanel(); } catch (e) { wbWarn(e) }
+}
+
+function nextPaint() {
+  return new Promise(function (resolve) {
+    let done = false;
+    const fin = function () { if (done) return; done = true; resolve(); };
+    try {
+      if (window.requestAnimationFrame) requestAnimationFrame(function () { setTimeout(fin, 0); });
+      else setTimeout(fin, 0);
+    } catch (e) { setTimeout(fin, 0); }
+    // 窗口最小化时 rAF 可能一直不跑 ⇒ 最多 120ms 必须推进一块，别把场景卡在半截
+    setTimeout(fin, 120);
+  });
+}
+
+// 骨架先上屏 + 内容分帧挂载：比一次性建满少一次长任务，切场景不至于整窗"定住"
+async function mountPanels(sc, stage) {
+  const renderers = kRender();
+  const panels = (sc && sc.panels) || [];
+  const frames = [];
+  // 1. 先建框（标题栏 / 徽标 / 展开按钮）：这一屏几乎瞬时出来
+  for (let i = 0; i < panels.length; i++) {
+    const p = panels[i];
+    p.scenario = sc.id;   // 场景隔离：面板知道自己属于哪个场景（数据按场景分区）
+    const f = mkPanel(p, i);
+    frames.push(f);
+    stage.grid.appendChild(f.wrap);
+  }
+  applyBadges();
+  // 2. 再逐块挂内容：每块一帧，挂完一块先让界面喘口气
+  for (let i = 0; i < panels.length; i++) {
+    if (!stage.alive) return;
+    if (i > 0) {
+      if (stage.id === currentTab) setStatus('正在加载场景 ' + sc.name + '（' + (i + 1) + '/' + panels.length + '）', true);
+      await nextPaint();
+      if (!stage.alive) return;
+    }
+    const p = panels[i];
+    const f = frames[i];
+    const fn = renderers[p.type];
+    if (!fn) { f.body.appendChild(mkEl('div', 'stat-sub', '未知面板类型: ' + p.type)); continue; }
+    try {
+      const cleanup = fn(f.body, p, f.head);
+      if (typeof cleanup === 'function') stage.cleanups.push(cleanup);
+    } catch (err) {
+      f.body.appendChild(mkEl('div', 'stat-sub', '面板渲染失败: ' + err.message));
+    }
+  }
+  // 3. 纯自动流场景（json 里一个 col/row 都没写，如 oa-ops）：渲染完自己排格 + 拉伸补洞 ——
+  //    否则"这块放不下就往下挪"会在半路留出一大块空洞，还把网格行数撑多、把所有面板一起压扁（2026-09-26 用户截图）。
+  try { if (kUtils().packAutoGrid) kUtils().packAutoGrid(stage.grid); } catch (e) { wbWarn(e) }
+}
+
+async function buildStage(id, sc, gridCols) {
+  const old = sceneStages.get(id);
+  if (old) disposeStage(old);            // ⟳ 刷新 / 换会话改绑后重建：先把旧的一份回收
+  const stage = createStage(id, sc, gridCols);
+  activateStage(stage);                  // 先上屏：骨架与内容量尺寸时才拿得到真实布局
+  await mountPanels(sc, stage);
+  return stage;
+}
+
 // ---- 多窗口（场景分离）状态 ----
 // 本窗口是不是「场景分离窗口」：主进程 loadFile 时带了 ?solo=1&scene=<id>
 const soloSceneId = (function () {
@@ -1003,7 +1227,7 @@ function detachedCard(sc) {
   const b2 = mkEl('button', 'detach-btn', '仍在此显示');
   b2.addEventListener('click', () => {
     forceLocalScene = sc.id;
-    loadScenario(sc.id).catch(err => bootFail('原地显示场景', err));
+    loadScenario(sc.id, { force: true }).catch(err => bootFail('原地显示场景', err));
   });
   row.appendChild(b1);
   row.appendChild(b2);
@@ -1011,15 +1235,40 @@ function detachedCard(sc) {
   return card;
 }
 
-async function loadScenario(id) {
-  activeCleanups.forEach(fn => { try { fn(); } catch (e) { wbWarn(e) } });
-  activeCleanups = [];
+let sceneLoadSeq = 0;   // 连点多块标签时只认最后一次（旧的那次在 await 回来后直接作废）
+
+// 已建好的 stage 直接切显示：不读场景 JSON、不重建面板（<10ms 的极热路径）
+function hotSwitchTo(stage, name) {
+  // 多公司模板：切场景即通知主进程切换到该公司配置（SSH / 服务名 / 同步映射 / 日志来源 / 网址清单）
+  try { if (window.app.oa && window.app.oa.setScenario) window.app.oa.setScenario(stage.id); } catch (e) { wbWarn(e) }
+  collapsePanelSafely();
+  activateStage(stage);
+  setStatus('已切换：' + (name || stage.name || stage.id), false);
+  return stage;
+}
+
+async function loadScenario(id, opts) {
+  const force = !!(opts && opts.force);
+  const t0 = (window.performance && window.performance.now) ? window.performance.now() : Date.now();
+  // 1. 缓存命中（非强制）→ 极热路径：只切显示，webview / 草稿 / 滚动位置原样保留
+  //    例外："独立窗口占位卡"不能复用（窗口关掉后要换回真身），交给下面按当前窗口状态重建。
+  const cached = force ? null : sceneStages.get(id);
+  //    该场景若刚被分离出去（事件可能还没到），不能走极热路径，得去下面换成占位卡
+  const detachedNow = !soloSceneId && detachedScenes.has(id) && forceLocalScene !== id;
+  if (cached && !cached.placeholder && cached.sc && !detachedNow) {
+    ++sceneLoadSeq;   // 作废还在路上/还没开始建的旧请求（否则它建完会把用户刚切回来的场景顶掉）
+    hotSwitchTo(cached, cached.name);
+    trimStages(id);
+    sceneLog(id + ' 缓存命中 '
+      + Math.round(((window.performance && performance.now()) || Date.now()) - t0) + 'ms（无 IPC）');
+    return cached;
+  }
+  const seq = ++sceneLoadSeq;
   const sc = await window.app.getScenario(id);
+  if (seq !== sceneLoadSeq) return;        // 期间又切了别的场景 ⇒ 这次结果作废
   if (!sc) return;
-  // 场景可自定网格列数（`cols`，默认 4 = styles.css 里 #grid 的列数）。放在前面算，是因为下面"独立窗口占位卡"
+  // 2. 场景可自定网格列数（`cols`，默认 4 = styles.css 里 #grid 的列数）。放在前面算，是因为下面"独立窗口占位卡"
   // 那条分支会提前 return —— 列数得跟当前场景一致，不能留着上个场景的（占位卡自己写了 grid-column:1/-1，不受影响）。
-  // 平时用不到；需要"某个窗口占五分之三 / 五分之二"这种比例时才写（例：20 列 ⇒ 12/20 = 3/5、8/20 = 2/5，
-  // 而原来的 3:1 可以用 15+5 原样保持）。列数 = 4 时清空内联样式，还原 CSS 默认。
   // 兜底：面板坐标要是伸到 cols 之外，隐式列是 auto（按内容宽）不是 1fr ⇒ 比例会整个乱掉
   //（2026-09-20 用户就撞上过：json 用 20 列坐标、渲染器还是旧的，左下被撑到 74%）。所以直接按需要的列数渲染并告警。
   const wantCols = Math.round(Number(sc.cols)) || 4;
@@ -1031,48 +1280,70 @@ async function loadScenario(id) {
     console.warn('[grid] 场景 ' + sc.id + ' 的面板坐标到第 ' + needCols + ' 列，超过声明的 cols=' + wantCols
       + '（隐式列会按内容宽排、比例全乱）⇒ 已按 ' + gridCols + ' 列渲染。要么把 cols 调到 ' + gridCols + '，要么改面板坐标。');
   }
-  grid.style.gridTemplateColumns = gridCols === 4 ? '' : 'repeat(' + gridCols + ',1fr)';
-  // 该场景正在独立窗口里跑 → 默认不在这里再渲染一份（两份定时器 / 两份 AI 界面会互相打架）
+  // 3. 该场景正在独立窗口里跑 → 这里只放一张"占位卡"（两份定时器 / 两份 AI 界面会互相打架）
   if (!soloSceneId && detachedScenes.has(id) && forceLocalScene !== id) {
-    grid.innerHTML = '';
-    grid.appendChild(detachedCard(sc));
+    let ph = force ? null : sceneStages.get(id);
+    if (ph && !ph.placeholder) { disposeStage(ph); ph = null; }
+    if (!ph) {
+      // force 重建时旧的占位卡/真身还在 map 里：先回收，别留一份孤儿 DOM 和 guest 进程
+      const old = sceneStages.get(id);
+      if (old) disposeStage(old);
+      collapsePanelSafely();
+      ph = createStage(id, sc, gridCols);
+      ph.placeholder = true;
+      ph.grid.appendChild(detachedCard(sc));
+      activateStage(ph);
+    } else {
+      activateStage(ph);
+    }
     placeholderSceneId = id;
-    applyBadges();
-    return;
+    trimStages(id);
+    sceneLog(id + ' 占位卡（独立窗口）');
+    return ph;
   }
   placeholderSceneId = '';   // 正常渲染 → 不再处于"占位"状态
-  // 多公司模板：切场景即通知主进程切换到该公司配置（SSH / 服务名 / 同步映射 / 日志来源 / 网址清单）
-  try { if (window.app.oa && window.app.oa.setScenario) window.app.oa.setScenario(sc.id); } catch (e) { wbWarn(e) }
-  // 若有面板处于「展开」状态：先收起，撤掉它的 resize/ESC 监听与占位格（否则重建后残留）
-  try { if (typeof collapsePanel === 'function') collapsePanel(); } catch (e) { wbWarn(e) }
-  grid.innerHTML = '';
-  const renderers = kRender();
-  for (let i = 0; i < sc.panels.length; i++) {
-    const p = sc.panels[i];
-    p.scenario = sc.id;   // 场景隔离：面板知道自己属于哪个场景（数据按场景分区）
-    const { wrap, body, head } = mkPanel(p, i);
-    const fn = renderers[p.type];
-    if (fn) {
-      try {
-        const cleanup = fn(body, p, head);
-        if (typeof cleanup === 'function') activeCleanups.push(cleanup);
-      } catch (err) { body.appendChild(mkEl('div', 'stat-sub', '面板渲染失败: ' + err.message)); }
-    } else {
-      body.appendChild(mkEl('div', 'stat-sub', '未知面板类型: ' + p.type));
+  // 4. 缓存命中（兜底：stage 没有缓存 sc 时走这里，仍需读一次 JSON）
+  if (!force) {
+    const hit = sceneStages.get(id);
+    if (hit && !hit.placeholder) {
+      hotSwitchTo(hit, sc.name);
+      trimStages(id);
+      sceneLog(id + ' 缓存命中 '
+        + Math.round(((window.performance && performance.now()) || Date.now()) - t0) + 'ms');
+      return hit;
     }
-    grid.appendChild(wrap);
+    if (hit && hit.placeholder) disposeStage(hit);   // 占位卡不能复用（真身要重画）
   }
-  // 纯自动流场景（json 里一个 col/row 都没写，如 oa-ops）：渲染完自己排格 + 拉伸补洞 ——
-  // 否则"这块放不下就往下挪"会在半路留出一大块空洞，还把网格行数撑多、把所有面板一起压扁（2026-09-26 用户截图）。
-  try { if (kUtils().packAutoGrid) kUtils().packAutoGrid(grid); } catch (e) { wbWarn(e) }
-  applyBadges();
+  // 5. 重建（首次进入 / ⟳ 刷新 / 独立窗口收回）
+  try { if (window.app.oa && window.app.oa.setScenario) window.app.oa.setScenario(sc.id); } catch (e) { wbWarn(e) }
+  collapsePanelSafely();
+  const stage = await buildStage(id, sc, gridCols);
+  if (!stage || !stage.alive) return;
+  trimStages(id);
+  // 只在它还是"当前显示的场景"时改状态栏：挂载期间用户可能已经切走了
+  if (stage.id === activeStageId) setStatus('已切换：' + sc.name, false);
+  sceneLog(id + ' 冷启动 ' + Math.round(((window.performance && performance.now()) || Date.now()) - t0)
+    + 'ms · ' + ((sc.panels || []).length) + ' 块');
+  return stage;
 }
 // 外部（renderers.js 里的项目下拉等）改完场景 json 后要整场重建：这里给出唯一入口，
 // 免得 renderers.js 去猜本文件的局部函数名。场景 id 省略 = 重建当前标签。
 window.APP_RELOAD_SCENE = function (sceneId) {
   const id = sceneId || currentTab;
   if (!id || id === 'harness') return false;
-  return loadScenario(id);
+  // 场景 JSON / 项目（公司）配置可能变了：除目标外的缓存场景一律作废，别让旧配置留在后台
+  dropCachedStages(id);
+  // 非当前场景（暂存在后台）要重建：不能在这里 activate，否则会把用户正在看的场景顶掉。
+  // 做法 = 只回收旧的一份（它引用的旧会话/旧分区必须清掉），等用户切过去时自然冷建。
+  if (id !== activeStageId) {
+    const st = sceneStages.get(id);
+    if (st) {
+      disposeStage(st);
+      sceneLog(id + ' 后台重建：已回收旧 stage，切过去时冷建');
+    }
+    return true;
+  }
+  return loadScenario(id, { force: true });
 };
 
 // 渲染层兜底：任何一步失败都在界面上留痕，不出现"窗口开了但空白、还不知道为啥"
@@ -1301,12 +1572,15 @@ async function init() {
     t.addEventListener('click', () => {
       tabsNav.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
       t.classList.add('active');
+      const same = (currentTab === s.id);
       currentTab = s.id;
       showView('scenario');
       // 已在独立窗口里跑 → 顺手把那个窗口拉到前台（本窗口显示占位卡，不重复渲染一份）
       if (detachedScenes.has(s.id) && forceLocalScene !== s.id) {
         try { window.app.win.openScene(s.id); } catch (e) { wbWarn(e) }
       }
+      // 同一场景已经建好（尤其刚从引擎视图切回来）→ 只恢复显示，不重建（2026-11-18）
+      if (same && sceneStages.has(s.id)) { resumeActiveStage(); return; }
       loadScenario(s.id);
     });
     // 右键标签 = 在新窗口打开（与标签上的 ⧉ 等价）
@@ -1351,6 +1625,12 @@ async function init() {
         const ids = (v && Array.isArray(v.detached)) ? v.detached : [];
         detachedScenes = new Set(ids);
         decorateDetachedTabs();
+        // 场景被分离到独立窗口 → 主窗口这份不再需要（别让同一个场景跑两份定时器/webview）
+        detachedScenes.forEach(function (id) {
+          if (id === forceLocalScene) return;   // 用户点过「仍在此显示」→ 本窗口这份还要用
+          const st = sceneStages.get(id);
+          if (st && !st.placeholder) disposeStage(st);
+        });
         if (currentTab && currentTab !== 'harness' && detachedScenes.has(currentTab) && forceLocalScene !== currentTab) {
           loadScenario(currentTab).catch(() => { /* ignore */ });
         } else if (placeholderSceneId && placeholderSceneId === currentTab && !detachedScenes.has(placeholderSceneId)) {

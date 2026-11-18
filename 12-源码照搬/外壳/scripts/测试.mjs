@@ -65,6 +65,45 @@ function checkPorts() {
   else add('端口单一真源', 'ok', '3083 只在 main.js 入口默认值与 工具\\环境.mjs 的 DEFAULT_PORTS');
 }
 
+// ── 1b. 外发安全闸门：机制自检要真跑；源码里不许绕过闸门直连发送端 ───────────────────
+function checkOutbound() {
+  const cli = path.join(TOOLS, '外发闸门.mjs');
+  const r = spawnSync(process.execPath, [cli, '--自检'], { encoding: 'utf8', timeout: 30000 });
+  const out = String(r.stdout || '') + String(r.stderr || '');
+  if (r.error || r.status !== 0 || !/27\/27\s*通过/.test(out) || !/代理[\s\S]{0,40}?\d+\/\d+\s*通过/.test(out)) {
+    add('外发闸门自检', 'fail', '机制自检没过（规则 27 条 + 代理用例必须全过）', out.split(/\r?\n/).filter(Boolean).slice(0, 12));
+  } else {
+    add('外发闸门自检', 'ok', '规则 27/27 + 代理用例全过（IP/路径/密钥/账号都能拦，打码不残留）');
+  }
+
+  // 直连发送端只许出现在闸门本体里：别的地方出现就是绕过（飞书硬编码也算：说明有通道没过闸）
+  const files = [
+    ...listDir(SHELL, (n) => n.endsWith('.js')),
+    ...listDir(path.join(SHELL, 'renderer'), (n) => n.endsWith('.js')),
+    ...listDir(TOOLS, (n) => n.endsWith('.mjs')),
+  ];
+  try {
+    const plug = path.join(path.dirname(SHELL), '插件');
+    fs.readdirSync(plug, { recursive: true })
+      .map((n) => path.join(plug, n))
+      .filter((p) => /\.(js|mjs)$/.test(p) && !/node_modules/.test(p))
+      .forEach((p) => files.push(p));
+  } catch { /* 没有插件目录不算错 */ }
+  const RE = /send_private_msg|send_group_msg|https:\/\/open\.feishu\.cn|https:\/\/ilinkai\.weixin\.qq\.com/;
+  const hits = [];
+  for (const f of files) {
+    const base = path.basename(f);
+    if (base === '外发闸门.js' || base === '外发闸门.mjs') continue;   // 闸门本体：判据与代理自检都要提这些动作
+    read(f).split(/\r?\n/).forEach((line, i) => {
+      if (!RE.test(line)) return;
+      if (/^\s*(\/\/|\*|#)/.test(line.trim())) return;                 // 注释里的说明不算
+      hits.push(rel(f) + ':' + (i + 1) + '  ' + line.trim().slice(0, 110));
+    });
+  }
+  if (hits.length) add('外发直连扫描', 'fail', '有 ' + hits.length + ' 处绕过闸门直连发送端', hits);
+  else add('外发直连扫描', 'ok', '外壳 / 工具 / 插件 源码里没有绕过闸门的 OneBot / 飞书 / 微信直连');
+}
+
 // ── 2. 静默 catch 回归：已接日志的三个文件不许再出现"块里只有注释/空"的 catch ──────────
 const CATCH_RE = /catch\s*\(\s*[A-Za-z_$][\w$]*\s*\)\s*\{\s*(?:\/\*[^}]*?\*\/)?\s*\}/g;
 // 判断某个下标是否落在字符串字面量里（注入脚本里也会写 catch(e){}，不能误报）
@@ -257,6 +296,17 @@ function checkFeatureDesk() {
     if (!(f.actions || []).length) bad.push(f.id + ' 一个动作都没有');
     if (!(/^工具\\/.test(f.script) || /^外壳\\scripts\\/.test(f.script))) bad.push(f.id + ' 的脚本不在白名单目录（工具\\ 或 外壳\\scripts\\）：' + f.script);
     if (!f.ok) bad.push(f.id + ' 的脚本不存在：' + f.script);
+    // 配置位：每项都得声明；plugin 必须能落到一个真实动作，none 必须说清为什么没有
+    const cfg = f.cfg || {};
+    if (['plugin', 'machine', 'external', 'none'].indexOf(cfg.kind) < 0) bad.push(f.id + ' 的 cfg.kind 非法：' + cfg.kind);
+    if (cfg.kind === 'plugin') {
+      if (!cfg.action) bad.push(f.id + ' 是 plugin 但没写 cfg.action');
+      else if (!(f.actions || []).some((a) => a.id === cfg.action)) bad.push(f.id + ' 的 cfg.action 不在动作列表：' + cfg.action);
+      if (!(cfg.fields || []).length) bad.push(f.id + ' 是 plugin 但 fields 为空');
+      if (!cfg.source) bad.push(f.id + ' 是 plugin 但没写 source');
+    }
+    if (cfg.kind === 'none' && (!cfg.noWhy || String(cfg.noWhy).trim().length < 6)) bad.push(f.id + ' 是 none 但 noWhy 太短（得说清为什么没有配置项）');
+    if ((cfg.kind === 'machine' || cfg.kind === 'external') && !cfg.source) bad.push(f.id + ' 是 ' + cfg.kind + ' 但没写 source');
     const acts = new Set();
     (f.actions || []).forEach((a) => {
       if (acts.has(a.id)) bad.push(f.id + ' 动作 id 重复：' + a.id);
@@ -280,7 +330,7 @@ function checkFeatureDesk() {
     else if (!t.ok) bad.push('症状表指向的脚本不在：' + t.feature);
   });
   if (bad.length) add('功能台登记表', 'fail', '违规 ' + bad.length + ' 条', bad);
-  else add('功能台登记表', 'ok', (o.stats.features || 0) + ' 项 / ' + (o.stats.actions || 0) + ' 个动作 · 说明齐全 · 脚本都在白名单目录 · 症状表 ' + tri.length + ' 条都能落到卡上');
+  else add('功能台登记表', 'ok', (o.stats.features || 0) + ' 项 / ' + (o.stats.actions || 0) + ' 个动作 · 说明齐全 · 脚本都在白名单目录 · 配置位 ' + (o.cfgStats.plugin || 0) + '/' + (o.cfgStats.machine || 0) + '/' + (o.cfgStats.external || 0) + '/' + (o.cfgStats.none || 0) + ' · 症状表 ' + tri.length + ' 条都能落到卡上');
 }
 
 // ── 跑 ───────────────────────────────────────────────────────────────────────────────
@@ -289,6 +339,7 @@ let types = new Set();
 let count = 0;
 try {
   if (want('ports')) checkPorts();
+  if (want('outbound')) checkOutbound();
   if (want('catch')) checkCatch();
   if (want('ipc')) checkIpc();
   const sc = checkScenarios();

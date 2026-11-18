@@ -16,7 +16,6 @@
   var openGrp = {};                        // 折叠状态（弹窗每次重绘都整块重建，状态必须放在外面）
   var lastMsg = '';                        // 最近一条提示（重绘时保留，别让"已写入"一闪就没）
   var MCP = [
-    { id: 'mcp-blender',                 label: 'Blender',  tools: 32, est: 8902,  desc: '三维建模 / 改材质 / 读场景 / 渲染出图 / 导出 GLB·FBX' },
     { id: 'computer-use-cua-driver-mcp', label: '桌面操控', tools: 57, est: 26801, desc: '操控这台电脑：找窗口 / 点击 / 打字 / 截屏 / 摆位' },
     { id: 'mcp-jianying',                label: '剪映',     tools: 8,  est: 1271,  desc: '剪映草稿：识别视频 / 自动剪辑 / 字幕排版 / 批量出片' },
     { id: 'mcp-comfy',                   label: 'ComfyUI',  tools: 39, est: 14746, desc: '文生视频 / 图生视频（MiniMax H3 海螺）' },
@@ -232,7 +231,7 @@
           }
           body.appendChild(row(st, i, render));
         }
-        var tail = note('写入位置：' + FILE + '（引擎官方 patch 覆盖项 disabled: true）。命令行等价物：node "<工作台>\\引擎\\.dsh\\skills\\context-overflow\\mcp-switch.mjs" 设置 blender=off --apply', 'dim');
+        var tail = note('写入位置：' + FILE + '（引擎官方 patch 覆盖项 disabled: true）。命令行等价物：node "<工作台>\\引擎\\.dsh\\skills\\context-overflow\\mcp-switch.mjs" 设置 <id>=off --apply', 'dim');
         body.appendChild(tail);
         var btn = document.createElement('button'); btn.className = 'mcp-sw border'; btn.style.marginLeft = '0';
         btn.textContent = '⟳ 刷新界面（接回会话 / 让工具表生效）';

@@ -96,18 +96,17 @@ function mktColor(v) {
 // ---------- 面板渲染器（本地场景用） ----------
 var renderers = {};
 
-// ---------- 面板「展开到最高 / 收起」（AI 助手面板用）----------
-// 需求：点标题栏中间的箭头 → 该面板高度直接占满整个场景（盖住其它面板），
-//       其它面板位置**完全不动**；箭头翻转，再点收回原状。
+// ---------- 面板「展开到最高 / 左右展开 / 收起」（AI 助手面板用）----------
+// 需求：标题栏两组箭头 —— ▲▼ 上下撑满整个场景的**高度**，◀▶ 左右撑满整个场景的**宽度**；
+//       展开时其它面板位置**完全不动**；箭头翻转，再点收回原状；两轴都展开 = 铺满整格。
 // 关键点：面板本来是 grid item，直接改成 absolute 会让其余面板**回流跑位**，
 //        所以展开前先在原位置插一个「占位格」（同 grid-column/grid-row），把版面钉住。
-// 动效：以「原格子几何 → 满高几何」在 top/height 上做 CSS 过渡（320ms），配青色描边高亮、
-//        自上而下的扫描光带、以及压暗其它面板的聚焦层。
-//        ⚠ 刻意不用 transform 缩放：面板里是 <webview>，guest view 对祖先 transform 跟随不稳，
-//          而展开时只有高度/纵向位置在变（宽度不变），top/height 过渡的重排成本很低。
+// 动效：以「原格子几何 → 目标几何」在 top/left/width/height 上做 CSS 过渡（320ms），配青色描边高亮、
+//        扫描光带、以及压暗其它面板的聚焦层。
+//        ⚠ 刻意不用 transform 缩放：面板里是 <webview>，guest view 对祖先 transform 跟随不稳。
 // 展开中的面板（**可以同时展开多个**：2026-09-20 用户要求"两个 AI 窗口能同时展开"）。
 // 顺序 = 展开先后，用来定 z-index（后展开的压住先展开的）和 ESC 的退栈顺序。
-// 元素形如 { wrap, slot, btn, onResize, onKey, backdrop }
+// 元素形如 { wrap, slot, btn, btnX, axes:{v,h}, seq, onResize, onKey, backdrop }
 var panelExpandStates = [];
 var panelExpandZ = 60;         // 展开面板的 z-index 基数，每展开一个 +1
 var PANEL_ANIM_MS = 320;
@@ -118,23 +117,59 @@ function panelMotionOff() {
 
 // 把面板从「当前几何」过渡到 toRect（fixed 定位下改 top/left/width/height），结束后回调 done
 function animatePanelBox(wrap, toRect, done) {
+  // 同一面板连续换目标（先上下再左右 / 展开途中又点收起）时，只有最新这次动画能收尾，
+  // 旧动画残留的 transitionend / 兜底 setTimeout 不许把新动画的过渡类摘掉
+  wrap.__panelAnimToken = (wrap.__panelAnimToken || 0) + 1;
+  const myToken = wrap.__panelAnimToken;
   wrap.classList.add('panel-anim');
   void wrap.offsetWidth;   // 强制回流：保证起始帧先落地，过渡才会跑
-  wrap.style.left = Math.round(toRect.left) + 'px';
-  wrap.style.top = Math.round(toRect.top) + 'px';
-  wrap.style.width = Math.round(toRect.width) + 'px';
-  wrap.style.height = Math.round(toRect.height) + 'px';
+  setPanelRect(wrap, toRect);
   var finished = false;
   var finish = function () {
-    if (finished) return;
+    if (finished || myToken !== wrap.__panelAnimToken) return;
     finished = true;
     try { wrap.classList.remove('panel-anim'); } catch (e) { wbWarn(e) }
     wrap.removeEventListener('transitionend', onEnd);
     if (done) done();
   };
-  var onEnd = function (e) { if (e.target === wrap && e.propertyName === 'height') finish(); };
+  // 上下展开看 height、左右展开看 width —— 两个都算，哪条先跑完就先收尾
+  var onEnd = function (e) { if (e.target === wrap && (e.propertyName === 'height' || e.propertyName === 'width')) finish(); };
   wrap.addEventListener('transitionend', onEnd);
   setTimeout(finish, PANEL_ANIM_MS + 140);   // 兜底：transitionend 偶发不触发
+}
+
+function setPanelRect(wrap, rect) {
+  wrap.style.left = Math.round(rect.left) + 'px';
+  wrap.style.top = Math.round(rect.top) + 'px';
+  wrap.style.width = Math.round(rect.width) + 'px';
+  wrap.style.height = Math.round(rect.height) + 'px';
+}
+
+// 目标几何：axes.v = 上下撑满（top/height 取网格）；axes.h = 左右撑满（left/width 取网格）；
+// 没展开的那一轴保持原格子（以占位格为准）的位置与尺寸。
+function panelExpandRect(gridEl, slot, axes) {
+  const g = gridEl.getBoundingClientRect();
+  const s = slot.getBoundingClientRect();
+  return {
+    left: axes.h ? g.left : s.left,
+    top: axes.v ? g.top : s.top,
+    width: axes.h ? g.width : s.width,
+    height: axes.v ? g.height : s.height,
+  };
+}
+
+// 箭头 / 提示随展开轴翻转（上下、左右各自独立）
+function syncExpandButtons(st) {
+  const v = !!(st.axes && st.axes.v);
+  const h = !!(st.axes && st.axes.h);
+  if (st.btn) {
+    st.btn.textContent = v ? '▼' : '▲';
+    st.btn.title = v ? '收起（恢复原来的高度）' : '展开到最高（再点一次收起）';
+  }
+  if (st.btnX) {
+    st.btnX.textContent = h ? '▶' : '◀';
+    st.btnX.title = h ? '收起（恢复原来的宽度）' : '左右展开到满宽（再点一次收起）';
+  }
 }
 
 // 找到某个面板的展开状态（没展开 = null）
@@ -161,10 +196,12 @@ function collapseOne(st) {
   if (at >= 0) panelExpandStates.splice(at, 1);
   try {
     const wrap = st.wrap;
+    st.seq = (st.seq || 0) + 1;   // 让进行中的展开动画回调失效（别再解冻/干扰收起）
+    st.axes = { v: false, h: false };
+    syncExpandButtons(st);
     // 目标几何 = 占位格（原格子）；占位格在展开期间一直钉着，所以这里能直接量到
     let toRect = null;
     try { if (st.slot && st.slot.parentNode) toRect = st.slot.getBoundingClientRect(); } catch (e) { toRect = null; }
-    if (st.btn) { st.btn.textContent = '▲'; st.btn.title = '展开到最高（再点一次收起）'; }
     window.removeEventListener('resize', st.onResize);
     document.removeEventListener('keydown', st.onKey, true);
     if (st.backdrop) {
@@ -174,6 +211,7 @@ function collapseOne(st) {
     }
     const reset = function () {
       try {
+        clearPanelFreeze(wrap);
         wrap.classList.remove('panel-expanded');
         wrap.classList.remove('panel-anim');
         wrap.style.position = '';
@@ -185,9 +223,12 @@ function collapseOne(st) {
         if (st.slot && st.slot.parentNode) st.slot.parentNode.removeChild(st.slot);
       } catch (e) { wbWarn(e) }
     };
-    // 收起同理：贴底冻结 → 缩短动画 → 解冻（内容不会来回跳）
+    // 收起同理：贴住不动的边冻结 → 缩回动画 → 解冻（内容不会来回跳）
     if (toRect && wrap.isConnected && !panelMotionOff()) {
-      const unfreeze = freezePanelWebviews(wrap);
+      const from = wrap.getBoundingClientRect();
+      clearPanelFreeze(wrap);   // 展开动画若还冻着，先解掉，再按反方向重新冻结
+      const unfreeze = freezePanelWebviews(wrap, panelFreezeOpts(from, toRect));
+      wrap.__panelUnfreeze = unfreeze;
       animatePanelBox(wrap, toRect, function () { try { unfreeze(); } catch (e) { wbWarn(e) } reset(); });
     } else {
       reset();
@@ -195,22 +236,33 @@ function collapseOne(st) {
   } catch (e) { wbWarn(e) }
 }
 
-// 展开/收起时把面板里的 <webview> **贴底冻结**（尺寸不变 + 底边钉住容器底边）。
+// 展开/收起时把面板里的 <webview> **冻结住变化的那一轴**（尺寸不变 + 钉住不动的边）。
 //
-// 为什么这么做：面板展开是「下边缘不动、上边缘往上长」。若让 webview 跟着逐帧长高，
+// 为什么这么做：面板展开是「一条边不动、另一条边往外长」。若让 webview 跟着逐帧变尺寸，
 // guest（DSH 对话页，独立进程）会每帧重排 → 内容抖。冻结后 guest 全程只重排 1 次。
 //
-// ⚠⚠ 必须用 absolute + bottom:0 钉底，**不能**用 flex 的 margin-top:auto：
-//    收起时容器会变得比冻结高度更矮，flex 在「负剩余空间」下会把 auto 边距当 0，
+// ⚠⚠ 必须用 absolute + 钉住不动的边，**不能**用 flex 的 margin-top:auto：
+//    收起时容器会变得比冻结尺寸更小，flex 在「负剩余空间」下会把 auto 边距当 0，
 //    元素被顶到上方、底部被裁 → 贴底的输入框整块消失，解冻后才跳回来（踩过的坑）。
-//    绝对定位 + bottom:0 则始终以底边对齐容器底边，超出部分从**上方**被裁 →
+//    绝对定位 + bottom:0 / left:0 则始终以那条边对齐容器，超出部分从另一边被裁 →
 //    输入框全程可见，展开/收起都不跳。
-function freezePanelWebviews(wrap) {
+//
+// opts：{ freezeWidth, freezeHeight, pinBottom, pinLeft, pinRight }
+//   上下展开：freezeHeight + pinBottom
+//   左右展开：freezeWidth + 钉住不动的那条竖边（pinLeft / pinRight）
+//   两轴同时展开：两个都冻，钉底部 + 一条竖边
+function freezePanelWebviews(wrap, opts) {
+  opts = opts || { freezeHeight: true, pinBottom: true };
+  const freezeW = !!opts.freezeWidth;
+  const freezeH = !!opts.freezeHeight;
+  if (!freezeW && !freezeH) return function () { };
   const list = [];
   try {
     wrap.querySelectorAll('webview').forEach(function (wv) {
-      const h = Math.round(wv.getBoundingClientRect().height);
-      if (!h) return;
+      const r = wv.getBoundingClientRect();
+      const w = Math.round(r.width), h = Math.round(r.height);
+      if (freezeW && !w) return;
+      if (freezeH && !h) return;
       const body = wv.parentElement;
       let changedBodyPos = false;
       if (body) {
@@ -220,11 +272,22 @@ function freezePanelWebviews(wrap) {
       }
       list.push({ wv: wv, body: body, changedBodyPos: changedBodyPos });
       wv.style.position = 'absolute';
-      wv.style.left = '0';
-      wv.style.right = '0';
-      wv.style.bottom = '0';
-      wv.style.height = h + 'px';
       wv.style.flex = 'none';
+      if (freezeW) {
+        wv.style.width = w + 'px';
+        if (opts.pinRight) { wv.style.right = '0'; wv.style.left = ''; }
+        else { wv.style.left = '0'; wv.style.right = ''; }
+      } else {
+        wv.style.left = '0';
+        wv.style.right = '0';
+      }
+      if (freezeH) {
+        wv.style.height = h + 'px';
+        if (opts.pinBottom) wv.style.bottom = '0';
+      } else {
+        wv.style.top = '0';
+        wv.style.bottom = '0';
+      }
     });
   } catch (e) { wbWarn(e) }
   if (!list.length) return function () { };
@@ -235,7 +298,9 @@ function freezePanelWebviews(wrap) {
         wv.style.position = '';
         wv.style.left = '';
         wv.style.right = '';
+        wv.style.top = '';
         wv.style.bottom = '';
+        wv.style.width = '';
         wv.style.height = '';
         wv.style.flex = '';
         if (it.changedBodyPos && it.body) it.body.style.position = '';
@@ -244,36 +309,83 @@ function freezePanelWebviews(wrap) {
   };
 }
 
-function expandPanel(wrap, btn) {
+// 冻结策略：哪一轴的尺寸真的在变就冻哪一轴；左右变宽时钉住**位移更小的那条竖边**
+// （按起止几何算，不只看当前展开轴 —— 从「上下+左右」收回左右时，宽度也在变）
+function panelFreezeOpts(from, to) {
+  const widthDelta = Math.abs(to.width - from.width) > 1;
+  const heightDelta = Math.abs(to.height - from.height) > 1;
+  const opts = {
+    freezeWidth: widthDelta,
+    freezeHeight: heightDelta,
+    pinBottom: heightDelta,
+    pinLeft: false,
+    pinRight: false,
+  };
+  if (widthDelta) {
+    const dLeft = Math.abs(Math.round(to.left) - Math.round(from.left));
+    const dRight = Math.abs(Math.round(to.left + to.width) - Math.round(from.left + from.width));
+    if (dLeft > 1 && dRight < dLeft) opts.pinRight = true;
+    else opts.pinLeft = true;
+  }
+  return opts;
+}
+
+// 当前面板上还挂着的冻结句柄：收尾 / 收起时统一清掉，避免"动画被打断后 webview 卡在冻结尺寸"
+function clearPanelFreeze(wrap) {
+  try {
+    if (wrap && wrap.__panelUnfreeze) { wrap.__panelUnfreeze(); wrap.__panelUnfreeze = null; }
+  } catch (e) { wbWarn(e) }
+}
+
+// 从当前几何动画到 toRect；同一面板的新动画会顶掉旧动画的回调（seq 对不上就不解冻）
+function startPanelAnim(wrap, st, toRect) {
+  const from = wrap.getBoundingClientRect();
+  if (panelMotionOff()) { clearPanelFreeze(wrap); setPanelRect(wrap, toRect); return; }
+  st.seq = (st.seq || 0) + 1;
+  const mySeq = st.seq;
+  clearPanelFreeze(wrap);   // 上一轮冻结先解掉，再按新轴冻结（中途换目标 / 连续点击）
+  const unfreeze = freezePanelWebviews(wrap, panelFreezeOpts(from, toRect));
+  wrap.__panelUnfreeze = unfreeze;
+  animatePanelBox(wrap, toRect, function () {
+    if (mySeq !== st.seq) return;   // 已被更新的动画接管：由新的冻结 / 解冻负责收尾
+    try { unfreeze(); } catch (e) { wbWarn(e) }
+    if (wrap.__panelUnfreeze === unfreeze) wrap.__panelUnfreeze = null;
+  });
+}
+
+// 设置一个面板要展开的轴（{v,h}）；两轴都 false = 收起。
+// 已在展开态时只换目标几何 —— 先上下、再左右 ⇒ 两轴都展开，铺满整格。
+function setPanelExpand(wrap, axes, btn, btnX) {
   const gridEl = wrap.parentElement;
   if (!gridEl) return;
-  if (expandedStateOf(wrap)) return;   // 已经展开了，别重复插占位格
-  // ★ 2026-09-20：**不再"同时只允许展开一个"**（原来这里有一句 collapsePanel()）。
-  //   现在可以多个面板并排同时展开（用户要求：自我复盘的两个 AI 窗口都要能展开）。
-  //   同一列/同一片区域的两个面板同时展开会互相盖住 —— 靠 z-index 定序：后展开的压在上面；
-  //   ⚠ 被完全盖住的那个面板，标题行的 ▲ 会点不到，得先收掉上面那个（横向并排的场景没这个问题）。
+  const want = { v: !!(axes && axes.v), h: !!(axes && axes.h) };
+  if (!want.v && !want.h) { collapsePanel(wrap); return; }
+  const st0 = expandedStateOf(wrap);
   try {
+    if (st0) {
+      st0.axes = want;
+      if (btn) st0.btn = btn;
+      if (btnX) st0.btnX = btnX;
+      syncExpandButtons(st0);
+      startPanelAnim(wrap, st0, panelExpandRect(gridEl, st0.slot, want));
+      return;
+    }
     const from = wrap.getBoundingClientRect();   // ① 原格子几何
     // ② 占位：同坐标同跨度的空格子，保证其它面板不动
     const slot = el('div', 'panel-slot');
     slot.style.gridColumn = wrap.style.gridColumn;
     slot.style.gridRow = wrap.style.gridRow;
     gridEl.insertBefore(slot, wrap);
-    // ③ 目标几何：横向保持原位置与原宽度（以占位格为准），高度占满整格。
+    // ③ 目标几何：展开的那一轴取整个网格，另一轴保持原格子（以占位格为准）。
     //    ⚠ 必须用 position:fixed + 视口坐标：
     //    带 grid-column/grid-row 的网格项改成 absolute 后，**包含块是它自己那一格网格区**
     //    而不是整个网格 —— 用"相对网格的偏移"会再叠加一次格子起点，导致面板右移/下移一格
     //    （现象：面板"脱离场景"、跑到别的列还超出底边）。
-    const g = gridEl.getBoundingClientRect();
-    const s = slot.getBoundingClientRect();
-    const to = { left: s.left, top: g.top, width: s.width, height: g.height };
+    const to = panelExpandRect(gridEl, slot, want);
     // ④ 先落到「起点」：fixed + 原格子几何（此刻不动画）
     wrap.style.position = 'fixed';
     wrap.style.zIndex = String(++panelExpandZ);   // 后展开的压住先展开的
-    wrap.style.left = Math.round(from.left) + 'px';
-    wrap.style.top = Math.round(from.top) + 'px';
-    wrap.style.width = Math.round(from.width) + 'px';
-    wrap.style.height = Math.round(from.height) + 'px';
+    setPanelRect(wrap, from);
     wrap.classList.add('panel-expanded');
     // ⑤ 聚焦层（全屏压暗 + 青色渐变）**已按用户要求关闭**：
     //    "光效要围绕着窗口，不是全屏都有" → 现在只保留环绕面板的常驻光环（见 styles.css 的 .panel-expanded）。
@@ -282,43 +394,35 @@ function expandPanel(wrap, btn) {
     // gridEl.appendChild(backdrop);
     // requestAnimationFrame(function () { try { backdrop.classList.add('on'); } catch (e) { /* ignore */ } });
     const backdrop = null;
-    // ⑥ 过渡到满高：动画期间**贴底冻结** webview（内容原地不动、只重排 1 次），
-    //    动画结束解冻 → 新增高度全部出现在输入框上方，看起来就是"展开显示上面的信息"。
-    if (panelMotionOff()) {
-      wrap.style.left = Math.round(to.left) + 'px';
-      wrap.style.top = Math.round(to.top) + 'px';
-      wrap.style.width = Math.round(to.width) + 'px';
-      wrap.style.height = Math.round(to.height) + 'px';
-    } else {
-      const unfreeze = freezePanelWebviews(wrap);
-      animatePanelBox(wrap, to, unfreeze);
-    }
-    btn.textContent = '▼';
-    btn.title = '收起（恢复原来的高度）';
-    // ⑦ 窗口尺寸变化时重新贴合（不带动画）；ESC 收起**最上层那个**（连按 = 逐个退栈）；
+    const st = { wrap, slot, btn: btn || null, btnX: btnX || null, axes: want, seq: 0,
+                 onResize: null, onKey: null, backdrop };
+    syncExpandButtons(st);
+    // ⑥ 窗口尺寸变化时按当前轴重新贴合（不带动画）；ESC 收起**最上层那个**（连按 = 逐个退栈）；
     //    面板若已被移出文档则自动清理（只清自己，别把别的面板一起收了）
-    const onResize = () => {
+    st.onResize = () => {
       if (!wrap.isConnected) { collapsePanel(wrap); return; }
       try {
         wrap.classList.remove('panel-anim');
-        const g2 = gridEl.getBoundingClientRect();
-        const s2 = slot.getBoundingClientRect();
-        wrap.style.left = Math.round(s2.left) + 'px';
-        wrap.style.top = Math.round(g2.top) + 'px';
-        wrap.style.width = Math.round(s2.width) + 'px';
-        wrap.style.height = Math.round(g2.height) + 'px';
+        setPanelRect(wrap, panelExpandRect(gridEl, slot, st.axes));
       } catch (e) { wbWarn(e) }
     };
-    const onKey = (e) => {
+    st.onKey = (e) => {
       if (!wrap.isConnected) { collapsePanel(wrap); return; }
       // 多个面板同时展开时，ESC 只收最上层那个（= 最后展开的），再按一次收下一个
       if (e.key === 'Escape' && panelExpandStates[panelExpandStates.length - 1] === st) collapsePanel(wrap);
     };
-    window.addEventListener('resize', onResize);
-    document.addEventListener('keydown', onKey, true);
-    const st = { wrap, slot, btn, onResize, onKey, backdrop };
+    window.addEventListener('resize', st.onResize);
+    document.addEventListener('keydown', st.onKey, true);
     panelExpandStates.push(st);
+    // ⑦ 过渡到目标几何：动画期间冻结 webview（内容只重排 1 次），结束后解冻。
+    startPanelAnim(wrap, st, to);
   } catch (e) { wbWarn(e) }
+}
+
+// 老入口保留：只要求"上下展开"（若面板已经左右展开，保留那一轴，不把宽度收回去）
+function expandPanel(wrap, btn) {
+  const st = expandedStateOf(wrap);
+  setPanelExpand(wrap, { v: true, h: !!(st && st.axes && st.axes.h) }, btn, st ? st.btnX : null);
 }
 
 function panelHead(title, sub) {
@@ -342,23 +446,51 @@ function makePanel(meta, idx) {
   const badge = el('span', 'panel-badge', String(idx + 1).padStart(2, '0'));
   badge.title = '面板序号';
   head.insertBefore(badge, head.firstChild);
-  // 「展开到最高」箭头：AI 面板（harness）默认就有；别的类型想有就在场景 json 里写 "expand": true
-  // （放标题**右边**、不居中——居中会撞上右侧的重新加载按钮/引擎状态字，Blender 面板尤其明显）。
-  // 展开逻辑与本按钮无关（expandPanel 是通用的：占位格 + position:fixed 撑满整个网格高度），
-  // 所以 embed 这类面板一样能"向上展开"：动画期间 webview 贴底冻结，新增高度出现在内容上方。
-  if (meta.type === 'harness' || meta.expand) {
-    const exp = el('button', 'panel-expand', '▲');
-    exp.type = 'button';
-    exp.title = '展开到最高（再点一次收起）';
-    exp.addEventListener('click', function (ev) {
-      ev.preventDefault();
-      ev.stopPropagation();
-      if (expandedStateOf(wrap)) collapsePanel(wrap);
-      else expandPanel(wrap, exp);
-    });
+  // 展开按钮：AI 面板（harness）默认同时有「上下 ▲」与「左右 ◀」；别的类型想有就在场景 json 里
+  // 写 "expand": true（两轴都有）或 "expandX": true（只加左右）。放标题**右边**、不居中——居中会撞上
+  // 右侧的重新加载按钮 / 引擎状态字，窄面板尤其明显。
+  // 展开逻辑与本按钮无关（setPanelExpand 是通用的：占位格 + position:fixed 撑满网格的某一轴），
+  // 所以 embed 这类面板一样能"向上 / 向左右展开"：动画期间 webview 冻结，新增区域出现在内容上方 / 侧边。
+  if (meta.type === 'harness' || meta.expand || meta.expandX) {
+    const canV = (meta.type === 'harness' || meta.expand);
+    const canH = (meta.type === 'harness' || meta.expand || meta.expandX);
+    const exp = canV ? el('button', 'panel-expand', '▲') : null;
+    const expX = canH ? el('button', 'panel-expand panel-expand-x', '◀') : null;
+    // 两个按钮共用一套状态：点哪个就翻哪个轴，两轴都翻回来 = 收起
+    const toggleAxis = function (axis) {
+      const st = expandedStateOf(wrap);
+      const cur = st ? st.axes : { v: false, h: false };
+      const next = { v: !!cur.v, h: !!cur.h };
+      next[axis] = !next[axis];
+      if (!next.v && !next.h) { collapsePanel(wrap); return; }
+      setPanelExpand(wrap, next, exp, expX);
+    };
+    if (exp) {
+      exp.type = 'button';
+      exp.title = '展开到最高（再点一次收起）';
+      exp.addEventListener('click', function (ev) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        toggleAxis('v');
+      });
+    }
+    if (expX) {
+      expX.type = 'button';
+      expX.title = '左右展开到满宽（再点一次收起）';
+      expX.addEventListener('click', function (ev) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        toggleAxis('h');
+      });
+    }
+    // 插在标题之后（▲ 在前、◀ 随后），保持「标题 → 展开按钮 → 右侧工具」的阅读顺序
     const titleEl = head.querySelector('.panel-title');
-    if (titleEl && titleEl.nextSibling) head.insertBefore(exp, titleEl.nextSibling);
-    else head.appendChild(exp);
+    const anchor = (titleEl && titleEl.nextSibling) ? titleEl.nextSibling : null;
+    [exp, expX].forEach(function (b) {
+      if (!b) return;
+      if (anchor) head.insertBefore(b, anchor);
+      else head.appendChild(b);
+    });
   }
   wrap.appendChild(head);
   const body = el('div', 'panel-body');
@@ -5855,11 +5987,16 @@ renderers.view = (body, meta, head) => {
       window.APP_RENDER_UTILS.wireHeadNoDrag(nameEl);
     }
     // 2026-10-18（宿主实测反馈）：▲ 原来被 makePanel 插在 title 之后、又被这里的 nameEl/acts 挤到**✕ 关闭右边** ⇒
-    //   容易误点关闭。现在把 ▲ 挪到**整排按钮最左边**（=「⟳ 重读」左边），并补一次 wireHeadNoDrag。
-    const expBtn = head.querySelector('.panel-expand');
+    //   容易误点关闭。现在把 ▲ / ◀ 都挪到**整排按钮最左边**（=「⟳ 重读」左边），并补一次 wireHeadNoDrag。
+    const expBtn = head.querySelector('.panel-expand:not(.panel-expand-x)');
     if (expBtn) {
       head.insertBefore(expBtn, acts);
       if (window.APP_RENDER_UTILS && window.APP_RENDER_UTILS.wireHeadNoDrag) window.APP_RENDER_UTILS.wireHeadNoDrag(expBtn);
+    }
+    const expBtnX = head.querySelector('.panel-expand-x');
+    if (expBtnX) {
+      head.insertBefore(expBtnX, acts);
+      if (window.APP_RENDER_UTILS && window.APP_RENDER_UTILS.wireHeadNoDrag) window.APP_RENDER_UTILS.wireHeadNoDrag(expBtnX);
     }
     body.appendChild(bodyBox); body.appendChild(statusEl);
   } else {
@@ -7125,9 +7262,10 @@ renderers.msgflow = function (body, meta, head) {
   return function () { dead = true; if (timer) clearInterval(timer); };
 };
 
-// ============ chan：一个平台一格卡片（2026-11-13）============
-// 为什么有它：社交以后会接多个平台（QQ / 飞书 / 更多），一条大消息流会越长越难查；
-//   用户要「每个平台做一个面板，卡片类型」——加一个平台 = social.json 里再加一个 type:"chan" 面板。
+// ============ chan：单个平台卡片（2026-11-13；2026-11-18 起常嵌在 channels 里并列）============
+// 为什么有它：社交有多个平台；2026-11-18 用户要求不要每个平台各占一块，
+// 改成 channels 面板里并列（ch-hub.channels）；chan 只负责**单个平台**的卡片/自检。
+// 加平台 = ch-hub.channels 数组加一项（key + 可选 selfCheck/console），不再加 top-level panel。
 // 取数口径与 msgflow 完全同一套（window.app.social.flow），不新造接口：
 //   meta.channel      平台 key（qq / feishu / future），对应 flow().channels 里那一条
 //   meta.sessionId    人格会话（消息流的真源，与 msgflow 同值）
@@ -7138,7 +7276,8 @@ renderers.chan = function (body, meta, head) {
   body.classList.add('ch-panel');
   var POLL_MS = 4000;
   var KEY = String(meta.channel || '');
-  var st = { ch: null, err: '', others: 0, at: 0, busy: false, toasted: false };
+  var st = { ch: null, err: '', others: 0, at: 0, busy: false, toasted: false,
+    checks: null, checking: false, action: '', accountSel: null };
 
   var card = document.createElement('div');
   card.className = 'ch-card';
@@ -7153,6 +7292,255 @@ renderers.chan = function (body, meta, head) {
   function stateWord(s) { return s === 'ok' ? '通' : (s === 'warn' ? '待' : '无'); }
   function toast(msg, bad) {
     try { if (typeof window.__tbsToast === 'function') window.__tbsToast(msg, !!bad, bad ? 8000 : 3000); } catch (e) { wbWarn(e) }
+  }
+
+  // ---------- 微信通道：启动 / 停止 / 自检 / 发测试 / 钉账号 ----------
+  // 只在 meta.selfCheck 的卡片上出现（目前是 social.json 的 ch-hub 里的 wechat 列）。
+  function wxApi() { return (window.app && window.app.wechat) || null; }
+  function wxReady() {
+    var api = wxApi();
+    if (!api || typeof api.selfCheck !== 'function') {
+      toast('需重启一次工作台：主进程/preload 还是旧的（没有 wechat.selfCheck）', true);
+      return false;
+    }
+    return true;
+  }
+  function chBtn(text, title, fn, disabled) {
+    var b = document.createElement('button');
+    b.className = 'ch-btn';
+    b.textContent = text;
+    b.title = title || '';
+    b.disabled = !!disabled;
+    b.addEventListener('click', function () {
+      if (b.disabled) return;
+      try { fn(); } catch (e) { toast('操作失败：' + String((e && e.message) || e), true); }
+    });
+    return b;
+  }
+  function startWx() {
+    if (!wxReady() || st.action) return;
+    var accounts = (st.ch && Array.isArray(st.ch.accounts)) ? st.ch.accounts : [];
+    var pinned = String((st.ch && st.ch.pinnedAccount) || '');
+    if (accounts.length && !pinned) {
+      toast('还没选要接的账号：先在「微信账号」下拉选小号并点「保存账号」，再启动；否则可能自动接到主号', true);
+      return;
+    }
+    var pinnedLabel = String((st.ch && (st.ch.pinnedAccountLabel || st.ch.pinnedAccount)) || '');
+    var go = true;
+    try {
+      go = window.confirm(pinned
+        ? ('确定要接的账号是「' + pinnedLabel + '」？\n如果这是主号，先停下去下拉换成小号；接主号有封号/隐私风险。')
+        : '确定现在微信登录的是要接的小号？\n如果还是主号，先切小号再启动；接主号有封号/隐私风险。');
+    } catch (e) { go = true; }
+    if (!go) return;
+    st.action = 'start'; draw();
+    Promise.resolve(wxApi().start()).then(function (r) {
+      st.action = '';
+      if (!r || r.ok === false) {
+        toast('启动失败：' + ((r && r.error) || '未知原因') + '（日志 外壳\\data\\微信通道\\）', true);
+      } else {
+        var b = r.bridge || {};
+        toast('微信通道已启动' + (b.online ? '（桥接在线）' : '（等微信登录/桥接心跳）'));
+        setTimeout(function () { if (!st.checking && !st.action) runCheck(); }, 20000);
+      }
+      load();
+    }).catch(function (e) {
+      st.action = '';
+      toast('启动失败：' + String((e && e.message) || e), true);
+      draw();
+    });
+  }
+  function stopWx() {
+    if (!wxReady() || st.action) return;
+    st.action = 'stop'; draw();
+    Promise.resolve(wxApi().stop()).then(function (r) {
+      st.action = '';
+      st.checks = null;
+      toast(r && r.ok === false ? ('停止失败：' + ((r && r.error) || '未知原因')) : '微信通道已停止', !!(r && r.ok === false));
+      load();
+    }).catch(function (e) {
+      st.action = '';
+      toast('停止失败：' + String((e && e.message) || e), true);
+      draw();
+    });
+  }
+  function runCheck() {
+    if (!wxReady() || st.checking) return;
+    st.checking = true; st.action = 'check'; draw();
+    Promise.resolve(wxApi().selfCheck()).then(function (r) {
+      st.checking = false; st.action = '';
+      if (!r || !Array.isArray(r.checks)) {
+        toast('自检没返回结果：' + ((r && r.error) || '主进程没响应'), true);
+        draw();
+        return;
+      }
+      st.checks = r;
+      draw();
+      load();
+    }).catch(function (e) {
+      st.checking = false; st.action = '';
+      toast('自检失败：' + String((e && e.message) || e), true);
+      draw();
+    });
+  }
+  function sendTest() {
+    if (!wxReady() || st.action) return;
+    st.action = 'test'; draw();
+    Promise.resolve(wxApi().sendTest({ chat: '文件传输助手' })).then(function (r) {
+      st.action = '';
+      var d = (r && r.delivery) || {};
+      var ds = String(d.status || '');
+      var confirmed = d.confirmed === true || ds === 'confirmed' || ds === 'sent' || ds === 'delivered';
+      var failed = ds === 'failed' || ds === 'error' || (d.error && !confirmed);
+      var bad = !r || r.ok === false || failed;
+      var msg = bad
+        ? ('测试消息失败：' + ((r && r.error) || d.error || ds || '未知原因'))
+        : ('测试消息已提交' + (confirmed ? '（已确认落屏，去看文件传输助手）' : '（未确认，去看文件传输助手是否收到）'));
+      toast(msg, bad);
+      draw();
+    }).catch(function (e) {
+      st.action = '';
+      toast('测试消息失败：' + String((e && e.message) || e), true);
+      draw();
+    });
+  }
+  function pinAccount(account, sel) {
+    if (!wxReady() || st.action) return;
+    var chosen = String(account || '');
+    var label = '';
+    try { label = sel && sel.options && sel.selectedIndex >= 0 ? String(sel.options[sel.selectedIndex].textContent || '') : ''; } catch (e) { wbWarn(e); }
+    var ok = true;
+    try {
+      ok = window.confirm(chosen
+        ? ('确定把「' + (label || chosen) + '」钉成要接的微信小号？\n钉错账号会让它从主号/错误账号发消息。')
+        : '确定改为「自动：最近活跃」？\n双开时可能自动选到主号，建议手动选小号。');
+    } catch (e) { ok = true; }
+    if (!ok) return;
+    st.action = 'pin'; draw();
+    Promise.resolve(wxApi().pinAccount(chosen)).then(function (r) {
+      st.action = '';
+      if (!r || r.ok === false) {
+        toast('保存账号失败：' + ((r && r.error) || '未知原因'), true);
+      } else {
+        st.accountSel = chosen;
+        if (st.ch) {
+          st.ch.pinnedAccount = String(r.account || '');
+          st.ch.pinnedAccountLabel = String(r.accountLabel || r.account || '');
+        }
+        toast('已保存微信账号：' + (r.accountLabel || r.account || '自动（最近活跃）') + (r.note ? '；' + r.note : ''));
+        setTimeout(function () { if (!st.checking && !st.action) runCheck(); }, 10000);
+      }
+      load();
+    }).catch(function (e) {
+      st.action = '';
+      toast('保存账号失败：' + String((e && e.message) || e), true);
+      draw();
+    });
+  }
+  function drawAccountPicker(c) {
+    if (!meta.selfCheck) return;
+    var box = document.createElement('div');
+    box.className = 'ch-account-pick';
+    var lab = document.createElement('div');
+    lab.className = 'ch-account-pick-label';
+    lab.textContent = '微信账号（双开时选小号）';
+    box.appendChild(lab);
+
+    var accounts = (c && Array.isArray(c.accounts)) ? c.accounts : [];
+    if (!accounts.length) {
+      var hint = document.createElement('div');
+      hint.className = 'ch-account-pick-empty';
+      hint.textContent = '启动通道后，这里会列出本机登录的微信账号；双开时可下拉选择。';
+      box.appendChild(hint);
+      card.appendChild(box);
+      return;
+    }
+
+    var sel = document.createElement('select');
+    sel.className = 'ch-select';
+    sel.title = '选择要接的微信账号；不选 = 自动按最近活跃（双开可能选错）';
+    sel.disabled = !!st.action;
+    var auto = document.createElement('option');
+    auto.value = '';
+    auto.textContent = '自动：最近活跃（双开可能选错）';
+    sel.appendChild(auto);
+    accounts.forEach(function (a) {
+      var o = document.createElement('option');
+      o.value = String(a.account || a.wxid || '');
+      var t = String(a.label || a.nick || a.wxid || a.account || '');
+      if (a.current) t += '（当前）';
+      if (a.pinned) t += '（已钉）';
+      o.textContent = t;
+      sel.appendChild(o);
+    });
+    var pinHit = accounts.filter(function (a) { return !!a.pinned; })[0];
+    var saved = st.accountSel === null ? null : String(st.accountSel || '');
+    var want = '';
+    if (saved !== null) want = saved;
+    else if (pinHit) want = String(pinHit.account || pinHit.wxid || '');
+    else if (accounts.length === 1) want = String(accounts[0].account || accounts[0].wxid || '');
+    var wantHit = accounts.filter(function (a) {
+      return want && (String(a.account || '') === want || String(a.wxid || '') === want);
+    })[0];
+    if (wantHit) sel.value = String(wantHit.account || wantHit.wxid || '');
+    else if (saved !== null) sel.value = '';
+    sel.addEventListener('change', function () { st.accountSel = sel.value; });
+    box.appendChild(sel);
+
+    var btn = chBtn('保存账号', '把下拉选中的账号写进鲸鲸配置；双开时钉住小号', function () {
+      pinAccount(sel.value, sel);
+    }, !!st.action);
+    box.appendChild(btn);
+    var hint2 = document.createElement('div');
+    hint2.className = 'ch-account-pick-empty';
+    hint2.textContent = '不选 = 自动选最近活跃；双开请手动选小号再保存。列表可能含历史号，以「当前」标记为准。';
+    box.appendChild(hint2);
+    card.appendChild(box);
+  }
+
+  function drawActions(c) {
+    var acts = document.createElement('div');
+    acts.className = 'ch-actions';
+    var busy = !!st.action;
+    var running = !!(c && c.running);
+    var startLabel = st.action === 'start' ? '启动中…' : (st.action === 'stop' ? '停止中…' : (running ? '■ 停止' : '▶ 启动'));
+    acts.appendChild(chBtn(startLabel,
+      running ? '停止壳拉起的鲸鲸内核/桥接/适配器' : '启动鲸鲸内核/桥接/31241 适配器（需已装 whale_girl）',
+      running ? stopWx : startWx, busy));
+    acts.appendChild(chBtn(st.checking ? '自检中…' : '通道自检',
+      '逐项检查：鲸鲸 / 内核 / 桥接 / UIA / 账号 / 插件 / 适配器 / DSH 会话 / 真实发送',
+      runCheck, st.checking || busy));
+    acts.appendChild(chBtn(st.action === 'test' ? '发送中…' : '发测试消息',
+      '往文件传输助手发一条，走鲸鲸账号保护与桥接队列；confirmed 才是落屏证据',
+      sendTest, busy));
+    card.appendChild(acts);
+  }
+  function drawChecks() {
+    var box = document.createElement('div');
+    box.className = 'ch-checks';
+    var sum = document.createElement('div');
+    sum.className = 'ch-check-sum';
+    var verdict = st.checks.state === 'ok' ? '可以过' : (st.checks.state === 'warn' ? '待确认' : '还过不了');
+    sum.textContent = (st.checks.summary || '') + ' · ' + verdict;
+    box.appendChild(sum);
+    (st.checks.checks || []).forEach(function (it) {
+      var row = document.createElement('div');
+      row.className = 'ch-check is-' + (it.level || 'warn');
+      var dot = document.createElement('span');
+      dot.className = 'ch-check-dot';
+      dot.textContent = it.level === 'ok' ? '●' : (it.level === 'warn' ? '○' : '×');
+      var lab = document.createElement('span');
+      lab.className = 'ch-check-label';
+      lab.textContent = it.label || it.key || '';
+      var det = document.createElement('span');
+      det.className = 'ch-check-detail';
+      det.textContent = it.detail || '';
+      row.appendChild(dot);
+      row.appendChild(lab);
+      row.appendChild(det);
+      box.appendChild(row);
+    });
+    card.appendChild(box);
   }
 
   // ---------- 卡片右上「⚙ 控制台」：只在 meta.console 指定时出现（2026-11-17：打开面板，不再弹窗）----------
@@ -7200,6 +7588,28 @@ renderers.chan = function (body, meta, head) {
       btn.addEventListener('click', function () { btn.disabled = true; openConsole().then(function () { btn.disabled = false; }); });
       head1.appendChild(btn);
     }
+    // 微信配置入口：常驻在卡片标题行，通道停着也能打开（停着也需要先选账号/改群聊规则）。
+    // 弹窗自己读配置、写白名单、保存后再决定是否重启；这里只负责把入口永远摆在明面上。
+    if (meta.selfCheck) {
+      var setBtn = document.createElement('button');
+      setBtn.className = 'ch-btn ch-settings';
+      setBtn.textContent = '⚙ 鲸鲸设置';
+      setBtn.title = '配置微信通道：账号、群聊触发、原生功能、回复长度、后台发送、会话隔离；不用碰鲸鲸 JSON';
+      setBtn.addEventListener('click', function () {
+        if (typeof window.openWechatSettings !== 'function') {
+          toast('设置界面还没接上：重启一次工作台（preload/renderer 是旧的）', true);
+          return;
+        }
+        setBtn.disabled = true;
+        Promise.resolve(window.openWechatSettings()).then(function () {
+          setBtn.disabled = false;
+        }).catch(function (e) {
+          setBtn.disabled = false;
+          toast('打开设置失败：' + String((e && e.message) || e), true);
+        });
+      });
+      head1.appendChild(setBtn);
+    }
     card.appendChild(head1);
 
     if (st.err) {
@@ -7212,13 +7622,44 @@ renderers.chan = function (body, meta, head) {
 
     var acct = document.createElement('div');
     acct.className = 'ch-account';
-    acct.textContent = (c && c.account) || '—';
+    acct.textContent = (c && (c.accountLabel || c.account)) || '—';
     card.appendChild(acct);
+
+    // 微信卡片常驻「会话隔离」一行：用户不用翻日志就能看出每个私聊/群聊是否真的分开。
+    if (meta.selfCheck) {
+      var iso = c && c.sessionIsolation;
+      var isoLine = document.createElement('div');
+      isoLine.className = 'ch-isolation ' + (iso && iso.enabled ? 'is-on' : 'is-off');
+      if (iso) {
+        var isoCount = Number(iso.count) || 0;
+        isoLine.textContent = (iso.enabled ? '会话隔离：已生效' : '会话隔离：未生效')
+          + ' · 群 ' + (Number(iso.groups) || 0) + ' / 私聊 ' + (Number(iso.privates) || 0)
+          + (isoCount ? ' · ' + isoCount + ' 个独立会话' : ' · 还没有微信会话');
+        isoLine.title = '每个私聊 / 每个群各自一条 DSH 会话，首条需要回的消息自动建；群和私聊不再共用「胡闹的大肥鱼」';
+      } else {
+        isoLine.textContent = '会话隔离：状态未上报（重启一次通道再刷新）';
+      }
+      card.appendChild(isoLine);
+    }
 
     var detail = document.createElement('div');
     detail.className = 'ch-detail';
     detail.textContent = (c && c.detail) || '（还没有状态）';
     card.appendChild(detail);
+
+    // 微信卡片：账号选择 + 动作 + 自检结果。结果留到下一次自检/停止，不被 4 秒轮询擦掉。
+    if (meta.selfCheck) {
+      drawAccountPicker(c);
+      drawActions(c);
+      if (st.checking) {
+        var checking = document.createElement('div');
+        checking.className = 'ch-empty';
+        checking.textContent = '自检中…（会查鲸鲸内核/桥接、UIA、账号、插件、适配器、DSH 会话、会话隔离）';
+        card.appendChild(checking);
+      } else if (st.checks) {
+        drawChecks();
+      }
+    }
 
     var stats = document.createElement('div');
     stats.className = 'ch-stats';
@@ -7301,6 +7742,121 @@ renderers.chan = function (body, meta, head) {
     load();
   }, POLL_MS);
   return function () { clearInterval(timer); };
+};
+
+// ============ channels：多个平台通道收进一个面板（2026-11-18）============
+// 用户要求：面板不要每个通道都占一个区域；通道并列在一整块「通道」面板里。
+// 加平台 = social.json 的 meta.channels 数组加一项，不再加 top-level panel。
+// 复用 renderers.chan（每个 cell 仍是一个完整的 ch-card：状态/账号/动作/自检都照旧），
+// 外层只负责并列和「收起/展开」；收起只留三行标题，展开恢复卡片内容。
+renderers.channels = function (body, meta, head) {
+  body.classList.add('ch-hub');
+  function toast(msg, bad) {
+    try {
+      if (typeof window.__tbsToast === 'function') window.__tbsToast(msg, !!bad, bad ? 8000 : 3000);
+    } catch (e) { wbWarn(e); }
+  }
+  var list = (Array.isArray(meta.channels) ? meta.channels : []).filter(function (x) {
+    return x && (x.key || x.channel);
+  });
+  var row = document.createElement('div');
+  row.className = 'ch-hub-row';
+  row.style.gridTemplateColumns = 'repeat(' + Math.max(1, list.length) + ', minmax(0, 1fr))';
+  body.appendChild(row);
+
+  var cleanups = [];
+  list.forEach(function (ch) {
+    var cell = document.createElement('div');
+    cell.className = 'ch-hub-cell';
+    row.appendChild(cell);
+    var m = Object.assign({}, meta, ch);
+    m.channel = String(ch.key || ch.channel || '');
+    m.selfCheck = !!ch.selfCheck;
+    m.console = String(ch.console || '');
+    m.consolePanel = String(ch.consolePanel || '');
+    m.sessionId = String(meta.sessionId || '');
+    m.sessionTitle = String(meta.sessionTitle || '');
+    var ret = renderers.chan(cell, m, head);
+    if (typeof ret === 'function') cleanups.push(ret);
+  });
+
+  var collapsed = false;
+  if (head && typeof head.appendChild === 'function') {
+    var gateState = document.createElement('span');
+    gateState.className = 'ch-gate-state';
+    gateState.textContent = '闸门 读取中…';
+    gateState.title = '外发安全闸门状态：QQ 代理是否在听、今日拦了几条';
+    head.appendChild(gateState);
+
+    var gateBtn = document.createElement('button');
+    gateBtn.type = 'button';
+    gateBtn.className = 'ch-hub-toggle ch-gate-btn';
+    gateBtn.textContent = '安全闸门';
+    gateBtn.title = '配置外发安全闸门：IP / 路径 / 密钥 / 账号拦截、QQ 接管、审计与自检';
+    gateBtn.addEventListener('click', function () {
+      if (typeof window.openOutboundSettings !== 'function') {
+        toast('安全闸门设置还没接上：重启一次工作台（preload / renderer 是旧的）', true);
+        return;
+      }
+      gateBtn.disabled = true;
+      Promise.resolve(window.openOutboundSettings()).then(function () {
+        gateBtn.disabled = false;
+        refreshGate();
+      }).catch(function (e) {
+        gateBtn.disabled = false;
+        toast('打开安全闸门设置失败：' + String((e && e.message) || e), true);
+      });
+    });
+    head.appendChild(gateBtn);
+
+    function refreshGate() {
+      if (typeof window.__outboundStatus !== 'function') return;
+      Promise.resolve(window.__outboundStatus()).then(function (s) {
+        if (!s) {
+          gateState.textContent = '闸门 未接上';
+          gateState.className = 'ch-gate-state is-warn';
+          return;
+        }
+        var qqOn = !(s.channels && s.channels.qq === false);
+        var qqBad = !!(qqOn && s.qq && s.qq.proxy && !s.qq.applied);
+        var on = !!s.enabled;
+        var bad = on && (qqBad || (qqOn && s.qq && s.qq.proxy && !s.listening) || !s.upstreamOk);
+        var n = (s.today && s.today.blocked) || 0;
+        gateState.textContent = '闸门 ' + (on ? '开' : '关')
+          + (on && s.mode === 'shadow' ? '·只记' : '')
+          + (qqBad ? '·QQ待接管' : '')
+          + (on && n ? '·今日拦 ' + n : '');
+        gateState.className = 'ch-gate-state ' + (!on ? 'is-off' : (bad ? 'is-warn' : 'is-ok'));
+        gateState.title = '外发安全闸门：' + (on ? '开' : '关')
+          + ' · 模式 ' + (s.mode === 'shadow' ? '只记录' : '真拦')
+          + ' · 代理 ' + (s.listening ? ('在听 ' + s.port) : '未起')
+          + ' · 上游 ' + (s.upstreamOk ? '通' : '不通')
+          + ' · QQ ' + (s.qq && s.qq.applied ? '已过闸门' : '直连 / 待接管');
+      }).catch(function () { /* 状态读不到就不显示，不打扰 */ });
+    }
+    refreshGate();
+    var gateTimer = setInterval(refreshGate, 8000);
+    cleanups.push(function () { clearInterval(gateTimer); });
+
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'ch-hub-toggle';
+    btn.textContent = '收起/展开';
+    btn.title = '收起通道卡片（收起只留标题行，展开恢复内容）';
+    btn.addEventListener('click', function () {
+      collapsed = !collapsed;
+      body.classList.toggle('is-collapsed', collapsed);
+      btn.textContent = collapsed ? '展开' : '收起/展开';
+      btn.title = collapsed ? '展开通道卡片（恢复内容）' : '收起通道卡片（只留标题行）';
+    });
+    head.appendChild(btn);
+  }
+
+  return function () {
+    cleanups.forEach(function (f) {
+      try { f(); } catch (e) { wbWarn(e); }
+    });
+  };
 };
 
 // ============ embed：把"本机自带的网页工具"整页内嵌进面板（<webview>） ============
@@ -7836,6 +8392,7 @@ renderers.embed = (body, meta, head) => {  body.classList.add('embed-panel');
   let disposed = false;
   let retryTimer = null;
   let retryLeft = 0;
+  let urlResolving = false;   // @site: 前缀解析进行中（2026-11-18，防重复挂载）
 
   // 记住"内置还是没内置"：默认内置；用户点了取消内置就一直是取消状态，直到自己切回来
   let embedded = true;
@@ -8082,6 +8639,25 @@ renderers.embed = (body, meta, head) => {  body.classList.add('embed-panel');
 
   const start = () => {
     if (!url) { showMsg('这个面板没有配置 url。'); return; }
+    // @site: 前缀（2026-11-18）：场景 json 不写死端口，@site:/pet3d/ → http://127.0.0.1:<SITE_PORT>/pet3d/
+    if (url.indexOf('@site:') === 0) {
+      if (urlResolving) return;
+      if (!(window.app && typeof window.app.siteBase === 'function')) {
+        showMsg('壳太旧：不认识 @site: 前缀（缺 siteBase）。');
+        return;
+      }
+      urlResolving = true;
+      Promise.resolve(window.app.siteBase()).then(function (base) {
+        urlResolving = false;
+        if (disposed) return;
+        url = String(base || '').replace(/\/+$/, '') + url.slice(6);
+        setEmbedded(embedded);
+      }).catch(function (e) {
+        urlResolving = false;
+        if (!disposed) showMsg('拿不到本地服务地址：' + String((e && e.message) || e));
+      });
+      return;
+    }
     setEmbedded(embedded);   // 按记下来的状态进入：内置 or 取消内置
   };
 
@@ -8097,7 +8673,25 @@ renderers.embed = (body, meta, head) => {  body.classList.add('embed-panel');
     start();
   }
 
-  return () => { disposed = true; stopRetry(); };
+  // 2026-11-18 场景暂存：切走该场景只是隐藏面板（webview 还活着）⇒ 主动暂停页面里的视频，
+  // 避免隐藏场景继续出声/占带宽。切回不自动续播（要不要继续由用户点播放器决定）。
+  const onSceneOff = (ev) => {
+    try {
+      if (!ev || !ev.detail || String(ev.detail.sceneId) !== String(meta.scenario || '')) return;
+      if (wv && typeof wv.executeJavaScript === 'function') {
+        Promise.resolve(wv.executeJavaScript(
+          '(function(){try{var v=document.querySelectorAll("video");for(var i=0;i<v.length;i++){try{v[i].pause()}catch(e){}}return "ok"}catch(e){return "err"}})()'
+        )).catch(function () { /* guest 已销毁就算了 */ });
+      }
+    } catch (e) { wbWarn(e) }
+  };
+  window.addEventListener('wb:scene-deactivate', onSceneOff);
+
+  return () => {
+    disposed = true;
+    stopRetry();
+    window.removeEventListener('wb:scene-deactivate', onSceneOff);
+  };
 };
 
 // ============ web（oa-ops 窗口6「网址 · 快捷监控」）：管理后台/教师端/家长端网址的实时状态监控（点击用系统浏览器打开） ============
@@ -12674,16 +13268,18 @@ window.__kunWebAiOpen = webAiToggle;
 // 面板元素由 makePanel 打上 data-panel-id；这里只找**当前场景**里的那一个。
 // ⚠ 找不到就返回 false，由调用方提示"先切到社交场景"——不偷偷切场景（切场景会重建整个 grid，
 //   别的面板状态、展开态都会被收掉，用户会莫名少一块）。
-// opts.expand = true 时顺手点 ▲（面板 json 要写 "expand": true 才有这个按钮）。
+// opts.expand = true 时顺手点 ▲（面板 json 要写 "expand": true 才有这个按钮；
+//   只写了 expandX 的面板没有 ▲，就退回点 ◀ 左右展开）。
 window.__kunOpenPanel = function (panelId, opts) {
   const id = String(panelId || '').trim();
   if (!id) return false;
   let wrap = null;
-  try { wrap = document.querySelector('.panel[data-panel-id="' + id.replace(/"/g, '\\"') + '"]'); } catch (e) { wrap = null; }
+  // 2026-11-18 场景暂存后：只认**活动舞台**的网格（#grid 只在活动 stage 上），别把暂存在后台的场景面板当成"当前场景"
+  try { wrap = document.querySelector('#grid .panel[data-panel-id="' + id.replace(/"/g, '\\"') + '"]'); } catch (e) { wrap = null; }
   if (!wrap) return false;
   try { wrap.scrollIntoView({ block: 'start', behavior: 'smooth' }); } catch (e) { wbWarn(e) }
   if (opts && opts.expand) {
-    const btn = wrap.querySelector('.panel-expand');
+    const btn = wrap.querySelector('.panel-expand:not(.panel-expand-x)') || wrap.querySelector('.panel-expand');
     if (btn && !expandedStateOf(wrap)) { try { btn.click(); } catch (e) { wbWarn(e) } }
   }
   return true;
@@ -12873,7 +13469,7 @@ function highlightEngineMismatch(on) {
 // ⚠ 2026-11-13 起：这张表只放**需要品牌感 / 官方 logo**的手绘图（B站；命令/自我复盘/程序开发/本地电脑是内联 SVG）。
 //   常规场景图标不要再往这里加 —— 去 renderer\scene-icons.js 登记（图标本体在 renderer\assets\icons\，
 //   由 scripts\图标库.mjs 从 Lucide 抓取），三层取用规则见下面的 decorateScenarioIcons。
-// 2026-11-13 清理：抖音 / OA运维 / 同花顺 / Blender / 视频工作流 / DSH·GUI改造 / 设计杂活 / 工作台定制 这 8 个
+// 2026-11-13 清理：抖音 / OA运维 / 同花顺 / 视频工作流 / DSH·GUI改造 / 设计杂活 / 工作台定制 这 7 个
 //   已不在任何 scenarios\*.json 里的场景图标已删除（原来留着会让"这张表有什么"和"实际有哪些场景"对不上）。
 var SCENARIO_ICONS = {
   // 记忆（memory，2026-10-26）：与 renderer.js 的 NEURON_SVG 同一份
@@ -13222,7 +13818,7 @@ function decorateScenarioIcons() {
       if (!html && lib) html = lib.markupOf ? lib.markupOf(id) : '';
       if (!html && lib && lib.pickUnused) {
         // 只有"还没画过图标"的标签才领兜底：外壳已经画上去的 <img>（引擎那条的鲸鱼、
-        // Blender / 抖音这些官方 logo）不能被兜底冲掉，否则一 ⟳ 就把品牌图标换没了。
+        // 抖音这些官方 logo）不能被兜底冲掉，否则一 ⟳ 就把品牌图标换没了。
         if (ico.querySelector('img, svg')) continue;
         var pick = lib.pickUnused(taken);
         if (pick) { taken[pick] = true; html = lib.markup(pick); }
@@ -13266,7 +13862,7 @@ function tabDropIndex(rects, dropX) {
   return rects.length;
 }
 
-/** 固定组规则（场景 json 里 "first": true，如 Blender）：它们永远排在最前 ——
+/** 固定组规则（场景 json 里 "first": true）：它们永远排在最前 ——
  *  拖固定标签 ⇒ 只能在自己那一组内换位；拖别的标签 ⇒ 插不到固定组前面。
  *  纯函数，好单测；这条就是"顺序不会乱"的关键。 */
 function tabClampTarget(target, dragIsPinned, fixedCount) {
@@ -13552,7 +14148,7 @@ var HARNESS_WIDE_PIN_JS = `(() => {
 })()`;
 // 场景 0 = index.html 里的 #harness-webview：**引擎原生界面，设计上不做任何精简注入**（不隐藏侧栏/顶栏），
 // 所以这里只投"铺满"这一件事（CSS 兜底 + JS 逐层压变量），别的布局一律不动。
-// ⚠ 只作用于 #harness-webview；各场景面板（bl-ai / oa-ai / site-ai / mk-chat）走的是本文件里的
+// ⚠ 只作用于 #harness-webview；各场景面板（oa-ai / site-ai / mk-chat）走的是本文件里的
 //   HARNESS_CHAT_CSS + HARNESS_FIX_JS 那条独立链路，两条链路共用上面这组常量，但互不干扰。
 var HARNESS_MAIN_WIDE_CSS = HARNESS_WIDE_CSS;
 function widenMainHarnessView() {
@@ -15129,7 +15725,7 @@ renderers.harness = (body, meta, head) => {
   if (head) {
     head.classList.add('file-head');
     const acts = el('div', 'file-head-acts ai-head-acts');
-    // 顺序：按钮在左、状态小字在右。窄面板（如 Blender 的 1 列宽 AI 面板）下，
+    // 顺序：按钮在左、状态小字在右。窄面板（1 列宽 AI 面板）下，
     // 长状态文字不再把按钮挤到换行/裁切；小字自身用省略号收尾（CSS .harness-diag）。
     acts.appendChild(reloadBtn);
     acts.appendChild(diag);
@@ -15301,6 +15897,54 @@ renderers.harness = (body, meta, head) => {
     // 「会话列铺满」那段实测说明。现在改成盖 max-width + 沿祖先链压变量，与场景 0 共用同一组常量。
     HARNESS_WIDE_CSS
   ].join('\n');
+
+  // 聊天气泡 + 不显示思考过程（2026-11-18 用户要求）：面板级开关，只有写了 chatStyle/bubble 或 hideThinking 的面板才注入。
+  // 依据引擎 ui-chat 的 DOM 契约（0.2.1-rc.3 里 dsh-client-ui-chat/lib/client.js 实测）：
+  //   · 用户消息本身就是气泡（MessageItem 的 bubble 类，引擎自带，这里不动）
+  //   · 过程折叠条 = [data-turn-process]（"思考 · N 步 · 12s"那一行）
+  //   · 过程节点 = [data-chat-flow-kind="turn-process"]（展开后的步骤 / 工具卡都在它里面）
+  //   · 答案 = [data-chat-flow-kind="assistant-step"]，顶层的才带 data-chat-flow-key
+  // ⚠ 这些 data 属性是引擎内部契约，升级换版就可能变 —— 所以 diag 里回显命中数（见 BUBBLE_DIAG_JS），
+  //   别当它永久有效；命中 0 说明选择器漂了，回来改这一组即可。
+  const WANT_BUBBLE = !!(meta && (meta.chatStyle === 'bubble' || meta.hideThinking === true));
+  const HARNESS_BUBBLE_CSS = [
+    // 0. 整条对话流收紧一点（引擎默认 16px，聊天观感偏松；只影响本面板）
+    '[data-chat-flow] { --dsh-chat-flow-gap: 12px; }',
+    // 1. 过程区整块不显示（思考、工具调用、子代理步骤都在里面）
+    '[data-chat-flow] [data-chat-flow-kind="turn-process"]:not([data-turn-process-answer]) { display: none !important; }',
+    '[data-chat-flow] [data-turn-process] { display: none !important; }',
+    '[data-chat-flow] [data-step-process] { display: none !important; }',
+    // 2. 助手回答：左侧气泡
+    //    层次用 bg-layer-2（比页面底高一档，浅/深主题都可见），border-l2 细边撑住轮廓；
+    //    左下角留小圆角当"说话方向"，与用户气泡的右下小圆角对称。
+    '[data-chat-flow] [data-chat-flow-kind="assistant-step"] {' +
+      ' box-sizing: border-box;' +
+      ' max-width: 88%;' +
+      ' margin: 0 0 8px;' +
+      ' padding: 12px 16px;' +
+      ' background: var(--dsw-alias-bg-layer-2, rgba(127,127,127,.10));' +
+      ' border: 1px solid var(--dsw-alias-border-l2, rgba(127,127,127,.26));' +
+      ' border-radius: var(--dsw-radius-lg, 14px) var(--dsw-radius-lg, 14px) var(--dsw-radius-lg, 14px) 6px;' +
+      ' }',
+    // 2.1 同一条回复被拆成多步时贴紧，别变成一摞卡片
+    '[data-chat-flow] [data-chat-flow-kind="assistant-step"] + [data-chat-flow-kind="assistant-step"] { margin-top: -2px; }',
+    // 3. 用户气泡：引擎自带背景与对齐，只统一圆角，右下收小与助手气泡对称
+    '[data-chat-flow] [class*="bubble"] { border-radius: var(--dsw-radius-lg, 14px) var(--dsw-radius-lg, 14px) 6px var(--dsw-radius-lg, 14px) !important; }',
+    // 4. 输入条同款圆角；聚焦时才出描边（平时不抢视线）
+    '[data-composer-card] { border-radius: var(--dsw-radius-lg, 14px); }',
+    '[data-composer-card]:focus-within { border-color: var(--dsw-alias-border-l3, rgba(127,127,127,.45)); }',
+    // 5. 过程里的工具卡万一没被上面覆盖到（引擎把节点提到顶层时），也收掉
+    '[data-chat-flow] [data-chat-flow-key][data-chat-flow-kind="tool-call"],' +
+      '[data-chat-flow] [data-chat-flow-key][data-chat-flow-kind="tool-result"] { display: none !important; }'
+  ].join('\n');
+  const BUBBLE_DIAG_JS = `(() => {
+    const flow = document.querySelector('[data-chat-flow]');
+    if (!flow) return '';
+    const nodes = flow.querySelectorAll('[data-chat-flow-kind="turn-process"], [data-turn-process]');
+    const ans = flow.querySelectorAll('[data-chat-flow-kind="assistant-step"]');
+    const ok = nodes.length === 0 || Array.prototype.every.call(nodes, (e) => getComputedStyle(e).display === 'none');
+    return '气泡 ' + ans.length + ' · 过程 ' + nodes.length + (nodes.length ? (ok ? ' 已隐藏 ✓' : ' 未隐藏 ✗') : '');
+  })()`;
   // 钉住脚本（幂等：已装则不再重复装定时器；webview 内部重载后 window 重置，可重新注入）
   // pinTarget 支持「会话名」或「会话名数组」：多候选按顺序匹配——① 标题完全相等 ② 包含匹配，
   // **匹配时忽略大小写与空格**（兼容「oa系统运维」↔「<客户>oa系统运维」↔「<客户> OA 系统运维」）。
@@ -15977,6 +16621,7 @@ renderers.harness = (body, meta, head) => {
 
   const injectFix = async () => {
     try { await wv.insertCSS(HARNESS_CHAT_CSS); } catch (e) { wbWarn(e) }
+    if (WANT_BUBBLE) { try { await wv.insertCSS(HARNESS_BUBBLE_CSS); } catch (e) { wbWarn(e) } }
     // 拖文件进对话窗口（幂等脚本，装上监听后重复执行只返回）
     try { await wv.executeJavaScript(HARNESS_DROP_JS); } catch (e) { wbWarn(e) }
     let simplify = '';
@@ -16049,6 +16694,13 @@ renderers.harness = (body, meta, head) => {
       }
     } catch (e) { wbWarn(e) }
     diag.textContent = (simplify ? simplify + ' · ' : '') + pinTxt;
+    // 气泡样式命中自检：样式是注入到引擎页面的，选择器一旦漂了会静默失效 —— 把命中数写在标题行小字里
+    if (WANT_BUBBLE) {
+      try {
+        const bd = await wv.executeJavaScript(BUBBLE_DIAG_JS);
+        if (bd) diag.textContent += ' · ' + bd;
+      } catch (e) { wbWarn(e) }
+    }
   };
   // 主进程通道注入（更可靠）：轮询 webview 的 webContentsId，让 main 直接注入并写日志
   // ⚠ 注意：main.js 注入脚本里**旧版**还带一套"扫全文档模糊匹配后点击"的钉会话循环
@@ -16357,526 +17009,6 @@ renderers['code-urls'] = (body, meta, head) => {
   return () => { disposed = true; if (timer) clearInterval(timer); };
 };
 
-// ============ Blender 场景（blender）：实时画面 / 本地文件 ============
-// 场景独立性：只走 window.app.blender 这一套 IPC，不读股票 / OA / 个人站的任何数据。
-// 画面来自主进程的抓帧进程（PrintWindow 抓 Blender 窗口 → JPEG），由本地静态服务直出，
-// 渲染层只负责带时间戳轮询同一张图，所以帧数据不经过 IPC。
-
-// Blender 实时画面（大窗口）
-renderers['bl-live'] = (body, meta, head) => {
-  const K = window.app && window.app.blender;
-  body.classList.add('bl-live');
-  let disposed = false, running = false;
-  let stateTimer = null;
-
-  const dot = el('span', 'bl-dot');
-  const note = el('span', 'bl-note', '检测中…');
-  let launchBtn = null, reembedBtn = null, closeBtn = null, fullBtn = null;
-  if (head) {
-    head.classList.add('file-head');
-    const acts = el('div', 'file-head-acts');
-    acts.appendChild(dot);
-    acts.appendChild(note);
-    launchBtn = el('button', 'file-refresh', '▶ 启动');
-    launchBtn.title = '启动 Blender（自动挂上 9876 桥接，大肥鱼就能实时改这个场景）';
-    closeBtn = el('button', 'file-refresh', '✕ 关闭');
-    closeBtn.title = '关闭 Blender：先解除内置再退出；有未保存改动时它会自己弹保存提示';
-    reembedBtn = el('button', 'file-refresh', '⧉ 重新内置');
-    reembedBtn.title = '先把 Blender 放回桌面，再重新嵌进面板（画面异常时点这个）';
-    fullBtn = el('button', 'file-refresh', '⛶ 全屏调整');
-    fullBtn.title = '把 Blender 临时铺满整个工作区，方便手动挪模型/看细节；切回点这个或按 Ctrl+Alt+B';
-    acts.appendChild(launchBtn);
-    acts.appendChild(closeBtn);
-    acts.appendChild(reembedBtn);
-    acts.appendChild(fullBtn);
-    head.appendChild(acts);
-  }
-
-  const stage = el('div', 'bl-stage');
-  const blank = el('div', 'bl-blank');
-  const ico = document.createElement('img');
-  ico.className = 'bl-blank-ico';
-  ico.src = 'assets/blender-icon.png';
-  ico.alt = 'Blender';
-  blank.appendChild(ico);
-  const blankTitle = el('div', 'bl-blank-t', 'Blender 未运行');
-  const blankDesc = el('div', 'bl-blank-d', '点「启动」打开 Blender，它会贴进这个面板，可以直接在里面建模改参数；没装会告诉你路径怎么补');
-  const blankBtn = el('button', 'bl-blank-btn', '▶ 启动 Blender');
-  blank.appendChild(blankTitle);
-  blank.appendChild(blankDesc);
-  blank.appendChild(blankBtn);
-  stage.appendChild(blank);
-  body.appendChild(stage);
-
-  const doLaunch = async () => {
-    if (!K) return;
-    note.textContent = '正在启动 Blender…';
-    blankDesc.textContent = '正在启动 Blender，请稍候（首次启动约 10 秒）…';
-    const r = await K.launch();
-    if (r && !r.ok) { note.textContent = '启动失败'; blankDesc.textContent = r.err || '启动失败'; return; }
-    triedForRun = false;
-    setTimeout(() => { refreshState(); }, 3000);
-  };
-  if (launchBtn) launchBtn.addEventListener('click', doLaunch);
-  blankBtn.addEventListener('click', doLaunch);
-  // ---------- 只内置模式 ----------
-  // 面板不做截图预览：主进程把 Blender 主窗口设成「面板窗口的 owner + 摆到面板矩形」（覆盖式内置，不 SetParent）。
-  // 主进程侧保险：面板切走、GUI 关闭、GUI 崩溃都会把 Blender 释放回桌面。
-  let embedded = false, embedBusy = false, embedRO = null, moveTimer = null, triedForRun = false, embedFails = 0;
-
-  // 只回 CSS px（视口坐标）；主进程负责加上窗口内容区位置并换算成屏幕物理像素
-  function panelRect() {
-    const r = stage.getBoundingClientRect();
-    return {
-      x: Math.round(r.left), y: Math.round(r.top),
-      w: Math.round(r.width), h: Math.round(r.height)
-    };
-  }
-  // 全屏调整：铺满整个工作区（#grid，四个面板的容器；顶栏不在里面，切回提示还能看到）
-  function gridRect() {
-    const g = document.getElementById('grid');
-    if (!g) return panelRect();
-    const r = g.getBoundingClientRect();
-    return {
-      x: Math.round(r.left), y: Math.round(r.top),
-      w: Math.round(r.width), h: Math.round(r.height)
-    };
-  }
-  let fullscreen = false;
-  function layoutRect() { return fullscreen ? gridRect() : panelRect(); }
-  function syncFullBtn() { if (fullBtn) fullBtn.textContent = fullscreen ? '⤡ 还原面板' : '⛶ 全屏调整'; }
-  function pushMove() {
-    if (!embedded || !K || !K.embedMove) return;
-    if (moveTimer) clearTimeout(moveTimer);
-    moveTimer = setTimeout(() => { try { K.embedMove(layoutRect()); } catch (e) { wbWarn(e) } }, 120);
-  }
-  async function releaseEmbed() {
-    if (embedRO) { try { embedRO.disconnect(); } catch (e) { wbWarn(e) } embedRO = null; }
-    window.removeEventListener('resize', pushMove);
-    if (!embedded) return;
-    embedded = false;
-    fullscreen = false;
-    syncFullBtn();
-    stage.classList.remove('embedded');
-    try { if (K && K.embed) await K.embed(false, null); } catch (e) { wbWarn(e) }
-  }
-  async function embedNow() {
-    if (!K || !K.embed || embedBusy || disposed || embedded) return;
-    const rc = panelRect();
-    if (rc.w < 80 || rc.h < 80) {          // 布局还没稳，等一拍再来，别用退化矩形去内置
-      setTimeout(() => { if (!disposed) embedNow(); }, 350);
-      return;
-    }
-    embedBusy = true;
-    try {
-      setDot('warn', '正在内置…');
-      const r = await K.embed(true, panelRect());
-      if (disposed) return;
-      if (r && r.ok) {
-        embedded = true;
-        embedFails = 0;
-        stage.classList.add('embedded');
-        const childMode = r.mode === 'child';
-        setDot('ok', childMode
-          ? '已嵌入 · 跟着面板裁剪'
-          : (r.mode === 'clip' ? '已嵌入 · 面板内裁剪' : (r.fallback ? '已贴合（裁剪不可用）' : '已内置 · 直接操作')));
-        if (r.fallback && window.__tbsToast) window.__tbsToast('Blender 嵌入模式没生效，已退回普通贴合（窗口不会被面板裁剪）', true, 9000);
-        if (window.ResizeObserver) { embedRO = new ResizeObserver(pushMove); embedRO.observe(stage); }
-        window.addEventListener('resize', pushMove);
-      } else {
-        // Blender 冷启动要 10 秒上下，窗口还没出来时第一次内置会 timeout / window-not-found：
-        // 放开 triedForRun 让下一拍（4 秒后）再试，最多 10 次，避免一直刷错误。
-        embedFails += 1;
-        if (embedFails <= 10) triedForRun = false;
-        setDot('err', '内置失败：' + ((r && r.err) || '未知'));
-      }
-    } catch (e) {
-      setDot('err', '内置异常');
-    } finally {
-      embedBusy = false;
-    }
-  }
-
-  const setDot = (cls, text) => {
-    dot.className = 'bl-dot ' + cls;
-    note.textContent = text;
-  };
-
-  async function refreshState() {
-    if (disposed || !K) return;
-    let s = null;
-    try { s = await K.state({ capture: false }); } catch (e) { s = null; }
-    if (disposed) return;
-    if (!s) { setDot('err', '状态未知'); return; }
-    running = !!s.running;
-    if (!running) {
-      triedForRun = false;
-      if (embedded) await releaseEmbed();
-      setDot('off', '未运行');
-      return;
-    }
-    if (embedded) { setDot('ok', '已内置 · 直接操作'); return; }
-    if (!triedForRun && !embedBusy) { triedForRun = true; embedNow(); }
-  }
-
-  if (reembedBtn) reembedBtn.addEventListener('click', async () => {
-    if (embedBusy) return;
-    await releaseEmbed();
-    triedForRun = false;
-    await refreshState();
-  });
-
-  // ---------- 全屏调整 ----------
-  // 全屏 = Blender 铺满整个工作区（#grid），面板头被盖住，所以退出留了全局快捷键 Ctrl+Alt+B
-  if (fullBtn) fullBtn.addEventListener('click', async () => {
-    if (!embedded) {
-      if (window.__tbsToast) window.__tbsToast('Blender 还没贴进面板，先启动 / 重新内置再全屏', true, 8000);
-      return;
-    }
-    const want = !fullscreen;
-    fullBtn.disabled = true;
-    try {
-      const r = await K.embedFullscreen(want, { grid: gridRect(), panel: panelRect() });
-      if (r && r.ok) {
-        fullscreen = want;
-        syncFullBtn();
-        if (window.__tbsToast) window.__tbsToast(want ? 'Blender 已铺满工作区 · 按 Ctrl+Alt+B 或点「⤡ 还原面板」切回' : '已切回面板', false, want ? 9000 : 4000);
-      } else if (window.__tbsToast) {
-        window.__tbsToast('切换失败：' + ((r && r.err) || '未知'), true, 8000);
-      }
-    } catch (e) { wbWarn(e) } finally { fullBtn.disabled = false; }
-  });
-  // 主进程用快捷键把人从全屏收回时，按钮文字要跟着回来
-  if (K && K.onFullscreen) {
-    try { K.onFullscreen((v) => { fullscreen = !!v; syncFullBtn(); }); } catch (e) { wbWarn(e) }
-  }
-
-  // ---------- 关闭 Blender ----------
-  // 默认优雅关闭（Blender 自己会弹保存提示）。只有确认框里点了「确定」才强杀。
-  const doClose = async () => {
-    if (!K || !K.close || embedBusy) return;
-    embedBusy = true;
-    if (closeBtn) closeBtn.disabled = true;
-    try {
-      setDot('warn', '正在关闭 Blender…');
-      let r = null;
-      try { r = await K.close(); } catch (e) { r = null; }
-
-      // 本地状态复位：窗口已经还给桌面了
-      embedded = false;
-      stage.classList.remove('embedded');
-      if (embedRO) { try { embedRO.disconnect(); } catch (e) { wbWarn(e) } embedRO = null; }
-      window.removeEventListener('resize', pushMove);
-      triedForRun = true;   // 关掉之后别自动又把它内置回来
-
-      if (r && r.already) {
-        setDot('off', '未运行');
-      } else if (r && r.closed) {
-        setDot('off', '已关闭');
-      } else {
-        setDot('warn', '已发送关闭请求');
-        const force = window.confirm(
-          'Blender 还没有退出。\n\n' +
-          '通常是因为弹出了「是否保存」对话框，或者它正忙。\n\n' +
-          '要强制结束 Blender 吗？未保存的内容会丢失。');
-        if (force) {
-          setDot('warn', '正在强制结束…');
-          try { await K.close({ force: true }); } catch (e) { wbWarn(e) }
-        }
-      }
-    } finally {
-      embedBusy = false;
-      if (closeBtn) closeBtn.disabled = false;
-    }
-    setTimeout(refreshState, 900);
-  };
-  if (closeBtn) closeBtn.addEventListener('click', doClose);
-
-  // 只内置模式：不再需要抓帧进程，进来就停掉它
-  try { if (K && K.capture) K.capture(false); } catch (e) { wbWarn(e) }
-
-  stateTimer = setInterval(refreshState, 4000);
-  refreshState();
-
-  return () => {
-    disposed = true;
-    if (stateTimer) clearInterval(stateTimer);
-    if (moveTimer) clearTimeout(moveTimer);
-    if (embedRO) { try { embedRO.disconnect(); } catch (e) { wbWarn(e) } embedRO = null; }
-    window.removeEventListener('resize', pushMove);
-    // 面板要没了 —— 必须把 Blender 还回桌面，否则窗口会跟着这个面板一起消失
-    if (embedded) { try { if (K && K.embed) K.embed(false, null); } catch (e) { wbWarn(e) } }
-  };
-};
-
-// Blender 本地文件（工程资源浏览：默认 工作区\创意工坊，见 main.js 的 BLENDER_DIR）
-renderers['bl-folder'] = (body, meta, head) => {
-  const K = window.app && window.app.blender;
-  body.classList.add('bl-folder');
-  let disposed = false, rel = '';
-
-  const crumbs = el('div', 'file-crumbs', '加载中…');
-  if (head) {
-    head.classList.add('file-head');
-    const acts = el('div', 'file-head-acts');
-    acts.appendChild(crumbs);
-    const openBtn = el('button', 'file-refresh', '📂');
-    openBtn.title = '在资源管理器打开当前目录';
-    openBtn.addEventListener('click', () => { if (K) K.open(rel ? rootPath + '\\' + rel.replace(/\//g, '\\') : rootPath); });
-    acts.appendChild(openBtn);
-    const upBtn = el('button', 'file-refresh', '⬆');
-    upBtn.title = '返回上级';
-    upBtn.addEventListener('click', () => { const i = rel.lastIndexOf('/'); load(i > 0 ? rel.slice(0, i) : ''); });
-    acts.appendChild(upBtn);
-    head.appendChild(acts);
-  }
-  const list = el('div', 'file-list');
-  body.appendChild(list);
-  let rootPath = '';
-
-  const fmtSize = (n) => {
-    if (n == null) return '—';
-    if (n < 1024) return n + ' B';
-    if (n < 1048576) return (n / 1024).toFixed(1) + ' KB';
-    if (n < 1073741824) return (n / 1048576).toFixed(1) + ' MB';
-    return (n / 1073741824).toFixed(2) + ' GB';
-  };
-  const fmtTime = (t) => {
-    if (!t) return '—';
-    const d = new Date(t * 1000);
-    const p = (n) => String(n).padStart(2, '0');
-    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
-  };
-  const icon = (name, isDir) => {
-    if (isDir) return '📁';
-    const n = String(name).toLowerCase();
-    if (/\.blend\d?$/.test(n)) return '🟠';
-    if (/\.(png|jpe?g|webp|exr|hdr)$/.test(n)) return '🖼️';
-    if (/\.(mp4|mov|avi|mkv)$/.test(n)) return '🎬';
-    if (/\.(obj|fbx|glb|gltf|stl|ply|abc|usd)$/.test(n)) return '🧊';
-    if (/\.py$/.test(n)) return '🐍';
-    if (/\.(zip|7z|rar)$/.test(n)) return '🗜️';
-    return '📄';
-  };
-
-  async function load(nextRel) {
-    if (disposed || !K) return;
-    rel = nextRel || '';
-    crumbs.textContent = rel ? rel.replace(/\//g, ' \\ ') : '加载中…';
-    list.innerHTML = '';
-    list.appendChild(el('div', 'file-empty', '加载中…'));
-    let res = null;
-    try { res = await K.files(rel); } catch (e) { res = null; }
-    if (disposed) return;
-    list.innerHTML = '';
-    if (!res || !res.ok) {
-      list.appendChild(el('div', 'file-empty', '无法读取：' + ((res && res.err) || '未知错误')));
-      return;
-    }
-    rootPath = res.root || rootPath;
-    crumbs.textContent = res.rel ? res.rel.replace(/\//g, ' \\ ') : 'Blender 工作区';
-    crumbs.title = res.root + (res.rel ? '\\' + res.rel.replace(/\//g, '\\') : '');
-    if (!res.rows.length) { list.appendChild(el('div', 'file-empty', '（空目录）')); return; }
-    res.rows.forEach((it) => {
-      const row = el('div', 'file-row' + (it.isDir ? ' dir' : ''));
-      row.appendChild(el('span', 'bl-file-ico', icon(it.name, it.isDir)));
-      row.appendChild(el('span', 'file-name', it.name));
-      row.appendChild(el('span', 'file-meta', it.isDir ? '目录' : fmtSize(it.size) + ' · ' + fmtTime(it.mtime)));
-      // 右键：在资源管理器里定位
-      row.addEventListener('contextmenu', (ev) => {
-        ev.preventDefault();
-        if (K) K.reveal(rel ? rel + '/' + it.name : it.name);
-      });
-      row.addEventListener('click', () => {
-        if (it.isDir) load(rel ? rel + '/' + it.name : it.name);
-        else if (K) K.open(rootPath + '\\' + (rel ? rel.replace(/\//g, '\\') + '\\' : '') + it.name);
-      });
-      list.appendChild(row);
-    });
-  }
-  load('');
-  const timer = setInterval(() => { if (!disposed) load(rel); }, 20000);
-  return () => { disposed = true; clearInterval(timer); };
-};
-
-/* ══════════════════════════════════════════════════════════════════
-   创意工坊 · 流程看板（type = "pipe-board"）
-   只读汇总：十个环节的状态卡 + 最近工单行 + 最近回执；不读会话正文。
-   用户"只看每条环节走到哪"，细节留在岗位会话里。
-   ══════════════════════════════════════════════════════════════════ */
-renderers['pipe-board'] = (body, meta, head) => {
-  const K = window.app && window.app.creative;
-  const B = window.app && window.app.blender;
-  body.classList.add('pb-body');
-  let disposed = false, timer = null, root = '';
-
-  const note = el('span', 'bl-note', '加载中…');
-  if (head) {
-    head.classList.add('file-head');
-    const acts = el('div', 'file-head-acts');
-    const openBtn = el('button', 'file-refresh', '📂');
-    openBtn.title = '打开工作区（工程 / 概念 / 贴图 / 导出 / 输出）';
-    openBtn.addEventListener('click', () => { if (B && B.open && root) B.open(root); });
-    acts.appendChild(note);
-    acts.appendChild(openBtn);
-    head.appendChild(acts);
-  }
-
-  const bar = el('div', 'pb-alert');
-  bar.style.display = 'none';
-  const counts = el('div', 'pb-counts');
-  const flowBox = el('div', 'pb-flow');
-  const foot = el('div', 'pb-foot');
-  body.appendChild(bar);
-  body.appendChild(counts);
-  body.appendChild(flowBox);
-  body.appendChild(foot);
-
-  // 卡住告警条：主进程巡检说了算，这里只负责显示 + 一个手动「重派」（弹窗告警走全局，避免双弹）
-  function renderAlerts(alerts, stuckMin, atSec) {
-    bar.innerHTML = '';
-    if (!alerts || !alerts.length) { bar.style.display = 'none'; return; }
-    bar.style.display = 'flex';
-    bar.appendChild(el('span', 'pb-alert-t', '⚠ ' + alerts.length + ' 项卡住'));
-    alerts.slice(0, 3).forEach((a) => {
-      const it = el('span', 'pb-alert-i', a.kind + ' · ' + a.who + ' · ' + (a.detail || ''));
-      if (a.kind === '派发' && K && K.retry) {
-        const btn = el('button', 'pb-retry', '重派');
-        btn.title = '把原单内容再发给同一岗位（人工触发，避免双写工程）';
-        btn.addEventListener('click', async () => {
-          btn.disabled = true;
-          let r = null;
-          try { r = await K.retry(a.id); } catch (e) { r = null; }
-          if (window.__tbsToast) window.__tbsToast(r && r.ok ? ('已重派给 ' + r.to) : ('重派失败：' + ((r && r.err) || '未知')), !(r && r.ok), 8000);
-          btn.disabled = false;
-        });
-        it.appendChild(btn);
-      }
-      bar.appendChild(it);
-    });
-    bar.appendChild(el('span', 'pb-alert-at', '巡检阈值 ' + (stuckMin || 15) + ' 分钟 · ' + (atSec ? new Date(atSec * 1000).toTimeString().slice(0, 8) : '')));
-  }
-  async function pullWatch() {
-    if (disposed || !K || !K.watchState) return;
-    let r = null;
-    try { r = await K.watchState(); } catch (e) { r = null; }
-    if (disposed || !r || !r.ok) return;
-    renderAlerts(r.alerts, r.stuckMin, r.at);
-  }
-
-  async function refresh() {
-    if (disposed || !K || !K.board) { note.textContent = '看板不可用'; return; }
-    let r = null;
-    try { r = await K.board(); } catch (e) { r = null; }
-    if (disposed) return;
-    if (!r || !r.ok) { note.textContent = '看板读取失败'; return; }
-    root = r.root || root;
-    note.textContent = '刚刷新 · 8 秒自动';
-
-    counts.innerHTML = '';
-    counts.appendChild(el('span', 'pb-k', '进行 ' + r.counts.active));
-    counts.appendChild(el('span', 'pb-k', '待审 ' + r.counts.review));
-    counts.appendChild(el('span', 'pb-k', '通过 ' + r.counts.done));
-    if (r.counts.rejected) counts.appendChild(el('span', 'pb-k pb-k-bad', '退回 ' + r.counts.rejected));
-    if (r.counts.hung) counts.appendChild(el('span', 'pb-k pb-k-bad', '卡住 ' + r.counts.hung));
-    else if ((r.pending || []).length) counts.appendChild(el('span', 'pb-k', '挂起 ' + r.pending.length));
-
-    // 流程：竖着排，序号＝第几段；同一条并行组的节点并排标注「∥ 同步」；在等谁直接写在卡片里
-    flowBox.innerHTML = '';
-    (r.flow || []).forEach((n) => {
-      const row = el('div', 'pb-step ' + (n.state || 'ready'));
-      if (n.par) row.classList.add('pb-par');
-      if (n.now) row.classList.add('pb-now');
-      const rail = el('span', 'pb-step-rail');
-      rail.appendChild(el('span', 'pb-step-no', String(n.step || '')));
-      row.appendChild(rail);
-
-      const card = el('div', 'pb-step-c');
-      const top = el('div', 'pb-step-t');
-      top.appendChild(el('span', 'pb-step-nm', n.short || n.name || ''));
-      if (n.par) top.appendChild(el('span', 'pb-par-tag', '∥'));
-      if (n.state === 'done') top.appendChild(el('span', 'pb-badge ok', n.status));
-      else if (n.state === 'rejected') top.appendChild(el('span', 'pb-badge err', n.status));
-      else if (n.state === 'doing') top.appendChild(el('span', 'pb-badge warn', n.status));
-      else if (n.state === 'manual') top.appendChild(el('span', 'pb-badge dim', '你派工'));
-      else top.appendChild(el('span', 'pb-badge ' + (n.state === 'waiting' ? 'dim' : ''), n.status || '未开单'));
-      card.appendChild(top);
-
-      // 第二行只放徽标：← 依赖岗位 / 门 谁放行 / 资产名。整句说明一律进 tooltip
-      const tags = el('div', 'pb-step-tags');
-      (n.deps || []).forEach((d) => {
-        const t = el('span', 'pb-tag pb-tag-dep' + (d.optional ? ' pb-tag-soft' : ''));
-        t.textContent = '←' + d.short;
-        t.title = d.name + '：' + d.status + (d.optional ? '（按需，未开单不挡后面）' : '');
-        tags.appendChild(t);
-      });
-      if (n.gateShort) {
-        const g = el('span', 'pb-tag pb-tag-gate');
-        g.textContent = '门 ' + n.gateShort;
-        g.title = n.gate || '';
-        tags.appendChild(g);
-      }
-      if (n.asset) {
-        const a = el('span', 'pb-tag pb-tag-as');
-        a.textContent = n.asset;
-        tags.appendChild(a);
-      }
-      if (tags.childNodes.length) card.appendChild(tags);
-
-      const tips = [];
-      if (n.gate) tips.push(n.gate);
-      if (n.syncWith && n.syncWith.length) tips.push('与「' + n.syncWith.join('」「') + '」同步，互不等待');
-      if (n.file) tips.push(n.file);
-      card.title = tips.join(' · ');
-      row.appendChild(card);
-      flowBox.appendChild(row);
-    });
-    if (!(r.flow || []).length) flowBox.appendChild(el('div', 'file-empty', '看板没拿到工序链'));
-
-    foot.innerHTML = '';
-    // 只放徽标行：类型 + 岗位 + 时间/耗时；原始 id 与长句进 tooltip
-    const pend = (r.pending || []).slice(0, 3);
-    if (pend.length) {
-      foot.appendChild(el('div', 'pb-foot-t', '挂起 ' + (r.pending || []).length));
-      pend.forEach((x) => {
-        const row = el('div', 'pb-foot-r');
-        row.appendChild(el('span', 'pb-badge ' + (x.stuck ? 'err' : 'warn'), x.state === 'timeout' ? '超时' : '等回执'));
-        row.appendChild(el('span', 'pb-foot-w', x.to || '?'));
-        row.appendChild(el('span', 'pb-foot-k', x.ageMin + ' 分'));
-        row.title = x.id;
-        foot.appendChild(row);
-      });
-    }
-    const rec = (r.receipts || []).slice(-3).reverse();
-    if (rec.length) {
-      foot.appendChild(el('div', 'pb-foot-t', '最近回执'));
-      rec.forEach((x) => {
-        const row = el('div', 'pb-foot-r');
-        const okish = !/超时|失败/.test(x.kind || '');
-        row.appendChild(el('span', 'pb-badge ' + (okish ? 'ok' : 'err'), /超时/.test(x.kind || '') ? '超时' : '回执'));
-        if (x.to) row.appendChild(el('span', 'pb-foot-w', x.to));
-        row.appendChild(el('span', 'pb-foot-k', x.hhmm || ''));
-        row.title = x.raw || '';
-        foot.appendChild(row);
-      });
-    } else {
-      foot.appendChild(el('div', 'pb-foot-r', '还没有回执'));
-    }
-  }
-
-  refresh();
-  pullWatch();
-  // 主进程巡检一拍就推一次（新卡住立刻弹），面板不用等人打开才发现
-  let offWatch = null;
-  if (K && K.onWatch) {
-    offWatch = K.onWatch((p) => {
-      if (disposed || !p || !p.ok) return;
-      renderAlerts(p.alerts, p.stuckMin, Math.floor(Date.now() / 1000));
-    });
-  }
-  timer = setInterval(() => { if (!disposed) { refresh(); pullWatch(); } }, 8000);
-  return () => { disposed = true; if (timer) clearInterval(timer); if (offWatch) offWatch(); };
-};
 
 /* ══════════════════════════════════════════════════════════════════
    总入口 · 派发巡检（type = "dispatch-board"）
@@ -17089,155 +17221,6 @@ renderers['dispatch-board'] = (body, meta, head) => {
   refresh(false);
   timer = setInterval(() => { if (!disposed) refresh(false); }, 60000);
   return () => { disposed = true; if (timer) clearInterval(timer); };
-};
-
-/* ══════════════════════════════════════════════════════════════════
-   创意工坊 · 工程文件预览（type = "bl-files"）
-   左边点文件、右边直接看：图片出大图、.md 出正文、.blend/.glb 出元信息 + 一键打开。
-   和 bl-folder 的区别：不来回跳目录，固定四个产物夹做 tab，一眼看"这活到底出了什么"。
-   ══════════════════════════════════════════════════════════════════ */
-renderers['bl-files'] = (body, meta, head) => {
-  const K = window.app && window.app.blender;
-  body.classList.add('bf-body');
-  let disposed = false, rel = '', rootPath = '';
-
-  // 1. tab = 资产包（一次一个资产，一个资产一个包）；没有资产包时回退旧扁平五夹
-  const TABS = ['工程', '概念', '贴图', '输出', '导出'];
-  const tabBar = el('div', 'bf-tabs');
-  function makeTab(label, relPath, on) {
-    const b = el('span', 'bf-tab' + (on ? ' on' : ''), label);
-    b.dataset.rel = relPath;
-    b.addEventListener('click', (ev) => {
-      ev.stopPropagation();
-      tabBar.querySelectorAll('.bf-tab').forEach((x) => x.classList.remove('on'));
-      b.classList.add('on');
-      load(relPath);
-    });
-    tabBar.appendChild(b);
-    return b;
-  }
-  async function initTabs() {
-    tabBar.innerHTML = '';
-    let dirs = [];
-    if (K && K.files) {
-      try {
-        const r = await K.files('资产');
-        if (r && r.ok) dirs = (r.rows || []).filter((x) => x.isDir).map((x) => x.name);
-      } catch (e) { dirs = []; }
-    }
-    if (disposed) return;
-    if (!dirs.length) {
-      TABS.forEach((t) => makeTab(t, t, t === '工程'));
-      load('工程');
-      return;
-    }
-    dirs.forEach((d, i) => makeTab(d, '资产/' + d, i === 0));
-    load('资产/' + dirs[0]);
-  }
-  const tip = el('span', 'bl-note', '');
-  if (head) {
-    head.classList.add('file-head');
-    const acts = el('div', 'file-head-acts');
-    acts.appendChild(tabBar);
-    const openBtn = el('button', 'file-refresh', '📂');
-    openBtn.title = '在资源管理器打开当前目录';
-    openBtn.addEventListener('click', () => { if (K) K.open(rootPath + (rel ? '\\' + rel.replace(/\//g, '\\') : '')); });
-    acts.appendChild(openBtn);
-    // ＋资产：一次做一个资产就建一个包（回车确认，不弹系统对话框）
-    const newIn = el('input', 'bf-new-in');
-    newIn.type = 'text';
-    newIn.placeholder = '新资产名，回车建包';
-    newIn.style.display = 'none';
-    const newBtn = el('button', 'file-refresh', '＋资产');
-    newBtn.title = '新建资产包（模型/贴图/渲染/导出都放这个包里）';
-    newBtn.addEventListener('click', (ev) => {
-      ev.stopPropagation();
-      if (newIn.style.display === 'none') { newIn.style.display = ''; newIn.focus(); return; }
-      newIn.style.display = 'none';
-    });
-    newIn.addEventListener('keydown', async (ev) => {
-      if (ev.key !== 'Enter') return;
-      ev.stopPropagation();
-      const name = String(newIn.value || '').trim();
-      if (!name) return;
-      const A = window.app && window.app.creative;
-      let r = null;
-      try { r = await (A && A.assetNew ? A.assetNew(name) : Promise.resolve(null)); } catch (e) { r = null; }
-      if (window.__tbsToast) window.__tbsToast(r && r.ok ? ('资产包已建：' + name) : ('建包失败：' + ((r && r.err) || '没有通道')), !(r && r.ok), 9000);
-      if (r && r.ok) { newIn.value = ''; newIn.style.display = 'none'; initTabs(); }
-    });
-    acts.appendChild(newBtn);
-    acts.appendChild(newIn);
-    head.appendChild(acts);
-    head.appendChild(tip);
-  }
-
-  // 只列目录：面板小（2×2），不留预览区；要打开文件就双击 / 右键
-  const main = el('div', 'bf-main');
-  const list = el('div', 'bf-list');
-  main.appendChild(list);
-  body.appendChild(main);
-
-  const fmtSize = (n) => {
-    if (n == null) return '—';
-    if (n < 1024) return n + ' B';
-    if (n < 1048576) return (n / 1024).toFixed(1) + ' KB';
-    if (n < 1073741824) return (n / 1048576).toFixed(1) + ' MB';
-    return (n / 1073741824).toFixed(2) + ' GB';
-  };
-  const icon = (name, isDir) => {
-    if (isDir) return '📁';
-    const n = String(name).toLowerCase();
-    if (/\.blend\d?$/.test(n)) return '🟠';
-    if (/\.(png|jpe?g|webp|gif|exr|hdr)$/.test(n)) return '🖼️';
-    if (/\.(mp4|mov|avi|mkv)$/.test(n)) return '🎬';
-    if (/\.(obj|fbx|glb|gltf|stl|ply|usd)$/.test(n)) return '🧊';
-    if (/\.(md|txt)$/.test(n)) return '📄';
-    if (/\.py$/.test(n)) return '🐍';
-    return '📄';
-  };
-  const absOf = (name) => rootPath + '\\' + (rel ? rel.replace(/\//g, '\\') + '\\' : '') + name;
-
-  // 4. 列目录（只列，不预览：双击用系统程序打开、右键定位到资源管理器）
-  async function load(nextRel) {
-    if (disposed || !K) return;
-    rel = nextRel || '';
-    list.innerHTML = '';
-    list.appendChild(el('div', 'file-empty', '加载中…'));
-    let res = null;
-    try { res = await K.files(rel); } catch (e) { res = null; }
-    if (disposed) return;
-    list.innerHTML = '';
-    if (!res || !res.ok) { list.appendChild(el('div', 'file-empty', '无法读取：' + ((res && res.err) || '未知错误'))); return; }
-    rootPath = res.root || rootPath;
-    if (tip) tip.textContent = res.rows.length + ' 项';
-    // 进了子目录给一个回上一级的行（面板小，不做面包屑）
-    if (rel) {
-      const up = el('div', 'file-row dir bf-up');
-      up.appendChild(el('span', 'bl-file-ico', '↩'));
-      up.appendChild(el('span', 'file-name', '上一级'));
-      up.addEventListener('click', () => load(rel.split('/').slice(0, -1).join('/')));
-      list.appendChild(up);
-    }
-    if (!res.rows.length) { list.appendChild(el('div', 'file-empty', '（空）')); return; }
-    res.rows.forEach((it) => {
-      const row = el('div', 'file-row' + (it.isDir ? ' dir' : ''));
-      row.appendChild(el('span', 'bl-file-ico', icon(it.name, it.isDir)));
-      row.appendChild(el('span', 'file-name', it.name));
-      row.appendChild(el('span', 'file-meta', it.isDir ? '目录' : fmtSize(it.size)));
-      row.addEventListener('click', () => {
-        list.querySelectorAll('.file-row.sel').forEach((x) => x.classList.remove('sel'));
-        row.classList.add('sel');
-        if (it.isDir) load(rel ? rel + '/' + it.name : it.name);
-      });
-      row.addEventListener('dblclick', () => { if (!it.isDir && K) K.open(absOf(it.name)); });
-      row.addEventListener('contextmenu', (ev) => { ev.preventDefault(); if (K) K.reveal(rel ? rel + '/' + it.name : it.name); });
-      list.appendChild(row);
-    });
-  }
-
-  initTabs();
-  return () => { disposed = true; };
 };
 
 /* ══════════════════════════════════════════════════════════════════
@@ -18832,24 +18815,34 @@ renderers['review-doc'] = function (body, meta, head) {
       var list = host.querySelectorAll('webview');
       for (var i = 0; i < list.length; i++) fn(list[i]);
     }
-    function park(hide) {
-      each(function (w) {
-        if (hide) {
-          if (!w.__dshParked) {
-            w.__dshParked = { opacity: w.style.opacity, pe: w.style.pointerEvents };
-          }
-          w.style.opacity = '0';
-          // 2026-10-19 宿主「B站内容操作不了」：这里原来越权设了 pointer-events:none，
-          //   一旦某次 sync 没跑（页面重建时序）就会把可见的 webview 钉成不可点。
-          //   其实隐藏时父级是 display:none，本来就点不到 ⇒ 这行不需要。
-        } else if (w.__dshParked) {
-          w.style.opacity = w.__dshParked.opacity || '';
-          w.style.pointerEvents = '';   // 无条件清掉：宁可多点穿透，也不能让页面点不动
-          delete w.__dshParked;
+    function parkOne(w, hide) {
+      if (hide) {
+        if (!w.__dshParked) {
+          w.__dshParked = { opacity: w.style.opacity, pe: w.style.pointerEvents };
         }
-      });
+        w.style.opacity = '0';
+        // 2026-10-19 宿主「B站内容操作不了」：这里原来越权设了 pointer-events:none，
+        //   一旦某次 sync 没跑（页面重建时序）就会把可见的 webview 钉成不可点。
+        //   其实隐藏时父级不可见，本来就点不到 ⇒ 这行不需要。
+      } else if (w.__dshParked) {
+        w.style.opacity = w.__dshParked.opacity || '';
+        w.style.pointerEvents = '';   // 无条件清掉：宁可多点穿透，也不能让页面点不动
+        delete w.__dshParked;
+      }
     }
-    function sync() { park(!host.classList.contains('active')); }
+    // 2026-11-18 场景暂存：一个场景一个 .scene-stage，切走的 stage 只是叠在底下（opacity:0）。
+    //   Electron 的 <webview> 是独立 guest view，父级透明它照样画 ⇒ 非活动 stage 里的 webview 必须单独停掉。
+    function stageHidden(w) {
+      try {
+        var st = w.closest ? w.closest('.scene-stage') : null;
+        return !!(st && !st.classList.contains('active'));
+      } catch (e) { return false; }
+    }
+    function hiddenOf(w) {
+      return !host.classList.contains('active') || stageHidden(w);
+    }
+    function sync() { each(function (w) { parkOne(w, hiddenOf(w)); }); }
+    window.__dshParkSync = sync;   // renderer.js 切 stage 时同步调用（不必等 MutationObserver 的下一拍）
 
     // ① 视图切换：盯 #scenario-view 的 class
     new MutationObserver(sync).observe(host, { attributes: true, attributeFilter: ['class'] });
@@ -18858,15 +18851,16 @@ renderers['review-doc'] = function (body, meta, head) {
     // ② 场景 A⇄B：点标签时先压住，等重建完（400ms）再按当前可见性复位
     // 2026-10-19 宿主「B站内容操作不了」：原来点场景标签会先 park(true) 再 400ms 复位 ⇒ 时序一乱就把页面钉成不可点。
     //   这里整段撤掉：A⇄B 的残帧最多闪一下，但绝不会让人点不动（可点优先于好看）。
-    // ③ 兜底：grid 内容变化时（场景重建）也让新加入的 webview 跟随当前可见性
-    var grid = document.getElementById('grid');
-    if (grid) {
-      new MutationObserver(function () { if (!host.classList.contains('active')) park(true); })
-        .observe(grid, { childList: true });
+    // ③ 兜底：舞台增删 / 某个 stage 的 .active 变化时，让里面的 webview 跟随当前可见性
+    var stages = document.getElementById('scene-stages');
+    if (stages) {
+      new MutationObserver(sync).observe(stages, {
+        attributes: true, attributeFilter: ['class'], subtree: true, childList: true
+      });
     }
-    // 2026-10-19 兜底看门狗：每 2s 检查一次 —— 场景视图激活时，任何被 park 过的 webview 立即还原。
+    // 2026-10-19 兜底看门狗：每 2s 校正一次 —— 场景视图激活、stage 也激活时，被 park 过的 webview 立即还原。
     //   （宁可多跑一个很轻的定时器，也不允许"页面看得见却点不动"）
-    setInterval(function () { if (host.classList.contains('active')) park(false); }, 2000);
+    setInterval(sync, 2000);
     // 2026-10-19 23:2x（bv-ai：也许输入没路由到 guest）—— 场景激活时给 webview 补一次 focus（无损）。
     //   ⚠ `重新 append` 那条我先**不启用**：移动 <webview> 可能让 guest 重载（B站会丢页面进度），
     //   等探针 `_点击探针.json` 里的 clicks / hostTop 出来再决定（clicks=0 且 hostTop=webview 才用）。
@@ -18876,6 +18870,7 @@ renderers['review-doc'] = function (body, meta, head) {
         var ws = host.querySelectorAll('webview');
         for (var i = 0; i < ws.length; i++) {
           var w = ws[i];
+          if (hiddenOf(w)) continue;   // 藏在非活动 stage 里的不算"可见"
           // 2026-10-19 23:3x：探针实测 clicks=0 且 hostTop=webview（没有遮挡、自身也没 pointer-events）
           //   ⇒ 就是 guest 的输入没路由。按 bv-ai 建议：**可见后重新挂一次**（同父容器内 append 回去），
           //   强制 guest 重新计算输入区域。每个 webview 只做一次（避免每次切场景都重挂）。
@@ -19148,7 +19143,7 @@ renderers.neuron = (body, meta, head) => {
   const SKILL_DIR = P.skillDir || '<工作台>\\引擎数据\\.dsh\\skills';
   // 技能清单**不硬编码**（2026-10-27 审计①：硬编码 23 漏了 memory / douyin）——运行时列技能目录，这份只当兜底
   const SKILL_FALLBACK = ['gui-workbench', 'harness-dev', 'context-overflow', 'workbuddy', 'webai-offload',
-    'new-tools', 'code-dev', 'design-misc', 'pc-cleanup', 'bilibili', 'blender', 'comfyui',
+    'new-tools', 'code-dev', 'design-misc', 'pc-cleanup', 'bilibili', 'comfyui',
     'code-video', 'jianying-ai-editor', 'oa-ops', 'your-site', 'self-profile',
     'video-workflow-canvas', 'transparent-flow-video', 'provider-direct', 'host-scan', 'app-packaging',
     'local-pc-control', 'memory', 'douyin'];
@@ -19162,8 +19157,8 @@ renderers.neuron = (body, meta, head) => {
   // 归口配色：引擎/工具=蓝 · 界面/设计=琥珀 · 内容/业务=绿 · 运维/清理=红
   const GROUP = {
     'dg-dsh': 'engine', 'dg-gui': 'ui', 'code-ai': 'code', 'dz-ai': 'ui', 'site-ai': 'content',
-    'wb-ai': 'content', 'oa-ai': 'content', 'vw-ai': 'content', 'bv-ai': 'content', 'bl-ai': 'content',
-    'cw-ai': 'content', 'cw-board': 'doc', 'cw-files': 'doc', 'mk-chat': 'content', 'sr-ai': 'content', 'pc-ai': 'ops'
+    'wb-ai': 'content', 'oa-ai': 'content', 'vw-ai': 'content', 'bv-ai': 'content',
+    'mk-chat': 'content', 'sr-ai': 'content', 'pc-ai': 'ops'
   };
   // 2026-11-13：归口色对齐设计令牌（--warn / --ok / --err），不再用自己调的一套近似色
   const COLOR = { core: '#7fe3ff', engine: '#8fb4ff', ui: '#e5b355', code: '#b79bff', content: '#34c98f', ops: '#ef5d6d', skill: '#6f8fd6', doc: '#c9d4e6', project: '#2dd4bf', memory: '#dfe7ff', source: '#8f9bb3', chain: '#e5b355' };
@@ -19235,9 +19230,7 @@ renderers.neuron = (body, meta, head) => {
     'mem-chat': MEM_DIR + '\\记忆\\场景私有记忆.md',
     'bv-ai': MEM_DIR + '\\B站\\场景私有记忆.md',
     'dg-dsh': MEM_DIR + '\\DSH·GUI改造\\场景私有记忆.md',
-    'dg-gui': MEM_DIR + '\\DSH·GUI改造\\场景私有记忆.md',
-    'bl-ai': MEM_DIR + '\\Blender\\场景私有记忆.md',
-    'cw-ai': MEM_DIR + '\\创意工坊\\场景私有记忆.md'
+    'dg-gui': MEM_DIR + '\\DSH·GUI改造\\场景私有记忆.md'
   };
 
   // ---------- 骨架 ----------
@@ -21181,13 +21174,22 @@ renderers.git = function (body, meta) {
   // ── 工具栏 ──
   var tb = el('div', 'g-tb');
   var btnRefresh = el('button', 'g-ico', '⟳'); btnRefresh.title = '刷新（分支 / 变更 / 历史）';
-  var btnBranch = el('button', 'g-branch', '⎇ …'); btnBranch.title = '切换分支';
+  // 分支按钮里带 ↑/↓ 计数（2026-11-18）：原来 ahead/behind 只藏在分支下拉里，面板上根本看不见
+  //   「远程落后几条」，所以点完「获取」像什么都没发生；现在取完直接在工具栏上变数字。
+  var btnBranch = el('button', 'g-branch');
+  var brName = el('span', 'g-br-name', '⎇ …');
+  var brTrack = el('span', 'g-br-track', '');
+  btnBranch.appendChild(brName); btnBranch.appendChild(brTrack);
+  btnBranch.title = '切换分支（↑ = 本地未推送，↓ = 远程未拉取）';
   var filter = document.createElement('input');
   filter.className = 'g-filter';
   filter.placeholder = '过滤提交（摘要 / 作者 / hash）';
   filter.spellcheck = false;
-  var btnFetch = el('button', 'g-ico', '⇣'); btnFetch.title = 'fetch 远程（--prune --all）';
-  tb.appendChild(btnRefresh); tb.appendChild(btnBranch); tb.appendChild(filter); tb.appendChild(btnFetch);
+  // 「更新 / 获取」用文字常驻，不再只藏右键菜单 / ⇣ 图标（核心入口必须看得见）：
+  //   更新 = fetch + 自动合并（无冲突直接合）；获取 = 只更新远程引用，不动工作区与本地分支。
+  var btnUpdate = el('button', 'g-txt', '更新'); btnUpdate.title = '拉取当前分支的远程更新：没冲突直接合并，有冲突列出文件（不覆盖本地改动）';
+  var btnFetch = el('button', 'g-txt', '获取'); btnFetch.title = '只取当前分支跟踪的远端引用，不动工作区、不改本地分支';
+  tb.appendChild(btnRefresh); tb.appendChild(btnBranch); tb.appendChild(filter); tb.appendChild(btnUpdate); tb.appendChild(btnFetch);
 
   // ── 选项卡 ──
   var tabs = el('div', 'g-tabs');
@@ -21195,8 +21197,15 @@ renderers.git = function (body, meta) {
   var tabLog = el('button', 'g-tab', '历史');
   tabs.appendChild(tabChanges); tabs.appendChild(tabLog);
 
-  var paneChanges = el('div', 'g-pane');
+  var paneChanges = el('div', 'g-pane g-pane-chg');
   var paneLog = el('div', 'g-pane');
+  // 变更页拆两盒（2026-11-17 宿主：「提交区域固定在面板的底部，给上面的区域有留白空间」）：
+  //   上半 chScroll = 变更单栏 / 摘要 / 分组 / 文件行，自己滚；下半 chDock = 提交区，不跟着滚、永远贴面板底。
+  //   以前提交区是整块 .g-pane 里的 sticky：文件少时 sticky 不生效，提交框就紧贴列表，下面空一大片。
+  var chScroll = el('div', 'g-chscroll');
+  var chDock = el('div', 'g-chdock');
+  paneChanges.appendChild(chScroll);
+  paneChanges.appendChild(chDock);
   paneLog.style.display = 'none';
 
   wrap.appendChild(tb); wrap.appendChild(tabs); wrap.appendChild(paneChanges); wrap.appendChild(paneLog);
@@ -21208,6 +21217,7 @@ renderers.git = function (body, meta) {
 
   var dead = false, data = null, tab = 'changes', sel = '', detail = null, busy = false, picker = false;
   var picked = {}, draftMsg = '', amendOn = false, committing = false;
+  var pullConflict = null;            // 拉取预检发现的冲突（还没动工作区）；合并现场冲突看 data.merge
   // 双击变更文件看什么（2026-11-17 宿主：「要可选择两种方式查看…默认为直接查看文件」）：
   //   'file' = 直接看工作区文件内容（默认）；'diff' = 看改动视图。记在 localStorage，切面板还在。
   var openMode = 'file';
@@ -21231,6 +21241,15 @@ renderers.git = function (body, meta) {
   var liveTimer = 0, slowTimer = 0, liveBusy = false, liveSig = '', gitStamp = '';
   function api() { return (window.app && window.app.git) || null; }
   function msg(t) { var d = el('div', 'g-msg', t); wrap.appendChild(d); setTimeout(function () { if (d.parentNode) d.remove(); }, 6000); }
+  // 工具栏分支标签：名字 + ↑/↓ 计数（见 btnBranch 旁说明）
+  function paintHead(r) {
+    var name = (r && (r.current || r.branch)) || '?';
+    brName.textContent = '⎇ ' + name;
+    var ah = Number((r && r.ahead) || 0), bh = Number((r && r.behind) || 0);
+    brTrack.textContent = (ah ? '↑' + ah : '') + (bh ? (ah ? ' ' : '') + '↓' + bh : '');
+    brTrack.className = 'g-br-track' + (bh ? ' is-behind' : (ah ? ' is-ahead' : ''));
+    brTrack.title = bh ? ('远程还有 ' + bh + ' 条没拉下来') : (ah ? ('本地有 ' + ah + ' 条没推上去') : '与上游一致');
+  }
   /* ---------- 变更单（自定义命名的文件分组）+ 不参与提交 ---------- */
   // 2026-11-17 宿主：「idea 里的 new changelist，这样我自己区分出文件」+「指定某个区域的文件不参与提交」。
   //   ① 变更单 = 一组路径的命名集合，只决定「变更」页签显示哪些文件、提交哪些文件，不动 git 索引；
@@ -21283,8 +21302,17 @@ renderers.git = function (body, meta) {
     return '';
   }
   function isSkip(path) { return !!skipRule(path); }
+  // 合并没收尾时，未解决的文件只交给上方「合并未完成」卡处理；
+  //   不再混进普通变更列表 —— 否则会被当成「已暂存/新文件」误勾、误提交。
+  function mergePaths() {
+    var s = {};
+    if (data && data.merge && data.merge.active) (data.merge.files || []).forEach(function (f) { s[f.path] = 1; });
+    return s;
+  }
   function visibleChanges() {
     var ch = (data && data.changes) || [];
+    var mp = mergePaths();
+    if (Object.keys(mp).length) ch = ch.filter(function (c) { return !mp[c.path]; });
     if (cfg.active === 'all') return ch;
     if (cfg.active === 'default') return ch.filter(function (c) { return !listOfPath(c.path); });
     var l = findList(cfg.active);
@@ -21293,10 +21321,12 @@ renderers.git = function (body, meta) {
   }
   // 当前仓库的口径数字（下拉 / 组头 / 提交区都用这一套，避免三处各算一遍）
   function countOfList(l) {
-    return ((data && data.changes) || []).filter(function (c) { return l.files.indexOf(c.path) >= 0; }).length;
+    var mp = mergePaths();
+    return ((data && data.changes) || []).filter(function (c) { return !mp[c.path] && l.files.indexOf(c.path) >= 0; }).length;
   }
   function unassignedCount() {
-    return ((data && data.changes) || []).filter(function (c) { return !listOfPath(c.path); }).length;
+    var mp = mergePaths();
+    return ((data && data.changes) || []).filter(function (c) { return !mp[c.path] && !listOfPath(c.path); }).length;
   }
   function groupKeyOf(c) {
     var l = listOfPath(c.path);
@@ -21425,15 +21455,21 @@ renderers.git = function (body, meta) {
   }
   // git 的 porcelain 状态码是两位（X = 暂存区，Y = 工作区），未跟踪是 "??"、忽略是 "!!"；
   // 面板一行只放得下一个字母，先归一，否则 14px 的窄格里会挤成 "??"（宿主：前面的问号是什么）。
+  // 冲突（未合并）码：DD/AU/UD/UA/DU/AA/UU —— 两个字母都是「两版对比」的意思，不能只取首字母
+  function isUnmergedCode(c) {
+    return /^(DD|AU|UD|UA|DU|AA|UU)$/.test(String(c == null ? '' : c).replace(/\s+/g, ''));
+  }
   function stLetter(c) {
     var s = String(c == null ? '' : c).replace(/\s+/g, '');
     if (!s) return '·';
+    if (isUnmergedCode(s)) return 'X';
     if (s === '??') return 'U';
     if (s === '!!') return '!';
     return s.charAt(0);
   }
   function codeCls(c) {
     var s = stLetter(c);
+    if (s === 'X') return 'is-err';
     if (s === 'M') return 'is-mod';
     if (s === 'A' || s === 'U' || s === '?') return 'is-new';
     if (s === 'D') return 'is-del';
@@ -21444,7 +21480,8 @@ renderers.git = function (body, meta) {
   function stWord(c) {
     var s = stLetter(c);
     var raw = String(c == null ? '' : c).replace(/\s+/g, '');
-    var w = s === 'M' ? '已修改（未提交）'
+    var w = s === 'X' ? '冲突（还没解决）'
+      : s === 'M' ? '已修改（未提交）'
       : s === 'A' ? '新增（已暂存）'
         : s === 'D' ? '已删除'
           : s === 'R' ? '重命名'
@@ -21499,6 +21536,7 @@ renderers.git = function (body, meta) {
   //   颜色一律走设计令牌（--warn/--ok/--err/--accent），浅色主题自动跟随。
   function stageGroup(code) {
     var raw = String(code == null ? '' : code);
+    if (isUnmergedCode(raw)) return 'unstaged';          // 冲突文件不该算「已暂存」
     if (raw.indexOf('?') >= 0) return 'untracked';        // "??"：新文件，还没 add
     if (raw.charAt(0) && raw.charAt(0) !== ' ') return 'staged';   // X 位有字 = 暂存区有变化
     return 'unstaged';
@@ -21775,6 +21813,15 @@ renderers.git = function (body, meta) {
     return box;
   }
   function commitBox(ch, canSel) {
+    // 合并没收尾时不给提交：半截合并提交上去会把现场搞乱，先完成 / 放弃合并（一次只做一件事）
+    if (data && data.merge && data.merge.active) {
+      var mbox = el('div', 'g-commitbox');
+      var mh = el('div', 'g-cbox-h');
+      mh.appendChild(el('span', 'g-cbox-t', '合并未完成'));
+      mbox.appendChild(mh);
+      mbox.appendChild(el('div', 'g-cgrp-empty', '先在上面的冲突卡里处理完（' + ((data.merge.kind === 'local') ? '完成 / 放弃更新' : '完成合并 / 放弃合并') + '），再回到这里提交。'));
+      return mbox;
+    }
     var box = el('div', 'g-commitbox');
     var cbh = el('div', 'g-cbox-h');
     cbh.appendChild(el('span', 'g-cbox-t', '提交' + (cfg.active !== 'all' ? ' · ' + listName(cfg.active) : '')));
@@ -21817,19 +21864,29 @@ renderers.git = function (body, meta) {
     return box;
   }
   function renderChanges(resetTop) {
-    var st = paneChanges.scrollTop;
-    paneChanges.innerHTML = '';
-    paneChanges.appendChild(scopeBar());
+    var st = chScroll.scrollTop;
+    chScroll.innerHTML = '';
+    chDock.innerHTML = '';
+    // 0) 冲突卡放最上面（在变更单栏之前）：合并现场是仓库级状态，不能被「当前变更单」筛掉；
+    //    工作区干净时也要看得见，否则冲突只能靠命令行收。
+    var cfBox = conflictBox();
+    if (cfBox) chScroll.appendChild(cfBox);
+    chScroll.appendChild(scopeBar());
     var ch = visibleChanges();
     var canSel = ch.filter(function (c) { return !isSkip(c.path); });
     if (!ch.length) {
-      paneChanges.appendChild(emptyScope());
-      paneChanges.scrollTop = resetTop ? 0 : st;
+      // 合并现场的文件被上面那张卡接管了：这里不能再报「工作区干净」，否则用户以为没事了
+      chScroll.appendChild((data && data.merge && data.merge.active)
+        ? el('div', 'g-empty', ((data.merge.files || []).length
+          ? '冲突文件都在上面的冲突卡里：逐个处理完，点「' + (data.merge.kind === 'local' ? '完成' : '完成合并') + '」收尾'
+          : '冲突都已标记解决：点上面的冲突卡「' + (data.merge.kind === 'local' ? '完成' : '完成合并') + '」收尾（本地改动留在工作区）'))
+        : emptyScope());
+      chScroll.scrollTop = resetTop ? 0 : st;
       return;
     }
 
     // 1) 摘要：一眼看出这次改动的规模（只在「全部」里显示仓库级增删，避免和单组对不上）
-    paneChanges.appendChild(changeSummary(ch));
+    chScroll.appendChild(changeSummary(ch));
 
     // 2) 全选（只算「可提交」的行：命中不参与提交的禁选）
     var head = el('div', 'g-chead');
@@ -21842,21 +21899,25 @@ renderers.git = function (body, meta) {
     var allT = el('span', 'g-chead-t', '全选 · ' + canSel.length + ' 个可提交文件' + (ch.length > canSel.length ? '（⊘ 跳过 ' + (ch.length - canSel.length) + '）' : ''));
     allT.title = '默认一个都不勾：勾哪些就提交哪些；⊘ 的行被「不参与提交」规则挡住，提交时一定不含它们';
     head.appendChild(allT);
-    paneChanges.appendChild(head);
+    chScroll.appendChild(head);
 
     // 3) 变更单分组：每个组头都能折叠 / 全选 / 提交 / 拖动落点
-    buildGroups(ch).forEach(function (g) { paneChanges.appendChild(groupBlock(g)); });
+    buildGroups(ch).forEach(function (g) { chScroll.appendChild(groupBlock(g)); });
 
-    // 4) 提交区（跟着当前变更单走；sticky 吸在面板底部）
-    paneChanges.appendChild(commitBox(ch, canSel));
+    // 4) 提交区：挂在页签下半的固定盒子里，永远贴面板底，不给文件列表把它顶到半空
+    chDock.appendChild(commitBox(ch, canSel));
     updateChecks();
-    paneChanges.scrollTop = resetTop ? 0 : st;
+    chScroll.scrollTop = resetTop ? 0 : st;
   }
 
   async function doCommit(push) {
     var a = api();
     if (!a || !a.commit) { msg('这次启动的界面还没有提交能力 ⇒ 重启一次工作台'); return; }
     if (committing) return;
+    if (data && data.merge && data.merge.active) {
+      tip(data.merge.kind === 'local' ? '先在上面的冲突卡里点「完成」或「放弃更新」，再提交' : '先完成或放弃合并，再提交', true);
+      return;
+    }
     // 提交范围 = 当前变更单里**手动勾上**且没被「不参与提交」规则挡住的文件（缺一层都不提交）
     var files = checkedFiles().map(function (c) { return c.path; });
     if (!files.length) { msg('先勾选要提交的文件（⊘ 标记的不参与提交）'); return; }
@@ -21871,6 +21932,7 @@ renderers.git = function (body, meta) {
     clearDraft();
     picked = {};
     amendOn = false;
+    pullConflict = null;                // 预检清单可能已被这次提交消掉；下次更新重新预检，别留过期文件
     // 提交掉的路径从变更单里摘掉（它们已经不是「改动」了）；剩下的归组关系留着
     cfg.lists.forEach(function (l) { l.files = l.files.filter(function (p) { return files.indexOf(p) < 0; }); });
     saveCfg();
@@ -21898,6 +21960,21 @@ renderers.git = function (body, meta) {
     var curRev = (data && (data.current || data.branch)) || '';
     var viewTag = (viewRev && viewRev !== curRev) ? ' · 查看 ' + viewRev : '';
     left.appendChild(el('div', 'g-loghead', rows.length + ' 条' + (q ? '（已过滤）' : '') + viewTag));
+    // 合并没收尾时，历史页也给一条常驻入口（不能只靠「变更」页那张卡，用户可能正停在历史页）
+    if (data && data.merge && data.merge.active) {
+      var mk2 = (data.merge.kind === 'local') ? '本地改动与拉取结果冲突' : (data.merge.kind === 'unmerged' ? '冲突未解决' : '合并未完成');
+      var mb = el('div', 'g-loghead g-loginc', mk2 + '：' + ((data.merge.files || []).length) + ' 个文件（点这里去「变更」页处理）');
+      mb.title = '切到「变更」页，用冲突卡逐个解决';
+      mb.addEventListener('click', function () { setTab('changes'); });
+      left.appendChild(mb);
+    }
+    // 历史页也标一句「远程还有几条没拉」：获取 / 更新后数字当场变化，fetch 不再是「看不出发生什么」
+    if (data && data.ok && data.behind && data.upstream && !q && (!viewRev || viewRev === curRev)) {
+      var inc = el('div', 'g-loghead g-loginc', '远程 ' + data.upstream + ' 还有 ' + data.behind + ' 条没拉下来（点这里更新）');
+      inc.title = '点这里执行「更新」：拉取远程新提交（没冲突直接合并）';
+      inc.addEventListener('click', function () { doPull('merge'); });
+      left.appendChild(inc);
+    }
     if (!sel || !rows.some(function (c) { return c.hash === sel; })) sel = rows[0].hash;
 
     rows.forEach(function (c) {
@@ -22153,64 +22230,269 @@ renderers.git = function (body, meta) {
 
   /* ---------- 远程：Push / Update（对着 IDEA 的 Push / Update Project）---------- */
   //   1. 有 upstream 直推、没有就 -u origin <当前分支>（面板不动工作区）
-  //   2. Update = fetch + 快进；快进不了让用户选合并或变基，不擅自留冲突提交
+  //   2. Update（2026-11-18 重做）：主进程先判冲突——
+  //      没冲突直接合（分叉也不再问「合并/变基」）；有冲突就列出文件，工作区一个字不动；
+  //      只剩提交级冲突时可「合并并解决冲突」，把冲突带进工作区在面板里逐个处理。
   async function doPush() {
     var a = api();
-    if (!a || !a.push) { msg('这次启动的界面还没有推送能力 ⇒ 重启一次工作台'); return; }
-    if (busy) { msg('上一件事还没干完，等它结束'); return; }
+    if (!a || !a.push) { tip('这次启动的界面还没有推送能力 ⇒ 重启一次工作台', true); return; }
+    if (busy) { tip('上一件事还没干完，等它结束'); return; }
     busy = true;
-    msg('推送中（可能几十秒）…');
+    tip('推送中（可能几十秒）…');
     var r = null;
     try { r = await a.push(repo); } catch (e) { r = { ok: false, err: String((e && e.message) || e) }; }
     busy = false;
     await load();
-    if (r && r.ok) msg('已推送 ' + r.branch + ' → ' + r.upstream + (r.newUpstream ? '（新建跟踪）' : ''));
-    else if (r && r.code === 'behind') msg('✗ 远程有本地没有的提交，先右键 Update 再推：' + r.err);
-    else msg('✗ ' + ((r && r.err) || '推送失败'));
+    if (r && r.ok) tip('已推送 ' + r.branch + ' → ' + r.upstream + (r.newUpstream ? '（新建跟踪）' : ''));
+    else if (r && r.code === 'behind') tip('✗ 远程有本地没有的提交，先点「更新」再推：' + r.err, true);
+    else tip('✗ ' + ((r && r.err) || '推送失败'), true);
   }
 
-  async function doPull(mode, force) {
+  async function doPull(mode, allowConflict) {
     var a = api();
-    if (!a || !a.pull) { msg('这次启动的界面还没有拉取能力 ⇒ 重启一次工作台'); return; }
-    if (busy) { msg('上一件事还没干完，等它结束'); return; }
+    if (!a || !a.pull) { tip('这次启动的界面还没有拉取能力 ⇒ 重启一次工作台', true); return; }
+    if (busy) { tip('上一件事还没干完，等它结束'); return; }
+    // 上一次拉取还留着冲突/autostash 没收尾：先处理完，别再叠一次 merge --autostash
+    if (data && data.merge && data.merge.active) { tip('先在上面的冲突卡里收尾（完成 / 放弃），再更新', true); return; }
     busy = true;
-    msg(mode === 'ff' ? 'Update 中（fetch + 快进）…' : ('更新中（' + (mode === 'merge' ? '合并' : '变基') + '）…'));
+    pullConflict = null;
+    tip(mode === 'rebase' ? '变基更新中…' : '更新中（fetch + 判断冲突 + 合并）…');
     var r = null;
-    try { r = await a.pull(repo, { mode: mode, force: !!force }); } catch (e) { r = { ok: false, err: String((e && e.message) || e) }; }
+    try { r = await a.pull(repo, { mode: mode, allowConflict: !!allowConflict }); } catch (e) { r = { ok: false, err: String((e && e.message) || e) }; }
     busy = false;
-    if (r && r.code === 'dirty') { askPullDirty(r.dirty, mode); return; }
-    if (r && r.code === 'diverged') { askDiverged(r); return; }
+    // 预检发现冲突（还没动工作区）：不合并、不弹「是否继续」，直接把冲突文件摊在面板上
+    if (r && r.code === 'conflict' && !r.mergeInProgress) {
+      pullConflict = r;
+      await load();
+      tip('拉取前发现 ' + conflictCount(r) + ' 个文件会冲突：点「合并并解决冲突」自动暂存本地改动后在卡片里解决，或先提交再更新', true);
+      return;
+    }
+    // 合并已经落地，但 --autostash 恢复本地改动时撞了：走「本地改动与拉取结果冲突」卡
+    if (r && r.code === 'local-conflict') {
+      await load();
+      tip('本地改动和拉取结果冲突：' + ((r.unmerged || []).length) + ' 个文件，已在冲突卡里等你逐个处理', true);
+      return;
+    }
     await load();
     if (r && r.ok) {
-      msg(r.behind
-        ? ('已更新：落后 ' + r.behind + ' 条已' + (r.mode === 'merge' ? '合并' : (r.mode === 'rebase' ? '变基' : '快进')) + '，本地未推送 ' + r.ahead + ' 条')
-        : '已经是最新（远程没有新提交）');
-    } else msg('✗ ' + ((r && r.err) || '更新失败'));
+      if (r.upToDate) tip('已是最新：远程没有新提交');
+      else tip('已更新 ' + r.behind + ' 条（' + (r.mode === 'merge' ? '合并' : (r.mode === 'rebase' ? '变基' : '快进')) + (r.ahead ? '，本地未推送 ' + r.ahead + ' 条' : '') + '）');
+    } else if (r && r.code === 'conflict' && r.mergeInProgress) {
+      tip('合并已留在工作区：' + ((r.unmerged || []).length) + ' 个文件有冲突，在「变更」页签逐个解决', true);
+    } else {
+      tip('✗ ' + ((r && r.err) || '更新失败'), true);
+    }
   }
 
-  function askPullDirty(n, mode) {
-    var box = el('div', 'g-ask');
-    box.appendChild(el('span', 'g-ask-t', '工作区有 ' + n + ' 处未提交改动，仍要拉取？'));
-    var yes = el('button', 'g-btn', '仍然拉取');
-    var no = el('button', 'g-btn', '取消');
-    yes.addEventListener('click', function () { box.remove(); doPull(mode, true); });
-    no.addEventListener('click', function () { box.remove(); });
-    box.appendChild(yes); box.appendChild(no);
-    wrap.appendChild(box);
+  /* ---------- 冲突：拉取前预检 + 合并现场解决（2026-11-18）---------- */
+  //   宿主原话：「有冲突让我通过工具先解决冲突再合并，没有冲突就直接合并，不用询问」。
+  //   两张卡片：① pullConflict（还没动工作区）= 列出会冲突的文件 + 「先提交这些文件」；
+  //             ② data.merge.active（合并已留在工作区）= 每文件「本地版 / 远程版 / 标记已解决」。
+  function conflictCount(r) {
+    return conflictPaths(r).length;     // 同一文件可能既脏又是提交级冲突，按路径去重后才是「N 个文件」
+  }
+  // 三份清单合成一张路径表：同一个文件可能既本地改过、又是提交级冲突，标签合并别去重两次
+  function conflictPaths(r) {
+    var out = [], at = {};
+    [['dirtyHit', '本地未提交'], ['untrackedHit', '未跟踪会被覆盖'], ['commitConflicts', '双方都改了']].forEach(function (x) {
+      ((r && r[x[0]]) || []).forEach(function (p) {
+        if (at[p] !== undefined) { out[at[p]].tags.push(x[1]); return; }
+        at[p] = out.length;
+        out.push({ path: p, tags: [x[1]] });
+      });
+    });
+    return out;
+  }
+  // 「先提交这些文件」：切到「全部」并把冲突文件全部勾上，光标放进提交框 —— 用户只需写信息按 Commit，
+  //   提交完再点「更新」，这时本地改动已经进版本库，合并不再被挡住。
+  function pickConflictFiles(r) {
+    var rows = conflictPaths(r);
+    cfg.active = 'all';
+    saveCfg();
+    rows.forEach(function (f) { picked[f.path] = true; });
+    pullConflict = null;
+    renderChanges(true);
+    tip('已切到「全部」并勾上 ' + rows.length + ' 个文件：写提交信息 → Commit，再点「更新」');
+    setTimeout(function () {
+      var ta = paneChanges.querySelector('.g-msginput');
+      if (ta) { try { ta.focus(); } catch (e) { wbWarn(e); } }
+    }, 0);
+  }
+  async function conflictTake(path, side, label) {
+    var a = api();
+    if (!a || !a.conflictTake) { tip('这次启动的界面还没有冲突处理能力 ⇒ 重启一次工作台', true); return; }
+    if (busy) { tip('上一件事还没干完，等它结束'); return; }
+    busy = true;
+    var r = null;
+    try { r = await a.conflictTake(repo, path, side); } catch (e) { r = { ok: false, err: String((e && e.message) || e) }; }
+    busy = false;
+    if (!r || !r.ok) { tip('✗ ' + ((r && r.err) || '处理失败'), true); return; }
+    await load();
+    tip('已用' + (label || (side === 'theirs' ? '远程版' : '本地版')) + (r.deleted ? '（这一侧把文件删了 ⇒ 已删除）' : '') + '并标记已解决：' + path);
+  }
+  async function conflictMark(path) {
+    var a = api();
+    if (!a || !a.conflictMark) { tip('这次启动的界面还没有冲突处理能力 ⇒ 重启一次工作台', true); return; }
+    if (busy) { tip('上一件事还没干完，等它结束'); return; }
+    busy = true;
+    var r = null;
+    try { r = await a.conflictMark(repo, path); } catch (e) { r = { ok: false, err: String((e && e.message) || e) }; }
+    busy = false;
+    if (!r || !r.ok) { tip('✗ ' + ((r && r.err) || '标记失败'), true); return; }
+    await load();
+    tip('已标记已解决：' + path);
+  }
+  async function conflictContinue() {
+    var a = api();
+    if (!a || !a.conflictContinue) { tip('这次启动的界面还没有冲突处理能力 ⇒ 重启一次工作台', true); return; }
+    if (busy) { tip('上一件事还没干完，等它结束'); return; }
+    busy = true;
+    var r = null;
+    try { r = await a.conflictContinue(repo); } catch (e) { r = { ok: false, err: String((e && e.message) || e) }; }
+    busy = false;
+    if (r && r.code === 'unmerged') { await load(); tip('还有 ' + ((r.files || []).length) + ' 个文件没标记已解决', true); return; }
+    if (r && r.code === 'local-conflict') {
+      await load();
+      tip('合并已提交，但本地改动恢复时冲突：' + ((r.unmerged || []).length) + ' 个文件，在冲突卡里继续处理', true);
+      return;
+    }
+    if (!r || !r.ok) { tip('✗ ' + ((r && r.err) || '完成失败'), true); return; }
+    await load();
+    tip(r.concluded === 'local' ? '冲突已解决，本地改动留在工作区' : '合并已完成');
+  }
+  async function conflictAbort() {
+    var a = api();
+    if (!a || !a.conflictAbort) { tip('这次启动的界面还没有冲突处理能力 ⇒ 重启一次工作台', true); return; }
+    if (busy) { tip('上一件事还没干完，等它结束'); return; }
+    busy = true;
+    var r = null;
+    try { r = await a.conflictAbort(repo); } catch (e) { r = { ok: false, err: String((e && e.message) || e) }; }
+    busy = false;
+    if (!r || !r.ok) { tip('✗ ' + ((r && r.err) || '放弃失败'), true); return; }
+    await load();
+    tip(r.undone === 'local' ? '已放弃更新：回到拉取前，本地改动已恢复' : '已放弃合并，工作区回到拉取前的样子');
   }
 
-  // 分叉（本地 ahead + 远程 behind）：让用户当场选合并还是变基，别自己替他决定
-  function askDiverged(r) {
-    var box = el('div', 'g-ask');
-    box.appendChild(el('span', 'g-ask-t', '快进不了：远程有 ' + r.behind + ' 条新提交，本地有 ' + r.ahead + ' 条未推送。怎么合？'));
-    var bMerge = el('button', 'g-btn g-primary', '合并（merge）');
-    var bRebase = el('button', 'g-btn', '变基（rebase）');
-    var bNo = el('button', 'g-btn', '取消');
-    bMerge.addEventListener('click', function () { box.remove(); doPull('merge', true); });
-    bRebase.addEventListener('click', function () { box.remove(); doPull('rebase', true); });
-    bNo.addEventListener('click', function () { box.remove(); });
-    box.appendChild(bMerge); box.appendChild(bRebase); box.appendChild(bNo);
-    wrap.appendChild(box);
+  // 冲突卡：合并现场（常驻在变更页顶部）或拉取预检结果。一次只做一件事：
+  //   现场 → 逐文件选一侧 / 标记解决 → 完成合并或放弃；预检 → 先提交或把冲突带进来。
+  function conflictBox() {
+    var m = (data && data.merge) || null;
+    var mergeOn = !!(m && m.active);
+    var kind = (m && m.kind) || (mergeOn ? 'merge' : '');
+    var pc = pullConflict;
+    if (!mergeOn && !pc) return null;
+    var box = el('div', 'g-conflict' + (mergeOn ? ' is-live' : ' is-pre'));
+    var head = el('div', 'g-conflict-h');
+    var title = !mergeOn ? '拉取会冲突'
+      : kind === 'local' ? '本地改动与拉取结果冲突'
+        : kind === 'unmerged' ? '冲突未解决'
+          : '合并未完成';
+    head.appendChild(el('span', 'g-conflict-t', title));
+    head.appendChild(el('span', 'g-conflict-n', (mergeOn ? ((m.files || []).length) : conflictCount(pc)) + ' 个文件'));
+    if (!mergeOn) {
+      var x = el('button', 'g-mini', '取消');
+      x.title = '先不拉取了（什么都不改）';
+      x.addEventListener('click', function () { pullConflict = null; renderChanges(); });
+      head.appendChild(x);
+    }
+    box.appendChild(head);
+    if (mergeOn) {
+      box.appendChild(el('div', 'g-conflict-sub', kind === 'local'
+        ? '拉取已经完成，但这些文件的本地改动和拉取结果合不到一起：逐个选「本地版 / 远程版」，或自己改完（删掉冲突标记）再「标记已解决」；全部处理完点「完成」，本地改动留在工作区。'
+        : '逐个文件选「本地版 / 远程版」，或自己改完文件（把冲突标记删掉）再点「标记已解决」；全部处理完点「完成」。双击路径直接看文件。'));
+    } else {
+      var hasDirty = (pc.dirtyHit || []).length > 0;
+      var hasUntracked = (pc.untrackedHit || []).length > 0;
+      box.appendChild(el('div', 'g-conflict-sub', hasUntracked
+        ? '未跟踪文件会被远程新增覆盖，autostash 管不到：先勾选提交（或改名），再点「更新」。'
+        : (pc.mode === 'rebase'
+          ? '当前走的是变基模式，不会自动暂存本地改动：先勾选提交，或改用右键里的「更新（fetch + 合并）」。'
+          : (hasDirty
+            ? '本地改动会先自动暂存，合并后再恢复；恢复时撞车会留在下面逐个解决，不会丢你的改动。'
+            : '这些文件双方都改了：点「合并并解决冲突」，把冲突带进工作区后逐个处理。'))));
+    }
+    var list = el('div', 'g-conflict-list');
+    if (mergeOn) {
+      (m.files || []).forEach(function (f) {
+        var row = el('div', 'g-cfrow');
+        var p = el('span', 'g-cfpath', f.path);
+        p.title = '双击直接看文件（冲突标记在里面）';
+        p.addEventListener('dblclick', function () { openWorkFile(f.path); });
+        row.appendChild(p);
+        row.appendChild(el('span', 'g-cftag is-err', '冲突'));
+        // 注意方向：普通合并冲突 ours=本地分支、theirs=远程；但 autostash 恢复撞车（kind=local）时
+        //   Git 的 ours 是「已合进来的上游」、theirs 才是「本地改动」，标签必须跟着换，否则取错版本。
+        var localSide = kind === 'local' ? 'theirs' : 'ours';
+        var remoteSide = kind === 'local' ? 'ours' : 'theirs';
+        [['本地版', localSide, kind === 'local' ? '用你本地未提交的那一份（git checkout --theirs；这一侧没有文件就是删除）' : '用当前分支这一份整份覆盖（git checkout --ours；这一侧没有文件就是删除）'],
+          ['远程版', remoteSide, kind === 'local' ? '用拉取合并后的版本（git checkout --ours；这一侧没有文件就是删除）' : '用远程合进来的那一份整份覆盖（git checkout --theirs；这一侧没有文件就是删除）']].forEach(function (s) {
+          var b = el('button', 'g-mini', s[0]);
+          b.title = s[2];
+          b.addEventListener('click', function () { conflictTake(f.path, s[1], s[0]); });
+          row.appendChild(b);
+        });
+        var mk = el('button', 'g-mini', '标记已解决');
+        mk.title = '文件已经改好 ⇒ git add；还有冲突的文件不能完成合并';
+        mk.addEventListener('click', function () { conflictMark(f.path); });
+        row.appendChild(mk);
+        list.appendChild(row);
+      });
+      if (!(m.files || []).length) list.appendChild(el('div', 'g-empty', kind === 'local'
+        ? '所有冲突都已标记解决，点「完成」收尾（本地改动留在工作区）'
+        : '所有冲突都已标记解决，点「完成合并」收尾'));
+    } else {
+      conflictPaths(pc).forEach(function (f) {
+        var row = el('div', 'g-cfrow');
+        var p = el('span', 'g-cfpath', f.path);
+        p.title = '双击看本地改动（diff）';
+        p.addEventListener('dblclick', function () { openDiff(f.path); });
+        row.appendChild(p);
+        f.tags.forEach(function (t) { row.appendChild(el('span', 'g-cftag' + (t === '双方都改了' ? ' is-err' : ' is-warn'), t)); });
+        list.appendChild(row);
+      });
+    }
+    box.appendChild(list);
+    var foot = el('div', 'g-conflict-f');
+    if (mergeOn) {
+      // 危险操作两步确认：第一次点只是「上膛」，4 秒内再点才真的放弃
+      //   merge = 合并还没提交 ⇒ merge --abort；local = 合并已提交、本地改动恢复时撞车 ⇒ reset 回 ORIG_HEAD + 恢复 autostash
+      var canAbort = kind === 'merge' || !!(m && m.autostash);
+      var abortLabel = kind === 'merge' ? '放弃合并' : '放弃更新';
+      if (canAbort) {
+        var abort = el('button', 'g-btn', abortLabel);
+        abort.title = kind === 'merge' ? '回到合并前的工作区（点两次确认）' : '回到拉取前，并把本地改动恢复出来（点两次确认）';
+        abort.addEventListener('click', function () {
+          if (!abort.classList.contains('is-armed')) {
+            abort.classList.add('is-armed');
+            abort.textContent = '确认放弃？';
+            setTimeout(function () { if (abort.parentNode) { abort.classList.remove('is-armed'); abort.textContent = abortLabel; } }, 4000);
+            return;
+          }
+          conflictAbort();
+        });
+        foot.appendChild(abort);
+      }
+      var done = el('button', 'g-btn g-primary', kind === 'merge' ? '完成合并' : '完成');
+      done.title = kind === 'merge' ? '生成合并提交（autostash 会一起恢复；恢复撞车会再列出来）' : '冲突都解决后丢掉 autostash，本地改动留在工作区';
+      done.addEventListener('click', conflictContinue);
+      foot.appendChild(done);
+    } else {
+      // 只有「本地有未提交/未跟踪文件」才需要先提交；纯提交级冲突（本地提交 vs 远程提交）直接走强合
+      if ((pc.dirtyHit || []).length || (pc.untrackedHit || []).length) {
+        var bCommit = el('button', 'g-btn', '勾选这些文件去提交');
+        bCommit.title = '切到「全部」并勾上冲突文件；写提交信息 → Commit，再点「更新」';
+        bCommit.addEventListener('click', function () { pickConflictFiles(pc); });
+        foot.appendChild(bCommit);
+      }
+      if (pc.canForceMerge) {
+        var force = el('button', 'g-btn g-primary', '合并并解决冲突');
+        force.title = '本地改动先自动暂存（merge --autostash），合并后再恢复；恢复撞车就留在工作区逐个解决，不丢改动';
+        force.addEventListener('click', function () { pullConflict = null; doPull('merge', true); });
+        foot.appendChild(force);
+      }
+    }
+    box.appendChild(foot);
+    return box;
   }
 
   /* ---------- 右键菜单（空白处 / 变更列表）：Update · Push · Fetch ---------- */
@@ -22227,11 +22509,12 @@ renderers.git = function (body, meta) {
     var ahead = (data && data.ahead) || 0;
     var behind = (data && data.behind) || 0;
     var up = (data && data.upstream) || '@{u}';
-    item('Update（拉取）…', function () { doPull('ff'); }, false,
-      'fetch + 快进到 ' + up + (behind ? '（落后 ' + behind + ' 条）' : '（已是最新）'));
+    item('更新（fetch + 合并）…', function () { doPull('merge'); }, false,
+      '拉 ' + up + (behind ? '（落后 ' + behind + ' 条）' : '（已是最新）') + '：没冲突直接合，有冲突列文件');
+    item('更新（变基）…', function () { doPull('rebase'); }, false, '把本地提交接到远程后面（会改写本地提交哈希；冲突则自动回滚）');
     item('Push（推送）…', function () { doPush(); }, false,
       '推到 ' + up + (ahead ? '（领先 ' + ahead + ' 条）' : '（没有未推送提交）'));
-    item('Fetch（只取远程引用）', function () { doFetch(); }, false, '不改工作区，只更新远程分支引用');
+    item('获取（只取远程引用）', function () { doFetch(); }, false, '不动工作区，只更新远程分支引用');
     menu.appendChild(el('div', 'g-menu-sep'));
     item('Refresh（刷新面板）', function () { load(); }, false);
     menuOpen = true;
@@ -22288,7 +22571,7 @@ renderers.git = function (body, meta) {
       var isCur = b.name === cur;
       item('Checkout', function () { switchTo(b.name, false); }, isCur, isCur ? '已经是当前分支' : '');
       // 推拉只对当前分支有意义（其它分支得先 Checkout），所以非当前分支置灰并写清原因
-      item('Update（拉取）…', function () { doPull('ff'); }, !isCur, isCur ? '拉 ' + (b.upstream || '@{u}') + ' 的快进更新' : '只能更新当前分支：先 Checkout 它');
+      item('Update（拉取）…', function () { doPull('merge'); }, !isCur, isCur ? '拉 ' + (b.upstream || '@{u}') + ' 的更新（没冲突直接合）' : '只能更新当前分支：先 Checkout 它');
       item('Push（推送）…', function () { doPush(); }, !isCur, isCur ? '推到 ' + (b.upstream || 'origin/' + b.name) : '只能推当前分支：先 Checkout 它');
     }
     item('Show History', function () { viewBranch(b.name); });
@@ -22908,15 +23191,24 @@ renderers.git = function (body, meta) {
 
   async function doFetch() {
     var a = api();
-    if (!a || !a.fetch) { msg('这次启动的界面还没有 fetch 能力 ⇒ 重启一次工作台'); return; }
+    if (!a || !a.fetch) { tip('这次启动的界面还没有 fetch 能力 ⇒ 重启一次工作台', true); return; }
+    if (busy) { tip('上一件事还没干完，等它结束'); return; }
+    busy = true;
     closePop();
     btnFetch.classList.add('g-busy');
-    msg('fetch 中（可能几十秒）…');
+    tip('获取中（只取远程引用，可能几十秒）…');
     var r = null;
     try { r = await a.fetch(repo); } catch (e) { r = { ok: false, err: String((e && e.message) || e) }; }
+    busy = false;
     btnFetch.classList.remove('g-busy');
-    await load();
-    msg(r && r.ok ? '已 fetch，远程分支已更新' : '✗ ' + ((r && r.err) || 'fetch 失败'));
+    await load();                       // 取完立刻重读：工具栏 ↑/↓ 与分支列表一起变
+    if (r && r.ok) {
+      var n = Number(r.behind || 0) || (r.incoming || []).length;   // 条数以 behind 为准（incoming 只列最近 20 条）
+      if (n) tip('已获取 ' + (r.remote || '远程') + '：' + n + ' 条新提交，本地落后 ' + n + ' 条（点「更新」拉下来）');
+      else tip('已获取 ' + (r.remote || '远程') + '：没有新提交');
+    } else {
+      tip('✗ ' + ((r && r.err) || 'fetch 失败'), true);
+    }
   }
 
   /* ---------- 自动刷新 ---------- */
@@ -22951,7 +23243,8 @@ renderers.git = function (body, meta) {
       return [b.name, b.upstream, b.ahead, b.behind, b.subject].join('~');
     }).join('\n');
     var br = ((r.branches && r.branches.remote) || []).map(function (b) { return b.name + '~' + (b.subject || ''); }).join('\n');
-    return [r.ok, r.current, r.branch, r.upstream, r.ahead, r.behind, r.diffStat || '', ch, cm, bl, br].join('\u0001');
+    var mg = (r.merge && r.merge.active) ? ((r.merge.kind || 'merge') + ':' + (r.merge.files || []).map(function (f) { return f.path; }).join(',')) : '';
+    return [r.ok, r.current, r.branch, r.upstream, r.ahead, r.behind, r.diffStat || '', ch, cm, bl, br, mg].join('\u0001');
   }
   // 4. 用户正在输入提交信息 / 过滤词时先不动界面：重画会把 textarea 重建，光标和焦点会丢
   function typingInPanel() {
@@ -22965,9 +23258,9 @@ renderers.git = function (body, meta) {
   function rerenderPane() {
     if (!data || !data.ok) return;
     if (tab === 'changes') {
-      var s1 = paneChanges.scrollTop;
+      var s1 = chScroll.scrollTop;
       renderChanges();
-      paneChanges.scrollTop = s1;
+      chScroll.scrollTop = s1;
     } else {
       var s2 = paneLog.scrollTop;
       renderLog();
@@ -22982,18 +23275,20 @@ renderers.git = function (body, meta) {
     var r = null;
     try { r = await a.panel(repo); } catch (e) { wbWarn(e); return false; }
     if (dead) return true;
-    // 读的这 200~300ms 里用户可能已经开始提交、或者点进提交框/分支下拉 ⇒ 这一拍作废（吃掉指纹、不重画），
-    // 别抢焦点、别把菜单顶掉；真变了的内容由 20 秒慢拍或下一次版本库变动补上。
-    if (busy || committing || picker || menuOpen || curModal || draggingPath || typingInPanel()) return true;
+    // 读的这 200~300ms 里用户可能已经开始提交、或者点进提交框/分支下拉 ⇒ 这一拍作废（不重画），
+    // 但**不能消费指纹**：返回 'skip' 让 liveTick 下一拍再试；以前返回 true 会把指纹吃掉，
+    // 用户一直在提交框里打字时，拉取/切分支后的新状态就再也刷不出来（宿主「拉完不更新」的一半原因）。
+    if (busy || committing || picker || menuOpen || curModal || draggingPath || typingInPanel()) return 'skip';
     var sig = sigOf(r);
     if (sig === liveSig) { liveSig = sig; return true; }
     liveSig = sig;
     if (!r || !r.ok) return false;    // 读失败（比如外部正在 commit、index.lock）保留上一份可用数据，下一拍重试
     if (!r.changes) r.changes = [];
     if (!r.commits) r.commits = [];
+    if (r.merge && r.merge.active) pullConflict = null;   // 已经进入合并现场 ⇒ 预检卡片让位给解决卡片
     var oldHead = (data && data.ok && data.commits && data.commits[0]) ? data.commits[0].hash : '';
     data = r;
-    btnBranch.textContent = '⎇ ' + (r.current || r.branch || '?');
+    paintHead(r);
     tabChanges.textContent = '变更' + (r.changes.length ? ' ' + r.changes.length : '');
     tabLog.textContent = '历史' + (r.commits.length ? ' ' + r.commits.length : '');
     // 勾选状态按新路径表收口：消失的文件丢掉，新出现的文件默认不勾（picked 只记「手动勾上」的路径）
@@ -23030,7 +23325,7 @@ renderers.git = function (body, meta) {
       var st = force ? '' : await readStamp();
       if (!force && st && st === gitStamp) return;
       var ok = await pullPanel();
-      if (st && ok) gitStamp = st;   // 读失败就不消费指纹 ⇒ 下一拍重试（外部 commit 期间 index.lock 常见）
+      if (st && ok === true) gitStamp = st;   // 只有真读成才消费指纹；跳过/失败下一拍重试
     } catch (e) { wbWarn(e); } finally { liveBusy = false; }
   }
 
@@ -23040,25 +23335,28 @@ renderers.git = function (body, meta) {
     if (!cfgLoaded) await loadCfg();      // 变更单 / 不参与提交的配置要先就位，第一屏才不会闪一下「全部」
     closeMenu();               // 重载后旧菜单锚点已经过时，先关掉
     var a = api();
-    paneChanges.innerHTML = '';
+    chScroll.innerHTML = '';
+    chDock.innerHTML = '';
     paneLog.innerHTML = '';
     if (!a) {
-      paneChanges.appendChild(el('div', 'g-empty', '这次启动的界面还没有 git 能力（主进程 / 预加载是旧的）⇒ 重启一次工作台即可。'));
+      chScroll.appendChild(el('div', 'g-empty', '这次启动的界面还没有 git 能力（主进程 / 预加载是旧的）⇒ 重启一次工作台即可。'));
       return;
     }
-    if (!repo) { paneChanges.appendChild(el('div', 'g-empty', '这块面板没配仓库路径：在 scenarios\\code-dev.json 里写 "repo": "<仓库根目录>"。')); return; }
-    paneChanges.appendChild(el('div', 'g-empty', '读取中…'));
+    if (!repo) { chScroll.appendChild(el('div', 'g-empty', '这块面板没配仓库路径：在 scenarios\\code-dev.json 里写 "repo": "<仓库根目录>"。')); return; }
+    chScroll.appendChild(el('div', 'g-empty', '读取中…'));
     var r = null;
     try { r = await a.panel(repo); } catch (e) { r = { ok: false, err: String((e && e.message) || e) }; }
     if (dead) return;
     data = r;
-    paneChanges.innerHTML = '';
+    chScroll.innerHTML = '';
+    chDock.innerHTML = '';
     if (!r || !r.ok) {
-      btnBranch.textContent = '⎇ …';
-      paneChanges.appendChild(el('div', 'g-empty', '✗ ' + ((r && r.err) || '读取失败')));
+      brName.textContent = '⎇ …'; brTrack.textContent = '';
+      chScroll.appendChild(el('div', 'g-empty', '✗ ' + ((r && r.err) || '读取失败')));
       return;
     }
-    btnBranch.textContent = '⎇ ' + (r.current || r.branch || '?');
+    paintHead(r);
+    if (r.merge && r.merge.active) pullConflict = null;    // 冲突现场优先，预检卡片收起
     tabChanges.textContent = '变更' + (r.changes.length ? ' ' + r.changes.length : '');
     tabLog.textContent = '历史' + (r.commits.length ? ' ' + r.commits.length : '');
     // 手动刷新也按新路径表收口勾选（消失的文件不要留一个「已勾」的幽灵）
@@ -23066,6 +23364,7 @@ renderers.git = function (body, meta) {
     (r.changes || []).forEach(function (c) { if (picked[c.path] === true) keep[c.path] = true; });
     picked = keep;
     liveSig = sigOf(r);        // 手动刷新/操作后的这一份就是新基线，下一拍不会白重画一次
+    gitStamp = '';             // 指纹清空：下一次 liveTick 必读一次，拉取/提交后不会停在旧画面
     pruneLists(r.changes);
     if (tab === 'changes') renderChanges(); else renderLog();
   }
@@ -23077,7 +23376,8 @@ renderers.git = function (body, meta) {
     closeModal();
     tabChanges.classList.toggle('is-on', t === 'changes');
     tabLog.classList.toggle('is-on', t === 'log');
-    paneChanges.style.display = t === 'changes' ? 'block' : 'none';
+    // 变更页是「上滚下固定」的两段盒子（见 paneChanges 旁注释），显示时要还成 flex，别写成 block
+    paneChanges.style.display = t === 'changes' ? 'flex' : 'none';
     paneLog.style.display = t === 'log' ? 'block' : 'none';
     if (!data || !data.ok) return;
     if (t === 'changes') renderChanges(); else renderLog();
@@ -23085,6 +23385,7 @@ renderers.git = function (body, meta) {
 
   btnRefresh.addEventListener('click', function () { closePop(); load(); });
   btnBranch.addEventListener('click', function (e) { e.stopPropagation(); openPop(); });
+  btnUpdate.addEventListener('click', function () { doPull('merge'); });
   btnFetch.addEventListener('click', doFetch);
   tabChanges.addEventListener('click', function () { setTab('changes'); });
   tabLog.addEventListener('click', function () { setTab('log'); });
@@ -23299,9 +23600,10 @@ window.openPetSettings = function () {
     nameWrap.appendChild(pName);
     cardC.appendChild(nameWrap);
 
-    // 四块固定维度：填得越具体，她越像一个人，越不像客服
+    // 五块固定维度：填得越具体，她越像一个人，越不像客服
     var PC_FIELDS = [
       ['identity', '我是谁', '身份、来历、外形、一句话的自我认知', '我是谁 · 例：一条住在工作台里的胖鱼，是他的桌宠，也是各处场景背后同一个人'],
+      ['personality', '性格', '脾气、情绪怎么表达、喜恶、遇事的第一反应', '性格 · 例：慢热，熟了才贫 / 被夸就嘴硬 / 没把握不硬撑，宁可说「我查下」/ 办不成就直说'],
       ['speech', '说话', '句子长短、标点习惯、口头禅、哪些词不用、自称与称呼的腔调', '句子长短 / 标点 / 口头禅 / 不用哪些词 / 怎么自称、怎么叫他'],
       ['care', '我在意什么', '判断标准、偏好、怕什么', '办事优先于好听 / 记住他没明说的 / 怕记错、怕答太满'],
       ['never', '我绝不会', '明确不要的行为（底线）', '不替他对外说话 / 不编没查过的事 / 不动他的账号与密钥']
@@ -23362,7 +23664,7 @@ window.openPetSettings = function () {
     qC.appendChild(qRow);
 
     // 6. ④ 能力：左边「允许」右边「永远不许」，两列分开（未勾 ≠ 永远不许）
-    var capC = section('cap', 4, '她可以做什么', '左列勾上才会执行；右列是安全底线，勾了就算你口头同意也不做。两列互不影响');
+    var capC = section('cap', 4, '她可以做什么', '「派活给别的场景」由壳层硬拦（没勾就真不派、勾了「永远不许」就真不做）；其余项写进每轮人格口径，由她按这条自律');
     navBtn('cap', '能力');
     var cols = mk('div', 'psed-cols');
     var allowBox = mk('div', 'psed-col');
@@ -23395,15 +23697,23 @@ window.openPetSettings = function () {
     navBtn('ap', '审批');
     var apGrid = mk('div', 'psed-grid2');
     var apSel = {};
+    // 值域归一：老配置写 auto / ask，面板存 read / confirm / never —— 两种都认，别显示成错的档位
+    function apNorm(v) {
+      var x = String(v == null ? 'confirm' : v).toLowerCase();
+      if (x === 'never' || x === 'deny' || x === '禁止') return 'never';
+      if (x === 'confirm' || x === 'ask' || x === '先问我') return 'confirm';
+      return 'read';
+    }
     [['read', '只看资料'], ['write_mem', '记下事情'], ['write_code', '改代码 / 仓库'], ['outbound', '对外发消息']].forEach(function (o) {
       var cell = mk('div', 'psed-field');
       cell.appendChild(mk('div', 'psed-fl', o[1]));
       var sel = document.createElement('select');
       sel.className = 'psed-input';
+      var cur = apNorm(approval[o[0]]);
       PET_LEVELS.forEach(function (lv) {
         var op = document.createElement('option');
         op.value = lv[0]; op.textContent = lv[1];
-        if (String(approval[o[0]] || 'ask') === lv[0]) op.selected = true;
+        if (cur === lv[0]) op.selected = true;
         sel.appendChild(op);
       });
       apSel[o[0]] = sel;
@@ -23492,6 +23802,7 @@ window.openPetSettings = function () {
         persona: {
           name: (pName.value || '胡闹的大肥鱼').trim(),
           identity: pcBox.identity.value.trim(),
+          personality: pcBox.personality.value.trim(),
           speech: pcBox.speech.value.trim(),
           care: pcBox.care.value.trim(),
           never: pcBox.never.value.trim(),
@@ -23521,7 +23832,7 @@ window.openPetSettings = function () {
       try { sure = window.confirm('恢复默认？会重置主动性、免打扰、允许项、审批和记忆开关；你自建的场景路由会保留。'); } catch (e) { wbWarn(e) }
       if (!sure) return;
       Promise.resolve(api.settingsSet({ persona: { proactive: 'low' }, tools: { allow: ['scene_memory_read', 'memory_recall', 'memory_write', 'dispatch', 'receipt', 'file_read'], deny: ['shell', 'git_push', 'http_post'] },
-        approval: { read: 'auto', write_mem: 'auto', write_code: 'ask', outbound: 'ask' },
+        approval: { read: 'read', write_mem: 'read', write_code: 'confirm', outbound: 'confirm' },
         quiet: { from: '23:30', to: '08:00', proactiveMaxPerHour: 2 },
         memory: { writeLongTerm: true, writeDialog: true, confirmBeforeWrite: false }
       })).then(function (rr) {
@@ -23549,696 +23860,1153 @@ window.openPetSettings = function () {
     return null;
   });
 };
-// 创意工坊 · 卡住告警（全局）：主进程每 60 秒巡检，新卡住就主动推过来。
-// 放在模块级而不是看板里 —— 你停在任何场景（哪怕不在创意工坊）都能收到顶栏通知，不用等自己去看。
-(function watchCreativeGlobal() {
-  const A = window.app && window.app.creative;
-  if (!A || typeof A.onWatch !== 'function') return;
-  const seen = new Set();
-  A.onWatch((p) => {
-    if (!p || !p.ok || !p.fresh || !p.fresh.length) return;
-    p.fresh.forEach((a) => {
-      if (seen.has(a.key)) return;
-      seen.add(a.key);
-      if (window.__tbsToast) {
-        window.__tbsToast('创意工坊卡住：' + a.kind + '「' + a.who + '」' + (a.detail || '') + ' —— 打开看板可一键重派', true, 12000);
-      }
-    });
-  });
-})();
 
 /* ══════════════════════════════════════════════════════════════════
-   工作台控制台 · 功能台（type = "feature-board"）
-   一块面板接一组「原来只能命令行」的功能：按钮 + 白名单参数 + 上次结果。
-   数据来自 外壳\功能台.js（feature:* 通道）；本面板不拼命令、不猜开关状态。
+   工作台控制台 · 功能台（type = "feature-board"，2026-11-18 重设计）
+   旧版把 34 张卡 + 86 个按钮竖着铺成一面墙：找功能要一直滚、看结果要回头翻。
+   现在：左「功能目录」（搜索 + 分组 + 状态点 + 上次结果 + 症状带），
+        右「详情」（一次只开一个功能：动作 → 参数 → 输出 → 接着做 都在右栏）；
+   选中项记 sessionStorage，刷新不丢；状态比清单慢，卡片先出、状态后补。
+   数据仍来自 外壳\功能台.js（feature:* 通道）；本面板不拼命令、不猜开关状态。
    ══════════════════════════════════════════════════════════════════ */
 renderers['feature-board'] = (body, meta, head) => {
   const A = window.app && window.app.feature;
-  const GROUP = (meta && meta.group) || '';
-  body.classList.add('ft-body');
-  let disposed = false, cfg = { ui: {}, params: {}, last: {} }, desk = null;
-  let jumpTo = null;                                   // 由 load() 挂上：跳卡片 + 高亮（「接着做」用）
-  const statusOf = {};
-
-  function agoStr(sec) {
-    const d = Math.max(0, Math.floor(Date.now() / 1000) - (Number(sec) || 0));
-    if (!sec) return '';
-    if (d < 60) return '刚刚';
-    if (d < 3600) return Math.floor(d / 60) + ' 分钟前';
-    return Math.floor(d / 3600) + ' 小时前';
-  }
-
-  function tstr(sec) {
-    try { return new Date(sec * 1000).toLocaleString('zh-CN', { hour12: false }); } catch (e) { return String(sec || ''); }
-  }
-
+  body.classList.add('fb-body');
   if (!A || typeof A.list !== 'function') {
     body.appendChild(el('div', 'ft-empty', '这个宿主没有功能台（preload 还是旧的）—— 重启一次工作台。'));
     return () => {};
   }
 
-  // 1. 头部：条数 + 手动刷新（只读）
-  const note = el('span', 'ft-note', '加载中…');
+  const GROUP = (meta && meta.group) || 'all';
+  const state = { q: '', group: GROUP === 'all' ? 'all' : GROUP, sel: '', open: '', form: {} };
+  const statusOf = {};
+  const runs = {};                                   // fid -> { aid, label, state:'running'|'done', t0, res }
+  let desk = null;
+  let cfg = { ui: {}, params: {}, last: {} };
+  let disposed = false, loadSeq = 0, statusAt = 0;
+  let note = null, chipsBox = null, listBox = null, detailBox = null, symBox = null;
+
+  // 0. 刷新后还停在上次看的那一项（找不到就退回第一条「日常」）
+  try { state.sel = sessionStorage.getItem('fb.sel') || ''; } catch (e) { state.sel = ''; }
+
+  function agoStr(sec) {
+    if (!sec) return '';
+    const d = Math.max(0, Math.floor(Date.now() / 1000) - (Number(sec) || 0));
+    if (d < 60) return '刚刚';
+    if (d < 3600) return Math.floor(d / 60) + ' 分钟前';
+    if (d < 86400) return Math.floor(d / 3600) + ' 小时前';
+    return Math.floor(d / 86400) + ' 天前';
+  }
+  function tstr(sec) {
+    try { return new Date(sec * 1000).toLocaleString('zh-CN', { hour12: false }); } catch (e) { return String(sec || ''); }
+  }
+  function say(m, bad, ms) { if (window.__tbsToast) window.__tbsToast(m, bad, ms); }
+  function featureOf(id) {
+    const gs = (desk && desk.groups) || [];
+    for (let i = 0; i < gs.length; i++) {
+      const fs = gs[i].features || [];
+      for (let j = 0; j < fs.length; j++) if (fs[j].id === id) return fs[j];
+    }
+    return null;
+  }
+  function groupOf(id) {
+    const gs = (desk && desk.groups) || [];
+    for (let i = 0; i < gs.length; i++) if ((gs[i].features || []).some((f) => f.id === id)) return gs[i];
+    return null;
+  }
+  function remember(id) {
+    state.sel = id;
+    try { sessionStorage.setItem('fb.sel', id); } catch (e) { if (e && e.message) console.warn('[功能台] 选中项没记住', e.message); }
+  }
+
+  // 1. 头部：条数 + 开关状态时间 + 手动刷新
   if (head) {
     head.classList.add('file-head');
     const acts = el('div', 'file-head-acts');
+    note = el('span', 'fb-note', '读取中…');
     const rl = el('button', 'file-refresh', '↻');
     rl.title = '重新读功能清单与开关状态（只读）';
-    rl.addEventListener('click', (ev) => { ev.stopPropagation(); load(true); });
+    rl.addEventListener('click', (ev) => { ev.stopPropagation(); load(); });
     acts.appendChild(note);
     acts.appendChild(rl);
     head.appendChild(acts);
   }
 
-  const listBox = el('div', 'ft-list');
-  const foot = el('div', 'ft-foot');
-  body.appendChild(listBox);
-  body.appendChild(foot);
+  // 2. 骨架：左目录 / 右详情（两块各自滚动，目录永远看得见）
+  const wrap = el('div', 'fb-wrap');
+  const side = el('div', 'fb-side');
+  const sideTop = el('div', 'fb-side-top');
+  const search = el('input', 'fb-search');
+  search.type = 'search';
+  search.placeholder = '搜功能 / 用途 / 脚本 / 按钮…';
+  search.addEventListener('input', () => { state.q = String(search.value || '').trim(); paintList(); });
+  sideTop.appendChild(search);
+  chipsBox = el('div', 'fb-chips');
+  sideTop.appendChild(chipsBox);
+  side.appendChild(sideTop);
+  listBox = el('div', 'fb-list');
+  side.appendChild(listBox);
+  symBox = el('div', 'fb-sym');
+  side.appendChild(symBox);
+  const main = el('div', 'fb-main');
+  detailBox = el('div', 'fb-detail');
+  main.appendChild(detailBox);
+  wrap.appendChild(side);
+  wrap.appendChild(main);
+  body.appendChild(wrap);
 
-  // 2. 一条功能 = 一张卡：标题 / 说明 / 动作按钮 / 参数表单 / 输出
-  function cardOf(f) {
-    const card = el('div', 'ft-card' + (f.ok ? '' : ' ft-gone'));
-    const top = el('div', 'ft-card-t');
-    top.appendChild(el('span', 'ft-name', f.name));
-    if (f.freq === 'daily') top.appendChild(el('span', 'ft-tag daily', '日常'));
-    if (f.freq === 'rare') top.appendChild(el('span', 'ft-tag dim', '低频'));
-    if (f.restart) top.appendChild(el('span', 'ft-tag warn', '改完重启整壳'));
-    if (!f.ok) top.appendChild(el('span', 'ft-tag err', '脚本不在'));
-    // 上次结果：带上动作名（一张卡有好几个按钮，只写「上次 ✓」会让人以为整张卡都过了）
-    const last = cfg && cfg.last && cfg.last[f.id];
-    if (last) {
-      const la = (f.actions || []).filter((x) => x.id === last.action)[0];
-      top.appendChild(el('span', 'ft-tag ' + (last.ok ? 'ok' : 'err'),
-        (last.ok ? '上次 ✓ ' : '上次 ✗ ') + (la ? la.label : String(last.action || '')) + ' · ' + tstr(last.at)));
+  // 3. 左栏 · 分组 chips：组名 + 项数，点一下只留这组（再点「全部」回来）
+  function paintChips() {
+    chipsBox.innerHTML = '';
+    const gs = (desk && desk.groups) || [];
+    const total = gs.reduce((a, g) => a + (g.features || []).length, 0);
+    function chip(id, text, n) {
+      const b = el('button', 'fb-chip' + (state.group === id ? ' on' : ''), text + ' ' + n);
+      b.type = 'button';
+      b.addEventListener('click', () => { state.group = id; paintChips(); paintList(); });
+      chipsBox.appendChild(b);
     }
-    card.appendChild(top);
-    card.appendChild(el('div', 'ft-plain', f.plain || ''));
-    // 同一个能力在顶栏 / 命令行也有入口 —— 写明白，免得以为这里是两套数据
-    if (f.also) card.appendChild(el('div', 'ft-also', '别处也有：' + f.also));
+    if (GROUP === 'all') chip('all', '全部', total);
+    gs.filter((g) => GROUP === 'all' || g.id === GROUP).forEach((g) => chip(g.id, g.title, (g.features || []).length));
+  }
 
-    // 为什么以前只给命令行：配置里 showWhy 打开时展开（排障时有用，嫌长可以关）
-    if (f.why && cfg && cfg.ui && cfg.ui.showWhy) card.appendChild(el('div', 'ft-why', '以前只给命令行：' + f.why));
+  // 4. 左栏 · 功能条目：状态点 / 名称 / 组 / 频次 / 上次结果
+  function itemOf(f, g) {
+    const row = el('div', 'fb-item' + (state.sel === f.id ? ' sel' : ''));
+    row.title = f.plain || f.name;
+    const dot = el('span', 'fb-dot ' + (f.ok ? 'ok' : 'err'), '●');
+    row.appendChild(dot);
+    const mid = el('div', 'fb-it-mid');
+    mid.appendChild(el('div', 'fb-it-name', f.name));
+    const m = el('div', 'fb-it-meta');
+    if (state.group === 'all' && g) m.appendChild(el('span', 'fb-it-g', g.title));
+    if (f.freq === 'daily') m.appendChild(el('span', 'fb-it-tag daily', '日常'));
+    if (f.freq === 'rare') m.appendChild(el('span', 'fb-it-tag', '低频'));
+    if (!f.ok) m.appendChild(el('span', 'fb-it-tag err', '脚本不在'));
+    const last = cfg.last && cfg.last[f.id];
+    if (last) m.appendChild(el('span', 'fb-it-last ' + (last.ok ? 'ok' : 'err'), (last.ok ? '上次 ✓ ' : '上次 ✗ ') + agoStr(last.at)));
+    mid.appendChild(m);
+    row.appendChild(mid);
+    row.tabIndex = 0;                                  // 键盘也能选：Tab 到条目，回车 / 空格打开
+    row.setAttribute('role', 'button');
+    const pick = () => {
+      remember(f.id);
+      state.open = '';
+      paintList();
+      paintDetail();
+    };
+    row.addEventListener('click', pick);
+    row.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); pick(); }
+    });
+    return row;
+  }
 
-    const acts = el('div', 'ft-acts');
-    const form = el('div', 'ft-form');
-    const out = el('div', 'ft-out');
-    card.appendChild(acts);
-    card.appendChild(form);
-    card.appendChild(out);
+  function paintList() {
+    if (!desk) return;
+    listBox.innerHTML = '';
+    const q = state.q.toLowerCase();
+    const gs = ((desk.groups) || []).filter((g) => state.group === 'all' || g.id === state.group);
+    let n = 0;
+    gs.forEach((g) => {
+      const fs = (g.features || []).filter((f) => {
+        if (!q) return true;
+        return (f.name + ' ' + (f.plain || '') + ' ' + f.script + ' ' + (f.actions || []).map((a) => a.label).join(' ')).toLowerCase().indexOf(q) >= 0;
+      });
+      if (!fs.length) return;
+      if (state.group === 'all') listBox.appendChild(el('div', 'fb-grp', g.title + ' · ' + fs.length));
+      fs.forEach((f) => { listBox.appendChild(itemOf(f, g)); n += 1; });
+    });
+    if (!n) listBox.appendChild(el('div', 'ft-empty', q ? '没有匹配的功能（换个词，或点「全部」）' : '这一组没有功能'));
+    if (note && desk) note.textContent = (q ? '筛出 ' + n + ' 项' : ((desk.stats || {}).features || n) + ' 项 / ' + ((desk.stats || {}).actions || 0) + ' 个动作')
+      + (statusAt ? ' · 开关状态查于 ' + agoStr(statusAt) : ' · 开关状态读取中…');
+  }
 
+  // 5. 左栏底部 · 症状带：不要求记功能名，只记「出什么事点什么」
+  //    收进 <details> 默认折叠：6 条按钮常驻会吃掉左栏三分之一高度，标题仍在（入口不藏）
+  function paintSym() {
+    symBox.innerHTML = '';
+    const ts = (desk && desk.triage) || [];
+    if (!ts.length) return;
+    const d = document.createElement('details');
+    d.className = 'fb-sym';
+    const s = document.createElement('summary');
+    s.className = 'fb-sym-h';
+    s.textContent = '出什么事点什么（' + ts.length + '）';
+    d.appendChild(s);
+    ts.forEach((t) => {
+      const b = el('button', 'fb-sym-b', t.symptom);
+      b.type = 'button';
+      b.title = (t.tip || '') + ' → ' + (t.featureName || '') + ' · ' + (t.actionLabel || '');
+      b.addEventListener('click', () => {
+        remember(t.feature);
+        state.group = 'all';
+        state.q = '';
+        search.value = '';
+        paintChips();
+        paintList();
+        paintDetail();
+      });
+      d.appendChild(b);
+    });
+    symBox.appendChild(d);
+  }
+
+  // 5b. 配置块：有配置给当前值 + 真源；没有配置就明说「无配置项」，不造假开关
+  function reveal(p) {
+    const api = window.app && window.app.app;
+    if (!api) { say('这个宿主没有打开文件的能力（重启一次工作台）', true, 7000); return; }
+    const fn = api.revealPath || api.openPath;
+    if (!fn) { say('这个宿主没有打开文件的能力（重启一次工作台）', true, 7000); return; }
+    Promise.resolve(fn(p)).catch((e) => wbWarn(e, 'feature.reveal'));
+  }
+  function cfgActive(id, j) {
+    if (!j) return false;
+    if (id === 'token-guard') return !!j.inBundles;
+    if (id === 'mem-recall') return !!j.registered;
+    if (id === 'token-switch') return !!j.on;
+    return false;
+  }
+  function srcRow(c, extra) {
+    const row = el('div', 'fb-cfg-src');
+    const t = el('span', '', '真源：' + (c.source || '（未声明）'));
+    t.title = c.sourceAbs || c.source || '';
+    row.appendChild(t);
+    if (c.sourceAbs) {
+      const b = el('button', 'fb-btn g', '打开');
+      b.type = 'button';
+      b.title = c.sourceAbs;
+      b.addEventListener('click', () => reveal(c.sourceAbs));
+      row.appendChild(b);
+    }
+    if (extra) row.appendChild(extra);
+    return row;
+  }
+  function cfgBlock(f, st) {
+    const c = f.cfg || { kind: 'none', noWhy: '未声明配置类型' };
+    const sec = el('div', 'fb-sec');
+    sec.appendChild(el('div', 'fb-sec-h', '配置'));
+    const box = el('div', 'fb-cfg');
+    sec.appendChild(box);
+    if (c.kind === 'none') {
+      box.appendChild(el('div', 'fb-cfg-v', '无配置项：' + (c.noWhy || '只读检查 / 一次性动作')));
+      return sec;
+    }
+    if (c.kind === 'plugin') {
+      const j = st && st.json;
+      if (!j) {
+        box.appendChild(el('div', 'fb-cfg-v', st ? '状态解析失败：脚本没给出 JSON（看下面的文本输出）' : '状态读取中…'));
+      } else if (!cfgActive(f.id, j)) {
+        box.appendChild(el('div', 'fb-cfg-v', '未启用（用下面的动作装上 / 打开）'));
+      } else {
+        (c.fields || []).forEach((fd) => {
+          const v = (fd.from === 'mode') ? j.mode : (j.values ? j.values[fd.from] : null);
+          const row = el('div', 'fb-cfg-row');
+          row.appendChild(el('span', 'fb-cfg-k', fd.label));
+          row.appendChild(el('span', 'fb-cfg-v', v == null || v === '' ? '未写入' : String(v)));
+          box.appendChild(row);
+        });
+        if (c.fixed) box.appendChild(el('div', 'fb-cfg-src', '固定策略：' + c.fixed));
+        if (j.lines && j.lines.length === 2) box.appendChild(el('div', 'fb-cfg-src', '写在第 ' + j.lines[0] + '–' + j.lines[1] + ' 行'));
+        if (j.yaml && j.yaml.ok === false) box.appendChild(el('div', 'fb-cfg-err', '配置解析失败：' + (j.yaml.error || 'YAML 读不了')));
+      }
+      const actId = (f.id === 'mem-recall' && !cfgActive('mem-recall', st && st.json)) ? 'apply' : c.action;
+      const act = (f.actions || []).filter((a) => a.id === actId)[0];
+      let go = null;
+      if (act) {
+        go = el('button', 'fb-btn', act.id === 'apply' ? '去装' : '去改');
+        go.type = 'button';
+        go.title = '打开「' + act.label + '」表单，当前值已预填；改完要重启整壳';
+        go.addEventListener('click', () => {
+          const key = f.id + '.' + act.id;
+          const j2 = statusOf[f.id] && statusOf[f.id].json;
+          const pre = {};
+          (c.fields || []).forEach((fd) => {
+            let v = null;
+            if (j2) v = (fd.from === 'mode') ? j2.mode : (j2.values ? j2.values[fd.from] : null);
+            if (v != null && v !== '') pre[fd.key] = String(v);
+          });
+          state.form[key] = Object.assign({}, state.form[key] || {}, pre);
+          state.open = key;
+          paintDetail();
+        });
+      }
+      box.appendChild(el('div', 'fb-cfg-src', '改完要重启整壳（不是只重启引擎，旧 token 会失效）'));
+      box.appendChild(srcRow(c, go));
+      return sec;
+    }
+    // 机器层 / 配置在别处：只指路，不给假编辑
+    if (c.note) box.appendChild(el('div', 'fb-cfg-v', c.note));
+    if (f.id === 'env-selftest' && desk.machine) {
+      const m = desk.machine, ports = m.ports || {};
+      const chips = el('div', 'fb-cfg-chips');
+      ['dsh', 'site', 'preview', 'webAi'].forEach((k) => {
+        if (ports[k] != null) chips.appendChild(el('span', 'fb-cfg-chip', k + ' ' + ports[k]));
+      });
+      if (m.nodeExe) chips.appendChild(el('span', 'fb-cfg-chip', 'node ' + m.nodeExe));
+      box.appendChild(chips);
+    }
+    box.appendChild(srcRow(c));
+    return sec;
+  }
+
+  // 6. 右栏 · 详情：标题 / 说明 / 配置 / 状态 / 动作 / 表单 / 输出 / 接着做
+  function paintDetail() {
+    if (!desk) return;
+    detailBox.innerHTML = '';
+    const f = featureOf(state.sel);
+    if (!f) {
+      detailBox.appendChild(el('div', 'fb-hint', '左边选一个功能：这里会显示说明、动作按钮、参数表单和输出。'));
+      return;
+    }
+    const g = groupOf(f.id);
+    const head2 = el('div', 'fb-dt-h');
+    const title = el('div', 'fb-dt-title');
+    title.appendChild(el('h2', 'fb-dt-name', f.name));
+    if (f.freq === 'daily') title.appendChild(el('span', 'fb-tag daily', '日常'));
+    if (f.freq === 'rare') title.appendChild(el('span', 'fb-tag', '低频'));
+    if (f.restart) title.appendChild(el('span', 'fb-tag warn', '改完重启整壳'));
+    if (!f.ok) title.appendChild(el('span', 'fb-tag err', '脚本不在'));
+    head2.appendChild(title);
+    head2.appendChild(el('div', 'fb-dt-sub',
+      (g ? g.title + ' · ' : '') + f.script + (f.ok ? '' : ' · 脚本不在，按钮不可用') + (GROUP === 'all' ? '' : ' · 只有这一组')));
+    detailBox.appendChild(head2);
+    detailBox.appendChild(el('div', 'fb-dt-plain', f.plain || ''));
+    if (f.also) detailBox.appendChild(el('div', 'fb-also', '别处也有：' + f.also));
+    if (f.why && (!cfg.ui || cfg.ui.showWhy !== false)) {
+      const d = document.createElement('details');
+      d.className = 'fb-why';
+      const s = document.createElement('summary');
+      s.textContent = '背景：为什么以前只给命令行';
+      d.appendChild(s);
+      const p = el('div', '', f.why);
+      d.appendChild(p);
+      detailBox.appendChild(d);
+    }
+    // 6a. 配置：每项都有配置位；空的也明说，不造假开关
+    const st = statusOf[f.id];
+    detailBox.appendChild(cfgBlock(f, st));
+
+    // 6b. 开关类：原始状态后补，不挡别的
+    if (st) {
+      const sec = el('div', 'fb-sec');
+      sec.appendChild(el('div', 'fb-sec-h', '当前开关状态（原始输出）'));
+      sec.appendChild(el('div', 'fb-status', st.text || '（没有输出）'));
+      detailBox.appendChild(sec);
+    }
+
+    // 6b. 动作按钮：上次跑的是哪条，就在按钮上标 ✓ / ✗
+    const acts = el('div', 'fb-acts');
     (f.actions || []).forEach((a) => {
-      const btn = el('button', 'ft-btn' + (a.danger === 'write' ? ' ft-btn-w' : '') + (a.danger === 'destructive' ? ' ft-btn-d' : ''), a.label);
+      const last = cfg.last && cfg.last[f.id];
+      const mark = (last && last.action === a.id) ? (last.ok ? ' ✓' : ' ✗') : '';
+      const btn = el('button', 'fb-btn' + (a.danger === 'write' ? ' w' : '') + (a.danger === 'destructive' ? ' d' : ''), a.label + mark);
+      btn.type = 'button';
+      btn.disabled = !f.ok;
       btn.title = (a.danger === 'destructive' ? '会覆盖 / 搬运真实文件：要手打「确认」才放行 → '
         : (a.danger === 'write' ? '会改真实配置 / 文件：' : '只读：')) + f.script + ' ' + a.label;
-      let armedAt = 0, timer = null;
-      btn.addEventListener('click', (ev) => {
-        ev.stopPropagation();
-        if (disposed) return;
-        if (a.danger === 'destructive') { openForm(); return; }     // 破坏性动作没有「顺手点一下」这条路
-        if ((a.inputs || []).length) { openForm(); return; }
-        if (a.danger === 'write' && cfg.ui && cfg.ui.confirmAgain) {
-          const now = Date.now();
-          if (!(armedAt && now - armedAt < 6000)) {
-            armedAt = now;
-            btn.textContent = '再点一次确认';
-            if (window.__tbsToast) window.__tbsToast('「' + f.name + ' · ' + a.label + '」会改真实配置，6 秒内再点一次才执行。', false, 6000);
-            timer = setTimeout(() => { armedAt = 0; btn.textContent = a.label; }, 6200);
-            return;
-          }
-          armedAt = 0;
-          if (timer) { clearTimeout(timer); timer = null; }
-          btn.textContent = a.label;
-        }
-        go(a, {}, false);
-      });
-
-      // 2a. 表单：每个输入一行；场景 / 场景记忆目录是下拉，文件 / 目录带选择器
-      function openForm() {
-        form.innerHTML = '';
-        let gateInput = null;
-        const inputs = el('div', 'ft-inputs');
-        const getters = {};
-        const saved = (cfg.params && cfg.params[f.id + '.' + a.id]) || {};
-        (a.inputs || []).forEach((s) => {
-          const row = el('div', 'ft-in');
-          row.appendChild(el('label', 'ft-in-l', s.label + (s.required ? ' *' : '')));
-          const box = el('div', 'ft-in-box');
-          let input;
-          if (s.kind === 'select' || s.kind === 'scene' || s.kind === 'memscene') {
-            input = el('select', 'ft-select');
-            const src = s.kind === 'select' ? (s.options || [])
-              : (s.kind === 'scene' ? (desk.scenes || []) : (desk.memScenes || []).map((n) => ({ v: n, t: n })));
-            const opts = src.map((o) => ({ v: o.id || o.v, t: o.name || o.t }));
-            opts.forEach((o) => { const op = el('option', '', o.t); op.value = o.v; input.appendChild(op); });
-            const want = saved[s.key] || s.def || (opts[0] && opts[0].v) || '';
-            if (want) input.value = want;
-          } else if (s.long) {
-            input = el('textarea', 'ft-textarea');
-            input.value = saved[s.key] || s.def || '';
-            input.placeholder = s.hint || '';
-          } else {
-            input = el('input', 'ft-input');
-            input.value = saved[s.key] || s.def || '';
-            input.placeholder = s.hint || '';
-            if (s.kind === 'number') input.inputMode = 'decimal';
-          }
-          box.appendChild(input);
-          if (s.kind === 'file' || s.kind === 'dir') {
-            const pick = el('button', 'ft-btn ft-btn-g', '选…');
-            pick.type = 'button';
-            pick.addEventListener('click', () => {
-              const api = (window.app && (s.kind === 'file' ? window.app.pickFile : window.app.pickFolder));
-              if (!api) { if (window.__tbsToast) window.__tbsToast('这个宿主没有选择器（要重启一次工作台）', true, 6000); return; }
-              Promise.resolve(api()).then((p) => { if (p) input.value = p; }).catch((e) => wbWarn(e, 'feature.pick'));
-            });
-            box.appendChild(pick);
-          }
-          row.appendChild(box);
-          if (s.hint) row.appendChild(el('div', 'ft-in-h', s.hint));
-          inputs.appendChild(row);
-          getters[s.key] = () => String(input.value || '').trim();
-        });
-
-        const runRow = el('div', 'ft-acts');
-        const runBtn = el('button', 'ft-btn' + (a.danger === 'write' ? ' ft-btn-w' : '') + (a.danger === 'destructive' ? ' ft-btn-d' : ''), '执行 ' + a.label);
-        let armedAt = 0;
-        // 破坏性动作：上面那只按钮只是入口，真正的闸门在下面这行「手打确认」
-        if (a.danger === 'destructive') {
-          runBtn.disabled = true;
-          runBtn.title = '先手打「确认」，才允许执行';
-        }
-        runBtn.addEventListener('click', () => {
-          if (a.danger === 'destructive' && (!gateInput || String(gateInput.value || '').trim() !== '确认')) {
-            if (window.__tbsToast) window.__tbsToast('「' + f.name + ' · ' + a.label + '」要手打「确认」两个字才放行。', true, 6000);
-            return;
-          }
-          const vals = {};
-          Object.keys(getters).forEach((k) => { vals[k] = getters[k](); });
-          if (a.danger === 'write' && cfg.ui.confirmAgain) {
-            const now = Date.now();
-            if (!(armedAt && now - armedAt < 6000)) {
-              armedAt = now;
-              runBtn.textContent = '再点一次确认';
-              if (window.__tbsToast) window.__tbsToast('「' + f.name + ' · ' + a.label + '」会改真实配置，6 秒内再点一次才执行。', false, 6000);
-              setTimeout(() => { armedAt = 0; runBtn.textContent = '执行 ' + a.label; }, 6200);
-              return;
-            }
-            armedAt = 0;
-          }
-          go(a, vals, true);
-        });
-        // 破坏性动作的保护行：手打「确认」两个字才解锁执行按钮（比连点两次更难误触）
-        if (a.danger === 'destructive') {
-          const grow = el('div', 'ft-in');
-          grow.appendChild(el('label', 'ft-in-l', '保护 *'));
-          const gbox = el('div', 'ft-in-box');
-          const gi = el('input', 'ft-input ft-gate');
-          gi.placeholder = '手打「确认」两个字（这个动作会覆盖 / 搬运真实文件）';
-          gbox.appendChild(gi);
-          grow.appendChild(gbox);
-          inputs.appendChild(grow);
-          gateInput = gi;
-          gi.addEventListener('input', () => { runBtn.disabled = busyCount > 0 || String(gi.value || '').trim() !== '确认'; });
-        }
-        // 表单里的「执行」也随全局忙态置灰：不然别人在跑时还能点，撞上「同时 2 条」被拒
-        busyRefresh.push((busy) => {
-          const gateOpen = a.danger !== 'destructive' || String((gateInput && gateInput.value) || '').trim() === '确认';
-          runBtn.disabled = busy || !gateOpen;
-        });
-        runRow.appendChild(runBtn);
-        const closeBtn = el('button', 'ft-btn ft-btn-g', '收起');
-        closeBtn.type = 'button';
-        closeBtn.addEventListener('click', () => { form.innerHTML = ''; });
-        runRow.appendChild(closeBtn);
-        form.appendChild(inputs);
-        form.appendChild(runRow);
-      }
-
+      btn.addEventListener('click', () => onAction(f, a, btn));
       acts.appendChild(btn);
     });
+    detailBox.appendChild(acts);
 
-    // 2b. 开关类：把 --status / --check 的结论贴在卡上（feature:status，60 秒缓存）
-    if (statusOf[f.id]) {
-      const st = el('div', 'ft-status');
-      st.textContent = statusOf[f.id].text || '（没有输出）';
-      card.appendChild(st);
+    // 6c. 参数表单：一次只开一条动作的表单（再点同一条就收起）
+    const key = state.open;
+    if (key) {
+      const dot = key.indexOf('.');
+      if (key.slice(0, dot) === f.id) {
+        const a = (f.actions || []).filter((x) => x.id === key.slice(dot + 1))[0];
+        if (a) detailBox.appendChild(formOf(f, a));
+      }
     }
 
-    // 2c. 跑一条：置忙 → 结果进输出框 + toast；带输入的成功后把参数记住，下次不用重填
-    let busyCount = 0;
-    const busyRefresh = [];                            // 表单里的按钮也要跟着置忙（原来只管卡片按钮区）
-    function btnBusy(on) {
-      busyCount += on ? 1 : -1;
-      if (busyCount < 0) busyCount = 0;
-      const busy = busyCount > 0;
-      Array.prototype.forEach.call(acts.querySelectorAll('button'), (b) => { b.disabled = busy; });
-      busyRefresh.forEach((fn) => { try { fn(busy); } catch (e) { if (e && e.message) console.warn('[功能台] 表单忙态刷新失败', e.message); } });
+    // 6d. 输出区：这条功能上一次 / 正在跑的结论（换到别的功能再切回来也还在）
+    const out = outOf(f);
+    if (out) detailBox.appendChild(out);
+
+    // 6e. 接着做：跑成功后把下一步摆在下面（点了只跳卡，不代跑）
+    const done = runs[f.id];
+    const nx = (f.next || []).filter((x) => x.ok);
+    if (done && done.state === 'done' && done.res && done.res.ok && nx.length) {
+      const bar = el('div', 'fb-next');
+      bar.appendChild(el('span', 'fb-next-h', '接着做'));
+      nx.forEach((x) => {
+        const b = el('button', 'fb-btn g', x.name || x.id);
+        b.type = 'button';
+        b.addEventListener('click', () => { remember(x.id); state.open = ''; paintList(); paintDetail(); });
+        bar.appendChild(b);
+      });
+      detailBox.appendChild(bar);
     }
-    function go(a, vals, persist) {
-      if (!f.ok) { if (window.__tbsToast) window.__tbsToast('脚本不在了：' + f.script, true, 8000); return; }
-      out.innerHTML = '';
-      // 5d. 跑着的时候给一只「停」：封装 / 发布前检查能跑十几分钟，不能只让人等
-      const runRow = el('div', 'ft-out-run');
-      runRow.appendChild(el('span', '', '跑着…（' + a.label + '）'));
+  }
+
+  // 6f. 点动作：要参数 / 破坏性 → 开表单；写 → 连点两次；只读 → 直接跑
+  function onAction(f, a, btn) {
+    if (!f.ok) { say('脚本不在了：' + f.script, true, 8000); return; }
+    const key = f.id + '.' + a.id;
+    if (a.danger === 'destructive' || (a.inputs || []).length) {
+      state.open = (state.open === key ? '' : key);
+      paintDetail();
+      return;
+    }
+    if (a.danger === 'write' && cfg.ui && cfg.ui.confirmAgain) {
+      const now = Date.now();
+      if (!(btn._armed && now - btn._armed < 6000)) {
+        btn._armed = now;
+        btn.textContent = '再点一次确认';
+        say('「' + f.name + ' · ' + a.label + '」会改真实配置，6 秒内再点一次才执行。', false, 6000);
+        setTimeout(() => { if (!disposed) paintDetail(); }, 6200);
+        return;
+      }
+      btn._armed = 0;
+    }
+    runAction(f, a, {}, false);
+  }
+
+  // 6g. 参数表单：值随输入即时记在 state.form，收起来再开不丢
+  function formOf(f, a) {
+    const key = f.id + '.' + a.id;
+    const box = el('div', 'fb-form');
+    box.appendChild(el('div', 'fb-form-h', '参数 · ' + a.label));
+    const saved = state.form[key] || (cfg.params && cfg.params[key]) || {};
+    const inputs = el('div', 'fb-inputs');
+    const getters = {};
+    (a.inputs || []).forEach((s) => {
+      const row = el('div', 'fb-in');
+      row.appendChild(el('label', 'fb-in-l', s.label + (s.required ? ' *' : '')));
+      const holder = el('div', 'fb-in-box');
+      let input;
+      if (s.kind === 'select' || s.kind === 'scene' || s.kind === 'memscene') {
+        input = el('select', 'fb-input');
+        const src = s.kind === 'select' ? (s.options || [])
+          : (s.kind === 'scene' ? (desk.scenes || []) : (desk.memScenes || []).map((n) => ({ v: n, t: n })));
+        const opts = src.map((o) => ({ v: o.id || o.v, t: o.name || o.t }));
+        opts.forEach((o) => { const op = el('option', '', o.t); op.value = o.v; input.appendChild(op); });
+        const want = saved[s.key] || s.def || (opts[0] && opts[0].v) || '';
+        if (want) input.value = want;
+      } else if (s.long) {
+        input = el('textarea', 'fb-input');
+        input.value = saved[s.key] || s.def || '';
+        input.placeholder = s.hint || '';
+      } else {
+        input = el('input', 'fb-input');
+        input.value = saved[s.key] || s.def || '';
+        input.placeholder = s.hint || '';
+        if (s.kind === 'number') input.inputMode = 'decimal';
+      }
+      holder.appendChild(input);
+      if (s.kind === 'file' || s.kind === 'dir') {
+        const pick = el('button', 'fb-btn g', '选…');
+        pick.type = 'button';
+        pick.addEventListener('click', () => {
+          const api = (window.app && (s.kind === 'file' ? window.app.pickFile : window.app.pickFolder));
+          if (!api) { say('这个宿主没有选择器（要重启一次工作台）', true, 6000); return; }
+          Promise.resolve(api()).then((p) => { if (p) input.value = p; }).catch((e) => wbWarn(e, 'feature.pick'));
+        });
+        holder.appendChild(pick);
+      }
+      row.appendChild(holder);
+      if (s.hint) row.appendChild(el('div', 'fb-in-h', s.hint));
+      inputs.appendChild(row);
+      getters[s.key] = () => {
+        const v = String(input.value || '').trim();
+        state.form[key] = state.form[key] || {};
+        state.form[key][s.key] = v;
+        return v;
+      };
+    });
+    box.appendChild(inputs);
+
+    // 破坏性动作的保护行：手打「确认」两个字才解锁（比连点两次更难误触）
+    let gate = null;
+    if (a.danger === 'destructive') {
+      const g = el('div', 'fb-in');
+      g.appendChild(el('label', 'fb-in-l', '保护 *'));
+      const gb = el('div', 'fb-in-box');
+      gate = el('input', 'fb-input fb-gate');
+      gate.placeholder = '手打「确认」两个字（会覆盖 / 搬运真实文件）';
+      gb.appendChild(gate);
+      g.appendChild(gb);
+      box.appendChild(g);
+    }
+    const bar = el('div', 'fb-form-bar');
+    const run = el('button', 'fb-btn' + (a.danger === 'destructive' ? ' d' : (a.danger === 'write' ? ' w' : '')), '执行 ' + a.label);
+    run.type = 'button';
+    run.disabled = a.danger === 'destructive';
+    if (a.danger === 'destructive') {
+      gate.addEventListener('input', () => { run.disabled = String(gate.value || '').trim() !== '确认'; });
+    }
+    run.addEventListener('click', () => {
+      if (a.danger === 'destructive' && String((gate && gate.value) || '').trim() !== '确认') {
+        say('「' + f.name + ' · ' + a.label + '」要手打「确认」两个字才放行。', true, 6000);
+        return;
+      }
+      const vals = {};
+      Object.keys(getters).forEach((k) => { vals[k] = getters[k](); });
+      state.open = '';
+      paintDetail();
+      runAction(f, a, vals, true);
+    });
+    bar.appendChild(run);
+    const close = el('button', 'fb-btn g', '收起');
+    close.type = 'button';
+    close.addEventListener('click', () => { state.open = ''; paintDetail(); });
+    bar.appendChild(close);
+    box.appendChild(bar);
+    return box;
+  }
+
+  // 6h. 跑一条：先置「跑着…」（封装 / 检查可能十几分钟，必须有停），回来再落结果
+  function runAction(f, a, vals, persist) {
+    runs[f.id] = { aid: a.id, label: a.label, state: 'running', t0: Date.now() };
+    paintDetail();
+    const t0 = Date.now();
+    Promise.resolve(A.run(f.id, a.id, vals)).then((r) => {
+      if (disposed) return;
+      runs[f.id] = { aid: a.id, label: a.label, state: 'done', res: r || {}, ms: Date.now() - t0 };
+      // 列表与按钮上的「上次」当场更新，不用等下一次刷新
+      const at = Math.floor(Date.now() / 1000);
+      cfg.last = cfg.last || {};
+      cfg.last[f.id] = { action: a.id, at: at, ok: !!(r && r.ok), reason: String((r && (r.reason || r.error || r.msg)) || '') };
+      paintList();
+      paintDetail();
+      if (window.__tbsToast) {
+        window.__tbsToast((r && r.ok) ? ('完成：' + f.name + ' · ' + a.label) : ('没成：' + ((r && (r.reason || r.error)) || '原因见右栏输出')), !(r && r.ok), 8000);
+      }
+      if (r && r.ok && persist) {
+        const patch = {};
+        patch[f.id + '.' + a.id] = vals;
+        Promise.resolve(A.configSet({ params: patch })).catch((e) => wbWarn(e, 'feature.saveParams'));
+      }
+    }).catch((e) => {
+      if (disposed) return;
+      wbWarn(e, 'feature.run');
+      runs[f.id] = { aid: a.id, label: a.label, state: 'done', res: { ok: false, error: '调用出错：' + ((e && e.message) || e) }, ms: Date.now() - t0 };
+      paintList();
+      paintDetail();
+    });
+  }
+
+  // 6i. 输出：跑着给「停」；跑完给结论 / 全文日志 / 截断提示
+  function outOf(f) {
+    const r = runs[f.id];
+    if (!r) return null;
+    const box = el('div', 'fb-out');
+    if (r.state === 'running') {
+      const row = el('div', 'fb-out-run');
+      row.appendChild(el('span', '', '跑着…（' + r.label + '）'));
       if (typeof A.kill === 'function') {
-        const stop = el('button', 'ft-btn ft-btn-g ft-stop', '停');
+        const stop = el('button', 'fb-btn g', '停');
         stop.type = 'button';
-        stop.addEventListener('click', (ev) => {
-          ev.stopPropagation();
-          Promise.resolve(A.kill(f.id, a.id)).then((k) => {
-            if (window.__tbsToast) window.__tbsToast((k && k.msg) || '已发停止信号', false, 5000);
+        stop.addEventListener('click', () => {
+          Promise.resolve(A.kill(f.id, r.aid)).then((k) => {
+            say((k && k.msg) || '已发停止信号', false, 5000);
             if (k && k.ok) { stop.disabled = true; stop.textContent = '已停'; }
           }).catch((e) => wbWarn(e, 'feature.kill'));
         });
-        runRow.appendChild(stop);
+        row.appendChild(stop);
       }
-      out.appendChild(runRow);
-      btnBusy(true);
-      Promise.resolve(A.run(f.id, a.id, vals)).then((r) => {
-        btnBusy(false);
-        if (disposed) return;
-        out.innerHTML = '';
-        const ok = !!(r && r.ok);
-        // 失败原因提到标题行（原来只说「原因见输出」，得自己去翻）
-        const headTxt = (ok ? '✓ ' : '✗ ')
-          + (ok ? ((r && r.msg) || '完成') : ((r && (r.reason || r.error || r.msg)) || '没回话'))
-          + (r && r.ms ? ' · ' + (r.ms / 1000).toFixed(1) + ' 秒' : '');
-        out.appendChild(el('div', 'ft-out-h ' + (ok ? 'ok' : 'err'), headTxt));
-        out.appendChild(el('pre', 'ft-out-pre', String((r && (r.out || r.error)) || '（没有输出）').slice(0, 6000)));
-        // 输出超过 6000 字会被截；全文已落盘，给一条直达
-        if (r && r.logPath) {
-          const bar = el('div', 'ft-acts');
-          const open = el('button', 'ft-btn ft-btn-g', '打开完整日志');
-          open.type = 'button';
-          open.title = r.logPath;
-          open.addEventListener('click', (ev) => {
-            ev.stopPropagation();
-            const AAPP = window.app && window.app.app;
-            const fn = AAPP && (AAPP.revealPath || AAPP.openPath);
-            if (!fn) { if (window.__tbsToast) window.__tbsToast('这个宿主没有打开文件的能力（要重启一次工作台）', true, 6000); return; }
-            Promise.resolve(fn(r.logPath)).catch((e) => wbWarn(e, 'feature.openLog'));
-          });
-          bar.appendChild(open);
-          out.appendChild(bar);
-        }
-        // 5e. 接着做：工序写在登记表的 NEXT 里，跑完直接把下一步摆在下面
-        const nx = (f.next || []).filter((n) => n.ok);
-        if (ok && nx.length) {
-          const bar2 = el('div', 'ft-next');
-          bar2.appendChild(el('span', 'ft-next-h', '接着做：'));
-          nx.forEach((n) => {
-            const b = el('button', 'ft-btn ft-btn-g', n.name || n.id);
-            b.type = 'button';
-            b.addEventListener('click', (ev) => { ev.stopPropagation(); if (jumpTo) jumpTo(n.id); });
-            bar2.appendChild(b);
-          });
-          out.appendChild(bar2);
-        }
-        if (r && r.ok && persist) {
-          const patch = {};
-          patch[f.id + '.' + a.id] = vals;
-          Promise.resolve(A.configSet({ params: patch })).catch((e) => wbWarn(e, 'feature.saveParams'));
-        }
-        if (window.__tbsToast) window.__tbsToast((r && r.ok) ? ('完成：' + f.name + ' · ' + a.label) : ('没成：' + ((r && (r.reason || r.error)) || '原因见输出')), !(r && r.ok), 8000);
-      }).catch((e) => {
-        btnBusy(false);
-        wbWarn(e, 'feature.run');
-        out.innerHTML = '';
-        out.appendChild(el('div', 'ft-out-h err', '✗ 调用出错：' + ((e && e.message) || e)));
-      });
+      box.appendChild(row);
+      return box;
     }
-
-    return card;
+    const res = r.res || {};
+    const ok = !!res.ok;
+    const headTxt = (ok ? '✓ ' : '✗ ')
+      + (ok ? (res.msg || '完成') : (res.reason || res.error || res.msg || '没回话'))
+      + (r.ms ? ' · ' + (r.ms / 1000).toFixed(1) + ' 秒' : '');
+    box.appendChild(el('div', 'fb-out-h ' + (ok ? 'ok' : 'err'), headTxt));
+    box.appendChild(el('pre', 'fb-out-pre', String(res.out || res.error || '（没有输出）').slice(0, 6000)));
+    if (res.logPath) {
+      const bar = el('div', 'fb-acts');
+      const open = el('button', 'fb-btn g', '打开完整日志');
+      open.type = 'button';
+      open.title = res.logPath;
+      open.addEventListener('click', () => {
+        const APP = window.app && window.app.app;
+        const fn = APP && (APP.revealPath || APP.openPath);
+        if (!fn) { say('这个宿主没有打开文件的能力（要重启一次工作台）', true, 6000); return; }
+        Promise.resolve(fn(res.logPath)).catch((e) => wbWarn(e, 'feature.openLog'));
+      });
+      bar.appendChild(open);
+      box.appendChild(bar);
+    }
+    return box;
   }
 
-  // 3. 装载：清单 + 配置 + 开关状态（并行；哪一项失败就降级哪一项，不整块白屏）
-  function load(manual) {
-    note.textContent = '读取中…';
-    Promise.all([
-      Promise.resolve(A.list()),
-      Promise.resolve(A.configGet()),
-      Promise.resolve().then(() => A.status()).catch((e) => { wbWarn(e, 'feature.status'); return null; }),
-    ]).then((arr) => {
-      if (disposed) return;
+  // 7. 装载：清单 + 配置先出（毫秒级），开关状态后补（它要起子进程，慢的是它）
+  function load() {
+    const my = ++loadSeq;
+    if (note) note.textContent = '读取中…';
+    Promise.all([Promise.resolve(A.list()), Promise.resolve(A.configGet())]).then((arr) => {
+      if (disposed || my !== loadSeq) return;
       desk = arr[0] || null;
       cfg = (arr[1] && arr[1].cfg) || { ui: {}, params: {}, last: {} };
-      const st = arr[2];
-      if (st && st.rows) st.rows.forEach((r) => { statusOf[r.id] = r; });
       if (!desk || !desk.ok) {
         listBox.innerHTML = '';
         listBox.appendChild(el('div', 'ft-empty', '读不到功能清单：' + ((desk && desk.error) || '主进程没回话')));
-        note.textContent = '失败';
+        detailBox.innerHTML = '';
+        if (note) note.textContent = '失败';
         return;
       }
-      // 1d'. 两块面板的版式：GROUP='all' 时不再「一组一块」，改成一条滚动流 + 组内分类计数
-      const all = (!GROUP || GROUP === 'all');
-      const gset = all ? (desk.groups || []) : (desk.groups || []).filter((x) => x.id === GROUP);
-      if (!gset.length) {
-        listBox.innerHTML = '';
-        listBox.appendChild(el('div', 'ft-empty', '这台机器上没有「' + GROUP + '」这一组（登记表改过？）'));
-        note.textContent = '空';
-        return;
+      if (!state.sel || !featureOf(state.sel)) {
+        const first = pickDefault();
+        state.sel = first ? first.id : '';
       }
-      const stats = desk.stats || {};
-      listBox.innerHTML = '';
-      // 顶部统计带：先回答「一共多少、分几类、哪些是日常」，再往下才是卡片
-      const sb = el('div', 'ft-stat');
-      const chip = (t, v) => {
-        const c = el('span', 'ft-chip');
-        c.appendChild(el('b', '', String(v)));
-        c.appendChild(el('span', '', ' ' + t));
-        sb.appendChild(c);
-      };
-      chip('项功能', stats.features || 0);
-      chip('个动作', stats.actions || 0);
-      chip('组', stats.groups || 0);
-      chip('日常', stats.daily || 0);
-      chip('低频', stats.rare || 0);
-      listBox.appendChild(sb);
-      // 每类一行小计：分类统计贴在这里，不用自己去数卡片
-      const chipRow = el('div', 'ft-chiprow');
-      gset.forEach((g) => {
-        const c = el('span', 'ft-chip dim');
-        c.appendChild(el('b', '', String(g.features.length)));
-        c.appendChild(el('span', '', ' ' + g.title));
-        chipRow.appendChild(c);
+      paintChips();
+      paintList();
+      paintDetail();
+      paintSym();
+      Promise.resolve().then(() => A.status()).then((st) => {
+        if (disposed || my !== loadSeq) return;
+        statusAt = Math.floor(((st && st.at) || 0) / 1000);            // 主进程给的是毫秒，这里统一成秒
+        if (st && st.rows) st.rows.forEach((x) => { statusOf[x.id] = x; });
+        paintList();
+        if (featureOf(state.sel)) paintDetail();
+      }).catch((e) => {
+        wbWarn(e, 'feature.status');
+        if (disposed || my !== loadSeq) return;
+        if (note) note.textContent = ((desk.stats || {}).features || 0) + ' 项 · 开关状态这次没查成（点 ↻ 重试）';
       });
-      listBox.appendChild(chipRow);
-
-      // 认知层的两件事：按「什么时候用」排（后端已排好）、低频默认折叠；搜索跨全部组
-      // 卡片只隐藏不重建 —— 搜索/展开来回切不会把已跑出来的输出弄丢
-      const bar = el('div', 'ft-bar');
-      const search = el('input', 'ft-search');
-      search.placeholder = all ? '搜全部 ' + (stats.features || 0) + ' 项：功能名 / 用途 / 脚本 / 按钮…' : '搜功能 / 用途 / 脚本…';
-      bar.appendChild(search);
-      const cnt = el('span', 'ft-bar-n', '');
-      bar.appendChild(cnt);
-      listBox.appendChild(bar);
-
-      const cards = [];
-      const secs = [];
-      let rareOn = false;
-      gset.forEach((g) => {
-        const sec = el('div', 'ft-sec');
-        sec.appendChild(el('div', 'ft-sec-h', g.title + ' · ' + g.features.length + ' 项'));
-        if (g.plain) sec.appendChild(el('div', 'ft-grp-p', g.plain));
-        listBox.appendChild(sec);
-        const own = [];
-        g.features.forEach((f) => {
-          const c = cardOf(f);
-          c.dataset.freq = f.freq || 'weekly';
-          c.dataset.fid = f.id;
-          c.dataset.group = g.title;
-          c.dataset.q = (f.name + ' ' + (f.plain || '') + ' ' + f.script + ' ' + (f.actions || []).map((a) => a.label).join(' ')).toLowerCase();
-          cards.push(c);
-          own.push(c);
-          sec.appendChild(c);
-        });
-        secs.push({ sec: sec, cards: own });
-      });
-
-      // 低频折叠开关（全面板一个，不挡常用项）
-      const rareN = cards.filter((c) => c.dataset.freq === 'rare').length;
-      const moreBtn = el('button', 'ft-more-t', '低频 ' + rareN + ' 项（平时用不到，出问题再展开）');
-      moreBtn.type = 'button';
-      moreBtn.addEventListener('click', () => { rareOn = !rareOn; applyFilter(); });
-      listBox.appendChild(moreBtn);
-      const emptyTip = el('div', 'ft-empty ft-hide', '没有匹配的功能');
-      listBox.appendChild(emptyTip);
-
-      // 症状带：原来独立的第 9 块收进这条窄带里 —— 不要求人记功能名，只记「出什么事」
-      if (all && (desk.triage || []).length) {
-        const strip = el('div', 'ft-sym');
-        strip.appendChild(el('span', 'ft-sym-h', '出什么事点什么：'));
-        desk.triage.forEach((t) => {
-          const b = el('button', 'ft-sym-b', t.symptom);
-          b.type = 'button';
-          b.title = (t.tip || '') + ' → ' + (t.featureName || '') + ' · ' + (t.actionLabel || '');
-          b.addEventListener('click', (ev) => { ev.stopPropagation(); jumpTo(t.feature); });
-          strip.appendChild(b);
-        });
-        listBox.appendChild(strip);
-      }
-
-      function applyFilter() {
-        const q = (search.value || '').trim().toLowerCase();
-        let n = 0, hiddenRare = 0;
-        secs.forEach((s) => {
-          let vis = 0;
-          s.cards.forEach((c) => {
-            const rare = c.dataset.freq === 'rare';
-            const hit = !q || c.dataset.q.indexOf(q) >= 0;
-            if (rare && !q && !rareOn) hiddenRare += 1;
-            const show = hit && (!rare || !!q || rareOn);
-            c.style.display = show ? '' : 'none';
-            if (show) { vis += 1; n += 1; }
-          });
-          s.sec.style.display = vis ? '' : 'none';      // 整组都被过滤掉时，组标题一起收起
-        });
-        if (rareN) {
-          moreBtn.style.display = q ? 'none' : '';
-          moreBtn.textContent = rareOn ? '收起低频项' : ('低频 ' + rareN + ' 项（平时用不到，出问题再展开）');
-        } else {
-          moreBtn.style.display = 'none';
-        }
-        emptyTip.className = 'ft-empty' + (n ? ' ft-hide' : '');
-        cnt.textContent = q
-          ? (n + ' / ' + cards.length + ' 项')
-          : (hiddenRare ? (n + ' 项 · 低频 ' + hiddenRare + ' 项已折叠') : (n + ' 项'));
-      }
-      search.addEventListener('input', applyFilter);
-      applyFilter();
-
-      // 5f. 跳卡片：被折叠的低频项自动展开，搜过的过滤自动清掉（「接着做」/「去这张卡」都走它）
-      jumpTo = (id) => {
-        const c = cards.filter((x) => x.dataset.fid === id)[0];
-        if (!c) { if (window.__tbsToast) window.__tbsToast('「' + id + '」不在这一块板上 —— 用「找功能」搜一下。', false, 6000); return; }
-        if (c.dataset.freq === 'rare' && !rareOn) rareOn = true;
-        if ((search.value || '').trim()) search.value = '';
-        applyFilter();
-        c.scrollIntoView({ block: 'center', behavior: 'smooth' });
-        c.classList.add('ft-flash');
-        setTimeout(() => c.classList.remove('ft-flash'), 1600);
-      };
-
-      const actN = gset.reduce((a, g) => a + g.features.reduce((b, f) => b + f.actions.length, 0), 0);
-      note.textContent = (manual ? '刚刷新 · ' : '') + (all ? (stats.features || 0) + ' 项' : gset[0].features.length + ' 项') + ' / ' + actN + ' 个动作';
-      // 60 秒缓存是有代价的：告诉人这份开关状态是什么时候查的，别拿三小时前的当真
-      const stAt = (st && st.at) ? '开关状态查于 ' + agoStr(st.at / 1000) + '（60 秒内复用缓存，点 ↻ 可重查）' : '开关状态这次没查成';
-      foot.textContent = '开关类改完要重启整壳才生效；只读项随便点。' + stAt + ' · 配置：' + (arr[1] && arr[1].file || '');
     }).catch((e) => {
       wbWarn(e, 'feature.load');
       listBox.innerHTML = '';
       listBox.appendChild(el('div', 'ft-empty', '装载失败：' + ((e && e.message) || e)));
-      note.textContent = '失败';
+      if (note) note.textContent = '失败';
     });
   }
 
-  function onCfgChanged() { load(false); }
+  // 7a. 默认选中：上次看的那项 → 第一项「日常」→ 清单第一项
+  function pickDefault() {
+    const gs = (desk && desk.groups) || [];
+    for (let i = 0; i < gs.length; i++) {
+      const fs = (gs[i].features || []).filter((f) => f.freq === 'daily');
+      if (fs.length) return fs[0];
+    }
+    for (let i = 0; i < gs.length; i++) if ((gs[i].features || []).length) return gs[i].features[0];
+    return null;
+  }
+
+  // 8. 右栏「去改」跳过来：选中这一项，并打开对应动作表单（当前值由右栏预填）
+  function onJump(ev) {
+    const d = ev && ev.detail;
+    if (!d || !d.id || disposed) return;
+    remember(d.id);
+    state.group = 'all';
+    state.q = '';
+    search.value = '';
+    paintChips();
+    if (d.action) {
+      const key = d.id + '.' + d.action;
+      if (d.prefill) state.form[key] = Object.assign({}, state.form[key] || {}, d.prefill);
+      state.open = key;
+    } else {
+      state.open = '';
+    }
+    paintList();
+    paintDetail();
+  }
+  function onCfgChanged() { load(); }
   window.addEventListener('feature:cfg-changed', onCfgChanged);
-  load(false);
+  window.addEventListener('feature:jump', onJump);
+  load();
   return () => {
     disposed = true;
     window.removeEventListener('feature:cfg-changed', onCfgChanged);
+    window.removeEventListener('feature:jump', onJump);
   };
 };
 
 /* ══════════════════════════════════════════════════════════════════
-   工作台控制台 · 配置（type = "feature-config"）
-   只管「界面偏好」：危险动作要不要二次确认、要不要展开「以前只给命令行」。
-   开关的真实状态不在这里改 —— 那在功能板里跑脚本的 --status / --on / --off。
+   工作台控制台 · 管理总览（type = "feature-config"）
+   2026-11-18 升级：从「配置与记录」改成管理总览。配置页回答三件事——
+   哪些插件能改 / 当前值是什么 / 真源在哪；机器层与「配置在别处」只指路；
+   没有配置的项集中列出来并写明原因，不造假开关。
+   编辑入口仍只在左栏详情（一次一件事），这里只做总览 + 去改（跳过去并预填）。
+   ⛔ 真实开关仍写 profile patch / 机器配置.json；这里只管本机策略 工具策略.json。
    ══════════════════════════════════════════════════════════════════ */
 renderers['feature-config'] = (body, meta, head) => {
   const A = window.app && window.app.feature;
-  body.classList.add('ft-body');
-  let disposed = false, cfg = { ui: {} }, desk = null;
-
+  body.classList.add('fc-body');
   if (!A || typeof A.configGet !== 'function') {
     body.appendChild(el('div', 'ft-empty', '这个宿主没有功能台（preload 还是旧的）—— 重启一次工作台。'));
     return () => {};
   }
 
-  const note = el('span', 'ft-note', '读取中…');
+  // 0. 上次看的那一页（config / recent / logs）；没存过就先按「有没有记录」挑默认
+  const state = { tab: 'config' };
+  let tabSaved = false;
+  try {
+    const t = sessionStorage.getItem('fc.tab');
+    if (t === 'config' || t === 'pref' || t === 'recent' || t === 'logs') { state.tab = t === 'pref' ? 'config' : t; tabSaved = true; }
+  } catch (e) { tabSaved = false; console.warn('[配置] 读取上次页签失败', (e && e.message) || e); }
+
+  let cfg = { ui: {} }, desk = null, stRows = {}, policyDraft = {}, disposed = false, loadSeq = 0;
+  let note = null, tabsBox = null, pageBox = null;
+
+  // 1. 头部：条数 + 手动刷新（只读）
   if (head) {
     head.classList.add('file-head');
     const acts = el('div', 'file-head-acts');
+    note = el('span', 'fc-note', '读取中…');
     const rl = el('button', 'file-refresh', '↻');
-    rl.title = '重读配置与清单（只读）';
+    rl.title = '重读偏好、最近记录与日志（只读）';
     rl.addEventListener('click', (ev) => { ev.stopPropagation(); load(); });
-    acts.appendChild(note); acts.appendChild(rl); head.appendChild(acts);
+    acts.appendChild(note);
+    acts.appendChild(rl);
+    head.appendChild(acts);
   }
-  const box = el('div', 'ft-cfg');
-  body.appendChild(box);
 
-  // 2026-11-16：本面板的「最近操作」要显示相对时间，但 agoStr 只定义在 feature-board 里，
-  //   这里取不到 ⇒ 只要有一条记录带 r.at，整块渲染就 ReferenceError 断掉。补一份本地面板用的。
+  // 2. 骨架：上三页签，下面一页内容（页签常驻，不藏入口）
+  tabsBox = el('div', 'fc-tabs');
+  tabsBox.setAttribute('role', 'tablist');
+  body.appendChild(tabsBox);
+  pageBox = el('div', 'fc-page');
+  body.appendChild(pageBox);
+
+  function recentOf() { return (desk && desk.recent) || []; }
+  function logsOf() { return (desk && desk.logs) || []; }
   function agoStr(sec) {
-    const d = Math.max(0, Math.floor(Date.now() / 1000) - (Number(sec) || 0));
-    if (!sec) return '';
+    const s = Number(sec) || 0;
+    if (!s) return '';
+    const d = Math.max(0, Math.floor(Date.now() / 1000) - s);
     if (d < 60) return '刚刚';
     if (d < 3600) return Math.floor(d / 60) + ' 分钟前';
-    return Math.floor(d / 3600) + ' 小时前';
+    if (d < 86400) return Math.floor(d / 3600) + ' 小时前';
+    return Math.floor(d / 86400) + ' 天前';
+  }
+  function say(msg, bad, ms) { if (window.__tbsToast) window.__tbsToast(msg, bad, ms); }
+  function reveal(p) {
+    const api = window.app && window.app.app;
+    if (!p) { say('还没有这个路径：先跑一次动作', true, 6000); return; }
+    const fn = api && (api.revealPath || api.openPath);
+    if (!fn) { say('这个宿主没有打开文件的能力（要重启一次工作台）', true, 6000); return; }
+    Promise.resolve(fn(p)).catch((e) => wbWarn(e, 'feature.reveal'));
+  }
+  function openLog(p) {
+    const api = window.app && window.app.app;
+    if (!api || !api.openPath) { say('这个宿主没有打开文件的能力（要重启一次工作台）', true, 6000); return; }
+    Promise.resolve(api.openPath(p)).catch((e) => wbWarn(e, 'feature.openLog'));
   }
 
-  function rowToggle(title, sub, key) {
-    const row = el('div', 'ft-cfg-row');
-    const mid = el('div', 'ft-cfg-mid');
-    mid.appendChild(el('div', 'ft-cfg-t', title));
-    if (sub) mid.appendChild(el('div', 'ft-cfg-s', sub));
+  // 3. 页签：配置 / 最近 N / 日志 N（数字来自后端，不自己数）
+  function paintTabs() {
+    tabsBox.innerHTML = '';
+    const rc = recentOf().length, lg = logsOf().length;
+    const tabs = [
+      { id: 'config', text: '配置' },
+      { id: 'recent', text: rc ? '最近 ' + rc : '最近' },
+      { id: 'logs', text: lg ? '日志 ' + lg : '日志' },
+    ];
+    tabs.forEach((t) => {
+      const b = el('button', 'fc-tab' + (state.tab === t.id ? ' on' : ''), t.text);
+      b.type = 'button';
+      b.setAttribute('role', 'tab');
+      b.setAttribute('aria-selected', state.tab === t.id ? 'true' : 'false');
+      b.addEventListener('click', () => {
+        if (state.tab === t.id) return;
+        state.tab = t.id;
+        tabSaved = true;
+        try { sessionStorage.setItem('fc.tab', t.id); } catch (e) { console.warn('[配置] 记住页签失败', (e && e.message) || e); }
+        paintTabs();
+        paintPage();
+      });
+      tabsBox.appendChild(b);
+    });
+  }
+
+  // 4. 偏好：两个开关 + 数据在哪 + 清理（一次只做一件事，危险动作仍是两步）
+  function switchRow(title, sub, key) {
+    const row = el('div', 'fc-row');
+    const mid = el('div', 'fc-row-mid');
+    mid.appendChild(el('div', 'fc-row-t', title));
+    if (sub) mid.appendChild(el('div', 'fc-row-s', sub));
     row.appendChild(mid);
-    const chk = el('input', 'ft-check');
-    chk.type = 'checkbox';
-    chk.checked = !!(cfg.ui && cfg.ui[key]);
-    mid.appendChild(chk);
-    chk.addEventListener('change', () => {
-      const patch = { ui: {} };
-      patch.ui[key] = !!chk.checked;
-      Promise.resolve(A.configSet(patch)).then((r) => {
+    const on = !!(cfg.ui && cfg.ui[key]);
+    const sw = el('button', 'fc-sw' + (on ? ' on' : ''));
+    sw.type = 'button';
+    sw.setAttribute('role', 'switch');
+    sw.setAttribute('aria-checked', on ? 'true' : 'false');
+    sw.title = (on ? '当前：开（点击关闭）' : '当前：关（点击打开）') + ' · ' + title;
+    sw.addEventListener('click', () => {
+      const want = !sw.classList.contains('on');
+      const paint = (v) => {
+        sw.classList.toggle('on', v);
+        sw.setAttribute('aria-checked', v ? 'true' : 'false');
+        sw.title = (v ? '当前：开（点击关闭）' : '当前：关（点击打开）') + ' · ' + title;
+      };
+      paint(want);                                   // 先动再落盘：网络慢也不像卡住
+      Promise.resolve(A.configSet({ ui: { [key]: want } })).then((r) => {
         cfg = (r && r.cfg) || cfg;
         window.dispatchEvent(new Event('feature:cfg-changed'));
-        if (window.__tbsToast) window.__tbsToast('已保存：' + title + (chk.checked ? '（开）' : '（关）'), false, 5000);
+        say('已保存：' + title + (want ? '（开）' : '（关）'), false, 5000);
       }).catch((e) => {
+        paint(!want);                                // 失败退回原状态，不假装成功
         wbWarn(e, 'feature.cfg');
-        if (window.__tbsToast) window.__tbsToast('保存没成：' + ((e && e.message) || e), true, 8000);
+        say('保存没成：' + ((e && e.message) || e), true, 8000);
       });
     });
+    row.appendChild(sw);
     return row;
   }
 
+  // 4. 配置页：插件（能改）/ 机器层（只读）/ 在别处（指路）/ 工具策略 / 界面偏好 / 无配置项 / 清理
+  function featuresOf() {
+    const out = [];
+    ((desk && desk.groups) || []).forEach((g) => (g.features || []).forEach((f) => out.push(f)));
+    return out;
+  }
+  function cfgKind(f) { return (f.cfg && f.cfg.kind) || 'none'; }
+  function statusJson(id) { return (stRows[id] && stRows[id].json) || null; }
+  function pluginActive(id, j) {
+    if (!j) return false;
+    if (id === 'token-guard') return !!j.inBundles;
+    if (id === 'mem-recall') return !!j.registered;
+    if (id === 'token-switch') return !!j.on;
+    return false;
+  }
+  function pluginValue(f, j, fd) {
+    if (!j) return null;
+    return fd.from === 'mode' ? j.mode : (j.values ? j.values[fd.from] : null);
+  }
+  function prefillOf(f, j) {
+    const pre = {};
+    ((f.cfg && f.cfg.fields) || []).forEach((fd) => {
+      const v = pluginValue(f, j, fd);
+      if (v != null && v !== '') pre[fd.key] = String(v);
+    });
+    return pre;
+  }
+  function cfgActionOf(f, j) {
+    if (f.id === 'mem-recall' && !pluginActive('mem-recall', j)) return 'apply';
+    return (f.cfg || {}).action;
+  }
+  function goChange(f, j) {
+    const actId = cfgActionOf(f, j);
+    if (!actId) return;
+    window.dispatchEvent(new CustomEvent('feature:jump', { detail: { id: f.id, action: actId, prefill: prefillOf(f, j) } }));
+  }
+  function pluginCard(f) {
+    const j = statusJson(f.id), c = f.cfg || {};
+    const act = pluginActive(f.id, j);
+    const card = el('div', 'fc-plug');
+    const top = el('div', 'fc-plug-h');
+    top.appendChild(el('span', 'fb-dot ' + (j ? (act ? 'ok' : 'err') : ''), '●'));
+    top.appendChild(el('span', 'fc-plug-n', f.name));
+    card.appendChild(top);
+    let stateTxt = '状态读取中…';
+    if (j) {
+      if (f.id === 'token-guard') stateTxt = (act ? '已启用' : '未启用') + ' · ' + (j.mode || '模式未写');
+      else if (f.id === 'mem-recall') stateTxt = (act ? '已登记' : '未登记') + ' · ' + (j.mode || '模式未写');
+      else stateTxt = act ? '已打开' : '未打开（出厂状态）';
+    }
+    card.appendChild(el('div', 'fc-plug-s', stateTxt));
+    // 只在启用时显示值：未启用时残留的 mode / 阈值会误导成「生效中」
+    if (act && (c.fields || []).length) {
+      const vals = el('div', 'fc-vals');
+      (c.fields || []).forEach((fd) => {
+        const v = pluginValue(f, j, fd);
+        vals.appendChild(el('span', 'fc-val', fd.label + ' ' + (v == null || v === '' ? '未写入' : v)));
+      });
+      card.appendChild(vals);
+    }
+    card.appendChild(el('div', 'fc-plug-s', '真源：' + (c.source || '未声明')));
+    const bar = el('div', 'fc-plug-b');
+    const go = el('button', 'fc-btn', cfgActionOf(f, j) === 'apply' ? '去装' : '去改');
+    go.type = 'button';
+    go.title = '跳到左栏这一项并打开表单，当前值已预填';
+    go.addEventListener('click', () => goChange(f, j));
+    bar.appendChild(go);
+    if (c.sourceAbs) {
+      const open = el('button', 'fc-btn g', '打开');
+      open.type = 'button';
+      open.title = c.sourceAbs;
+      open.addEventListener('click', () => reveal(c.sourceAbs));
+      bar.appendChild(open);
+    }
+    card.appendChild(bar);
+    return card;
+  }
+  function cfgSourceRows() {
+    const srcs = (desk && desk.configSources) || [];
+    if (!srcs.length) { pageBox.appendChild(el('div', 'fc-empty', '读不到配置源清单')); return; }
+    srcs.forEach((s) => {
+      const row = el('div', 'fc-row');
+      const mid = el('div', 'fc-row-mid');
+      mid.appendChild(el('div', 'fc-row-t', s.label + (s.exists ? '' : '（不存在，用默认值）')));
+      mid.appendChild(el('div', 'fc-row-s', (s.note || '') + ' · ' + (s.exists ? (Math.round(s.size / 1024) + ' KB') : '未建')));
+      row.appendChild(mid);
+      const open = el('button', 'fc-btn g', '打开');
+      open.type = 'button';
+      open.disabled = !s.exists;
+      open.addEventListener('click', () => reveal(s.path));
+      row.appendChild(open);
+      pageBox.appendChild(row);
+    });
+  }
+  function machineSection() {
+    const m = desk && desk.machine;
+    pageBox.appendChild(el('div', 'fc-grp-h', '机器层（只读）'));
+    if (!m) { pageBox.appendChild(el('div', 'fc-empty', '机器配置读不到（引擎数据\\.dsh\\机器配置.json）')); return; }
+    const ports = m.ports || {};
+    const vals = el('div', 'fc-vals');
+    ['dsh', 'site', 'preview', 'webAi'].forEach((k) => { if (ports[k] != null) vals.appendChild(el('span', 'fc-val', k + ' ' + ports[k])); });
+    pageBox.appendChild(vals);
+    if (m.nodeExe) pageBox.appendChild(el('div', 'fc-row-s', 'node：' + m.nodeExe));
+    if (m.workbenchRoot) pageBox.appendChild(el('div', 'fc-row-s', '工作台：' + m.workbenchRoot));
+  }
+  function policySection() {
+    const pol = (desk && desk.policy) || {}, defs = (desk && desk.policyDef) || {};
+    const list = [
+      ['statusCacheSec', '状态缓存（秒）'],
+      ['maxRunning', '同时最多跑'],
+      ['outputCapChars', '单条输出上限（字）'],
+      ['outputHeadChars', '留头（字）'],
+      ['outputTailChars', '留尾（字）'],
+      ['uiTextChars', '界面显示上限（字）'],
+      ['logKeepPerFeature', '每功能日志保留（份）'],
+      ['recentCount', '最近记录条数'],
+      ['logListCount', '日志列条数'],
+    ];
+    pageBox.appendChild(el('div', 'fc-grp-h', '工具策略'));
+    pageBox.appendChild(el('div', 'fc-grp-p', '存 外壳\\data\\工具策略.json；改完立即生效（不用重启）。'));
+    const box = el('div', 'fc-policy');
+    list.forEach((item) => {
+      const k = item[0], label = item[1];
+      const row = el('div', 'fc-pin');
+      row.appendChild(el('span', 'fc-pin-l', label));
+      const input = el('input', 'fc-pin-i');
+      input.type = 'number';
+      input.value = String(policyDraft[k] != null ? policyDraft[k] : (pol[k] != null ? pol[k] : ''));
+      input.addEventListener('input', () => { policyDraft[k] = input.value; });
+      row.appendChild(input);
+      box.appendChild(row);
+    });
+    pageBox.appendChild(box);
+    const bar = el('div', 'fc-plug-b');
+    const save = el('button', 'fc-btn', '保存策略');
+    save.type = 'button';
+    save.addEventListener('click', () => {
+      const patch = {};
+      list.forEach((item) => { const k = item[0]; if (policyDraft[k] != null && String(policyDraft[k]).trim() !== '') patch[k] = policyDraft[k]; });
+      Promise.resolve(A.configSet({ policy: patch })).then((r) => {
+        if (!r || !r.ok) throw new Error((r && r.error) || '保存没成');
+        say('已保存工具策略（立即生效）', false, 6000);
+        load();
+      }).catch((e) => { wbWarn(e, 'feature.policy'); say('保存没成：' + ((e && e.message) || e), true, 8000); });
+    });
+    bar.appendChild(save);
+    const resetP = el('button', 'fc-btn g', '恢复默认');
+    resetP.type = 'button';
+    resetP.title = '写回代码默认值';
+    resetP.addEventListener('click', () => {
+      Promise.resolve(A.configSet({ policy: defs })).then((r) => {
+        if (!r || !r.ok) throw new Error((r && r.error) || '恢复没成');
+        say('已恢复默认策略', false, 6000);
+        load();
+      }).catch((e) => { wbWarn(e, 'feature.policy'); say('恢复没成：' + ((e && e.message) || e), true, 8000); });
+    });
+    bar.appendChild(resetP);
+    pageBox.appendChild(bar);
+  }
+  function externalSection() {
+    const ext = featuresOf().filter((f) => cfgKind(f) === 'external');
+    if (!ext.length) return;
+    pageBox.appendChild(el('div', 'fc-grp-h', '配置在别处（只指路）'));
+    ext.forEach((f) => {
+      const c = f.cfg || {};
+      const row = el('div', 'fc-row');
+      const mid = el('div', 'fc-row-mid');
+      mid.appendChild(el('div', 'fc-row-t', f.name));
+      mid.appendChild(el('div', 'fc-row-s', (c.note ? c.note + ' ' : '') + '真源：' + (c.source || '未声明')));
+      row.appendChild(mid);
+      const go = el('button', 'fc-btn', '去改');
+      go.type = 'button';
+      go.addEventListener('click', () => window.dispatchEvent(new CustomEvent('feature:jump', { detail: { id: f.id } })));
+      row.appendChild(go);
+      if (c.sourceAbs) {
+        const open = el('button', 'fc-btn g', '打开');
+        open.type = 'button';
+        open.title = c.sourceAbs;
+        open.addEventListener('click', () => reveal(c.sourceAbs));
+        row.appendChild(open);
+      }
+      pageBox.appendChild(row);
+    });
+  }
+  function noCfgSection() {
+    const none = featuresOf().filter((f) => cfgKind(f) === 'none');
+    if (!none.length) return;
+    const d = document.createElement('details');
+    d.className = 'fc-none';
+    const s = document.createElement('summary');
+    s.className = 'fc-grp-h';
+    s.textContent = '无配置项 ' + none.length + ' 项（只读检查 / 一次性动作）';
+    d.appendChild(s);
+    none.forEach((f) => {
+      const row = el('div', 'fc-none-row');
+      row.appendChild(el('span', 'fc-none-n', f.name));
+      row.appendChild(el('span', 'fc-none-w', (f.cfg && f.cfg.noWhy) || ''));
+      d.appendChild(row);
+    });
+    pageBox.appendChild(d);
+  }
+
+  function pageConfig() {
+    const st = (desk && desk.stats) || {};
+    const plugins = featuresOf().filter((f) => cfgKind(f) === 'plugin');
+    pageBox.appendChild(el('div', 'fc-grp-h', '插件（' + plugins.length + '）· 能改'));
+    pageBox.appendChild(el('div', 'fc-grp-p', '当前值来自脚本 --status --json；改完要重启整壳。'));
+    plugins.forEach((f) => pageBox.appendChild(pluginCard(f)));
+    if (featuresOf().some((f) => cfgKind(f) === 'machine')) machineSection();
+    externalSection();
+    cfgSourceRows();
+    policySection();
+    pageBox.appendChild(el('div', 'fc-grp-h', '界面偏好'));
+    pageBox.appendChild(el('div', 'fc-grp-p', '只存本机（外壳\\data\\功能台.json），不进 git。'));
+    pageBox.appendChild(switchRow('危险动作二次确认', '写操作第一次点只提醒，6 秒内再点一次才执行（默认开）', 'confirmAgain'));
+    pageBox.appendChild(switchRow('显示「背景」说明', '功能台右栏详情里多一段「以前只给命令行」折叠；嫌长可以关', 'showWhy'));
+    const file = (desk && desk.file) || '';
+    const row = el('div', 'fc-row');
+    const mid = el('div', 'fc-row-mid');
+    mid.appendChild(el('div', 'fc-row-t', '界面配置文件'));
+    mid.appendChild(el('div', 'fc-row-s', file || '（还没生成）'));
+    row.appendChild(mid);
+    const open = el('button', 'fc-btn g', '打开');
+    open.type = 'button';
+    open.disabled = !file;
+    open.addEventListener('click', () => reveal(file));
+    row.appendChild(open);
+    pageBox.appendChild(row);
+    noCfgSection();
+    pageBox.appendChild(el('div', 'fc-grp-h', '清理'));
+    const rrow = el('div', 'fc-row');
+    const rmid = el('div', 'fc-row-mid');
+    rmid.appendChild(el('div', 'fc-row-t', '清空「上次结果」与点击计数'));
+    rmid.appendChild(el('div', 'fc-row-s', '只清本机 功能台.json 的 last / hits；真实开关与历史日志都不动'));
+    rrow.appendChild(rmid);
+    const reset = el('button', 'fc-btn d', '清空');
+    reset.type = 'button';
+    let armed = 0;
+    reset.addEventListener('click', () => {
+      const now = Date.now();
+      if (!(armed && now - armed < 6000)) {
+        armed = now;
+        reset.textContent = '再点一次确认';
+        say('会清掉所有「上次 ✓/✗」标签与计数，6 秒内再点一次才执行（不会动真实开关）', false, 8000);
+        setTimeout(() => { armed = 0; reset.textContent = '清空'; }, 6200);
+        return;
+      }
+      armed = 0;
+      reset.textContent = '清空';
+      Promise.resolve(A.configSet({ reset: true })).then(() => {
+        window.dispatchEvent(new Event('feature:cfg-changed'));
+        say('已清空：上次结果与点击计数（日志文件没动）', false, 6000);
+        load();
+      }).catch((e) => {
+        wbWarn(e, 'feature.reset');
+        say('清空没成：' + ((e && e.message) || e), true, 8000);
+      });
+    });
+    rrow.appendChild(reset);
+    pageBox.appendChild(rrow);
+    pageBox.appendChild(el('div', 'fc-foot',
+      String(st.features || 0) + ' 个功能 · ' + String(st.actions || 0) + ' 个动作 · 可改 '
+      + String((desk.cfgStats || {}).plugin || 0) + ' / 机器层 ' + String((desk.cfgStats || {}).machine || 0)
+      + ' / 在别处 ' + String((desk.cfgStats || {}).external || 0) + ' / 无配置 ' + String((desk.cfgStats || {}).none || 0)));
+  }
+
+  // 5. 最近：10 条倒序，成没成 / 哪条 / 多久前 / 失败原因都在一行组里
+  function pageRecent() {
+    const rc = recentOf();
+    if (!rc.length) {
+      pageBox.appendChild(el('div', 'fc-empty', '还没有记录。到功能台跑任意动作，这里按时间倒序列最近 10 条（成没成、原因、点过几次）。'));
+      return;
+    }
+    rc.forEach((r) => {
+      const row = el('div', 'fc-re');
+      row.appendChild(el('span', 'fc-re-ic ' + (r.ok ? 'ok' : 'err'), r.ok ? '✓' : '✗'));
+      const mid = el('div', 'fc-re-mid');
+      mid.appendChild(el('div', 'fc-re-1', (r.feature || r.id) + ' · ' + (r.action || '')));
+      const meta = [agoStr(r.at), r.hits > 1 ? '点过 ' + r.hits + ' 次' : ''].filter(Boolean).join(' · ');
+      if (!r.ok && r.reason) {
+        mid.appendChild(el('div', 'fc-re-2 err', meta + ' · ' + r.reason));
+      } else {
+        mid.appendChild(el('div', 'fc-re-2', meta || '刚刚'));
+      }
+      row.appendChild(mid);
+      pageBox.appendChild(row);
+    });
+  }
+
+  // 6. 日志：打开整个目录 + 最近 8 份（文件名 = 功能 + 时间，点一行直接开）
+  function pageLogs() {
+    const dir = (desk && desk.logDir) || '';
+    const top = el('div', 'fc-row');
+    const mid = el('div', 'fc-row-mid');
+    mid.appendChild(el('div', 'fc-row-t', '历史日志目录'));
+    mid.appendChild(el('div', 'fc-row-s', (dir || '外壳\\data\\历史') + ' · 每条动作一份，每功能留最近 ' + String((desk && desk.policy && desk.policy.logKeepPerFeature) || 20) + ' 份'));
+    top.appendChild(mid);
+    const openDir = el('button', 'fc-btn g', '打开目录');
+    openDir.type = 'button';
+    openDir.disabled = !dir;
+    openDir.addEventListener('click', () => reveal(dir));
+    top.appendChild(openDir);
+    pageBox.appendChild(top);
+
+    const lg = logsOf();
+    if (!lg.length) {
+      pageBox.appendChild(el('div', 'fc-empty', '还没有日志。任意功能跑一次，全文就会落到这里，并在这页列出最近 8 份。'));
+      return;
+    }
+    pageBox.appendChild(el('div', 'fc-grp-h', '最近 ' + lg.length + ' 份'));
+    lg.forEach((l) => {
+      const name = String(l.name || '').replace(/\.log$/i, '');
+      const size = l.size >= 1024 ? (Math.round(l.size / 1024) + ' KB') : (String(l.size || 0) + ' B');
+      const b = el('button', 'fc-log');
+      b.type = 'button';
+      b.title = l.path || l.name || '';
+      const n = el('span', 'fc-log-n', name);
+      b.appendChild(n);
+      b.appendChild(el('span', 'fc-log-s', size));
+      b.addEventListener('click', () => openLog(l.path));
+      pageBox.appendChild(b);
+    });
+    pageBox.appendChild(el('div', 'fc-foot', '完整全文在文件里；界面里的输出只保留最后 ' + String((desk && desk.policy && desk.policy.uiTextChars) || 6000) + ' 字。'));
+  }
+
+  function paintPage() {
+    pageBox.innerHTML = '';
+    if (state.tab === 'recent') pageRecent();
+    else if (state.tab === 'logs') pageLogs();
+    else pageConfig();
+  }
+
+  // 7. 装载：配置 + 清单 + 开关状态一次读完；页签数字与插件卡都来自同一份数据
   function load() {
-    note.textContent = '读取中…';
-    Promise.all([Promise.resolve(A.configGet()), Promise.resolve(A.list())]).then((arr) => {
-      if (disposed) return;
+    const my = ++loadSeq;
+    if (note) note.textContent = '读取中…';
+    Promise.all([Promise.resolve(A.configGet()), Promise.resolve(A.list()), Promise.resolve(A.status())]).then((arr) => {
+      if (disposed || my !== loadSeq) return;
       cfg = (arr[0] && arr[0].cfg) || { ui: {} };
-      desk = arr[1] || null;
-      box.innerHTML = '';
-      const st = (desk && desk.stats) || {};
-      box.appendChild(el('div', 'ft-grp-h', '界面偏好'));
-      box.appendChild(el('div', 'ft-grp-p', '只存本机（外壳\\data\\功能台.json）。危险动作默认要连点两次，防手滑把真实配置改掉。'));
-      box.appendChild(rowToggle('危险动作二次确认', '写操作第一次点只提醒，6 秒内再点一次才真跑', 'confirmAgain'));
-      box.appendChild(rowToggle('展开「以前只给命令行」', '给每张功能卡多一行背景；嫌长可以关', 'showWhy'));
-
-      box.appendChild(el('div', 'ft-grp-h', '接管范围'));
-      const kv = el('div', 'ft-kv');
-      const pair = (k, v) => { kv.appendChild(el('span', 'ft-k', k)); kv.appendChild(el('span', 'ft-v', v)); };
-      pair('功能', String(st.features || 0) + ' 项');
-      pair('动作', String(st.actions || 0) + ' 个');
-      pair('分组', String(st.groups || 0) + ' 组');
-      pair('日常 / 低频', String(st.daily || 0) + ' / ' + String(st.rare || 0) + ' 项');
-      box.appendChild(kv);
-      box.appendChild(el('div', 'ft-grp-p', '这 ' + (st.features || 0) + ' 项原来都只能敲命令（node 工具\\xxx.mjs）；现在每项都有按钮，写操作与只读操作分开标。'));
-
-      // 最近操作：原来独立的第 8 块收进这里 —— 「刚才那下成没成」和偏好、日志在同一块看
-      const rc = (desk && desk.recent) || [];
-      box.appendChild(el('div', 'ft-grp-h', '最近操作'));
-      if (rc.length) {
-        const lb = el('div', 'ft-log');
-        rc.forEach((r) => {
-          const line = el('div', 'ft-log-r');
-          line.appendChild(el('span', 'ft-dot ' + (r.ok ? 'ok' : 'err'), r.ok ? '✓' : '✗'));
-          line.appendChild(el('span', 'ft-log-n',
-            (r.at ? agoStr(r.at / 1000) + ' · ' : '') + r.feature + ' · ' + r.action
-            + (r.ok ? '' : (r.reason ? ' · ' + r.reason : ' · 没说原因'))
-            + (r.hits > 1 ? ' · 点过 ' + r.hits + ' 次' : '')));
-          lb.appendChild(line);
-        });
-        box.appendChild(lb);
-      } else {
-        box.appendChild(el('div', 'ft-grp-p', '还没有记录：任意功能跑一次，这里按时间倒序列出最近 10 条（成没成、卡在哪一行）。'));
+      desk = (arr[1] && arr[1].ok) ? arr[1] : null;
+      stRows = {};
+      ((arr[2] && arr[2].rows) || []).forEach((x) => { stRows[x.id] = x; });
+      if (!desk) {
+        pageBox.innerHTML = '';
+        pageBox.appendChild(el('div', 'fc-empty', '读不到功能清单：' + ((arr[1] && arr[1].error) || '主进程没回话')));
+        if (note) note.textContent = '失败';
+        return;
       }
-
-      const fileRow = el('div', 'ft-cfg-row');
-      fileRow.appendChild(el('div', 'ft-cfg-mid', '配置文件：' + ((arr[0] && arr[0].file) || '—')));
-      const openBtn = el('button', 'ft-btn ft-btn-g', '打开');
-      openBtn.type = 'button';
-      openBtn.addEventListener('click', () => {
-        const p = (arr[0] && arr[0].file) || '';
-        const api = window.app && window.app.app;
-        if (api && api.revealPath && p) api.revealPath(p);
-      });
-      fileRow.appendChild(openBtn);
-      box.appendChild(fileRow);
-
-      // 历史日志目录：跑完的全文都落在这一处，界面上得有个门进去
-      const logRow = el('div', 'ft-cfg-row');
-      const lmid = el('div', 'ft-cfg-mid');
-      lmid.appendChild(el('div', 'ft-cfg-t', '历史日志目录'));
-      lmid.appendChild(el('div', 'ft-cfg-s', ((desk && desk.logDir) || '外壳\\data\\历史') + ' · 每条动作一份，每功能留最近 20 份'));
-      logRow.appendChild(lmid);
-      const logBtn = el('button', 'ft-btn ft-btn-g', '打开');
-      logBtn.type = 'button';
-      logBtn.addEventListener('click', () => {
-        const dir = (desk && desk.logDir) || '';
-        const api = window.app && window.app.app;
-        if (!dir) { if (window.__tbsToast) window.__tbsToast('还没跑过任何动作，目录还没建', false, 6000); return; }
-        if (!api || !api.revealPath) { if (window.__tbsToast) window.__tbsToast('这个宿主没有打开文件夹的能力（要重启一次工作台）', true, 6000); return; }
-        Promise.resolve(api.revealPath(dir)).catch((e) => wbWarn(e, 'feature.openLogDir'));
-      });
-      logRow.appendChild(logBtn);
-      box.appendChild(logRow);
-
-      // 最近 8 份日志：不用自己去目录里翻（文件名 = 功能 + 时间，点一下直接打开）
-      const lg = (desk && desk.logs) || [];
-      if (lg.length) {
-        const lbox = el('div', 'ft-log');
-        lg.forEach((l) => {
-          const r2 = el('div', 'ft-log-r');
-          const name = String(l.name || '').replace(/\.log$/i, '');
-          r2.appendChild(el('span', 'ft-log-n', name + ' · ' + (l.size >= 1024 ? (Math.round(l.size / 1024) + ' KB') : (l.size + ' B'))));
-          const b2 = el('button', 'ft-btn ft-btn-g ft-log-b', '打开');
-          b2.type = 'button';
-          b2.title = l.path;
-          b2.addEventListener('click', () => {
-            const api = window.app && window.app.app;
-            if (!api || !api.openPath) { if (window.__tbsToast) window.__tbsToast('这个宿主没有打开文件的能力（要重启一次工作台）', true, 6000); return; }
-            Promise.resolve(api.openPath(l.path)).catch((e) => wbWarn(e, 'feature.openLog'));
-          });
-          r2.appendChild(b2);
-          lbox.appendChild(r2);
-        });
-        box.appendChild(lbox);
-      } else {
-        box.appendChild(el('div', 'ft-grp-p', '还没有日志：任意功能跑一次，这里就会出现全文记录。'));
-      }
-
-      // 清掉界面侧记忆（上次 ✓ 标签 / 点击计数）；不碰真实开关、不删日志文件，故两次确认就够
-      const resetRow = el('div', 'ft-cfg-row');
-      const rmid = el('div', 'ft-cfg-mid');
-      rmid.appendChild(el('div', 'ft-cfg-t', '清空「上次结果」与点击计数'));
-      rmid.appendChild(el('div', 'ft-cfg-s', '只清界面标签（本机 功能台.json 的 last / hits）；真实开关与历史日志都不动'));
-      resetRow.appendChild(rmid);
-      const resetBtn = el('button', 'ft-btn ft-btn-g', '清空');
-      resetBtn.type = 'button';
-      let resetArmedAt = 0;
-      resetBtn.addEventListener('click', () => {
-        const now = Date.now();
-        if (!(resetArmedAt && now - resetArmedAt < 6000)) {
-          resetArmedAt = now;
-          resetBtn.textContent = '再点一次确认';
-          if (window.__tbsToast) window.__tbsToast('会清掉所有「上次 ✓/✗」标签与计数，6 秒内再点一次才执行（不会动真实开关）', false, 8000);
-          setTimeout(() => { resetArmedAt = 0; resetBtn.textContent = '清空'; }, 6200);
-          return;
-        }
-        resetArmedAt = 0;
-        resetBtn.textContent = '清空';
-        Promise.resolve(A.configSet({ reset: true })).then(() => {
-          window.dispatchEvent(new Event('feature:cfg-changed'));
-          if (window.__tbsToast) window.__tbsToast('已清空：上次结果与点击计数（日志文件没动）', false, 6000);
-          load();
-        }).catch((e) => {
-          wbWarn(e, 'feature.reset');
-          if (window.__tbsToast) window.__tbsToast('清空没成：' + ((e && e.message) || e), true, 8000);
-        });
-      });
-      resetRow.appendChild(resetBtn);
-      box.appendChild(resetRow);
-
-      note.textContent = '共 ' + (st.features || 0) + ' 项 / ' + (st.actions || 0) + ' 个动作';
+      policyDraft = Object.assign({}, desk.policy || {});
+      if (!tabSaved) state.tab = 'config';        // 默认先看管理总览；最近 / 日志是辅助页
+      paintTabs();
+      paintPage();
+      if (note) note.textContent = '配置 ' + String((desk.cfgStats || {}).plugin || 0) + ' · 最近 ' + recentOf().length + ' · 日志 ' + logsOf().length;
     }).catch((e) => {
       wbWarn(e, 'feature.cfgLoad');
-      box.innerHTML = '';
-      box.appendChild(el('div', 'ft-empty', '读不到配置：' + ((e && e.message) || e)));
-      note.textContent = '失败';
+      pageBox.innerHTML = '';
+      pageBox.appendChild(el('div', 'fc-empty', '读不到配置：' + ((e && e.message) || e)));
+      if (note) note.textContent = '失败';
     });
   }
 

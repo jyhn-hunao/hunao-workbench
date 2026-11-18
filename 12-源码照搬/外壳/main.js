@@ -7,7 +7,7 @@
 // ⚠ 本文件 5,700+ 行，改之前先看 `外壳\架构索引.md`（分段表 + 段起行 + 函数索引命令）。
 //   定位方式：grep 段标题里的中文关键词，别整文件重排/格式化（会造出几万行 diff）。
 //   本文件属"壳"层：改完必须重启工作台才生效（renderer\ 下的文件才走 ⟳ 热更新）。
-const { app, BrowserWindow, dialog, shell, ipcMain, webContents, nativeImage, screen } = require('electron');
+const { app, BrowserWindow, dialog, shell, ipcMain, clipboard, webContents, nativeImage, screen } = require('electron');
 const { spawn, spawnSync, execFile } = require('child_process');
 const http = require('http');
 const net = require('net');
@@ -18,6 +18,8 @@ const crypto = require('crypto');
 const projectSwitch = require('./项目切换');   // 程序开发场景「项目下拉」的数据面（可单测：scripts\项目切换自检.mjs）
 const socialSvc = require('./社交');           // 社交场景「消息流」的数据面（只读 transcript + 探 OneBot 端口；可单测：工具\消息流.mjs）
 const bridgeSvc = require('./桥接');           // QQ 个人号桥接（SnowLuma）的进程面：随壳启动/退出、面板按钮按需打开
+const wechatSvc = require('./微信通道');       // 微信个人号通道（whale_girl）的进程面 + 31241 换脑适配器
+const outGateSvc = require('./外发闸门');       // 外发安全闸门：QQ 代理 + 正文判定 + 审计（唯一判据出处）
 const petSvc = require('./桌宠设置');          // 桌宠层的机器可读设置 + 路由打分 + 派发日志（面板与 工具\桌宠.mjs 共用）
 
 const DSH_PORT = String(process.env.DSH_PORT || '3083');
@@ -79,12 +81,43 @@ const projectSwitchSvc = projectSwitch.createService({
 
 // ---- 保命入口服务（127.0.0.1:SITE_PORT）----
 // 2026-11-12：个人站场景（官网静态预览 / 社区站预览 / 本地文件浏览）已整块删除，
-//   这个端口只剩两条**真在跑的**路由：`/chat`（用当前 token 跳引擎对话页）与
-//   `/__blender/live.jpg`（Blender 面板的实时抓帧）。删面板前先确认过：
-//   6 个场景 json 无一引用 personal-site，`code-urls` 只用 app.site.open/probe（不在此服务内）。
+//   这个端口只剩 `/chat`（用当前 token 跳引擎对话页）与桌宠 3D 的 `/pet3d/*`。
+//   删面板前先确认过：6 个场景 json 无一引用 personal-site，`code-urls` 只用 app.site.open/probe（不在此服务内）。
 // 2026-11-12 跨机器移植：端口统一可 env 覆盖（与 外壳\scripts\自检.mjs、工具\环境.mjs 同源）
 const SITE_PORT = Number(process.env.SITE_PORT || 31238);
 let siteServer = null;
+
+// ---- 桌宠 3D（2026-11-18）：pet3d 目录 = 页面 + 模型 + vendor 静态资源；状态端点走 /pet3d/state ----
+const PET3D_DIR = path.join(__dirname, 'pet3d');
+// 静态路由白名单（防目录穿越；只放行 pet3d 目录内的确定文件）
+const PET3D_FILES = {
+  '/': 'index.html',
+  '/index.html': 'index.html',
+  '/app.js': 'app.js',
+  '/vendor/three.module.min.js': 'vendor/three.module.min.js',
+  '/vendor/three.core.js': 'vendor/three.core.js',
+  '/vendor/GLTFLoader.js': 'vendor/GLTFLoader.js',
+  '/utils/BufferGeometryUtils.js': path.join('utils', 'BufferGeometryUtils.js'),
+  '/utils/SkeletonUtils.js': path.join('utils', 'SkeletonUtils.js'),
+  '/模型/body.glb': path.join('模型', 'body.glb'),
+};
+const PET3D_CT = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.glb': 'model/gltf-binary',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+};
+// 四态判定（复用 社交.js 读人格会话 transcript）
+const pet3dState = require('./桌宠状态');
+function pet3dSessionId() {
+  // 会话 id 只认场景 json（换会话.mjs 会同步改它），不硬编码
+  try {
+    const sc = JSON.parse(fs.readFileSync(path.join(SCENARIOS_DIR, 'pet.json'), 'utf8'));
+    const ai = ((sc && sc.panels) || []).find((p) => p && p.type === 'harness' && p.sessionId);
+    return ai ? String(ai.sessionId) : '';
+  } catch (e) { return ''; }
+}
 
 // ---- 数据盘隔离：所有 Electron 运行时数据（userData/session、webview partition、localStorage 等）
 // 强制写到 D 盘项目目录，绝不落到 C 盘。必须在任何 app API 之前设置。----
@@ -314,8 +347,7 @@ ipcMain.on('diag:log', (_e, m) => {
 // 主窗口照旧（场景 = 标签页）；任意场景可「弹出」成独立窗口，一屏看一个场景。
 // 三条纪律（踩了就出鬼）：
 //   ① 窗口控制类 IPC 一律按 e.sender 找窗口 —— 否则分离窗口上的最小化/关闭会去动主窗口；
-//   ② 广播类事件（余额 / 启动进度 / 引擎就绪）发给全部窗口 —— 从前只发 mainWindow；
-//   ③ Blender「内置」画面只能挂在一个窗口上（它是贴在窗口上的独立顶层窗口）→ 用 blenderEmbedOwner 记账。
+//   ② 广播类事件（余额 / 启动进度 / 引擎就绪）发给全部窗口 —— 从前只发 mainWindow。
 const detachWindows = [];                        // 主窗口之外的场景窗口
 const WIN_LAYOUT_FILE = path.join(__dirname, 'data', 'windows.json');
 // 场景标签顺序（拖拽换位的结果）：**主进程是唯一权威**。
@@ -491,6 +523,9 @@ function captureToken(text) {
   const m = String(text).match(new RegExp('http:\\/\\/127\\.0\\.0\\.1:' + DSH_PORT + '\\/\\?token=([A-Za-z0-9_\\-]+)'));
   if (m && m[1]) {
     harnessToken = m[1];
+    // 2026-11-18：微信通道复用 工具\派发-公共.mjs 的 getCookie；它读 DSH_TOKEN。
+    // token 本身仍只在内存，只是让同一进程内的适配器能取到（子进程会由 scriptEnv 显式注入）。
+    process.env.DSH_TOKEN = m[1];
     // 2026-11-14 · 别把 token 本体写进日志（原来这行是明文的第二处泄漏，log() 的脱敏只管 token=xxx 形态）
     log('[token] captured（长度 ' + m[1].length + '，不落盘）');
   }
@@ -643,7 +678,10 @@ async function startServer() {
     if (!harnessToken) {
       const hist = fs.existsSync(LOG_FILE) ? fs.readFileSync(LOG_FILE, 'utf8') : '';
       const m = hist.match(/token=([A-Za-z0-9_\-]+)/);
-      if (m) harnessToken = m[1];
+      if (m) {
+        harnessToken = m[1];
+        process.env.DSH_TOKEN = m[1];
+      }
     }
     log('[engine] 复用外部引擎 ⇒ 主界面走保命入口 http://127.0.0.1:' + SITE_PORT + '/chat（token 每次实时转发，永远是最新的）');
     sendBoot({ stage: 'ready', pct: 92, text: '引擎已就绪', detail: '复用正在运行的实例' });
@@ -803,9 +841,7 @@ function applyOaScenario(sid) {
   };
 }
 
-// ---- Blender 场景：实时画面（抓帧 JPEG 也由这个静态服务直出，避免每帧走 IPC）----
-// 2026-11-13 创意工坊：路径不再写死。解析顺序 = 环境变量 > 机器配置.json > 常见安装位 > PATH；
-//   都找不到就把 exe 留空（启动时按 err 说清怎么补），⛔ 不猜路径、不静默兜底。
+// ---- 本机配置：端口、工具路径等（机器配置.json 只读；⛔ 不写入）----
 const MACHINE_FILE = process.env.DSH_MACHINE_FILE || path.join(__dirname, '..', '引擎数据', '.dsh', '机器配置.json');
 function readMachineConfig() {
   try {
@@ -815,100 +851,10 @@ function readMachineConfig() {
 }
 const MACHINE = readMachineConfig();
 
-// 1. 找 blender.exe：env > 机器配置 blenderExe > Program Files\Blender Foundation\Blender*\blender.exe（取最高版本）> PATH
-function resolveBlenderExe() {
-  const tried = [];
-  const envExe = String(process.env.DSH_BLENDER_EXE || '').trim();
-  if (envExe) {
-    tried.push(['环境变量 DSH_BLENDER_EXE', envExe]);
-    if (fs.existsSync(envExe)) return { exe: envExe, from: '环境变量', tried };
-  }
-  const cfgExe = String(MACHINE.blenderExe || '').trim();
-  if (cfgExe) {
-    tried.push(['机器配置 blenderExe', cfgExe]);
-    if (fs.existsSync(cfgExe)) return { exe: cfgExe, from: '机器配置', tried };
-  }
-  const roots = [process.env.ProgramFiles, process.env['ProgramFiles(x86)'],
-    process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, 'Programs') : ''].filter(Boolean);
-  const hits = [];
-  for (const r of roots) {
-    const dir = path.join(r, 'Blender Foundation');
-    let names = [];
-    try { names = fs.readdirSync(dir); } catch (e) { tried.push(['安装位', dir + '（没有）']); continue; }
-    for (const n of names) {
-      const exe = path.join(dir, n, 'blender.exe');   // eslint 之外：只认官方安装布局
-      if (fs.existsSync(exe)) hits.push({ exe: exe, v: n });
-    }
-  }
-  if (hits.length) {
-    hits.sort((a, b) => String(b.v).localeCompare(String(a.v), 'en', { numeric: true }));
-    return { exe: hits[0].exe, from: '安装目录', tried };
-  }
-  try {
-    const r = spawnSync('where.exe', ['blender.exe'], { windowsHide: true, encoding: 'utf8' });
-    const first = String((r && r.stdout) || '').split(/\r?\n/).map((s) => s.trim()).filter(Boolean)[0];
-    if (first && fs.existsSync(first)) return { exe: first, from: 'PATH', tried };
-    tried.push(['PATH', 'where blender.exe 没结果']);
-  } catch (e) { tried.push(['PATH', 'where 调用失败']); }
-  return { exe: '', from: '', tried };
-}
-const BLENDER_PICK = resolveBlenderExe();
-const BLENDER_EXE = BLENDER_PICK.exe;
-
-// 2. 工程工作区：env > 机器配置 blenderDir > <工作台>\工作区\创意工坊（工作区不进库，也不许落盘根）
-const BLENDER_DIR = String(process.env.DSH_BLENDER_DIR || MACHINE.blenderDir || '').trim()
-  || path.join(WORKSPACE_DIR, '创意工坊');
-try { fs.mkdirSync(BLENDER_DIR, { recursive: true }); } catch (e) { warnOnce('main', e) }
-// 工程根下四个固定子目录（工程 / 输出 / 导出 / _脚本）：让「工程资源」面板第一眼就有结构，AI 也照这个落文件
-for (const sub of ['工程', '输出', '导出', '_脚本']) {
-  try { fs.mkdirSync(path.join(BLENDER_DIR, sub), { recursive: true }); } catch (e) { warnOnce('main', e) }
-}
-
-// 3. 桥接脚本：源码在 外壳\scripts\blender-bridge.py，启动 Blender 前复制到 %TEMP% 的纯 ASCII 路径再 --python
-//    （历史坑：Blender 对中文路径的 --python 处理不稳，会把脚本当 .blend 文件加载）
-const BLENDER_BRIDGE_SRC = path.join(__dirname, 'scripts', 'blender-bridge.py');
-const BLENDER_BRIDGE_COPY = path.join(os.tmpdir(), 'dsh-blender-bridge.py');
-const BLENDER_BRIDGE_STAMP = path.join(os.tmpdir(), 'dsh-blender-bridge.stamp');
-function ensureBlenderBridge() {
-  try {
-    if (!fs.existsSync(BLENDER_BRIDGE_SRC)) return '';
-    const st = fs.statSync(BLENDER_BRIDGE_SRC);
-    const stamp = st.size + '|' + Math.floor(st.mtimeMs);
-    let old = '';
-    try { old = fs.readFileSync(BLENDER_BRIDGE_STAMP, 'utf8').trim(); } catch (e) { old = ''; }
-    if (!fs.existsSync(BLENDER_BRIDGE_COPY) || old !== stamp) {
-      fs.copyFileSync(BLENDER_BRIDGE_SRC, BLENDER_BRIDGE_COPY);
-      fs.writeFileSync(BLENDER_BRIDGE_STAMP, stamp, 'utf8');
-    }
-    return BLENDER_BRIDGE_COPY;
-  } catch (e) { warnOnce('main', e); return ''; }
-}
-
-const BLENDER_CAPTURE_PS = path.join(__dirname, 'scripts', 'blender-capture.ps1');
-const BLENDER_LIVE_JPG = path.join(__dirname, 'data', 'blender-live.jpg');
-const BLENDER_LIVE_META = path.join(__dirname, 'data', 'blender-live.json');
-const BLENDER_CAPTURE_PID = path.join(__dirname, 'data', 'blender-capture.pid');
-const BLENDER_MCP_PORT = 9876;   // blender-bridge.py 在同一端口监听（AI 靠它实时改场景）
-
-// ---- Blender 内置：把 Blender 主窗口 SetParent 进 GUI 窗口，直接在面板里操作 ----
-// Win32 部分全在 scripts/blender-embed-agent.ps1；主进程只负责起代理、下命令、收结果。
-const BLENDER_EMBED_AGENT = path.join(__dirname, 'scripts', 'blender-embed-agent.ps1');
-const BLENDER_EMBED_CMD = path.join(__dirname, 'data', 'blender-embed.cmd.json');
-const BLENDER_EMBED_RES = path.join(__dirname, 'data', 'blender-embed.res.json');
-
 function startSiteServer() {
   if (siteServer) return;
   siteServer = http.createServer(function (req, res) {
     const u = decodeURIComponent((req.url || '/').split('?')[0]);
-    // Blender 场景：实时画面（抓帧进程写盘 → 这里直出，渲染层 img 带时间戳轮询即可）
-    if (u === '/__blender/live.jpg') {
-      fs.readFile(BLENDER_LIVE_JPG, function (err, data) {
-        if (err) { res.writeHead(404); res.end('no-frame'); return; }
-        res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Cache-Control': 'no-store, no-cache, must-revalidate' });
-        res.end(data);
-      });
-      return;
-    }
     // 保命入口：http://127.0.0.1:31238/chat → 用**当前** token 跳到引擎对话页。
     // 为什么需要：引擎每次启动都会随机生成新 token（见引擎源码 packages/client/connection/README.md），
     // 所以「带 token 的收藏网址」一重启就 401。这个固定入口只要工作台在跑就总能进对话。
@@ -929,6 +875,33 @@ function startSiteServer() {
       }
       return;
     }
+    // ---- 桌宠 3D：静态资源 + 状态（2026-11-18）----
+    // 页面 /pet3d/ 走 HTTP（不是 file://）：GLB fetch、贴图、vendor 模块全部同源，无 CORS/文件协议限制。
+    if (u === '/pet3d/state') {
+      const sid = pet3dSessionId();
+      const st = sid ? pet3dState.stateOf(DSH_HOME, sid) : { state: 'idle', why: 'no-session' };
+      const body = JSON.stringify({
+        state: st.state,
+        sessionId: sid || '',
+        at: Date.now(),
+      });
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store, no-cache, must-revalidate' });
+      res.end(body);
+      return;
+    }
+    if (u === '/pet3d' || u === '/pet3d/' || u.indexOf('/pet3d/') === 0) {
+      const rel = (u === '/pet3d' || u === '/pet3d/') ? '/' : u.slice('/pet3d'.length);
+      const file = PET3D_FILES[rel];
+      if (!file) { res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }); res.end('not found'); return; }
+      const fp = path.join(PET3D_DIR, file);
+      fs.readFile(fp, function (err, data) {
+        if (err) { res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }); res.end('not found'); return; }
+        const ext = path.extname(fp).toLowerCase();
+        res.writeHead(200, { 'Content-Type': PET3D_CT[ext] || 'application/octet-stream', 'Cache-Control': 'no-store' });
+        res.end(data);
+      });
+      return;
+    }
     // 其它路径一律 404：个人站官网预览与 /__community/ 社区站预览已于 2026-11-12 删除
     res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' });
     res.end('not found');
@@ -945,7 +918,7 @@ function startSiteServer() {
     siteServer = null;
   });
   siteServer.listen(SITE_PORT, '127.0.0.1', function () {
-    log('[site] 保命入口服务已启动: http://127.0.0.1:' + SITE_PORT + '（/chat + Blender 实时画面）');
+    log('[site] 保命入口服务已启动: http://127.0.0.1:' + SITE_PORT + '（/chat）');
   });
 }
 
@@ -1024,23 +997,21 @@ function createWindow(opts) {
   win.on('closed', function () {
     if (isMain) {
       mainWindow = null;
-      releaseBlenderEmbedSync();
       quitRequested = true;
       // 主窗口关闭 = 整个应用退出（用户选定的行为）：连带关掉分离窗口
       for (const w of detachWindows.slice()) { try { w.close(); } catch (e) { warnOnce("main", e) } }
     } else {
       const i = detachWindows.indexOf(win);
       if (i >= 0) detachWindows.splice(i, 1);
-      if (blenderEmbedOwner === win) releaseBlenderEmbedSync();
       // 用户主动关掉某个场景窗口 = 下次启动不再恢复它；整个应用退出时则保留布局
       if (!quitRequested && win.kunScene) delete layoutCache.detached[win.kunScene];
       saveWinLayout();
       notifyWindowsChanged();
     }
   });
-  // 覆盖式内置的 Blender 是独立顶层窗口，不会自己跟着 GUI 走：窗口移动/缩放时重新贴合
-  win.on('move', function () { scheduleEmbedFollow(win); scheduleAppwFollow(win); noteWindowRect(win); saveWinLayoutSoon(); });
-  win.on('resize', function () { scheduleEmbedFollow(win); scheduleAppwFollow(win); noteWindowRect(win); saveWinLayoutSoon(); });
+  // 窗口移动 / 缩放：工业软件内置窗与外挂面板要跟着 GUI 走
+  win.on('move', function () { scheduleAppwFollow(win); noteWindowRect(win); saveWinLayoutSoon(); });
+  win.on('resize', function () { scheduleAppwFollow(win); noteWindowRect(win); saveWinLayoutSoon(); });
   if (isMain) {
     mainWindow = win;
   } else {
@@ -1184,6 +1155,8 @@ ipcMain.handle('harness:url', () => {
   const token = harnessToken;
   return token ? (BASE + '/?token=' + token) : (BASE + '/');
 });
+// ---- 保命入口基础地址（2026-11-18，桌宠 3D 面板用 @site: 前缀拼页面 URL，场景 json 不写死端口）----
+ipcMain.handle('site:base', () => 'http://127.0.0.1:' + SITE_PORT + '/');
 // ---- 2026-11-11：token 晚到（端口先 listen、`dsh web: …?token=` 那行后打印）----
 // 引擎的打印顺序：webServer 先 listen → loader.await()（整棵插件树）→ auditStartupEntries → 才 log 带 token 的 URL。
 // 而壳的 probe() 只要端口有响应（401 也算）就判"就绪"⇒ 广播 harness:ready 时 harnessToken 可能仍是 null，
@@ -1677,7 +1650,7 @@ ipcMain.handle('scenes:order:get', () => ({ saved: fs.existsSync(SCENE_ORDER_FIL
 ipcMain.handle('scenes:order:set', (e, ids) => saveSceneTabOrder(ids));
 
 // ---- 宿主通用能力（不属于任何场景）：打开/定位任意路径 ----
-// 之前各场景为了"打开文件夹"互相借用通道（例如 OA 文件面板去调 app.site/app.blender），
+// 之前各场景为了"打开文件夹"互相借用通道（例如 OA 文件面板去调 app.site），
 // 造成场景间耦合。这里提供一个平台级通道，任何场景都可以用，互不依赖。
 // 安全：只允许打开「存在且非可执行」的路径，或 http(s)/mailto 链接。
 ipcMain.handle('app:open-path', (e, target) => {
@@ -1899,7 +1872,7 @@ ipcMain.handle('code:phone-window', (e, url, title) => {
 
 // （2026-11-12 删除）个人站场景的本地文件浏览：site:files:local / site:open-file 两条 IPC 已移除。
 //   它们只服务 personal-site 的「本地文件」面板（浏览根 SITE_BROWSE_DIR、点击交给系统程序），
-//   面板删除后无调用方；同时移除的还有拖出功能 site:drag（见下方 Blender 段之后）。
+//   面板删除后无调用方；同时移除的还有拖出功能 site:drag。
 
 
 // ================= 自我复盘场景（独立命名空间 app.review，根＝<工作台>\自我复盘，只读） =================
@@ -2056,245 +2029,6 @@ ipcMain.handle('kun:file:toPdf', function (e, p) {
   return officeToPdf(t);
 });
 
-// ================= Blender 场景（独立命名空间 app.blender，不读其它场景数据） =================
-let blenderCapProc = null;   // 抓帧子进程（blender-capture.ps1 循环）
-
-// Blender 是否在运行（按进程名判断，不依赖窗口）；tasklist 是同步调用，加 4 秒缓存避免卡主进程
-let blenderRunCache = { at: 0, v: false };
-function blenderRunning() {
-  const now = Date.now();
-  if (now - blenderRunCache.at < 4000) return blenderRunCache.v;
-  let v = false;
-  try {
-    const r = spawnSync('tasklist', ['/FI', 'IMAGENAME eq blender.exe', '/NH'], { windowsHide: true, encoding: 'utf8' });
-    v = String((r && r.stdout) || '').toLowerCase().indexOf('blender.exe') >= 0;
-  } catch (e) { v = false; }
-  blenderRunCache = { at: now, v: v };
-  return v;
-}
-
-// Blender 进程 PID 列表（关闭时用；同样走 tasklist，避免额外依赖）
-function blenderPidList() {
-  const pids = [];
-  try {
-    const r = spawnSync('tasklist',
-      ['/FI', 'IMAGENAME eq blender.exe', '/FO', 'CSV', '/NH'],
-      { windowsHide: true, encoding: 'utf8' });
-    String((r && r.stdout) || '').split(/\r?\n/).forEach(function (line) {
-      const m = line.match(/"blender\.exe","(\d+)"/i);
-      if (m) pids.push(parseInt(m[1], 10));
-    });
-  } catch (e) { warnOnce("main", e) }
-  return pids;
-}
-// 抓帧进程：持续把 Blender 窗口画面写成 JPEG（被 GUI 遮挡也能抓到）
-function startBlenderCapture() {
-  if (blenderCapProc && blenderCapProc.exitCode === null) return true;
-  if (!fs.existsSync(BLENDER_CAPTURE_PS)) { log('[blender] 抓帧脚本缺失: ' + BLENDER_CAPTURE_PS); return false; }
-  // 收掉上一轮遗留的抓帧进程：脚本会把自己的 PID 写进 pid 文件，而 GUI 关闭时
-  // 子进程不会跟着死（Windows 上父进程退出不杀子进程）。不收的话每重启一次 GUI
-  // 就多一个进程抢写同一张 JPEG，实测曾累积到 6 个。
-  try {
-    if (fs.existsSync(BLENDER_CAPTURE_PID)) {
-      const oldPid = parseInt(fs.readFileSync(BLENDER_CAPTURE_PID, 'utf8').trim(), 10);
-      if (oldPid > 0) {
-        spawnSync('taskkill', ['/pid', String(oldPid), '/T', '/F'], { windowsHide: true });
-        log('[blender] 已收掉遗留抓帧进程 pid=' + oldPid);
-      }
-    }
-  } catch (e) { warnOnce("main", e) }
-  try {
-    blenderCapProc = spawn('powershell.exe',
-      ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', BLENDER_CAPTURE_PS],
-      { windowsHide: true, stdio: 'ignore' });
-    blenderCapProc.on('exit', function (code) { log('[blender] 抓帧进程退出 code=' + code); blenderCapProc = null; });
-    log('[blender] 抓帧进程已启动');
-    return true;
-  } catch (e) {
-    log('[blender] 抓帧启动失败: ' + ((e && e.message) || e));
-    return false;
-  }
-}
-function stopBlenderCapture() {
-  if (!blenderCapProc) return;
-  try { spawnSync('taskkill', ['/pid', String(blenderCapProc.pid), '/T', '/F'], { windowsHide: true }); } catch (e) { warnOnce("main", e) }
-  blenderCapProc = null;
-}
-function readBlenderMeta() {
-  try {
-    const raw = fs.readFileSync(BLENDER_LIVE_META, 'utf8').replace(/^\uFEFF/, '');
-    return JSON.parse(raw);
-  } catch (e) { return null; }
-}
-// MCP 端口是否在监听（Blender 插件里的 socket 服务，AI 助手靠它操作 Blender）
-// 用异步 TCP 连接探测（不 spawn 进程，不阻塞主进程），结果缓存 4 秒
-let mcpCache = { at: 0, v: false };
-function checkMcpPort(cb) {
-  const now = Date.now();
-  if (now - mcpCache.at < 4000) { cb(mcpCache.v); return; }
-  let done = false;
-  const finish = (v) => {
-    if (done) return;
-    done = true;
-    mcpCache = { at: Date.now(), v: v };
-    try { sock.destroy(); } catch (e) { warnOnce("main", e) }
-    cb(v);
-  };
-  const sock = net.connect({ host: '127.0.0.1', port: BLENDER_MCP_PORT });
-  sock.setTimeout(600);
-  sock.on('connect', () => finish(true));
-  sock.on('timeout', () => finish(false));
-  sock.on('error', () => finish(false));
-}
-
-// 状态查询：是否运行 / 抓帧是否在跑 / 画面帧信息 / MCP 端口
-ipcMain.handle('blender:state', (e, opts) => new Promise((resolve) => {
-  if (!opts || opts.capture !== false) startBlenderCapture();
-  checkMcpPort(function (mcp) {
-    const st = fs.existsSync(BLENDER_LIVE_JPG) ? fs.statSync(BLENDER_LIVE_JPG) : null;
-    resolve({
-      running: blenderRunning(),
-      capturing: !!(blenderCapProc && blenderCapProc.exitCode === null),
-      mcp: mcp,
-      frame: st ? { size: st.size, mtime: st.mtimeMs } : null,
-      meta: readBlenderMeta(),
-      liveUrl: 'http://127.0.0.1:' + SITE_PORT + '/__blender/live.jpg',
-      workspace: BLENDER_DIR,
-      exe: BLENDER_EXE,
-      exeFound: !!BLENDER_EXE,
-      exeFrom: BLENDER_PICK.from,
-      machineFile: MACHINE_FILE,
-      bridge: 'blender-bridge.py @ ' + BLENDER_MCP_PORT,
-      mcpPort: BLENDER_MCP_PORT
-    });
-  });
-}));
-
-// 启动 Blender（带桥接脚本：起来就能被 AI 实时驱动，省去手点 N 面板装插件）
-ipcMain.handle('blender:launch', (e, opts) => {
-  if (blenderRunning()) return { ok: true, already: true };
-  if (!BLENDER_EXE) {
-    return {
-      ok: false,
-      err: '没找到 blender.exe：装好后跑 node 12-源码照搬\\工具\\Blender.mjs set-exe --path "<blender.exe>"（或设 DSH_BLENDER_EXE），再点启动。'
-    };
-  }
-  if (!fs.existsSync(BLENDER_EXE)) return { ok: false, err: 'blender.exe 路径失效：' + BLENDER_EXE };
-  try {
-    const bridge = ensureBlenderBridge();
-    const args = [];
-    const blend = String((opts && opts.blend) || '').trim();
-    if (blend && fs.existsSync(blend)) args.push(blend);
-    if (bridge) args.push('--python', bridge);
-    const child = spawn(BLENDER_EXE, args, {
-      cwd: path.dirname(BLENDER_EXE),
-      detached: true,
-      stdio: 'ignore',
-      windowsHide: false
-    });
-    child.unref();
-    log('[blender] 已启动: ' + BLENDER_EXE + ' ' + args.join(' ') + (bridge ? '' : '（桥接脚本缺失：AI 只能走后台 run）'));
-    // 面板是覆盖式内置（真窗口贴进来），不需要抓帧；抓帧脚本没随包提供时也明说一句，别当成闷声失败
-    if (fs.existsSync(BLENDER_CAPTURE_PS)) startBlenderCapture();
-    else log('[blender] 抓帧脚本未提供（scripts\\blender-capture.ps1），跳过抓帧；内置模式不受影响');
-    return { ok: true, bridge: !!bridge };
-  } catch (ex) { return { ok: false, err: String((ex && ex.message) || ex) }; }
-});
-
-// 关闭 Blender（面板「✕ 关闭」按钮）
-// 先解除内置再发关闭请求：否则保存确认框会挂在一个被剥了边框、被 owner 的窗口上。
-// taskkill 不带 /F 就是给该进程的顶层窗口发 WM_CLOSE —— Blender 会正常走退出流程，
-// 有未保存改动时弹自己的保存提示（所以不会静默丢数据）。force=true 时才是强杀。
-ipcMain.handle('blender:close', async (e, opts) => {
-  const force = !!(opts && opts.force);
-  blenderEmbedCssRect = null;
-  try { await blenderEmbedCommand({ cmd: 'release' }, 4000); } catch (ex) { warnOnce("main", ex) }
-
-  const pids = blenderPidList();
-  if (!pids.length) { stopBlenderCapture(); blenderRunCache = { at: Date.now(), v: false }; return { ok: true, already: true }; }
-
-  for (const pid of pids) {
-    const a = force ? ['/F', '/PID', String(pid)] : ['/PID', String(pid)];
-    try { spawnSync('taskkill', a, { windowsHide: true, encoding: 'utf8' }); } catch (ex) { warnOnce("main", ex) }
-  }
-  log('[blender] 已发送' + (force ? '强制' : '') + '关闭请求 pid=' + pids.join(','));
-
-  // 等一拍看是否真的退了（优雅关闭时可能还停在保存提示上）
-  await new Promise(function (res) { setTimeout(res, 1600); });
-  const left = blenderPidList();
-  if (!left.length) {
-    stopBlenderCapture();
-    blenderRunCache = { at: Date.now(), v: false };
-    return { ok: true, closed: true, requested: pids.length, forced: force };
-  }
-  return {
-    ok: true, closed: false, forced: force,
-    waiting: left.length, requested: pids.length,
-    hint: '已发送关闭请求；若 Blender 有未保存内容，请在它的保存提示框里选择'
-  };
-});
-
-// 停止抓帧（面板关闭实时画面时用）
-ipcMain.handle('blender:capture', (e, on) => {
-  if (on === false) { stopBlenderCapture(); return { ok: true, capturing: false }; }
-  return { ok: startBlenderCapture(), capturing: true };
-});
-
-// ================= Blender 内置（真把窗口贴进面板，不是截图）=================
-// 做法：代理把 Blender 主窗口的 owner 设成发起内置的窗口 + **摘掉标题栏与厚边框**（WS_CAPTION/WS_THICKFRAME/
-//   WS_SYSMENU/WS_*BOX 全去掉，改 WS_POPUP，exstyle 加 WS_EX_TOOLWINDOW），再按面板矩形精确铺满
-//   （⛔ 不用 SetParent——子窗口会随父窗口一起销毁，壳一崩 Blender 就被系统带走）。
-// 效果：窗口没有标题栏、不进任务栏/Alt-Tab、矩形与面板内容区逐像素对齐 → 看起来就是面板里的一块；
-//   窗口被用户最小化/压成一条时，内置会先 ShowWindow(SW_RESTORE) 再摆位。
-// 保险：代理每拍检查 -ParentPid 是否还活着；一旦不在，立刻还原样式（带框）、owner 与原始矩形。
-// 面板切走 / 关 Blender / 退出工作台三条路径也都会先发 release。任何情况下 Blender 都必须还能单独用。
-// ⚠ 硬杀代理（不经 release）会把 Blender 留在无边框状态——重启 Blender 即可恢复；正常退出都走 release/quit。
-let blenderEmbedProc = null;
-let blenderEmbedSeq = 0;
-
-function startBlenderEmbedAgent() {
-  if (blenderEmbedProc && blenderEmbedProc.exitCode === null) return true;
-  if (!fs.existsSync(BLENDER_EMBED_AGENT)) { log('[blender] 内置代理缺失: ' + BLENDER_EMBED_AGENT); return false; }
-  try {
-    try { fs.unlinkSync(BLENDER_EMBED_RES); } catch (e) { warnOnce("main", e) }
-    blenderEmbedProc = spawn('powershell.exe',
-      ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', BLENDER_EMBED_AGENT,
-        '-Cmd', BLENDER_EMBED_CMD, '-Res', BLENDER_EMBED_RES, '-ParentPid', String(process.pid)],
-      { windowsHide: true, stdio: 'ignore' });
-    blenderEmbedProc.on('exit', function (code) { log('[blender] 内置代理退出 code=' + code); blenderEmbedProc = null; });
-    log('[blender] 内置代理已启动 pid=' + blenderEmbedProc.pid);
-    return true;
-  } catch (e) {
-    log('[blender] 内置代理启动失败: ' + ((e && e.message) || e));
-    return false;
-  }
-}
-
-// 命令写进命令文件，等代理把同一个 seq 写回来（文件通道，避免 stdio 管道的阻塞坑）
-function blenderEmbedCommand(payload, timeoutMs) {
-  return new Promise(function (resolve) {
-    if (!startBlenderEmbedAgent()) { resolve({ ok: false, err: 'agent-unavailable' }); return; }
-    blenderEmbedSeq += 1;
-    const seq = blenderEmbedSeq;
-    try { fs.writeFileSync(BLENDER_EMBED_CMD, JSON.stringify(Object.assign({}, payload, { seq: seq }))); }
-    catch (e) { resolve({ ok: false, err: 'write-cmd-failed: ' + ((e && e.message) || e) }); return; }
-
-    const limit = timeoutMs || 8000;
-    const started = Date.now();
-    (function poll() {
-      if (Date.now() - started > limit) { resolve({ ok: false, err: 'timeout' }); return; }
-      let txt = null;
-      try { txt = fs.readFileSync(BLENDER_EMBED_RES, 'utf8').replace(/^\uFEFF/, ''); } catch (e) { txt = null; }
-      if (txt) {
-        let obj = null;
-        try { obj = JSON.parse(txt); } catch (e) { obj = null; }
-        if (obj && obj.seq === seq) { resolve(obj); return; }
-      }
-      setTimeout(poll, 40);
-    })();
-  });
-}
-
 // Electron 窗口句柄 -> 十进制字符串（代理侧按 int64 解析）
 function windowHandleToDecimal(win) {
   try {
@@ -2304,8 +2038,8 @@ function windowHandleToDecimal(win) {
   } catch (e) { return '0'; }
 }
 
-// 面板给的是 CSS px（视口坐标），而覆盖式内置用的是「屏幕物理像素」：
-// Blender 保持顶层窗口（不 SetParent），所以坐标必须是屏幕坐标 —— 先加窗口内容区
+// 面板给的是 CSS px（视口坐标），覆盖式内置用的是「屏幕物理像素」：
+// 外挂窗口保持顶层（不 SetParent），所以坐标必须是屏幕坐标 —— 先加窗口内容区
 // 在屏幕上的位置（DIP），再整体乘缩放比转成物理像素。
 // 多窗口：坐标基准必须是「发起内置的那个窗口」（win），不能写死主窗口。
 function toScreenPhysicalRect(r, win) {
@@ -2327,139 +2061,8 @@ function toScreenPhysicalRect(r, win) {
   };
 }
 
-// 覆盖式内置下 Blender 是独立顶层窗口，不会自己跟着 GUI 走 —— 得我们跟。
-// 缓存最近一次面板 CSS 矩形，窗口移动/缩放时重算并重发 move。
-// ★同时只能有一个窗口「内置」★：那是贴在某个窗口上的一块独立顶层窗口，
-// 另一个窗口再内置会互相抢 → 用 blenderEmbedOwner 记账，第二家退回抓帧模式。
-let blenderEmbedCssRect = null;
-let blenderEmbedOwner = null;
-let embedFollowTimer = null;
-function scheduleEmbedFollow(win) {
-  if (!blenderEmbedCssRect) return;
-  // 只有"拥有者窗口"移动/缩放才需要跟；别的窗口挪动跟这块画面无关
-  if (win && blenderEmbedOwner && win !== blenderEmbedOwner) return;
-  if (embedFollowTimer) clearTimeout(embedFollowTimer);
-  embedFollowTimer = setTimeout(function () {
-    if (!blenderEmbedCssRect) return;
-    const p = toScreenPhysicalRect(blenderEmbedCssRect, blenderEmbedOwner || mainWindow);
-    blenderEmbedCommand({ cmd: 'move', x: p.x, y: p.y, w: p.w, h: p.h }, 4000);
-  }, 120);
-}
-
-ipcMain.handle('blender:embed', async (e, on, rect) => {
-  const win = windowOfEvent(e) || mainWindow;
-  if (on === false) {
-    // 面板现在是「只内置」模式：释放后不再重开抓帧，避免白白占 CPU
-    // 只有拥有者能释放（别家窗口的"取消内置"不该把别人的画面收走）
-    if (blenderEmbedOwner && win && blenderEmbedOwner !== win) return { ok: true, skipped: true };
-    blenderEmbedCssRect = null;
-    blenderEmbedOwner = null;
-    blenderPanelCssRect = null;
-    if (blenderFullscreen) { blenderFullscreen = false; notifyBlenderFullscreen(false); }
-    const r = await blenderEmbedCommand({ cmd: 'release' }, 6000);
-    return Object.assign({ ok: true }, r || {});
-  }
-  if (!win) return { ok: false, err: 'no-window' };
-  if (blenderEmbedOwner && blenderEmbedOwner !== win && !blenderEmbedOwner.isDestroyed()) {
-    return { ok: false, err: '已在另一个窗口内置（这块画面只能贴一个窗口）' };
-  }
-  const p = toScreenPhysicalRect(rect || {}, win);
-  // 嵌入模式：clip = 顶层窗 + SetWindowRgn 裁到面板内（默认，绝不越界且不会连带丢窗口）；
-  //           owner = 只用 owner 贴合（最保守）；child = SetParent 真子窗（会随壳一起销毁，谨慎）
-  // 机器配置.json 写 "blenderEmbedMode": "owner" | "child" 可切换
-  const rawMode = String(MACHINE.blenderEmbedMode || '').toLowerCase();
-  const embedMode = (rawMode === 'owner' || rawMode === 'child') ? rawMode : 'clip';
-  const res = await blenderEmbedCommand({
-    cmd: 'embed', parent: windowHandleToDecimal(win), mode: embedMode,
-    x: p.x, y: p.y, w: p.w, h: p.h
-  }, 12000);
-  if (res && res.ok) {
-    blenderEmbedCssRect = rect || null;
-    blenderEmbedOwner = win;
-    log('[blender] 内置画面已贴到窗口: ' + (win.kunScene || 'main') + ' · 模式 ' + ((res && res.mode) || 'owner')
-      + (res && res.fallback ? '（真嵌入失败，已退回贴合式）' : ''));
-    stopBlenderCapture();    // 已内置就不必再抓帧，省 CPU
-  }
-  return res;
-});
-
-ipcMain.handle('blender:embedMove', (e, rect) => {
-  const win = windowOfEvent(e) || blenderEmbedOwner || mainWindow;
-  if (blenderEmbedOwner && win && blenderEmbedOwner !== win) return { ok: false, err: 'not-owner' };
-  blenderEmbedCssRect = rect || null;
-  const p = toScreenPhysicalRect(rect || {}, win);
-  return blenderEmbedCommand({ cmd: 'move', x: p.x, y: p.y, w: p.w, h: p.h }, 4000);
-});
-
-ipcMain.handle('blender:embedStatus', () => blenderEmbedCommand({ cmd: 'status' }, 6000));
-
-// ---- 全屏调整：Blender 临时铺满整个工作区（#grid），方便手动挪模型/看细节，再一键切回面板 ----
-// 铺满后 Blender 会盖住所有面板（含它自己的「还原」按钮），所以退出必须留一条全局快捷键 Ctrl+Alt+B。
-let blenderPanelCssRect = null;   // 面板矩形（进入全屏前的落点，退出时用）
-let blenderFullscreen = false;
-let blenderFullKeyOn = false;
-
-function notifyBlenderFullscreen(on) {
-  // 2026-11-14 修：原来只发 mainWindow，分离出去的窗口收不到 ⇒ 统一走 broadcast（check-gui 的硬规则）
-  try { broadcast('blender:fullscreen', !!on); } catch (e) { warnOnce('main', e) }
-}
-
-function ensureBlenderFullKey() {
-  if (blenderFullKeyOn) return;
-  try {
-    const gs = require('electron').globalShortcut;
-    blenderFullKeyOn = gs.register('Control+Alt+B', function () {
-      if (!blenderFullscreen) return;
-      exitBlenderFullscreen();
-    });
-  } catch (e) { warnOnce('main', e) }
-}
-
-async function exitBlenderFullscreen() {
-  if (!blenderFullscreen) return { ok: true, full: false };
-  blenderFullscreen = false;
-  if (blenderPanelCssRect) {
-    blenderEmbedCssRect = blenderPanelCssRect;
-    const p = toScreenPhysicalRect(blenderPanelCssRect, blenderEmbedOwner || mainWindow);
-    await blenderEmbedCommand({ cmd: 'move', x: p.x, y: p.y, w: p.w, h: p.h }, 4000);
-  }
-  notifyBlenderFullscreen(false);
-  return { ok: true, full: false };
-}
-
-ipcMain.handle('blender:embedFullscreen', async (e, on, rects) => {
-  const win = windowOfEvent(e) || blenderEmbedOwner || mainWindow;
-  if (on === false) return exitBlenderFullscreen();
-  if (!blenderEmbedOwner) return { ok: false, err: '还没内置到面板，先启动/重新内置' };
-  const grid = (rects && rects.grid) || null;
-  if (!grid || !grid.w || !grid.h) return { ok: false, err: 'no-rect' };
-  if (!blenderFullscreen) blenderPanelCssRect = (rects && rects.panel) || blenderEmbedCssRect;
-  blenderEmbedCssRect = grid;
-  blenderFullscreen = true;
-  ensureBlenderFullKey();
-  const p = toScreenPhysicalRect(grid, win);
-  const r = await blenderEmbedCommand({ cmd: 'move', x: p.x, y: p.y, w: p.w, h: p.h }, 4000);
-  notifyBlenderFullscreen(true);
-  return Object.assign({ ok: true, full: true, rect: p }, r || {});
-});
-
-// 退出时先请代理释放；真来不及也有代理里的守护兜底
-function releaseBlenderEmbedSync() {
-  try {
-    blenderEmbedSeq += 1;
-    fs.writeFileSync(BLENDER_EMBED_CMD, JSON.stringify({ cmd: 'quit', seq: blenderEmbedSeq }));
-  } catch (e) { warnOnce("main", e) }
-}
-
-// 工作区文件浏览（只允许 BLENDER_DIR 内）
-
-// 公开版：OA / 行情 / SSH 业务实现不随包发布（保留空桩，等价于「未连接 / 无数据」）
-function __stubModule() { return new Proxy(function () {}, { get: () => () => undefined, apply: () => undefined }); }
-const stockStore = __stubModule();
-const oaStore = __stubModule();
-const oaSsh = __stubModule();
 // ===== app-window：把任意工业软件窗口内置成面板（2026-10-28 · 客户「<客户>」）=====
-// 与 blender 的 owner-overlay 同一套思路（见 scripts\app-embed-agent.ps1 头部：⛔ 不用 SetParent）。
+// 与 app-embed-agent.ps1 的 owner-overlay 同一套思路（头部注释：⛔ 不用 SetParent）。
 // 差异：目标进程名由渲染器传进来（Proc），一次只服务一个进程（换进程就重启 agent）。
 const APPW_AGENT = path.join(__dirname, 'scripts', 'app-embed-agent.ps1');
 const APPW_CMD = path.join(__dirname, 'data', 'appwin.cmd.json');
@@ -2559,338 +2162,13 @@ ipcMain.handle('appwin:release', async () => {
   return appwCommand({ cmd: 'release', proc: appwProcName }, 6000);
 });
 
-ipcMain.handle('blender:files', (e, relPath) => {
-  const root = path.resolve(BLENDER_DIR);
-  try { if (!fs.existsSync(root)) fs.mkdirSync(root, { recursive: true }); } catch (ex) { warnOnce("main", ex) }
-  const rel = String(relPath || '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
-  const full = rel ? path.resolve(root, rel) : root;
-  if (full !== root && !full.startsWith(root + path.sep)) return { ok: false, err: '越界路径：仅可浏览 Blender 工作区' };
-  let ents = [];
-  try { ents = fs.readdirSync(full, { withFileTypes: true }); }
-  catch (ex) { return { ok: false, err: '无法读取目录：' + full }; }
-  const rows = ents.map(en => {
-    let isDir = en.isDirectory(), size = 0, mtime = 0;
-    try {
-      const st = fs.statSync(path.join(full, en.name));
-      isDir = st.isDirectory(); size = isDir ? 0 : st.size; mtime = Math.floor(st.mtimeMs / 1000);
-    } catch (ex2) { warnOnce("main", ex2) }
-    return { name: en.name, isDir: isDir, size: size, mtime: mtime };
-  }).filter(r => r.name !== '.gitkeep')
-    .sort((a, b) => (b.isDir - a.isDir) || a.name.localeCompare(b.name, 'zh'));
-  return { ok: true, root: root, rel: rel, rows: rows };
-});
-
-// ---- 创意工坊 · 流程看板（只读汇总，不读会话正文）----
-// 用户只关心"十个环节走到哪"：看板读 工单\*.md 的状态行与 派发\回执日志.md 的最近记录，
-// 不碰任何会话内容，也不提供改状态的能力（状态只能由岗位改自己工单的第一行）。
-const CREATIVE_STAGES = [
-  { key: 'concept', name: '原画·概念' },
-  { key: 'art', name: '美术指导' },
-  { key: 'hi', name: '高模雕刻' },
-  { key: 'lo', name: '低模·拓扑' },
-  { key: 'uv', name: 'UV·贴图' },
-  { key: 'look', name: '材质·灯光' },
-  { key: 'rig', name: '绑定·动画' },
-  { key: 'fx', name: '特效·合成' },
-  { key: 'qa', name: '技美·质检' }
-];
-// 流程视图用的工序链：顺序照 流水线.md §二（十段带门）。
-// short/gateShort 是界面用的极短标签（面板上不放长句，长句只进 tooltip）；
-// deps = 必须等这些阶段「通过」才能开工；par = 同一个并行组（互不等待，可同时开工）；
-// optionalDeps = 该阶段没开单就按「按需」放过，不挡后面的人。
-const CREATIVE_FLOW = [
-  { key: 'brief', step: 1, name: '接单 · 派工', short: '接单', gateShort: '你派工', gate: '在「创意工坊」丢一张参考图 + 一句要求', deps: [], manual: true },
-  { key: 'art', step: 2, name: '美术方向', short: '美术方向', gateShort: '导演+你', gate: '门：导演 + 你确认风格', deps: ['brief'] },
-  { key: 'concept', step: 3, name: '原画·概念', short: '原画', gateShort: '美术指导', gate: '门：美术指导审图（造型/配色/比例）', deps: ['art'] },
-  { key: 'hi', step: 4, name: '高模雕刻', short: '高模', gateShort: '美术+导演', gate: '门：美术 + 导演确认造型', deps: ['concept'] },
-  { key: 'lo', step: 5, name: '低模·拓扑', short: '低模', gateShort: '技美预检', gate: '门：技美预检（面数/命名/非流形）', deps: ['hi'] },
-  { key: 'uv', step: 6, name: 'UV·贴图', short: 'UV贴图', gateShort: '技美预检', gate: '门：技美预检（UV 重叠/丢贴图）', deps: ['lo'] },
-  { key: 'look', step: 7, name: '材质·灯光', short: '材质灯光', gateShort: '导演审图', gate: '门：导演审 test 图（含第 8 段终渲）', deps: ['uv'], par: 'B' },
-  { key: 'rig', step: 7, name: '绑定·动画', short: '绑定', gateShort: '技美验骨', gate: '角色/生物必绑 · 技美验骨骼通道', deps: ['lo'], par: 'B' },
-  { key: 'fx', step: 9, name: '特效·合成', short: '特效', gateShort: '按需', gate: '按需开单（不进 GLB 就不挡交付）', deps: ['look'] },
-  { key: 'qa', step: 10, name: '技美·质检', short: '质检', gateShort: 'QC 通过', gate: '门：QC 通过才算交付', deps: ['uv', 'look', 'rig', 'fx'], optionalDeps: ['rig', 'fx'] }
-];
-// 工单里的「岗位」写的是会话标题（创意工坊·高模雕刻），这里按关键词归到阶段卡上
-const CREATIVE_STAGE_KEYS = [
-  ['原画', 'concept'], ['概念', 'concept'], ['美术指导', 'art'], ['高模', 'hi'], ['低模', 'lo'], ['拓扑', 'lo'],
-  ['UV', 'uv'], ['贴图', 'uv'], ['材质', 'look'], ['灯光', 'look'], ['绑定', 'rig'], ['动画', 'rig'],
-  ['特效', 'fx'], ['合成', 'fx'], ['质检', 'qa'], ['技美', 'qa']
-];
-function creativeStageOf(role) {
-  const r = String(role || '');
-  for (const pair of CREATIVE_STAGE_KEYS) {
-    if (r.indexOf(pair[0]) >= 0) return pair[1];
-  }
-  return '';
-}
-// 状态归一：排队 / 进行中 / 待审 / 通过 / 退回 五档，其余按原样展示
-// 回执日志一行 → 结构化：- [2026-11-13 14:05:47] 超时回执 20261113-140346-89c8bf
-//   或 - [2026-11-12 16:19:44] 回执 20261112-161447-cdc77b → 程序开发·工作区（目标会话主动）
-function parseReceiptLine(line) {
-  const s = String(line || '').replace(/^[-*]\s*/, '').trim();
-  const m = s.match(/^\[(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2}):\d{2}\]\s*(.+)$/);
-  const rest = (m ? m[6] : s) || '';
-  const ticket = (rest.match(/\d{8}-\d{6}-[0-9a-z]+/) || [''])[0];
-  const to = (rest.split('→')[1] || '').replace(/（.*$/, '').trim();
-  const kind = (rest.split(/\s+/)[0] || '回执').trim();
-  return {
-    kind: kind,
-    to: to,
-    ticket: ticket,
-    hhmm: m ? (m[4] + ':' + m[5]) : '',
-    date: m ? (m[2] + '/' + m[3]) : '',
-    raw: s
-  };
-}
-
-function creativeBoard() {
-  const root = path.resolve(BLENDER_DIR);
-  const ticketDir = path.join(root, '工单');
-  const tickets = [];
-  try {
-    for (const f of fs.readdirSync(ticketDir)) {
-      if (!/\.md$/i.test(f)) continue;
-      const full = path.join(ticketDir, f);
-      let txt = '', mtime = 0;
-      try {
-        txt = fs.readFileSync(full, 'utf8').replace(/^\uFEFF/, '');
-        mtime = Math.floor(fs.statSync(full).mtimeMs / 1000);
-      } catch (ex) { warnOnce('main', ex) }
-      const pick = (re) => { const m = txt.match(re); return m ? m[1].trim() : ''; };
-      tickets.push({
-        file: f,
-        title: pick(/^#\s+(.+)$/m) || f.replace(/\.md$/i, ''),
-        asset: pick(/\|\s*资产名\s*\|\s*(.+?)\s*\|/),
-        role: pick(/\|\s*岗位\s*\|\s*(.+?)\s*\|/),
-        owner: pick(/\|\s*负责人\s*\|\s*(.+?)\s*\|/),
-        status: pick(/^状态[：:]\s*(.+)$/m) || '未填',
-        stage: '',
-        mtime: mtime
-      });
-    }
-  } catch (ex) { if (ex && ex.code !== 'ENOENT') warnOnce('main', ex); /* 还没有工单目录 = 首次使用，看板显示"未开单" */ }
-  tickets.forEach((t) => { t.stage = creativeStageOf(t.role) || creativeStageOf(t.owner); });
-  tickets.sort((a, b) => b.mtime - a.mtime);
-
-  // 回执台账：只取最近几条，够看"谁刚交了活"。
-  // 一行日志拆成 {kind,to,at,hhmm,ticket}：面板上只放「类型徽标 + 岗位 + 时间」，原始行进 tooltip（长句不进界面）
-  const ledger = path.join(__dirname, '..', '引擎数据', '.dsh', '派发', '回执日志.md');
-  let receipts = [];
-  try {
-    const lines = fs.readFileSync(ledger, 'utf8').replace(/^\uFEFF/, '').split(/\r?\n/).filter((l) => l.trim());
-    receipts = lines.slice(-5).map((l) => parseReceiptLine(l));
-  } catch (ex) { if (ex && ex.code !== 'ENOENT') warnOnce('main', ex); /* 首次还没派过活 */ }
-
-  // 巡查卡死：派发单子 state 不是 done 的 = 还等着回执；超过 20 分钟没回 = 大概率卡住（用户要的就是这个口径）
-  const dispDir = path.join(__dirname, '..', '引擎数据', '.dsh', '派发');
-  const pending = [];
-  try {
-    for (const f of fs.readdirSync(dispDir)) {
-      if (!/\.json$/i.test(f)) continue;
-      try {
-        const j = JSON.parse(fs.readFileSync(path.join(dispDir, f), 'utf8').replace(/^\uFEFF/, ''));
-        const st = String(j.state || 'unknown');
-        if (st === 'done') continue;
-        const ageMin = Math.max(0, Math.floor((Date.now() - Number(j.createdAt || 0)) / 60000));
-        pending.push({ id: String(j.id || f.replace(/\.json$/i, '')), to: String(j.toTitle || j.to || ''), state: st, ageMin: ageMin, stuck: st !== 'timeout' && ageMin >= 20 });
-      } catch (ex2) { if (ex2 && ex2.code !== 'ENOENT') warnOnce('main', ex2) }
-    }
-  } catch (ex) { if (ex && ex.code !== 'ENOENT') warnOnce('main', ex); /* 还没派过活 */ }
-  pending.sort((a, b) => b.ageMin - a.ageMin);
-
-  // 每个阶段取最近的一张工单当代表
-  const stages = CREATIVE_STAGES.map((s) => {
-    const hit = tickets.find((t) => t.stage === s.key);
-    return { key: s.key, name: s.name, status: hit ? hit.status : '未开单', asset: hit ? hit.asset : '', file: hit ? hit.file : '' };
-  });
-
-  // 流程视图：把阶段串成「谁先谁后 / 谁跟谁同时做 / 谁在等谁」
-  // 只读工单状态，不改任何文件；判「完成」的口径与看板计数一致（通过/完成/已交付）
-  const doneRe = /通过|完成|已交付/;
-  const stageBy = {};
-  stages.forEach((s) => { stageBy[s.key] = s; });
-  const nameBy = {};
-  const shortBy = {};
-  CREATIVE_FLOW.forEach((n) => { nameBy[n.key] = n.name; shortBy[n.key] = n.short || n.name; });
-  const statusOf = (k) => {
-    if (k === 'brief') return tickets.length ? '已派工' : '未开单';
-    return String((stageBy[k] && stageBy[k].status) || '未开单');
-  };
-  // 依赖是否已放行：接单段没有工单状态，用「有没有工单」判；其余看工单状态
-  const depDone = (k) => (k === 'brief' ? tickets.length > 0 : doneRe.test(statusOf(k)));
-  const flow = CREATIVE_FLOW.map((n) => {
-    const st = n.key === 'brief'
-      ? { name: n.name, status: statusOf('brief'), asset: '', file: '' }
-      : (stageBy[n.key] || { name: n.name, status: '未开单', asset: '', file: '' });
-    const isDone = n.manual ? tickets.length > 0 : doneRe.test(st.status);
-    // 没放行的依赖逐条列出，界面按徽标显示（不拼句子）
-    const deps = [];
-    (n.deps || []).forEach((k) => {
-      if (depDone(k)) return;
-      deps.push({
-        key: k,
-        name: nameBy[k] || k,
-        short: shortBy[k] || (nameBy[k] || k),
-        status: statusOf(k),
-        optional: (n.optionalDeps || []).indexOf(k) >= 0
-      });
-    });
-    const hard = deps.filter((d) => !d.optional);
-    let state = 'ready';
-    if (isDone) state = 'done';
-    else if (n.manual) state = 'manual';
-    else if (/退回|打回|阻塞|不通过/.test(st.status)) state = 'rejected';
-    else if (hard.length) state = 'waiting';
-    else if (/进行|排队|待处理|待审|待确认|待验收/.test(st.status)) state = 'doing';
-    return {
-      key: n.key, step: n.step, name: n.name, short: n.short || n.name,
-      gate: n.gate || '', gateShort: n.gateShort || '', par: n.par || '',
-      status: st.status, asset: st.asset || '', file: st.file || '',
-      state: state, deps: deps, now: false, syncWith: []
-    };
-  });
-  // 同一个并行组互相是「同步」：两段的「∥」标签 + tooltip 里写明搭档，谁也不需要等谁
-  flow.forEach((f) => {
-    if (!f.par) return;
-    f.syncWith = flow.filter((x) => x.par === f.par && x.key !== f.key).map((x) => x.short);
-  });
-  // 「当前该推进的一步」：第一个没完成、且依赖已满足的节点（正在做 / 可开工 / 等你派工）
-  const cur = flow.find((f) => f.state !== 'done' && (f.state === 'doing' || f.state === 'ready' || f.state === 'manual'));
-  if (cur) cur.now = true;
-
-  const counts = { active: 0, review: 0, done: 0, rejected: 0, hung: 0 };
-  tickets.forEach((t) => {
-    if (/进行|排队|待处理/.test(t.status)) counts.active += 1;
-    else if (/待审|待确认|待验收/.test(t.status)) counts.review += 1;
-    else if (/通过|完成|已交付/.test(t.status)) counts.done += 1;
-    else if (/退回|打回|阻塞/.test(t.status)) counts.rejected += 1;
-  });
-  counts.hung = pending.filter((x) => x.stuck).length;
-  return { ok: true, root: root, stages: stages, flow: flow, tickets: tickets.slice(0, 8), receipts: receipts, pending: pending.slice(0, 6), counts: counts };
-}
-ipcMain.handle('creative:board', () => creativeBoard());
-
-// ---- 创意工坊 · 自动巡检：卡住就主动报，不用人盯看板等半天 ----
-// 判定只看文件时间，不读会话内容：
-//   ① 派发单 state ≠ done 且创建超过 stuckMin 分钟 ⇒ 岗位没回执
-//   ② 工单状态是「排队 / 进行中 / 待处理」且文件超过 stuckMin 分钟没动 ⇒ 岗位没进展
-// 命中后：广播 creative:watch 给所有窗口（面板弹红条 + 顶栏通知），并追加日志到 派发\巡检日志.md。
-// 同一目标（key）只报一次，恢复后自动清掉，避免每 60 秒刷屏；⛔ 巡检本身不改任何工单/派发单。
-const CREATIVE_STUCK_MIN = Math.max(3, Number(MACHINE.creativeStuckMin) || 15);
-const CREATIVE_WATCH_EVERY = 60; // 秒
-let creativeWatchCache = { at: 0, alerts: [], stuckMin: CREATIVE_STUCK_MIN };
-const creativeAlertSeen = new Map();
-let creativeWatchTimer = null;
-
-// 1. 扫出当前所有"卡住"项（纯函数，可单独测）
-function creativeAlerts() {
-  const out = [];
-  const now = Date.now();
-  const minMs = CREATIVE_STUCK_MIN * 60000;
-
-  // 1.1 派发单：没回执
-  const dispDir = path.join(__dirname, '..', '引擎数据', '.dsh', '派发');
-  let dispFiles = [];
-  try { dispFiles = fs.readdirSync(dispDir); } catch (ex) { if (ex && ex.code !== 'ENOENT') warnOnce('main', ex) }
-  for (const f of dispFiles) {
-    if (!/\.json$/i.test(f)) continue;
-    let j = null;
-    try { j = JSON.parse(fs.readFileSync(path.join(dispDir, f), 'utf8').replace(/^\uFEFF/, '')); }
-    catch (ex) { if (ex && ex.code !== 'ENOENT') warnOnce('main', ex); continue; }
-    const st = String(j.state || 'unknown');
-    if (st === 'done') continue;
-    const born = Number(j.createdAt || 0);
-    if (!born || now - born < minMs) continue;
-    out.push({
-      key: 'disp:' + String(j.id || f),
-      kind: '派发',
-      who: String(j.toTitle || j.to || '?'),
-      detail: Math.floor((now - born) / 60000) + ' 分钟未回执（' + st + '）',
-      id: String(j.id || f)
-    });
-  }
-
-  // 1.2 工单：状态没往前走
-  let ticketFiles = [];
-  try { ticketFiles = fs.readdirSync(path.join(BLENDER_DIR, '工单')); } catch (ex) { if (ex && ex.code !== 'ENOENT') warnOnce('main', ex) }
-  for (const f of ticketFiles) {
-    if (!/\.md$/i.test(f)) continue;
-    try {
-      const full = path.join(BLENDER_DIR, '工单', f);
-      const st = fs.statSync(full);
-      if (now - st.mtimeMs < minMs) continue;
-      const txt = fs.readFileSync(full, 'utf8').replace(/^\uFEFF/, '');
-      const m = txt.match(/^状态[：:]\s*(.+)$/m);
-      const status = m ? m[1].trim() : '';
-      if (!/排队|进行中|待处理/.test(status)) continue;
-      out.push({ key: 'ticket:' + f, kind: '工单', who: f, detail: '「' + status + '」' + Math.floor((now - st.mtimeMs) / 60000) + ' 分钟没动', id: f });
-    } catch (ex) { if (ex && ex.code !== 'ENOENT') warnOnce('main', ex) }
-  }
-  return out;
-}
-
-// 2. 巡检日志（只在"新出现"卡住时记一行，避免刷屏）
-function creativeWatchLog(line) {
-  try {
-    const p = path.join(__dirname, '..', '引擎数据', '.dsh', '派发', '巡检日志.md');
-    if (!fs.existsSync(p)) fs.writeFileSync(p, '# 巡检日志（自动追加，只在"新卡住"时记一行）\r\n\r\n', 'utf8');
-    fs.appendFileSync(p, line + '\r\n', 'utf8');
-  } catch (ex) { warnOnce('main', ex) }
-}
-
-// 3. 一拍：算 → 比 → 报
-function creativeWatchTick() {
-  const alerts = creativeAlerts();
-  const fresh = [];
-  alerts.forEach((a) => { if (!creativeAlertSeen.has(a.key)) { creativeAlertSeen.set(a.key, Date.now()); fresh.push(a); } });
-  for (const k of Array.from(creativeAlertSeen.keys())) if (!alerts.some((a) => a.key === k)) creativeAlertSeen.delete(k);
-  creativeWatchCache = { at: Math.floor(Date.now() / 1000), alerts: alerts, stuckMin: CREATIVE_STUCK_MIN };
-  if (!fresh.length) return;
-  const stamp = new Date().toISOString().slice(0, 19).replace('T', ' ');
-  creativeWatchLog(stamp + ' 新卡住 ' + fresh.length + ' 项：' + fresh.map((a) => a.kind + '/' + a.who + '（' + a.detail + '）').join('；'));
-  for (const w of BrowserWindow.getAllWindows()) {
-    try { w.webContents.send('creative:watch', { ok: true, stamp: stamp, alerts: alerts, fresh: fresh, stuckMin: CREATIVE_STUCK_MIN }); }
-    catch (ex) { warnOnce('main', ex) }
-  }
-}
-
-function startCreativeWatch() {
-  if (creativeWatchTimer) return;
-  creativeWatchTick();
-  creativeWatchTimer = setInterval(creativeWatchTick, CREATIVE_WATCH_EVERY * 1000);
-  if (creativeWatchTimer.unref) creativeWatchTimer.unref();
-}
-ipcMain.handle('creative:watchState', () => ({ ok: true, at: creativeWatchCache.at, alerts: creativeWatchCache.alerts, stuckMin: CREATIVE_STUCK_MIN, everySec: CREATIVE_WATCH_EVERY }));
-
-// 4. 重派：把原单文本再发给同一个岗位（人工点按钮才触发，⛔ 不自动重派、避免双写工程）
-ipcMain.handle('creative:retry', (e, id) => {
-  const file = path.join(__dirname, '..', '引擎数据', '.dsh', '派发', String(id || '') + '.json');
-  if (!fs.existsSync(file)) return { ok: false, err: '找不到派发单：' + id };
-  let j = null;
-  try { j = JSON.parse(fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, '')); }
-  catch (ex) { return { ok: false, err: '派发单损坏：' + ((ex && ex.message) || ex) }; }
-  const to = String(j.toTitle || j.to || '').trim();
-  const text = String(j.text || '').trim();
-  if (!to || !text) return { ok: false, err: '派发单缺 to/text，不能重派' };
-  const tool = path.join(__dirname, '..', '工具', '派发.mjs');
-  const nodeExe = resolveNodeExe();
-  try {
-    const child = spawn(nodeExe || process.execPath, [tool, '--to', to, text, '--timeout', '1800'], {
-      cwd: path.join(__dirname, '..'), windowsHide: true, detached: true, stdio: 'ignore',
-      env: nodeExe ? process.env : Object.assign({}, process.env, { ELECTRON_RUN_AS_NODE: '1' })
-    });
-    child.unref();
-    return { ok: true, to: to };
-  } catch (ex) { return { ok: false, err: String((ex && ex.message) || ex) }; }
-});
-startCreativeWatch();
-
 // ---- 派发巡检面板（总入口「胡闹的大肥鱼」· type=dispatch-board）----
 // 判据只有一份：调用 工具\看门狗.mjs，壳只负责起进程 + 把 JSON 摊给面板（不在这里复制一套判定，免得两处漂移）。
 // ⛔ 巡检只读；「补投回执」必须人点按钮（走 等回执.mjs --once），不自动补、不改任何派发单。
 const DISPATCH_DIR = path.join(__dirname, '..', '引擎数据', '.dsh', '派发');
 const DOG_TOOL = path.join(__dirname, '..', '工具', '看门狗.mjs');
 const DOG_WAIT_TOOL = path.join(__dirname, '..', '工具', '等回执.mjs');
+const DISPATCH_STUCK_MIN = Math.max(3, Number(MACHINE.dispatchStuckMin) || 15);
 
 // 1. 起一次工具进程（看门狗 / 等回执共用）；失败把 stderr 原样带出，不吞
 function runToolSync(tool, args, timeoutMs) {
@@ -2906,13 +2184,13 @@ function runToolSync(tool, args, timeoutMs) {
 }
 
 // 2. 面板拉一次：--all 让「已回执」也带回来，显示哪几条由面板决定。
-//    阈值跟顶栏告警同源（机器配置 creativeStuckMin，默认 15 分；err = 2 倍），
+//    阈值走机器配置 dispatchStuckMin（默认 15 分；err = 2 倍），
 //    免得"顶栏弹了卡住、面板却还写着在跑"两套口径打架。
 ipcMain.handle('dispatch:dog', () => {
   const r = runToolSync(DOG_TOOL, [
     '--json', '--all',
-    '--warn', String(CREATIVE_STUCK_MIN),
-    '--err', String(CREATIVE_STUCK_MIN * 2)
+    '--warn', String(DISPATCH_STUCK_MIN),
+    '--err', String(DISPATCH_STUCK_MIN * 2)
   ], 30000);
   if (!r.ok) return r;
   let data = null;
@@ -3003,6 +2281,7 @@ ipcMain.handle('dispatch:timerToggle', (e, id, on) => {
 });
 
 // 4. 到点触发：每 30 秒对一次表，同一任务同一天只跑一次；异步起进程，不阻塞界面
+//    带 --自动：桌宠.mjs 会先过「主动性 / 免打扰 / 每小时上限」三闸，不过就跳过不派（2026-11-18）
 function pad2(n) { return String(n).length < 2 ? '0' + n : String(n); }
 function timerTick() {
   const cfg = readJsonSafe(TIMER_FILE, { tasks: [] });
@@ -3019,7 +2298,7 @@ function timerTick() {
     seen[key] = Date.now();
     writeJsonSafe(TIMER_STATE, seen);
     const nodeExe = resolveNodeExe();
-    const child = spawn(nodeExe || process.execPath, [PET_TOOL, '派', '--文本', String(t.text || ''), '--超时', '600'], {
+    const child = spawn(nodeExe || process.execPath, [PET_TOOL, '派', '--文本', String(t.text || ''), '--超时', '600', '--自动'], {
       cwd: path.join(__dirname, '..'), detached: true, stdio: 'ignore', windowsHide: true,
       env: nodeExe ? process.env : Object.assign({}, process.env, { ELECTRON_RUN_AS_NODE: '1' })
     });
@@ -3028,45 +2307,6 @@ function timerTick() {
   }
 }
 setInterval(timerTick, 30000);
-
-// 5. 新建资产包：面板「＋资产」按钮和会话都走这一条（一次一个资产，一个资产一个目录）
-ipcMain.handle('creative:assetNew', (e, name) => {
-  const tool = path.join(__dirname, '..', '工具', '资产.mjs');
-  if (!fs.existsSync(tool)) return { ok: false, err: '缺工具：' + tool };
-  const nodeExe = resolveNodeExe();
-  try {
-    const r = spawnSync(nodeExe || process.execPath, [tool, 'new', '--name', String(name || '')], {
-      cwd: path.join(__dirname, '..'), encoding: 'utf8', windowsHide: true,
-      env: nodeExe ? process.env : Object.assign({}, process.env, { ELECTRON_RUN_AS_NODE: '1' })
-    });
-    const out = String(r.stdout || '') + String(r.stderr || '');
-    if (r.status !== 0) return { ok: false, err: out.trim() || ('退出码 ' + r.status) };
-    const m = out.match(/资产包已建：(.+)/);
-    return { ok: true, dir: m ? m[1].trim() : '' };
-  } catch (ex) { return { ok: false, err: String((ex && ex.message) || ex) }; }
-});
-
-// 打开路径：文件用系统默认程序，目录用资源管理器；也支持 http(s) 链接
-ipcMain.handle('blender:open', (e, target) => {
-  const t = String(target || '');
-  if (!t) return { ok: false, err: 'empty' };
-  try {
-    if (/^https?:\/\//i.test(t)) shell.openExternal(t);
-    else if (fs.existsSync(t)) shell.openPath(t);
-    else return { ok: false, err: '路径不存在：' + t };
-    return { ok: true };
-  } catch (ex) { return { ok: false, err: String((ex && ex.message) || ex) }; }
-});
-
-// 在资源管理器里定位（选中）工作区内的条目
-ipcMain.handle('blender:reveal', (e, relPath) => {
-  const root = path.resolve(BLENDER_DIR);
-  const rel = String(relPath || '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
-  const full = rel ? path.resolve(root, rel) : root;
-  if (full !== root && !full.startsWith(root + path.sep)) return { ok: false, err: '越界路径' };
-  try { shell.showItemInFolder(full); return { ok: true }; }
-  catch (ex) { return { ok: false, err: String((ex && ex.message) || ex) }; }
-});
 
 // （2026-11-12 删除）个人站的「拖出去」功能：siteIcon / site:drag 已随本地文件面板一并移除。
 
@@ -3209,6 +2449,11 @@ function gitIgnoredNames(base, names) {
     } catch (e) { done(); }
   });
 }
+// 公开版：OA / 行情 / SSH 业务实现不随包发布（保留空桩，等价于「未连接 / 无数据」）
+function __stubModule() { return new Proxy(function () {}, { get: () => () => undefined, apply: () => undefined }); }
+const stockStore = __stubModule();
+const oaStore = __stubModule();
+const oaSsh = __stubModule();
 // 本地文件：项目目录浏览（与云端无关，始终可用）
 //   降噪（2026-11-13 用户要求）：默认不显示被 .gitignore 忽略的目录/文件（node_modules、引擎、工作区…一列就是一屏），
 //   面板标题行给一个「已忽略 N」开关，点开才显示；不在 git 仓库里的普通目录行为一个字不变。
@@ -5340,6 +4585,80 @@ ipcMain.handle('bridge:snowluma-status', () => bridgeService.status());
 ipcMain.handle('bridge:snowluma-start', () => bridgeService.start());
 ipcMain.handle('bridge:snowluma-stop', () => bridgeService.stop());
 
+// ---- 外发安全闸门（2026-11-18）----
+// 用户要求：只写提示词不够，要有机制；机制要可配置。落位：
+//   · 判定唯一出处：外壳\外发闸门.js（工具\外发闸门.mjs 只是命令行壳）
+//   · QQ：本机代理 3100 → SnowLuma 的 OneBot HTTP；把插件 onebotHttp 指过来，发送必经这里
+//   · 微信：createService 时把 gate 注入微信通道，_reply() 返回正文前过闸
+//   · 飞书：dsh-im 直连云端，出站不可拦，开关默认关；接线前要先换成自己的发送器
+// 生命周期归壳：起代理 / 退出收掉；代理起不来写日志 + 状态给面板（不许静默当没事）。
+const outGateService = outGateSvc.createService({
+  dshHome: DSH_HOME,
+  base: BASE,
+  getToken: function () { return harnessToken; },
+  log: log
+});
+ipcMain.handle('outbound:get', () => outGateService.getSettings());
+ipcMain.handle('outbound:set', (e, patch) => outGateService.saveSettings(patch || {}));
+ipcMain.handle('outbound:status', () => outGateService.status());
+ipcMain.handle('outbound:audit', (e, n) => ({ ok: true, rows: outGateService.auditTail(n) }));
+ipcMain.handle('outbound:assets-refresh', () => outGateService.refreshAssets());
+ipcMain.handle('outbound:qq-apply', () => outGateService.applyQqProxy());
+ipcMain.handle('outbound:qq-restore', () => outGateService.restoreQqProxy());
+ipcMain.handle('outbound:selfcheck', () => outGateService.selfCheck());
+ipcMain.handle('outbound:test', (e, args) => {
+  const a = args || {};
+  const r = outGateService.testText(String(a.text || ''), String(a.channel || 'qq'));
+  return { ok: true, result: r };
+});
+ipcMain.handle('outbound:open-dir', function () {
+  const dir = path.join(__dirname, 'data', '安全闸门');
+  try { fs.mkdirSync(dir, { recursive: true }); } catch (e) { warnOnce('outbound', e); }
+  try { shell.openPath(dir); } catch (e) { warnOnce('outbound', e); }
+  return { ok: true, dir: dir };
+});
+
+// ---- 微信个人号通道（whale_girl，2026-11-18）----
+// 定位：鲸鲸只做微信收发，回复由 DSH「胡闹的大肥鱼」会话生成（换脑插件把消息转到 31241 适配器）。
+// 生命周期归壳：start 拉起鲸鲸内核/桥接/适配器，stop 只杀自己拉起的子进程；外部已起的实例只复用、不杀。
+// 状态与自检走 IPC；社交卡片读 外壳\data\微信通道\状态.json（10 秒刷新）画「通/待/无」。
+const wechatService = wechatSvc.createService({
+  dshHome: DSH_HOME,
+  base: BASE,
+  getToken: function () { return harnessToken; },
+  gate: outGateService,
+  log: log
+});
+ipcMain.handle('wechat:status', () => wechatService.status());
+ipcMain.handle('wechat:start', () => wechatService.start());
+ipcMain.handle('wechat:stop', () => wechatService.stop());
+ipcMain.handle('wechat:selfcheck', () => wechatService.selfCheck());
+ipcMain.handle('wechat:send-test', (e, args) => wechatService.sendTest(args || {}));
+ipcMain.handle('wechat:pin-account', (e, args) => wechatService.pinAccount(args || {}));
+ipcMain.handle('wechat:settings-get', () => wechatService.settingsGet());
+ipcMain.handle('wechat:settings-save', (e, args) => wechatService.saveSettings(args || {}));
+ipcMain.handle('wechat:vision-test', () => wechatService.visionTest());
+ipcMain.handle('wechat:sticker-generate', (e, args) => wechatService.stickerGenerate(args || {}));
+ipcMain.handle('wechat:sticker-send', (e, args) => wechatService.stickerSend(args || {}));
+ipcMain.handle('wechat:moments-read', (e, args) => wechatService.momentsRead(args || {}));
+ipcMain.handle('wechat:moments-action', (e, args) => wechatService.momentsAction(args || {}));
+ipcMain.handle('wechat:moments-result', (e, args) => wechatService.momentsResult((args && args.id) || ''));
+ipcMain.handle('wechat:moments-snapshot', () => wechatService.momentsSnapshot());
+ipcMain.handle('wechat:diary-generate', () => wechatService.diaryGenerate());
+ipcMain.handle('wechat:diary-read', () => wechatService.diaryRead());
+ipcMain.handle('wechat:reminders-list', () => wechatService.remindersList());
+ipcMain.handle('wechat:reminder-cancel', (e, args) => wechatService.reminderCancel((args && args.id) || ''));
+ipcMain.handle('clipboard:write', (e, text) => { clipboard.writeText(String(text || '')); return { ok: true }; });
+ipcMain.handle('shell:open-path', async (e, p) => {
+  const target = String(p || '');
+  if (!target) return { ok: false, error: '空路径' };
+  try {
+    if (/^https?:/i.test(target)) { shell.openExternal(target); return { ok: true }; }
+    const err = await shell.openPath(target);
+    return err ? { ok: false, error: err } : { ok: true };
+  } catch (ex) { return { ok: false, error: String((ex && ex.message) || ex) }; }
+});
+
 // ---- 桌宠设置（胡闹的大肥鱼，2026-11-13）----
 // 用户要求：桌宠不是一堆散文件，要有一个可看可改的面板。参数落在 外壳\data\pet\设置.json（本机不入库），
 //   默认值在 外壳\pet\设置.默认.json；这里只做读写 + 展示最近派发记录，不碰引擎、不启停通道。
@@ -6200,16 +5519,27 @@ if (!gotLock) {
       });
     } catch (err) { log('[win] 恢复场景窗口异常: ' + ((err && err.message) || err)); }
     try {
-      startSiteServer();   // 保命入口服务（/chat + Blender 实时画面）；个人站官网预览已于 2026-11-12 删除
+      startSiteServer();   // 保命入口服务（/chat + 桌宠 3D）；个人站官网预览已于 2026-11-12 删除
     } catch (err) { reportFatal('启动本地静态服务失败', err); }
     try {
       startBalancePoll();  // 余额实时显示：每 10s 拉取 DeepSeek 平台余额
     } catch (err) { reportFatal('启动余额轮询失败', err); }
+    // 外发安全闸门：先把 QQ 代理拉起来（端口在听之前，插件哪怕先发也不会漏）。
+    // 起不来不阻塞主流程 —— 原因进日志 + 状态文件，面板「安全闸门」里能看到红项。
+    try {
+      outGateService.start().catch(function (e) { log('[gate] 随壳启动失败: ' + ((e && e.message) || e)); });
+    } catch (err) { log('[gate] 随壳启动异常: ' + ((err && err.message) || err)); }
     // QQ 个人号桥接（SnowLuma）：跟着工作台一起起，别让用户再单独开一只。
     // 起不来不阻塞主流程 —— 原因写日志，面板按钮上也能看到（不许静默）。
     try {
       bridgeService.autoStart().catch(function (e) { log('[bridge] 随壳启动失败: ' + ((e && e.message) || e)); });
     } catch (err) { log('[bridge] 随壳启动异常: ' + ((err && err.message) || err)); }
+    // 微信个人号通道（whale_girl）：默认 autoStart=false（先在鲸鲸里登录小号，再点卡片「启动」）。
+    // 这里先写一份状态文件，社交卡片一打开就能看到「未启动 / 缺哪一步」，不用等用户点。
+    try {
+      wechatService.autoStart().catch(function (e) { log('[wechat] 随壳启动失败: ' + ((e && e.message) || e)); });
+      wechatService.status().catch(function (e) { log('[wechat] 初始状态失败: ' + ((e && e.message) || e)); });
+    } catch (err) { log('[wechat] 随壳启动异常: ' + ((err && err.message) || err)); }
     let ok = false;
     // 2026-11-14：起引擎之前先收拾"孤儿 staging"（不动 state 指向的那份），失败不影响启动
     try { cleanOrphanStaging(); } catch (e) { warnOnce("auto-staging", e); }
@@ -6235,6 +5565,19 @@ if (!gotLock) {
     try {
       broadcast('harness:ready');
     } catch (err) { log('[boot] 通知渲染层失败: ' + ((err && err.message) || err)); }
+    // 引擎就绪后再接管 QQ：插件保存接口要换 cookie；没就绪就先写文件，标「重启整壳后生效」。
+    try {
+      outGateService.ensureQqProxy().then(function (r) {
+        if (!r || r.ok === false) log('[gate] QQ 接管未完成: ' + ((r && r.error) || '未知原因'));
+        else if (r.restartRequired) log('[gate] QQ 已写指闸门，需重启整壳生效: ' + (r.error || ''));
+        else if (r.applied) log('[gate] QQ 已过闸门（热生效）');
+        else if (r.skipped) log('[gate] QQ 未接管: ' + r.skipped);
+      }).catch(function (e) { log('[gate] QQ 接管失败: ' + ((e && e.message) || e)); });
+      // 首轮失败（引擎 token 还没抓到）再试一次，仍失败就留给面板上的按钮
+      setTimeout(function () {
+        outGateService.ensureQqProxy().catch(function (e) { log('[gate] QQ 接管重试失败: ' + ((e && e.message) || e)); });
+      }, 20000);
+    } catch (err) { log('[gate] QQ 接管异常: ' + ((err && err.message) || err)); }
     // 2026-10-24：升级/崩溃保险 —— 后台跑，引擎 60 秒没起来就自动回退（不阻塞启动）
     guardCheckAfterBoot().catch(function (e) { log('[guard] 检查自身失败：' + ((e && e.message) || e)); });
   }).catch(function (err) {
@@ -6242,7 +5585,6 @@ if (!gotLock) {
   });
   app.on('window-all-closed', function () {
     killServer();
-    stopBlenderCapture();
     app.quit();
   });
   app.on('before-quit', function () {
@@ -6252,10 +5594,10 @@ if (!gotLock) {
     // 2026-10-24：正常退出 ⇒ 给保险哨子盖章（下次启动不会误判成"升级中途被关掉"）
     try { writeGuard({ clean: true, at: Date.now(), pid: process.pid }); } catch (e) { warnOnce("main", e) }
     try { saveWinLayout(); } catch (e) { warnOnce("main", e) }
-    releaseBlenderEmbedSync();
     killServer();
-    stopBlenderCapture();
     try { bridgeService.stop(); } catch (e) { warnOnce("main", e) }
+    try { wechatService.stop(); } catch (e) { warnOnce("main", e) }
+    try { outGateService.stop(); } catch (e) { warnOnce("main", e) }
   });
 }
 
@@ -6559,11 +5901,13 @@ ipcMain.handle('kun:git:panel', async (_e, repo) => {
       { windowsHide: true, maxBuffer: 8 << 20, timeout: 20000 },
       (err, stdout, stderr) => resolve({ ok: !err, out: String(stdout || ''), err: String(stderr || (err && err.message) || '') }));
   });
-  const [head, changes, log, stat] = await Promise.all([
+  const [head, changes, log, stat, unmerged, gitDir] = await Promise.all([
     run(['status', '--porcelain=v1', '--ignored=no', '-b']),
     run(['status', '--porcelain=v1', '--ignored=no']),
     run(['log', '-60', '--date=format:%m-%d %H:%M', '--pretty=%H|%h|%an|%ad|%p|%s']),
-    run(['diff', '--shortstat'])
+    run(['diff', '--shortstat']),
+    run(['ls-files', '-u', '-z']),
+    run(['rev-parse', '--git-dir'])
   ]);
   if (!head.ok) {
     const msg = String(head.err || '').trim();
@@ -6605,7 +5949,41 @@ ipcMain.handle('kun:git:panel', async (_e, repo) => {
     .filter((l) => { const n = l.split('|')[0] || ''; return n.indexOf('/') > 0 && !/\/HEAD$/.test(n); })
     .map((l) => { const p = l.split('|'); return { name: p[0], when: p[1] || '', subject: p[2] || '' }; });
   const current = String(cur.out || '').trim();
-  return { ok: true, repo: dir, branch, upstream, ahead, behind, current, branches: { local, remote }, changes: items, commits, diffStat: String(stat.out || '').trim() };
+  // 5) 合并没收尾？（MERGE_HEAD 在 = 上次 merge 留了冲突）：面板要靠它常驻一条「解决冲突」入口，
+  //    否则冲突现场只能靠命令行收，宿主说「让我通过工具先解决冲突再合并」就落不了地。
+  const gdRaw = String(gitDir.out || '').trim();
+  const gd = gdRaw ? (path.isAbsolute(gdRaw) ? gdRaw : path.join(dir, gdRaw)) : path.join(dir, '.git');
+  const mergeFiles = [];
+  splitZ(unmerged.out).forEach((rec) => {
+    const tab = rec.indexOf('\t');
+    if (tab < 0) return;
+    const p = rec.slice(tab + 1);
+    if (p && !mergeFiles.some((x) => x.path === p)) mergeFiles.push({ path: p, code: '' });
+  });
+  const codeMap = {};
+  items.forEach((c) => { codeMap[c.path] = c.code; });
+  mergeFiles.forEach((f) => { f.code = codeMap[f.path] || 'UU'; });
+  // 合并冲突有两种现场：① MERGE_HEAD 在（合并本身没提交）；② 合并已提交、--autostash 恢复本地改动时撞车
+  //   （没有 MERGE_HEAD，但 stash 顶部是 autostash）。第二种以前会被当成「工作区干净」，冲突看不见。
+  const mergeHead = fs.existsSync(path.join(gd, 'MERGE_HEAD'));
+  let autostash = mergeHead ? fs.existsSync(path.join(gd, 'MERGE_AUTOSTASH')) : false;
+  // 第二种现场没有 MERGE_HEAD、冲突也可能已经全部标记解决，但 stash 顶部还压着 autostash ——
+  //   必须继续算「未收尾」，否则卡片一消失，「完成」没得点，autostash 永远留在 stash 里。
+  if (!mergeHead) {
+    const hasStash = fs.existsSync(path.join(gd, 'refs', 'stash')) || fs.existsSync(path.join(gd, 'logs', 'refs', 'stash'));
+    if (hasStash) {
+      const sl = await run(['stash', 'list']);
+      const first = String(sl.out || '').split(/\r?\n/).filter(Boolean)[0] || '';
+      autostash = first.replace(/^stash@\{\d+\}:\s*/, '').trim() === 'autostash';
+    }
+  }
+  const kind = mergeHead ? 'merge' : (autostash ? 'local' : (mergeFiles.length ? 'unmerged' : ''));
+  const active = mergeHead || mergeFiles.length > 0 || autostash;
+  return {
+    ok: true, repo: dir, branch, upstream, ahead, behind, current, branches: { local, remote },
+    changes: items, commits, diffStat: String(stat.out || '').trim(),
+    merge: { active, kind, files: mergeFiles, autostash }
+  };
 });
 
 // ---- git 单文件 diff（审查用）：把 未暂存 + 已暂存 两段差异写成临时文本，交给预览面板打开 ----
@@ -6675,26 +6053,120 @@ ipcMain.handle('kun:git:switch', async (_e, repo, name, opts) => {
   return { ok: true, branch: localName, dirty, fromRemote: isRemote };
 });
 
+// ---- git 远端操作公共件（2026-11-18 宿主：fetch 要真有用、拉取要自己判冲突）----
+//   1. 一律 execFile（不经 shell），参数逐个传；超时 / maxBuffer 统一，失败原样交回 git 的 stderr
+//   2. --no-optional-locks：只读查询不抢 index.lock，别和外部编辑器 / 命令行的 git 打架
+function gitRun(dir, args, timeoutMs) {
+  return new Promise((resolve) => {
+    execFile('git', ['-c', 'core.quotepath=false', '--no-optional-locks', '-C', dir, ...args],
+      { windowsHide: true, maxBuffer: 16 << 20, timeout: timeoutMs || 60000 },
+      (err, stdout, stderr) => resolve({ ok: !err, out: String(stdout || ''), err: String(stderr || (err && err.message) || '') }));
+  });
+}
+// porcelain v1 -z：一条 = "XY 路径\0"；重命名/复制后面还跟一个「原路径」字段，必须一起读掉，
+//   否则下一条会被错位当成路径。中文、空格路径只有 -z 读法可靠，别用按行切。
+function parseStatusZ(out) {
+  const parts = String(out || '').split('\0');
+  const rows = [];
+  for (let i = 0; i < parts.length; i++) {
+    const rec = parts[i];
+    if (!rec || rec.length < 4) continue;
+    const code = rec.slice(0, 2);
+    const p = rec.slice(3);
+    if (code[0] === 'R' || code[0] === 'C') i++;      // 跳过紧随其后的原路径
+    rows.push({ code, path: p });
+  }
+  return rows;
+}
+// NUL 分隔的路径清单（diff --name-only -z / ls-files -u -z 都用它）
+function splitZ(out) { return String(out || '').split('\0').filter(Boolean); }
+// 当前没标记解决的冲突文件（ls-files -u：record = "mode oid stage\tpath"）
+async function unmergedPaths(dir) {
+  const r = await gitRun(dir, ['ls-files', '-u', '-z']);
+  const rows = [];
+  splitZ(r.out).forEach((rec) => {
+    const tab = rec.indexOf('\t');
+    if (tab >= 0) rows.push(rec.slice(tab + 1));
+  });
+  return Array.from(new Set(rows));
+}
+// git merge-tree（2.38+）：**不碰工作区、不动索引**地试算一次合并，exit 1 = 有冲突。
+//   返回 { supported, conflicts }；老 git 不认 --write-tree ⇒ supported=false，交给真合并兜底。
+async function mergeTreeConflicts(dir, upstream) {
+  const r = await gitRun(dir, ['merge-tree', '--write-tree', '--no-messages', '-z', 'HEAD', upstream], 60000);
+  if (r.ok) return { supported: true, conflicts: [] };
+  const err = String(r.err || '');
+  if (/unknown option|unknown switch|usage: git merge-tree/i.test(err)) return { supported: false, conflicts: [] };
+  const rows = [];
+  String(r.out || '').split('\0').forEach((rec, idx) => {
+    if (!rec || idx === 0) return;                    // 第 1 段是试算出来的树 OID
+    const tab = rec.indexOf('\t');
+    if (tab >= 0) rows.push(rec.slice(tab + 1));      // "mode oid stage\tpath"
+  });
+  return { supported: true, conflicts: Array.from(new Set(rows)) };
+}
+// .git 目录的绝对路径（工作树里的 .git 可能是文件；rev-parse 已经处理好这种情况）
+async function gitDirPath(dir) {
+  const r = await gitRun(dir, ['rev-parse', '--git-dir'], 30000);
+  const raw = String(r.out || '').trim();
+  if (!raw) return '';
+  return path.isAbsolute(raw) ? raw : path.join(dir, raw);
+}
+// autostash（git merge --autostash 自己压的那条暂存）：恢复时撞车会留在 stash 顶部，主题固定是 autostash。
+//   用户自己的 stash 可能就在它下面，所以只认「顶部主题恰好是 autostash」这一条，绝不 stash pop 到别人的。
+async function stashTopIsAutostash(dir) {
+  // 注意：别用 --format=%s —— stash 的 %s 是提交主题「On main: autostash」，
+  //   默认 `git stash list` 输出的才是 reflog 消息「stash@{0}: autostash」，这里按后者认。
+  const r = await gitRun(dir, ['stash', 'list'], 30000);
+  const first = String(r.out || '').split(/\r?\n/).filter(Boolean)[0] || '';
+  const msg = first.replace(/^stash@\{\d+\}:\s*/, '').trim();
+  return r.ok && msg === 'autostash';
+}
+async function dropAutostashIfAny(dir) {
+  if (!(await stashTopIsAutostash(dir))) return false;
+  const r = await gitRun(dir, ['stash', 'drop'], 30000);
+  return !!r.ok;
+}
+
 ipcMain.handle('kun:git:fetch', async (_e, repo) => {
   const dir = String(repo || '').trim();
   if (!dir || !fs.existsSync(dir)) return { ok: false, err: '仓库目录不存在：' + dir };
-  const out = await new Promise((resolve) => {
-    execFile('git', ['-c', 'core.quotepath=false', '-C', dir, 'fetch', '--prune', '--all'],
-      { windowsHide: true, maxBuffer: 8 << 20, timeout: 60000 },
-      (err, stdout, stderr) => resolve({ ok: !err, out: String(stdout || ''), err: String(stderr || (err && err.message) || '') }));
-  });
-  if (!out.ok) return { ok: false, err: String(out.err || '').trim() || 'fetch 失败（网络或凭据？）' };
-  return { ok: true, out: String(out.out || '').trim() };
+  // 1) 当前分支；detached 没有跟踪关系可认 ⇒ 退回 fetch 所有远端
+  const br = await gitRun(dir, ['rev-parse', '--abbrev-ref', 'HEAD']);
+  const branch = String(br.out || '').trim();
+  const detached = !branch || branch === 'HEAD';
+  // 2) **只 fetch 当前分支跟踪的那一个远端**：原来的 --all 会把无关 remote（本仓的 upstream 是原项目）
+  //    也拉一遍，任意一个慢 / 要凭据就整体失败，宿主体感就是「fetch 没用」。
+  let remote = '';
+  if (!detached) remote = String((await gitRun(dir, ['config', '--get', 'branch.' + branch + '.remote'])).out || '').trim();
+  const args = remote ? ['fetch', '--prune', remote] : ['fetch', '--prune', '--all'];
+  const f = await gitRun(dir, args, 120000);
+  if (!f.ok) return { ok: false, err: String(f.err || '').trim() || 'fetch 失败（网络或凭据？）' };
+  // 3) fetch 完再算「本地缺哪些提交」：面板能说人话、还能列出取到了什么
+  let upstream = '', behind = 0, ahead = 0, incoming = [];
+  if (!detached) {
+    upstream = String((await gitRun(dir, ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}'])).out || '').trim();
+    if (upstream) {
+      const cnt = await gitRun(dir, ['rev-list', '--left-right', '--count', upstream + '...HEAD']);
+      const nums = String(cnt.out || '').trim().split(/\s+/);
+      behind = Number(nums[0] || 0); ahead = Number(nums[1] || 0);
+      if (behind) {
+        const lg = await gitRun(dir, ['log', '--date=format:%m-%d %H:%M', '--pretty=%H|%h|%an|%ad|%s', 'HEAD..' + upstream, '-20']);
+        incoming = String(lg.out || '').split(/\r?\n/).filter(Boolean).map((l) => {
+          const p = l.split('|');
+          return { full: p[0], hash: p[1], author: p[2], date: p[3], subject: p.slice(4).join('|') };
+        });
+      }
+    }
+  }
+  return { ok: true, branch: detached ? '' : branch, remote: remote || '(all remotes)', upstream, behind, ahead, incoming, out: String(f.out || '').trim() };
 });
 
 // ---- git push / pull（右键菜单的 Push / Update）----
 //   为什么单开两条：提交区的「Commit and Push」只覆盖“先提交再推”；从别的分支切过来、
 //   或本地早有提交只想推上去 / 只想把远程更新拉下来时，需要一个不碰工作区的独立入口。
 //   push：有 upstream 直接 push，没 upstream 就 -u origin <当前分支>；detached HEAD 拒绝（推不出去，也不知道推哪条）。
-//   pull（Update）：先 fetch，再按 mode 处理：
-//     ff（默认）= merge --ff-only —— 能快进才动；快进不了（本地有未推送提交）回 code=diverged，交给界面问用户；
-//     merge = merge --no-edit；rebase = rebase <upstream>。
-//     后两种都可能冲突 ⇒ 一律 --abort 回滚，仓库留在干净状态，错误原样回界面（不静默兜底）。
+//   pull（Update）：具体判定见下面 kun:git:pull 的注释（先判冲突，无冲突直接合）。
 ipcMain.handle('kun:git:push', async (_e, repo) => {
   const dir = String(repo || '').trim();
   if (!dir) return { ok: false, err: '缺少仓库路径' };
@@ -6720,50 +6192,200 @@ ipcMain.handle('kun:git:push', async (_e, repo) => {
   return { ok: true, branch, upstream: hasUp ? upstream : ('origin/' + branch), newUpstream: !hasUp, out: String(p.out || '').trim() };
 });
 
+// ---- git pull（Update）：先 fetch，再**先判冲突**；没冲突直接合，有冲突交给面板解决 ----
+//   宿主 2026-11-18：「有冲突让我通过工具先解决冲突再合并，没有冲突就直接合并，不用询问」。
+//   所以不再因为「工作区脏」整单拒绝：
+//     ① 远程改动没碰到的本地未提交文件 ⇒ 合并根本不会碰它们，直接合；
+//     ② 会碰到的 ⇒ 回 code=conflict + 文件清单，工作区一个字不动；
+//     ③ 提交级冲突 ⇒ git merge-tree 试算（不碰工作区）先列出来，别等合到一半才发现。
+//   allowConflict=true（面板「合并并解决冲突」按钮）才真的合入并留下冲突标记，供面板逐个处理。
 ipcMain.handle('kun:git:pull', async (_e, repo, opts) => {
   const dir = String(repo || '').trim();
   const o = opts || {};
-  const mode = (o.mode === 'merge' || o.mode === 'rebase') ? o.mode : 'ff';
-  const force = !!o.force;
+  const mode = o.mode === 'rebase' ? 'rebase' : 'merge';   // 默认合并：不再问「合并还是变基」
+  const allowConflict = !!o.allowConflict;
   if (!dir) return { ok: false, err: '缺少仓库路径' };
   if (!fs.existsSync(dir)) return { ok: false, err: '仓库目录不存在：' + dir };
-  const run = (args) => new Promise((resolve) => {
-    execFile('git', ['-c', 'core.quotepath=false', '--no-optional-locks', '-C', dir, ...args],
-      { windowsHide: true, maxBuffer: 16 << 20, timeout: 120000 },
-      (err, stdout, stderr) => resolve({ ok: !err, out: String(stdout || ''), err: String(stderr || (err && err.message) || '') }));
-  });
-  // 1) 前提：必须在分支上，且有跟踪的 upstream
-  const br = await run(['rev-parse', '--abbrev-ref', 'HEAD']);
+  // 0) 上一次拉取还留着合并现场 / autostash：先收尾，别再叠一次 merge --autostash
+  const gd0 = await gitDirPath(dir);
+  if (gd0 && fs.existsSync(path.join(gd0, 'MERGE_HEAD'))) return { ok: false, code: 'merging', err: '上一次合并还没收尾：先在冲突卡里完成或放弃，再更新' };
+  if (await stashTopIsAutostash(dir)) return { ok: false, code: 'merging', err: '上一次拉取留下的本地改动还没收尾：先在冲突卡里完成或放弃更新，再更新' };
+  // 1) 分支与 upstream：detached / 没跟踪就没法拉
+  const br = await gitRun(dir, ['rev-parse', '--abbrev-ref', 'HEAD']);
   const branch = String(br.out || '').trim();
   if (!branch || branch === 'HEAD') return { ok: false, code: 'detached', err: '当前是 detached HEAD，先切到分支再拉' };
-  const up = await run(['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}']);
+  const up = await gitRun(dir, ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}']);
   const upstream = String(up.out || '').trim();
   if (!up.ok || !upstream) return { ok: false, code: 'no-upstream', err: '当前分支没有 upstream；先 Push 一次建立跟踪' };
-  // 2) 工作区脏：拉取会碰工作区，先问（force 才继续）
-  const st = await run(['status', '--porcelain=v1']);
-  const dirty = String(st.out || '').split(/\r?\n/).filter(Boolean).length;
-  if (dirty && !force) return { ok: false, code: 'dirty', dirty, err: '工作区有 ' + dirty + ' 处未提交改动' };
-  // 3) 先 fetch，再算落后/领先（用引用算，diff 与工作区无关）
-  const f = await run(['fetch', '--prune']);
-  if (!f.ok) return { ok: false, err: String(f.err || '').trim() || 'fetch 失败（网络或凭据？）' };
-  const cnt = await run(['rev-list', '--left-right', '--count', upstream + '...HEAD']);
+  // 2) fetch 当前分支跟踪的远端（同 fetch 的口径，不用 --all）
+  const remote = String((await gitRun(dir, ['config', '--get', 'branch.' + branch + '.remote'])).out || '').trim();
+  const f = await gitRun(dir, ['fetch', '--prune', remote || 'origin'], 120000);
+  if (!f.ok) return { ok: false, code: 'fetch', err: String(f.err || '').trim() || 'fetch 失败（网络或凭据？）' };
+  // 3) 引用层面算落后/领先（和工作区脏不脏无关）
+  const cnt = await gitRun(dir, ['rev-list', '--left-right', '--count', upstream + '...HEAD']);
   const nums = String(cnt.out || '').trim().split(/\s+/);
   const behind = Number(nums[0] || 0);
   const ahead = Number(nums[1] || 0);
-  if (!behind) return { ok: true, branch, upstream, behind: 0, ahead, mode, out: '已是最新' };
-  // 4) 按 mode 走
-  const args = mode === 'merge' ? ['merge', '--no-edit', upstream]
-    : (mode === 'rebase' ? ['rebase', upstream] : ['merge', '--ff-only', upstream]);
-  const m = await run(args);
+  if (!behind) return { ok: true, upToDate: true, branch, upstream, behind: 0, ahead, mode };
+  // 4) 冲突预检：三类会让 git 拒绝合并 / 留冲突的情况
+  //    4.1 本地未提交 vs 远程改动（以 merge-base 为界，只看远程这侧改了哪些文件）
+  const diffHead = await gitRun(dir, ['diff', '--name-only', '--no-renames', '-z', 'HEAD...' + upstream]);
+  if (!diffHead.ok) return { ok: false, code: 'err', behind, ahead, err: String(diffHead.err || '').trim() || '两段历史没有共同起点，git 拒绝合并' };
+  const incomingChanged = splitZ(diffHead.out);
+  const incomingAdded = splitZ((await gitRun(dir, ['diff', '--name-only', '--no-renames', '--diff-filter=A', '-z', 'HEAD...' + upstream])).out);
+  const st = parseStatusZ((await gitRun(dir, ['status', '--porcelain=v1', '-z', '--untracked-files=all'])).out);
+  const dirtyMap = new Map(), untrackedMap = new Map();
+  st.forEach((r) => { if (r.code === '??') untrackedMap.set(r.path, 1); else dirtyMap.set(r.path, r.code); });
+  const dirtyHit = incomingChanged.filter((p) => dirtyMap.has(p));
+  const untrackedHit = incomingAdded.filter((p) => untrackedMap.has(p));
+  //    4.2 提交级冲突：merge-tree 试算（不创建工作区改动）；快进时不可能冲突，跳过省一次进程
+  const mt = ahead ? await mergeTreeConflicts(dir, upstream) : { supported: true, conflicts: [] };
+  const commitConflicts = mt.conflicts;
+  const hasBlock = dirtyHit.length || untrackedHit.length || commitConflicts.length;
+  if (hasBlock && !allowConflict) {
+    return {
+      ok: false, code: 'conflict', branch, upstream, behind, ahead, mode,
+      dirtyHit, untrackedHit, commitConflicts,
+      // 已跟踪的脏改动可以靠 merge --autostash 带进合并、事后在冲突卡里解决；
+      // 未跟踪文件 autostash 管不到（会被远程新增覆盖），只能先提交/改名；变基模式不接 autostash。
+      canForceMerge: mode === 'merge' && !untrackedHit.length,
+      err: '拉取会冲突：' + (dirtyHit.length + untrackedHit.length + commitConflicts.length) + ' 个文件'
+    };
+  }
+  // 5) 没冲突（或用户明确要「合入后解决」）：直接合；分叉默认 merge，不再弹合并/变基
+  //    本地已跟踪的脏改动用 --autostash：Git 自己暂存 → 合并 → 自动恢复；恢复撞车会留冲突 + autostash，
+  //    由下面的 code=local-conflict 交给面板逐个文件解决（不丢本地改动）。
+  const useAuto = mode === 'merge' && dirtyHit.length > 0;
+  const autoArg = useAuto ? ['--autostash'] : [];
+  const args = mode === 'rebase' ? ['rebase', upstream]
+    : (ahead ? ['merge', ...autoArg, '--no-edit', upstream] : ['merge', ...autoArg, '--ff-only', upstream]);
+  const m = await gitRun(dir, args, 120000);
   if (!m.ok) {
     const err = String(m.err || '').trim() || '更新失败';
-    if (mode === 'merge') await run(['merge', '--abort']);      // 冲突不留在仓库里，人下次还得收，别加负担
-    if (mode === 'rebase') await run(['rebase', '--abort']);
-    const code = (mode === 'ff' && /not possible to fast-forward/i.test(err)) ? 'diverged'
-      : (mode === 'ff' ? 'err' : 'conflict');
-    return { ok: false, code, err, behind, ahead };
+    if (mode === 'rebase') {
+      await gitRun(dir, ['rebase', '--abort']);
+      return { ok: false, code: 'rebase-conflict', behind, ahead, err };
+    }
+    // merge 留下的冲突：**保留现场**，面板能逐个文件解决（不自动 abort 把现场丢掉）
+    const unmerged = await unmergedPaths(dir);
+    if (unmerged.length) {
+      return { ok: false, code: 'conflict', mergeInProgress: true, behind, ahead, mode, dirtyHit: [], untrackedHit: [], commitConflicts: [], unmerged, stashed: useAuto, err };
+    }
+    // 工作区挡住（本地改动 / 未跟踪文件被覆盖）或其它失败：回滚，别留半截合并
+    await gitRun(dir, ['merge', '--abort']);
+    const code = /would be overwritten|commit your changes|Please commit/i.test(err) ? 'worktree' : 'err';
+    return { ok: false, code, behind, ahead, err };
   }
-  return { ok: true, branch, upstream, behind, ahead, mode, out: String(m.out || '').trim() };
+  // 6) 合并成功 ≠ 收工：--autostash 在恢复本地改动时可能撞车（Git 退出码仍是 0），
+  //    留下未合并条目 + stash 顶部 autostash ⇒ 走「本地改动冲突」卡，不能当成已更新。
+  if (useAuto) {
+    const unmerged = await unmergedPaths(dir);
+    if (unmerged.length) {
+      return { ok: false, code: 'local-conflict', mergeInProgress: false, behind, ahead, mode, unmerged, stashed: true, err: '本地改动和拉取结果冲突：' + unmerged.length + ' 个文件' };
+    }
+  }
+  return { ok: true, branch, upstream, behind, ahead, mode: (mode === 'rebase' ? 'rebase' : (ahead ? 'merge' : 'ff')), out: String(m.out || '').trim() };
+});
+
+// ---- git 冲突解决（合并留在工作区时，面板逐个文件处理）----
+//   take：用某一侧整份覆盖（ours = 本地分支，theirs = 远程被合进来的那份），再 git add 标记已解决。
+//   只动冲突文件，不碰别的路径；路径逐个走 argv，不经 shell。
+ipcMain.handle('kun:git:conflict:take', async (_e, repo, file, side) => {
+  const dir = String(repo || '').trim();
+  const rel = String(file || '').trim();
+  const which = side === 'theirs' ? '--theirs' : '--ours';
+  if (!dir || !rel) return { ok: false, err: '缺少仓库或文件路径' };
+  if (!fs.existsSync(dir)) return { ok: false, err: '仓库目录不存在：' + dir };
+  // 0) 先确认它现在真的是冲突文件（ui 可能停在旧一帧，别对着普通文件乱 checkout / rm）
+  const stages = await gitRun(dir, ['ls-files', '-u', '-z', '--', rel], 60000);
+  const recs = splitZ(stages.out);
+  if (!recs.length) return { ok: false, err: '这个文件当前没有冲突标记（可能已在别处解决）' };
+  // 1) 这一侧有没有版本？stage 2 = 本地（ours），stage 3 = 远程（theirs）。
+  //    没有版本 = 那一侧把这个文件删了 ⇒「取这一侧」就是删除（删除/修改型冲突也才能收尾）。
+  const want = which === '--ours' ? '2' : '3';
+  let hasSide = false;
+  recs.forEach((rec) => {
+    const tab = rec.indexOf('\t');
+    if (tab < 0) return;
+    const meta = rec.slice(0, tab).split(' ');
+    if (meta[2] === want) hasSide = true;
+  });
+  if (!hasSide) {
+    const rm = await gitRun(dir, ['rm', '-f', '--', rel], 60000);
+    if (!rm.ok) return { ok: false, err: String(rm.err || '').trim() || '删除该侧版本失败' };
+    return { ok: true, path: rel, side: which === '--theirs' ? 'theirs' : 'ours', deleted: true };
+  }
+  const t = await gitRun(dir, ['checkout', which, '--', rel], 60000);
+  if (!t.ok) return { ok: false, err: String(t.err || '').trim() || '取该版本失败' };
+  const a = await gitRun(dir, ['add', '-A', '--', rel], 60000);
+  if (!a.ok) return { ok: false, err: String(a.err || '').trim() || 'git add 失败' };
+  return { ok: true, path: rel, side: which === '--theirs' ? 'theirs' : 'ours' };
+});
+ipcMain.handle('kun:git:conflict:mark', async (_e, repo, file) => {
+  const dir = String(repo || '').trim();
+  const rel = String(file || '').trim();
+  if (!dir || !rel) return { ok: false, err: '缺少仓库或文件路径' };
+  if (!fs.existsSync(dir)) return { ok: false, err: '仓库目录不存在：' + dir };
+  const a = await gitRun(dir, ['add', '-A', '--', rel], 60000);
+  if (!a.ok) return { ok: false, err: String(a.err || '').trim() || 'git add 失败' };
+  return { ok: true, path: rel };
+});
+ipcMain.handle('kun:git:conflict:continue', async (_e, repo) => {
+  const dir = String(repo || '').trim();
+  if (!dir) return { ok: false, err: '缺少仓库路径' };
+  if (!fs.existsSync(dir)) return { ok: false, err: '仓库目录不存在：' + dir };
+  // 1) 还有没标记解决的冲突 ⇒ 拒绝：不能把半截合并提交上去
+  const unmerged = await unmergedPaths(dir);
+  if (unmerged.length) return { ok: false, code: 'unmerged', files: unmerged, err: '还有 ' + unmerged.length + ' 个文件没标记已解决' };
+  const gd = await gitDirPath(dir);
+  // 2) 没有 MERGE_HEAD = 拉取已经完成，只是 --autostash 恢复本地改动时撞了：
+  //    全部标记解决 ⇒ 丢掉 autostash（内容已经在工作区 / 索引里），不需要再提交。
+  if (!gd || !fs.existsSync(path.join(gd, 'MERGE_HEAD'))) {
+    const had = await stashTopIsAutostash(dir);
+    const dropped = await dropAutostashIfAny(dir);
+    if (had && !dropped) return { ok: false, err: '冲突已解决，但 autostash 没删掉（可能被锁）；再点一次「完成」' };
+    return { ok: true, concluded: 'local', dropped };
+  }
+  // 3) 真正的合并现场：git commit --no-edit 收尾（Git 此时会把 autostash 一并恢复）
+  const c = await gitRun(dir, ['commit', '--no-edit'], 120000);
+  if (!c.ok) {
+    // 提交失败，但 autostash 可能已经应用并留下冲突（Git 有时退出码仍是 0，所以下面再查一次）
+    const afterErr = await unmergedPaths(dir);
+    if (afterErr.length) return { ok: false, code: 'local-conflict', mergeInProgress: false, unmerged: afterErr, stashed: true, err: '合并已提交，但本地改动恢复时冲突：' + afterErr.length + ' 个文件' };
+    return { ok: false, err: String(c.err || '').trim() || '合并收尾失败' };
+  }
+  // 4) 提交成功后再查：autostash 在提交之后才应用，撞车会留下未合并条目
+  const after = await unmergedPaths(dir);
+  if (after.length) return { ok: false, code: 'local-conflict', mergeInProgress: false, unmerged: after, stashed: true, err: '合并已提交，但本地改动恢复时冲突：' + after.length + ' 个文件' };
+  const had = await stashTopIsAutostash(dir);
+  const dropped = await dropAutostashIfAny(dir);
+  if (had && !dropped) return { ok: false, err: '合并已完成，但 autostash 没删掉（可能被锁）；再点一次「完成」' };
+  return { ok: true, concluded: 'merge', dropped, out: String(c.out || '').trim() };
+});
+ipcMain.handle('kun:git:conflict:abort', async (_e, repo) => {
+  const dir = String(repo || '').trim();
+  if (!dir) return { ok: false, err: '缺少仓库路径' };
+  if (!fs.existsSync(dir)) return { ok: false, err: '仓库目录不存在：' + dir };
+  const gd = await gitDirPath(dir);
+  // 1) 合并还没提交：merge --abort（Git 会把 autostash 一起还回来）
+  if (gd && fs.existsSync(path.join(gd, 'MERGE_HEAD'))) {
+    const r = await gitRun(dir, ['merge', '--abort'], 60000);
+    if (!r.ok) return { ok: false, err: String(r.err || '').trim() || '放弃合并失败' };
+    return { ok: true, undone: 'merge' };
+  }
+  // 2) 合并已提交、只是本地改动恢复时冲突：回到合并前的 ORIG_HEAD，再把 autostash 恢复出来
+  //    冲突可能已经全部标记解决（unmerged 为空）但「完成」还没点 ⇒ 同样允许放弃（丢掉解决结果、恢复脏改动）。
+  if (!(await stashTopIsAutostash(dir))) return { ok: false, err: '当前没有可放弃的更新' };
+  const origR = await gitRun(dir, ['rev-parse', 'ORIG_HEAD'], 30000);
+  const orig = String(origR.out || '').trim();
+  if (!orig) return { ok: false, err: '读不到合并前的 ORIG_HEAD，无法自动撤回' };
+  const anc = await gitRun(dir, ['merge-base', '--is-ancestor', orig, 'HEAD'], 30000);
+  if (!anc.ok) return { ok: false, err: 'ORIG_HEAD 不在当前历史里（之后可能又做过别的操作），为安全不自动 reset' };
+  const rs = await gitRun(dir, ['reset', '--hard', orig], 60000);
+  if (!rs.ok) return { ok: false, err: String(rs.err || '').trim() || '回到合并前失败' };
+  const pop = await gitRun(dir, ['stash', 'pop'], 120000);
+  if (!pop.ok) return { ok: false, undone: 'partial', err: '已回到拉取前，但本地改动恢复失败（autostash 还在，别丢）：' + (String(pop.err || '').trim() || 'stash pop 失败') };
+  return { ok: true, undone: 'local' };
 });
 
 // ---- git 单次提交的文件清单（历史详情用）：git show --name-status ----
@@ -6818,6 +6440,11 @@ ipcMain.handle('kun:git:commit', async (_e, repo, files, message, opts) => {
   if (!fs.existsSync(dir)) return { ok: false, err: '仓库目录不存在：' + dir };
   if (!paths.length) return { ok: false, err: '没有勾选要提交的文件' };
   if (!msg && !o.amend) return { ok: false, err: '提交信息不能为空' };
+  // 合并没收尾时拒绝提交：git commit -- <paths> 会把半截合并提交上去，先让面板把冲突处理完
+  const gd = await gitDirPath(dir);
+  if (gd && fs.existsSync(path.join(gd, 'MERGE_HEAD'))) return { ok: false, code: 'merging', err: '合并还没收尾：先在冲突卡里完成或放弃合并，再提交' };
+  // autostash 还压在 stash 顶部 = 拉取的本地改动没收尾（冲突可能已全部标记，但没点「完成」）
+  if (await stashTopIsAutostash(dir)) return { ok: false, code: 'merging', err: '拉取留下的本地改动还没收尾：先在冲突卡里点「完成」或「放弃更新」，再提交' };
   const run = (args) => new Promise((resolve) => {
     execFile('git', ['-c', 'core.quotepath=false', '--no-optional-locks', '-C', dir, ...args],
       { windowsHide: true, maxBuffer: 16 << 20, timeout: 120000 },
