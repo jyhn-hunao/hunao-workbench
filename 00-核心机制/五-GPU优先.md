@@ -13,7 +13,7 @@
 |---|---|---|
 | **OCR**（文字识别） | 纯本地视觉推理，批量大 | onnxruntime + CUDA provider |
 | **视频编码** | 硬件编码器是独立单元 | ffmpeg `h264_nvenc` / `hevc_nvenc` / `av1_nvenc` |
-| **三维渲染** | 天生就是 GPU 活 | Blender Cycles / ComfyUI |
+| **三维渲染** | 天生就是 GPU 活 | 三维渲染软件 / ComfyUI |
 
 | ⛔ 用不上 GPU | 真相 |
 |---|---|
@@ -74,7 +74,7 @@ provider 顺序不对、或 onnxruntime 装的是 CPU 版。**"available" ≠ "i
 
 显存和 CPU 都是**共享资源**。同一台机器上可能同时有：
 
-- 三维渲染在跑（ComfyUI / Blender 吃显存）
+- 三维渲染在跑（ComfyUI / 三维软件吃显存）
 - 视频任务在出帧
 - 一堆会话在等 API
 
