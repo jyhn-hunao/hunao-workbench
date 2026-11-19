@@ -22313,6 +22313,27 @@ renderers.git = function (body, meta) {
     var i = s.lastIndexOf('/');
     return i < 0 ? { dir: '', name: s } : { dir: s.slice(0, i + 1), name: s.slice(i + 1) };
   }
+  // 测试代码识别（2026-11-19 宿主：「测试类目录看着像正式方法」）：
+  //   目录口径：Maven/Gradle 的 src/test、test/tests、__tests__、e2e 这些约定目录；
+  //   文件名口径：Java 的 FooTest/FooTests/FooIT，前端 *.spec.* / *.test.*，Py/Go/Ruby 的 *_test / *_spec。
+  //   只用于「加测试标记 + 换色」，不碰任何提交/分组/勾选逻辑（看不出测试不影响能不能提交）。
+  function isTestPath(p) {
+    var raw = String(p == null ? '' : p).replace(/\\/g, '/');
+    var low = raw.toLowerCase();
+    if (/(^|\/)(src\/test|test|tests|__tests__|e2e)\//.test(low)) return true;
+    var base = raw.slice(raw.lastIndexOf('/') + 1);
+    return /(?:Test|Tests|IT)\.(?:java|kt|scala|cs)$/.test(base)
+      || /\.(?:spec|test)\.(?:js|jsx|ts|tsx|mjs|cjs|vue)$/i.test(base)
+      || /_test\.(?:py|go|rb)$/i.test(base)
+      || /_spec\.rb$/i.test(base)
+      || /Test\.php$/i.test(base);
+  }
+  // 「测试」胶囊：颜色只是辅助，识别靠这两个字 —— 与上面 extBadge 同一套思路
+  function testTag() {
+    var b = el('span', 'g-test', '测试');
+    b.title = '测试代码（测试目录 / 测试类），不是正式方法';
+    return b;
+  }
   function changeSummary(ch) {
     var sum = el('div', 'g-sum');
     var cnt = {};
@@ -22382,7 +22403,8 @@ renderers.git = function (body, meta) {
   }
   function changeRow(c) {
     var skip = skipRule(c.path);
-    var row = el('div', 'g-file is-in-group ' + codeCls(c.code) + (skip ? ' is-skip' : ''));
+    var isTest = isTestPath(c.path);
+    var row = el('div', 'g-file is-in-group ' + codeCls(c.code) + (isTest ? ' is-test' : '') + (skip ? ' is-skip' : ''));
     var ck = mkCk(!skip && picked[c.path] === true, !!skip);   // 命中「不参与提交」：能看 diff，但不能勾
     ck.addEventListener('click', function (e) { e.stopPropagation(); });
     ck.addEventListener('change', function () { picked[c.path] = ck.checked; updateChecks(); });
@@ -22391,6 +22413,7 @@ renderers.git = function (body, meta) {
     st.title = stWord(c.code);
     row.appendChild(st);
     row.appendChild(extBadge(c.path));
+    if (isTest) row.appendChild(testTag());
     var pw = el('div', 'g-pathwrap');
     var bits = pathBits(c.path);
     if (bits.dir) pw.appendChild(el('span', 'g-dir', bits.dir));
@@ -22402,7 +22425,7 @@ renderers.git = function (body, meta) {
       b1.addEventListener('click', function (e) { e.stopPropagation(); openSkipManager(); });
       row.appendChild(b1);
     }
-    row.title = c.path + (skip ? '（已设为不参与提交）' : '')
+    row.title = c.path + (isTest ? '（测试代码）' : '') + (skip ? '（已设为不参与提交）' : '')
       + '（单击选中；双击看' + (openMode === 'diff' ? '改动 diff' : '文件内容')
       + '；勾选框决定是否提交；拖到组头可归组）';
     // 单击只选中：双击要等两次 click 都发完才触发，如果 click 里直接开 diff，双击会先闪一次变化视图
@@ -22782,17 +22805,19 @@ renderers.git = function (body, meta) {
     else if (!detail.files.length) files.appendChild(el('div', 'g-empty', '这次提交没有文件变更（合并提交？）'));
     else {
       detail.files.forEach(function (f) {
-        var row = el('div', 'g-file g-dfile');
+        var isTest = isTestPath(f.path);
+        var row = el('div', 'g-file g-dfile' + (isTest ? ' is-test' : ''));
         var st = el('span', 'g-st ' + codeCls(f.code), stLetter(f.code));
         st.title = stWord(f.code);
         row.appendChild(st);
         row.appendChild(extBadge(f.path));
+        if (isTest) row.appendChild(testTag());
         var pw = el('div', 'g-pathwrap');
         var bits = pathBits(f.path);
         if (bits.dir) pw.appendChild(el('span', 'g-dir', bits.dir));
         pw.appendChild(el('span', 'g-fname', bits.name));
         row.appendChild(pw);
-        row.title = f.path + '\n（点击在预览里看这次提交里的改动）';
+        row.title = f.path + (isTest ? '（测试代码）' : '') + '\n（点击在预览里看这次提交里的改动）';
         row.addEventListener('click', function () { openCommitFile(c.hash, f.path, row); });
         files.appendChild(row);
       });

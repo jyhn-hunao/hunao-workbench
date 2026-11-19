@@ -5121,6 +5121,8 @@ html[data-theme="dark"] {
   --err-soft: rgba(255, 99, 105, .10);
   --err-line: rgba(255, 99, 105, .32);
   --accent-line: rgba(122, 162, 255, .40);
+  /* 测试代码标记色（git 面板「测试」胶囊 + 测试文件名）：绿，直接跟 --ok 同值，别两处各写一份 */
+  --test-tone: var(--ok);
   --site-accent: #06e7e9;
   --site-accent-soft: rgba(6, 231, 233, .10);
   --site-accent-line: rgba(6, 231, 233, .35);
@@ -5166,6 +5168,8 @@ html[data-theme="light"] {
   --err-soft: rgba(209, 36, 47, .08);
   --err-line: rgba(209, 36, 47, .28);
   --accent-line: rgba(0, 112, 243, .28);
+  /* 测试代码标记色（git 面板「测试」胶囊 + 测试文件名）：绿，直接跟 --ok 同值，别两处各写一份 */
+  --test-tone: var(--ok);
   --site-accent: #0e7490;
   --site-accent-soft: rgba(14, 116, 144, .10);
   --site-accent-line: rgba(14, 116, 144, .28);
@@ -6175,6 +6179,15 @@ html[data-theme="dark"] .kneu-dot { box-shadow: 0 0 5px rgba(255, 255, 255, .22)
 .g-ext.is-vue { color: var(--ok); background: color-mix(in srgb, var(--ok) 16%, transparent); }
 .g-ext.is-py { color: var(--accent); background: color-mix(in srgb, var(--accent) 16%, transparent); }
 .g-ext.is-red { color: var(--err); background: color-mix(in srgb, var(--err) 14%, transparent); }
+/* 测试代码标记（2026-11-19 宿主：「测试类看着像正式方法」）：
+   行首多一枚「测试」胶囊，文件名同步换绿；颜色只做辅助，识别靠这两个字（色觉障碍也读得出）。 */
+.g-test {
+  flex: none; height: 16px; line-height: 16px; padding: 0 5px; border-radius: 4px;
+  font-size: 9px; font-weight: 700; letter-spacing: .2px; white-space: nowrap;
+  color: var(--test-tone); background: color-mix(in srgb, var(--test-tone) 16%, transparent);
+}
+.g-file.is-test .g-fname { color: var(--test-tone); }
+.g-file.is-test .g-dir { color: color-mix(in srgb, var(--test-tone) 45%, var(--text-dim)); }
 .g-path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* 路径拆两截：目录暗、文件名亮 —— 一长串路径全同色时，眼睛找不到文件名 */
 .g-pathwrap { flex: 1 1 auto; min-width: 0; display: flex; align-items: baseline; overflow: hidden; }

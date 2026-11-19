@@ -6001,7 +6001,10 @@ ipcMain.handle('kun:git:panel', async (_e, repo) => {
   });
   const [head, changes, log, stat, unmerged, gitDir] = await Promise.all([
     run(['status', '--porcelain=v1', '--ignored=no', '-b']),
-    run(['status', '--porcelain=v1', '--ignored=no']),
+    // 2026-11-19 用户报「未跟踪里冒出两个目录行、看不到具体文件」：git 默认 -unormal 会把整个
+    // 未跟踪目录折叠成一行 "?? dir/"（面板只能画成 · 徽标的目录行，也没法单独勾选提交）。
+    // 这里加 --untracked-files=all 展开到具体文件，与合并预检（下方 status -z -uall）口径一致。
+    run(['status', '--porcelain=v1', '--ignored=no', '--untracked-files=all']),
     run(['log', '-60', '--date=format:%m-%d %H:%M', '--pretty=%H|%h|%an|%ad|%p|%s']),
     run(['diff', '--shortstat']),
     run(['ls-files', '-u', '-z']),
