@@ -27,18 +27,40 @@ const endpoint = arg('endpoint', String(process.env.QWEN_IMAGE_ENDPOINT || '').t
 const ref = path.resolve(arg('ref', DEFAULT_REF));
 const outDir = path.resolve(arg('out', DEFAULT_OUT));
 const only = String(arg('only', '')).split(',').map((x) => x.trim()).filter(Boolean);
+const emotion = String(arg('emotion', '')).trim();
+const situation = String(arg('situation', '')).replace(/[\r\n]+/g, ' ').trim().slice(0, 600);
+const filenameArg = String(arg('filename', '')).trim();
 if (!fs.existsSync(ref)) throw new Error('概念图不存在：' + ref);
 fs.mkdirSync(outDir, { recursive: true });
 
 const refB64 = fs.readFileSync(ref).toString('base64');
 const base = '以参考图中的蓝发鲸鱼女仆角色为唯一角色，严格保留她的深蓝到浅蓝渐变长发、白色女仆发带、蓝色蝴蝶结、鲸鱼耳鳍、深藏青女仆裙、白色围裙与小鲸鱼图案、鲸鱼尾鳍、圆脸大眼和Q版二次元画风。';
 const tail = '生成一张聊天表情贴纸：角色半身或七分身，角色居中，正方形构图，浅奶油色干净背景，贴纸感，线条清晰，无文字、无水印、无边框。不要改变角色身份、服装、配色和画风。';
-const JOBS = [
+const FIXED_JOBS = [
   ['01-开心.png', '她开心大笑、眼睛弯弯、双手捧脸，表情夸张可爱；' + base + tail],
   ['02-傲娇.png', '她微微扭头、双手抱臂、脸颊泛红、眼神上扬，做出傲娇又不失可爱的表情；' + base + tail],
   ['03-炸毛.png', '她鼓着腮帮子、眉毛竖起、双手叉腰、头发微微炸开，做出奶凶炸毛的表情；' + base + tail],
   ['04-委屈.png', '她眼角含泪、嘴巴微微下垂、双手绞在身前，做出委屈巴巴的表情；' + base + tail]
 ];
+
+function safeEmotion(value) {
+  const label = String(value || '').replace(/[\\/:*?"<>|\[\]\r\n]/g, '').replace(/\s+/g, '').slice(0, 12);
+  return label === '.' || label === '..' ? '' : label;
+}
+function safeFile(value) {
+  return String(value || '').replace(/[\\/:*?"<>|\[\]\r\n]/g, '').replace(/\s+/g, '').slice(0, 80);
+}
+
+// 动态模式：一次只生成一张，文件名和分类名由调用方按当前情绪给；
+// 固定模式保持原来的四张套装，设置页的「生成一套」仍然走这条。
+let JOBS = FIXED_JOBS;
+if (emotion) {
+  const label = safeEmotion(emotion);
+  if (!label) throw new Error('emotion 为空或含有不能做文件名的字符');
+  const fileName = safeFile(filenameArg) || ('动态-' + label + '-' + Date.now() + '.png');
+  const scene = situation ? ('当前对话语境：' + situation + '。') : '';
+  JOBS = [[fileName, '她做出「' + label + '」的表情，' + scene + base + tail]];
+}
 
 async function generate(name, prompt) {
   const body = {

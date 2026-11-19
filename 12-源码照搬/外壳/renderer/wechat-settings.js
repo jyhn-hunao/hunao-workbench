@@ -128,7 +128,9 @@
         apiKeyConfigured: bool(c && c.stickerGen && c.stickerGen.apiKeyConfigured, false),
         model: String((c && c.stickerGen && c.stickerGen.model) || 'qwen-image-2.1-pro'),
         category: String((c && c.stickerGen && c.stickerGen.category) || '鲸鲸千问'),
-        chat: String((c && c.stickerGen && c.stickerGen.chat) || '静音胡闹')
+        chat: String((c && c.stickerGen && c.stickerGen.chat) || '静音胡闹'),
+        auto: bool(c && c.stickerGen && c.stickerGen.auto, true),
+        autoMax: num(c && c.stickerGen && c.stickerGen.autoMax, 8, 1, 30)
       }
     };
   }
@@ -177,7 +179,9 @@
         apiKey: String(f.stickerGen.apiKey || '').trim() || undefined,
         model: String(f.stickerGen.model || 'qwen-image-2.1-pro'),
         category: String(f.stickerGen.category || '鲸鲸千问'),
-        chat: String(f.stickerGen.chat || '')
+        chat: String(f.stickerGen.chat || ''),
+        auto: !!f.stickerGen.auto,
+        autoMax: num(f.stickerGen.autoMax, 8, 1, 30)
       }
     };
   }
@@ -659,7 +663,7 @@
     featSec.appendChild(linksSw.row);
     var webSw = switchRow('第三方搜索 API（热榜 / 网页）', '本地搜索常开；这个开关只控制第三方搜索 API。关闭后仍会做本地搜索，只是没有热榜和外部网页结果。', function () { return form.native.websearch; }, function (v) { form.native.websearch = !!v; });
     featSec.appendChild(webSw.row);
-    var stickerSw = switchRow('贴纸', '允许鲸鲸发送/收集贴纸；DSH 在回复末尾写 [[sticker:happy]] / [[sticker:angry]] / [[sticker:cute]] 时会真的补图。', function () { return form.native.stickers; }, function (v) { form.native.stickers = !!v; });
+    var stickerSw = switchRow('贴纸', '允许鲸鲸发送/收集贴纸；DSH 在回复末尾写 [[sticker:开心]] 等分类名时会真的补图。开启按需生成后，新情绪名也会由千问补成图库分类。', function () { return form.native.stickers; }, function (v) { form.native.stickers = !!v; });
     featSec.appendChild(stickerSw.row);
     var stickerInfo = (data.nativeFiles && data.nativeFiles.stickers) || {};
     featSec.appendChild(pathRow('贴纸素材',
@@ -670,7 +674,7 @@
     var sg = form.stickerGen;
     var sgBox = mk('div', 'wxs-subsec');
     sgBox.appendChild(mk('div', 'wxs-subsec-title', '千问表情包'));
-    sgBox.appendChild(mk('div', 'wxs-subsec-hint', '以 pet3d\\概念 的蓝发鲸鲸女仆为基准；生成后自动入「鲸鲸千问」分类。发送由通道的表情包队列完成，不用手动切微信。'));
+    sgBox.appendChild(mk('div', 'wxs-subsec-hint', '以 pet3d\\概念 的蓝发鲸鲸女仆为基准；固定四张会自动入「鲸鲸千问」分类。开启「按需生成」后，图库没有的情绪会按当前对话补一张并自动入库，固定分类仍然优先。'));
 
     var sgKey = mk('input', 'wxs-in');
     sgKey.type = 'password';
@@ -722,6 +726,68 @@
       refreshDirty();
     });
     sgBox.appendChild(row('发送目标', '私聊显示名；发送前会再确认一次，不会发到群聊。', sgChat));
+
+    var sgAutoSw = switchRow('按需生成新表情',
+      '模型想用图库没有的情绪时，按当前对话生成一张并入库；本条先按已有图回复，生成完成后下一轮起可用。关闭后只使用固定分类。',
+      function () { return form.stickerGen.auto; },
+      function (v) { form.stickerGen.auto = !!v; });
+    sgBox.appendChild(sgAutoSw.row);
+    var sgAutoMax = numberRow('每日按需生成上限',
+      '防止意外消耗；达到上限后只发已有表情。固定四张套装不计入这个上限。',
+      'stickerGen.autoMax', 1, 30, '张');
+    sgBox.appendChild(sgAutoMax.row);
+    var sgAutoInfo = (data.config && data.config.stickerGen) || {};
+    sgBox.appendChild(mk('div', 'wxs-note',
+      '今日已按需生成 ' + Number(sgAutoInfo.autoDoneToday || 0) + ' / ' + Number(form.stickerGen.autoMax || 8) + ' 张' +
+      (Number(sgAutoInfo.autoPending || 0) ? '；进行中 ' + Number(sgAutoInfo.autoPending) + ' 张' : '') +
+      (sgAutoInfo.lastAuto && sgAutoInfo.lastAuto.ok === false ? '；上次失败：' + String(sgAutoInfo.lastAuto.error || '').slice(0, 60) : '') +
+      '。固定四张套装不占这个额度。'));
+
+    var sgEmotion = mk('input', 'wxs-key');
+    sgEmotion.type = 'text';
+    sgEmotion.placeholder = '例：惊讶 / 无语 / 得意';
+    var sgEmotionWrap = mk('div', 'wxs-key-wrap');
+    sgEmotionWrap.appendChild(sgEmotion);
+    var sgMake = mk('button', 'wxs-btn', '补一张');
+    sgMake.type = 'button';
+    sgMake.title = '按这个情绪生成一张，加入同名分类，之后模型可以继续用；不发微信消息';
+    sgEmotionWrap.appendChild(sgMake);
+    var sgEmotionRow = row('按情绪补一张', '手动补图库缺口；生成后自动入同名分类，不发送到微信。', sgEmotionWrap);
+    sgBox.appendChild(sgEmotionRow);
+    sgMake.addEventListener('click', function () {
+      var emo = String(sgEmotion.value || '').trim();
+      if (!emo) { toast('先填一个情绪名，例：惊讶', true); return; }
+      if (!api || typeof api.stickerGenerate !== 'function') {
+        toast('表情包接口没接上：重启一次工作台', true);
+        return;
+      }
+      if (!form.stickerGen.apiKey && !form.stickerGen.apiKeyConfigured) {
+        toast('先填千问 API Key 并保存', true);
+        return;
+      }
+      sgMake.disabled = true;
+      sgMake.textContent = '生成中…';
+      sgState.className = 'wxs-note';
+      sgState.textContent = '正在按「' + emo + '」生成一张…';
+      Promise.resolve(api.stickerGenerate({
+        emotion: emo,
+        category: emo,
+        model: form.stickerGen.model,
+        apiKey: form.stickerGen.apiKey || ''
+      })).then(function (r) {
+        if (!r || r.ok === false) throw new Error((r && r.error) || '未知原因');
+        sgState.className = 'wxs-note is-ok';
+        sgState.textContent = '已生成并入库：分类「' + (r.category || emo) + '」· 之后可直接用';
+        toast('已补一张：' + (r.category || emo));
+      }).catch(function (e) {
+        sgState.className = 'wxs-note is-bad';
+        sgState.textContent = '生成失败：' + String((e && e.message) || e);
+        toast(sgState.textContent, true, 10000);
+      }).then(function () {
+        sgMake.disabled = false;
+        sgMake.textContent = '补一张';
+      });
+    });
 
     var sgState = mk('div', 'wxs-note', '');
     var sgBar = mk('div', 'wxs-action-bar');

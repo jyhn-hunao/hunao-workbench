@@ -155,12 +155,12 @@ function fetchJson(url, body, token, timeoutMs) {
 }
 
 exports.hooks = {
-  // 群聊旁听：每条群消息都先落一份到工作台适配器（不触发回复）。
-  // 这样群里没被 @ 的消息也在最近上下文里，群里真被叫到时 DSH 不会只看到最后一句。
+  // 入站归档：私聊和群聊每条消息都先落一份到工作台适配器（不触发回复）。
+  // 群聊同时进「最近旁听」，这样群里没被 @ 的消息也在上下文里；
+  // 私聊不再只靠 chat.generate，避免没触发回复的私聊漏档。
   'chat.received': async function (ctx) {
     try {
       const m = (ctx && ctx.message) || {};
-      if (String(m.chatType || '') !== 'group') return {};
       const chatId = str(m.chatId, 200);
       const text = incomingText(m.text, 2000);
       if (!chatId || !text) return {};
@@ -168,17 +168,22 @@ exports.hooks = {
       const base = str(s.adapterUrl, 500).replace(/\/+$/, '');
       const token = str(s.token, 200);
       if (!base || !token) return {};
-      const senderLabel = labelOf(m.senderId) || groupMemberLabel(chatId, m.senderId) || '群友';
+      const isGroup = String(m.chatType || '') === 'group';
+      const chatLabel = isGroup ? (groupNameOf(chatId) || '群聊') : (labelOf(chatId) || labelOf(m.senderId) || '朋友');
+      const senderLabel = isGroup
+        ? (labelOf(m.senderId) || groupMemberLabel(chatId, m.senderId) || '群友')
+        : (labelOf(m.senderId) || labelOf(chatId) || '朋友');
       const payload = {
         v: 1,
         msg_id: crypto.createHash('sha256')
           .update(chatId + '|' + str(m.senderId, 200) + '|' + String(ctx.now || '') + '|' + text)
           .digest('hex').slice(0, 16),
         chat_id: chatId,
-        chat_type: 'group',
-        chat_title: groupNameOf(chatId) || '群聊',
+        chat_type: isGroup ? 'group' : 'private',
+        chat_title: chatLabel,
         sender_id: str(m.senderId, 200),
         sender_name: senderLabel,
+        group_members: isGroup ? groupMemberLabels(chatId) : [],
         text: text
       };
       // 只记不回复；失败不影响本轮聊天。500ms 上限，本地适配器够用。
@@ -238,7 +243,8 @@ exports.hooks = {
           : [])
       };
 
-      const r = await fetchJson(base + '/api/social/wechat', payload, token, 115000);
+      // DSH 回复本身可能等到 30 秒按需表情生成；适配器给足余量，避免先断在插件这层。
+      const r = await fetchJson(base + '/api/social/wechat', payload, token, 170000);
       if (!r.ok || !r.json || r.json.ok !== true || typeof r.json.text !== 'string') {
         return { text: '' };
       }

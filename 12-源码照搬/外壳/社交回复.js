@@ -4,7 +4,7 @@
 // 定位：微信 / QQ / 飞书只保留各自的传输与原生能力；回复语气、emoji、表情包频率、
 // 严肃场景抑制、会话归属这些「回复机制」集中在这里，避免每接一个通道就复制一套。
 //
-// 为什么现在先做这一层：微信通道.js 的 _formatPrompt 里只有一句固定 [[sticker:happy]]
+// 为什么现在先做这一层：微信通道.js 的 _formatPrompt 之前只有一句固定 [[sticker:happy]]
 // 提示，QQ 的 dsh-onebot-channel 和飞书的 dsh-im 又各有一套自己的提示词。用户要的是
 // 「同一套回复策略，通道只换传输」；再往微信里加功能，另外两条通道永远缺。
 //
@@ -321,6 +321,9 @@ function promptFragment(args) {
     lines.push('- 表情包频率：普通闲聊约 ' + pct + '% 的回复可以带一张，每条最多 ' + max + ' 张；' +
       (sticker.seriousSuppress !== false ? '对方难过/求助/正事/严肃时不发；' : '') +
       '只在正文最后单独写 [[sticker:分类名]]，程序会剥掉标记补图，不要自己发图片或解释标记。');
+    if (a.dynamicSticker) {
+      lines.push('- 现有分类都不贴合时，可以写一个新的中文情绪名（2–6 个汉字，例：惊讶、无语、得意）；程序会按本轮对话生成一张并加入图库。不要写长句、英文、文件名；生成期间这一条可能先不带图。');
+    }
   } else if (!capOn(caps.sticker)) {
     lines.push('- 本通道不支持图片表情包：不要写 [[sticker:...]]，用文字/emoji 表达。');
   } else if (sticker.enabled === false) {
@@ -342,6 +345,7 @@ function filterReply(text, args) {
   const allowed = categories.map((c) => normalizeStickerName(typeof c === 'string' ? c : c.name)).filter(Boolean);
   const stickers = [];
   const dropped = [];
+  const pending = [];
   const max = Math.max(1, Number(policy.global.sticker && policy.global.sticker.maxPerReply) || 1);
   const stickerChance = Number(policy.global.sticker && policy.global.sticker.chance) || 0;
   const stickerEnabled = capOn(caps.sticker) && policy.global.sticker.enabled !== false && stickerChance > 0;
@@ -350,13 +354,17 @@ function filterReply(text, args) {
   out = out.replace(/\[\[\s*sticker\s*:\s*([^\]\n]{1,40})\s*\]\]/gi, function (whole, name) {
     const n = normalizeStickerName(name);
     if (!stickerEnabled) { dropped.push(n); return ''; }
-    if (allowed.length && allowed.indexOf(n) < 0) { dropped.push(n); return ''; }
+    if (allowed.length && allowed.indexOf(n) < 0) {
+      dropped.push(n);
+      if (a.dynamicSticker) pending.push(n);
+      return '';
+    }
     if (stickers.length >= max) { dropped.push(n); return ''; }
     stickers.push(n);
     return '[[' + 'sticker:' + n + ']]';
   });
   out = out.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
-  return { text: out, stickers: stickers, dropped: dropped };
+  return { text: out, stickers: stickers, dropped: dropped, pending: pending };
 }
 
 // 微信原生随机层跟通用策略对齐：显式 >0 会覆盖 persona.emojiLevel 的默认 30%；
@@ -605,6 +613,7 @@ function recordReply(args) {
     chatId: String(a.chatId || ''),
     chars: String(a.text || '').length,
     stickers: Array.isArray(a.stickers) ? a.stickers.slice(0, 2) : [],
+    pending: Array.isArray(a.pending) ? a.pending.slice(0, 2) : [],
     dropped: Array.isArray(a.dropped) ? a.dropped.slice(0, 4) : []
   };
   try { writeJson(STATUS_FILE, st); } catch (e) {

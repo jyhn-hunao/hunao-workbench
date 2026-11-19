@@ -419,6 +419,27 @@ function visionReady(home, wc) {
 function qwenImageFile(home) {
   return path.join(String(home || ''), 'data', 'qwen-image.json');
 }
+// 人格真源仍在外壳\data\pet\设置.json：name 是场景定位，selfName 是她怎么自称。
+// 鲸鲸自带的 persona 只负责它原生日记/朋友圈/兜底模型，启动时同步成同一份，避免第二套性格。
+function readDesktopPersona() {
+  const def = readJson(path.join(SHELL, 'pet', '设置.默认.json')) || {};
+  const cur = readJson(path.join(SHELL, 'data', 'pet', '设置.json')) || {};
+  const a = def.persona || {}, b = cur.persona || {};
+  return {
+    scene: String(b.name || a.name || '胡闹的大肥鱼'),
+    selfName: String(b.selfName || a.selfName || '饭团'),
+    identity: String(b.identity || a.identity || ''),
+    personality: String(b.personality || a.personality || ''),
+    speech: String(b.speech || a.speech || ''),
+    care: String(b.care || a.care || ''),
+    never: String(b.never || a.never || '')
+  };
+}
+// 动态分类名只做「给模型看的中文情绪名」，不能变成路径/文件名。
+function cleanStickerLabel(value) {
+  const label = String(value || '').replace(/[\\/:*?"<>|\[\]\r\n\x00-\x1f]/g, '').replace(/\s+/g, '').slice(0, 12);
+  return label === '.' || label === '..' ? '' : label;
+}
 function readQwenImage(home) {
   const file = qwenImageFile(home);
   const j = readJson(file) || {};
@@ -431,6 +452,8 @@ function readQwenImage(home) {
     baseUrl: String(j.baseUrl || 'https://maas.qianwenaiapi.com/api/v1/services/aigc/multimodal-generation/generation'),
     category: String(j.category || '鲸鲸千问'),
     chat: String(j.chat || '静音胡闹'),
+    auto: j.auto !== false,
+    autoMax: Math.max(1, Math.min(30, Number(j.autoMax) || 8)),
     updatedAt: Number(j.updatedAt || 0)
   };
 }
@@ -442,6 +465,8 @@ function writeQwenImage(home, patch) {
     baseUrl: String((patch && patch.baseUrl) || cur.baseUrl || '').slice(0, 300),
     category: String((patch && patch.category) || cur.category || '鲸鲸千问').replace(/[\\/:*?"<>|]/g, '').slice(0, 20),
     chat: String((patch && patch.chat) || cur.chat || '静音胡闹').replace(/[\r\n]/g, '').slice(0, 160),
+    auto: patch && patch.auto !== undefined ? patch.auto !== false : cur.auto !== false,
+    autoMax: Math.max(1, Math.min(30, Number((patch && patch.autoMax) !== undefined ? patch.autoMax : cur.autoMax) || 8)),
     updatedAt: Date.now()
   };
   writeText(qwenImageFile(home), JSON.stringify(next, null, 2) + '\n');
@@ -1093,6 +1118,9 @@ class WechatService {
     // 外发安全闸门（2026-11-18）：所有真正发到微信的正文都要先过它；没注入就退化成「不过闸门」，
     // 但状态里会写明 gate:false，面板不许把「没接闸门」画成安全。
     this.gate = o.gate || null;
+    // 聊天档案（2026-11-19）：微信消息也写同一份 chat-archive.db；
+    // 不注入时只影响档案，不影响收发。
+    this.archive = typeof o.archive === 'function' ? o.archive : null;
 
     this.server = null;
     this.serverListening = false;
@@ -1108,10 +1136,39 @@ class WechatService {
     this.startedAt = 0;
 
     this.counts = { rx: 0, replied: 0, blocked: 0, skipped: 0, errors: 0, lastAt: 0, lastError: '', lastChat: '' };
+    // 2026-11-19 修：原来计数只活在内存在，重启（含壳自动拉起）就全归零，
+    // 面板看着像「今天一条都没收发」。这里带上日期键，同一天从 状态.json 恢复；
+    // 跨天在写状态时自动清零，不会把昨天的数算进今天。
+    this.countsDay = this._dayKey();
+    this._restoreCounts();
     this.seen = new Map();
     this.listenSeen = new Map();
     this.rate = [];
     this.chain = Promise.resolve();
+    // 按需表情：模型写了图库没有的情绪名时，后台生成一张再入库；
+    // 不阻塞本条回复，生成完成后下一条起就能像固定分类一样使用。
+    this.dynamicStickers = new Map();
+    this.dynamicDay = { key: '', count: 0 };
+    this.lastDynamicSticker = null;
+  }
+
+  _dayKey() {
+    const d = new Date();
+    const p2 = (n) => String(n).padStart(2, '0');
+    return d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate());
+  }
+
+  // 同一天重启：把上次落盘的计数与最近一次发送接回来；跨天不接（当日统计从 0 开始）
+  _restoreCounts() {
+    try {
+      const prev = readJson(STATUS_FILE);
+      if (!prev || prev.countsDay !== this.countsDay || !prev.counts) return;
+      const c = prev.counts;
+      ['rx', 'replied', 'blocked', 'skipped', 'errors', 'lastAt', 'lastError', 'lastChat'].forEach((k) => {
+        if (c[k] !== undefined) this.counts[k] = c[k];
+      });
+      if (prev.lastSend && prev.lastSend.at) this.lastSend = prev.lastSend;
+    } catch (e) { /* 状态文件坏了就按新的一天算，不阻断启动 */ }
   }
 
   // 1. 配置 / 目录 / 日志 / 脱敏
@@ -1385,11 +1442,29 @@ class WechatService {
     wc.wechat.quoteReply = !!nativeCfg.quoteReply;         // 引用回复会抢前台，默认关
 
     wc.persona = wc.persona || {};
-    if (!wc.persona.name || wc.persona.name === '鲸鲸') {
-      wc.persona.name = '胡闹的大肥鱼';
-      const aliases = Array.isArray(wc.persona.aliases) ? wc.persona.aliases : [];
-      wc.persona.aliases = Array.from(new Set(aliases.concat(['大肥鱼', '肥鱼'])));
+    // 鲸鲸原生模型（日记 / 朋友圈 / 兜底）也使用这份人格；名字和性格只从桌宠设置读，
+    // 不再让 config.json 自己长成第二套。场景定位仍是「胡闹的大肥鱼」，自称是「饭团」。
+    const dp = readDesktopPersona();
+    wc.persona.name = dp.selfName || '饭团';
+    if (dp.personality) wc.persona.personality = dp.personality;
+    if (!wc.persona.ownerName || wc.persona.ownerName === '主人') wc.persona.ownerName = '静音胡闹';
+    if (!wc.persona.background) {
+      wc.persona.background = '「' + (dp.scene || '胡闹的大肥鱼') + '」是工作台里的场景定位，「' +
+        (dp.selfName || '饭团') + '」是名字。';
     }
+    const aliases = Array.isArray(wc.persona.aliases) ? wc.persona.aliases : [];
+    wc.persona.aliases = Array.from(new Set(aliases.concat([
+      dp.scene || '胡闹的大肥鱼', dp.selfName || '饭团', '鲸鲸', '大肥鱼', '肥鱼'
+    ])));
+
+    // 原生模型统一改道工作台：鲸鲸的日记 / 朋友圈 / 兜底都走当前 DSH 人格与场景记忆。
+    // 适配器不可用时让它失败（宁可这一条不生成），不再落到鲸鲸自己的模型。
+    wc.provider = 'custom';
+    wc.llm = Object.assign({}, (wc.llm && typeof wc.llm === 'object') ? wc.llm : {}, {
+      baseUrl: 'http://127.0.0.1:' + this._adapterPort(cfg) + '/v1',
+      model: 'dsh-native',
+      apiKey: 'local'
+    });
 
     // 鲸鲸的「主动搭话」会走它自己的模型，等于第二个人格 ⇒ 默认关。
     // 要主动找话题请走桌宠/派发链路，不走鲸鲸的 care。
@@ -1493,14 +1568,14 @@ class WechatService {
     const flow = {
       id: PLUGIN_ID,
       name: 'DSH 微信换脑',
-      version: '1.1.0',
+      version: '1.2.0',
       author: 'luanyujia-workbench',
       description: '把鲸鲸判定要回复的微信消息转给工作台人格会话，由工作台生成回复；同时旁听群消息，失败不回话。',
       api: 4,
       kind: 'message',
       hooks: ['chat.received', 'chat.generate', 'chat.reply', 'tool.run'],
       permissions: ['system.full'],
-      executionTimeoutMs: 118000,
+      executionTimeoutMs: 180000,
       javascript
     };
     const bytes = Buffer.from(JSON.stringify(flow, null, 2) + '\n', 'utf8');
@@ -1787,6 +1862,12 @@ class WechatService {
     const bridgeTail = (home ? tailFile(path.join(home, 'data', 'wechat-bridge-4x.log'), 4) : '') ||
       tailFile(BRIDGE_LOG, 4);
 
+    // 跨天自动清零（写状态时校正；恢复只认同一天），避免把昨天的数显示成今天
+    const todayKey = this._dayKey();
+    if (this.countsDay !== todayKey) {
+      this.counts = { rx: 0, replied: 0, blocked: 0, skipped: 0, errors: 0, lastAt: 0, lastError: '', lastChat: '' };
+      this.countsDay = todayKey;
+    }
     return {
       ok: true,
       at: Date.now(),
@@ -1835,6 +1916,7 @@ class WechatService {
       sessionIsolation: sessionIsolationView(cfg),
       groupListen: listenStats(),
       counts: Object.assign({}, this.counts),
+      countsDay: this.countsDay,
       gate: { attached: !!this.gate, blocked: Number(this.counts.blocked) || 0, last: this.lastGate },
       lastSend: this.lastSend,
       configFile: CONFIG_FILE,
@@ -1894,6 +1976,11 @@ class WechatService {
       baseUrl: qwen.baseUrl,
       category: qwen.category,
       chat: qwen.chat,
+      auto: qwen.auto,
+      autoMax: qwen.autoMax,
+      autoPending: this.dynamicStickers.size,
+      autoDoneToday: this.dynamicDay.count,
+      lastAuto: this.lastDynamicSticker,
       categoryCount: qwenCategoryCount,
       configFile: qwen.file,
       updatedAt: qwen.updatedAt
@@ -1981,7 +2068,8 @@ class WechatService {
     if (!h.home) return { ok: false, error: h.error };
     const qwen = readQwenImage(h.home);
     const apiKey = String((args && args.apiKey) || qwen.apiKey || '').trim();
-    const category = String((args && args.category) || qwen.category || '').replace(/[\\/:*?"<>|]/g, '').slice(0, 20);
+    const emotion = cleanStickerLabel(args && args.emotion);
+    const category = emotion || String((args && args.category) || qwen.category || '').replace(/[\\/:*?"<>|]/g, '').slice(0, 20);
     if (!apiKey) return { ok: false, error: '千问 Key 未配置：先在「功能」页填 Key 并保存' };
     if (!category) return { ok: false, error: '表情包分类名为空' };
     const tool = path.join(ROOT, '工具', '表情包生成.mjs');
@@ -1991,12 +2079,15 @@ class WechatService {
     const ref = path.join(SHELL, 'pet3d', '概念', '07-气氛图.png');
     const out = path.join(SHELL, 'pet3d', '表情包', '鲸鲸千问');
     const only = args && args.only ? String(args.only) : '';
+    const situation = String((args && (args.situation || args.prompt)) || '').replace(/[\r\n]+/g, ' ').slice(0, 600);
     const env = Object.assign({}, process.env, { QWEN_API_KEY: apiKey,
       QWEN_IMAGE_ENDPOINT: qwen.baseUrl || '' });
     const childArgs = [tool, '--model', model, '--ref', ref, '--out', out];
-    if (only) childArgs.push('--only', only);
+    if (emotion) childArgs.push('--emotion', emotion, '--situation', situation);
+    else if (only) childArgs.push('--only', only);
+    const childTimeout = Math.max(10000, Math.min(240000, Number(args && args.timeoutMs) || 260000));
     const run = await new Promise((resolve) => {
-      execFile(node, childArgs, { cwd: ROOT, env: env, timeout: 260000, maxBuffer: 8 * 1024 * 1024, windowsHide: true }, (error, stdout, stderr) => {
+      execFile(node, childArgs, { cwd: ROOT, env: env, timeout: childTimeout, maxBuffer: 8 * 1024 * 1024, windowsHide: true }, (error, stdout, stderr) => {
         resolve({ error: error, stdout: String(stdout || ''), stderr: String(stderr || '') });
       });
     });
@@ -2025,7 +2116,7 @@ class WechatService {
       if (!up.ok) return { ok: false, error: '表情入库失败（' + file.name + '）：' + (up.error || 'HTTP ' + up.status) };
       uploaded.push((up.json && up.json.uploaded && up.json.uploaded[0]) || { name: file.name });
     }
-    return { ok: true, category: category, model: model, dir: generated.dir, files: generated.files, uploaded: uploaded };
+    return { ok: true, category: category, emotion: emotion || '', model: model, dir: generated.dir, files: generated.files, uploaded: uploaded };
   }
 
   async stickerSend(args) {
@@ -2781,7 +2872,88 @@ class WechatService {
     if (req.method === 'POST' && u.pathname === '/api/social/wechat/listen') {
       return this._handleListen(req, res);
     }
+    // 鲸鲸原生 LLM（日记 / 朋友圈 / 兜底）统一走这里：OpenAI 兼容入口，内部转 DSH 原生会话。
+    if (req.method === 'POST' && (u.pathname === '/v1/chat/completions' || u.pathname === '/chat/completions')) {
+      return this._handleNativeChat(req, res);
+    }
     return jsonReply(res, 404, { ok: false, error: 'not_found' });
+  }
+
+  _nativePrompt(body) {
+    const messages = (body && Array.isArray(body.messages)) ? body.messages : [];
+    const parts = [];
+    for (const m of messages.slice(-24)) {
+      const role = m && m.role === 'system' ? '系统' : (m && m.role === 'assistant' ? '助手' : '用户');
+      let text = m && m.content;
+      if (Array.isArray(text)) text = text.map((x) => (x && typeof x === 'object' ? (x.text || '') : String(x || ''))).join('\n');
+      text = String(text || '').trim();
+      if (text) parts.push('【' + role + '】' + text.slice(0, 12000));
+    }
+    return '【鲸鲸原生能力 · 由工作台人格代答】\n' + parts.join('\n\n') +
+      '\n\n【要求】按工作台当前人格和场景记忆直接完成任务；不要输出 [[sticker:...]]，不要解释模型、通道或系统。';
+  }
+
+  // 鲸鲸原生 LLM 的 OpenAI 兼容入口：日记 / 朋友圈 / 兜底都转给 DSH 原生会话，
+  // 人格与记忆由记忆回响注入；这里只做消息搬运和 OpenAI 响应格式适配。
+  async _handleNativeChat(req, res) {
+    const cfg = this.config();
+    let body = '';
+    try {
+      body = await readBody(req, 512 * 1024);
+    } catch (e) {
+      return jsonReply(res, 413, { error: { message: 'body_error', type: 'invalid_request_error' } });
+    }
+    let payload = null;
+    try { payload = JSON.parse(body || '{}'); } catch (e) {
+      return jsonReply(res, 400, { error: { message: 'invalid_json', type: 'invalid_request_error' } });
+    }
+    const prompt = this._nativePrompt(payload);
+    const nativeP = {
+      chatId: 'whale-native',
+      chatType: 'private',
+      chatTitle: '鲸鲸原生能力',
+      senderName: '鲸鲸原生'
+    };
+    const marker = '<<DSH-NATIVE-' + crypto.randomBytes(8).toString('hex') + '>>';
+    let result = null;
+    try {
+      result = await this._callSession(cfg, nativeP, prompt, marker, 118000);
+    } catch (e) {
+      this._appendLog('native chat failed：' + ((e && e.message) || e));
+      return jsonReply(res, 502, { error: { message: 'native_bridge_failed', type: 'upstream_error' } });
+    }
+    const content = String(result && result.text || '')
+      .replace(/\[\[sticker:[^\]]*\]\]/gi, '')
+      .trim();
+    if (!content) {
+      this._appendLog('native chat empty timeout=' + !!result.timeout);
+      return jsonReply(res, 502, { error: { message: result && result.timeout ? 'native_timeout' : 'native_empty', type: 'upstream_error' } });
+    }
+    const created = Math.floor(Date.now() / 1000);
+    const id = 'chatcmpl-dsh-' + shortHash(marker);
+    if (!!payload.stream) {
+      res.writeHead(200, {
+        'content-type': 'text/event-stream; charset=utf-8',
+        'cache-control': 'no-cache',
+        connection: 'keep-alive'
+      });
+      res.write('data: ' + JSON.stringify({
+        id: id, object: 'chat.completion.chunk', created: created, model: 'dsh-native',
+        choices: [{ index: 0, delta: { role: 'assistant', content: content }, finish_reason: null }]
+      }) + '\n\n');
+      res.write('data: ' + JSON.stringify({
+        id: id, object: 'chat.completion.chunk', created: created, model: 'dsh-native',
+        choices: [{ index: 0, delta: {}, finish_reason: 'stop' }]
+      }) + '\n\n');
+      res.write('data: [DONE]\n\n');
+      res.end();
+      return;
+    }
+    return jsonReply(res, 200, {
+      id: id, object: 'chat.completion', created: created, model: 'dsh-native',
+      choices: [{ index: 0, message: { role: 'assistant', content: content }, finish_reason: 'stop' }],
+      usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 }
+    });
   }
 
   _authorized(req, cfg) {
@@ -2870,12 +3042,42 @@ class WechatService {
     this.chain = task.catch(() => {});
     try {
       const r = await task;
+      if (r && typeof r.text === 'string' && r.text.trim()) {
+        const outId = 'out:' + payload.chatId + ':' + now + ':' + crypto.createHash('sha1').update(r.text).digest('hex').slice(0, 12);
+        this._archiveWechat(payload, 'out', r.text, outId);
+      }
       return jsonReply(res, 200, Object.assign({ ok: true }, r));
     } catch (e) {
       this.counts.errors++;
       this.counts.lastError = String((e && e.message) || e).slice(0, 240);
       this._appendLog('reply failed chat=' + shortHash(payload.chatId) + '：' + this.counts.lastError);
       return jsonReply(res, 200, { ok: false, error: this.counts.lastError, text: '' });
+    }
+  }
+
+  // 聊天档案：微信私聊/群聊都写同一张表；direction=in/out 由调用点给。
+  // 档案写失败不回滚消息，也不让微信收发失败；状态里能看见错误。
+  _archiveWechat(p, direction, text, msgId) {
+    try {
+      if (!this.archive || !p || !p.chatId) return null;
+      const body = String(text || '').trim();
+      if (!body) return null;
+      return this.archive({
+        channel: 'wechat',
+        account: 'wechat',
+        chatType: p.chatType === 'group' ? 'group' : 'private',
+        chatId: p.chatId,
+        chatTitle: p.chatTitle || '',
+        senderId: p.senderId || '',
+        senderName: direction === 'out' ? '我' : (p.senderName || (p.chatType === 'group' ? '群友' : '对方')),
+        direction: direction === 'out' ? 'out' : 'in',
+        text: body.slice(0, 4000),
+        ts: Date.now(),
+        msgId: String(msgId || '')
+      });
+    } catch (e) {
+      this._appendLog('档案写入失败 chat=' + shortHash(p && p.chatId) + '：' + ((e && e.message) || e));
+      return null;
     }
   }
 
@@ -2898,16 +3100,17 @@ class WechatService {
     try { p = JSON.parse(body); } catch (e) {
       return jsonReply(res, 400, { ok: false, error: 'invalid_json' });
     }
-    if (!p || String(p.chat_type || p.chatType || '') !== 'group') {
-      return jsonReply(res, 200, { ok: true, recorded: false, skipped: 'not_group' });
+    if (!p) {
+      return jsonReply(res, 200, { ok: true, recorded: false, skipped: 'empty' });
     }
+    const chatType = String(p.chat_type || p.chatType || 'private') === 'group' ? 'group' : 'private';
     const chatId = String(p.chat_id || p.chatId || '').trim();
     const text = String(p.text || p.content || '').trim().slice(0, 2000);
     if (!chatId || !text) {
       return jsonReply(res, 200, { ok: true, recorded: false, skipped: 'empty' });
     }
     const msgId = String(p.msg_id || p.msgId || '').trim();
-    const key = msgId || (chatId + '|' + crypto.createHash('sha256').update(text).digest('hex').slice(0, 16));
+    const key = (msgId ? chatId + '|' + msgId : '') || (chatId + '|' + crypto.createHash('sha256').update(text).digest('hex').slice(0, 16));
     const now = Date.now();
     const old = this.listenSeen.get(key);
     if (old && now - old < 600000) {
@@ -2917,11 +3120,21 @@ class WechatService {
     if (this.listenSeen.size > 2000) {
       for (const [k, v] of this.listenSeen) if (now - v > 600000) this.listenSeen.delete(k);
     }
+    const chatTitle = String(p.chat_title || p.chatTitle || '').slice(0, 80);
+    const senderId = String(p.sender_id || p.senderId || '').slice(0, 120);
+    const senderName = String(p.sender_name || p.senderName || '').slice(0, 80);
+    // 所有消息先入长期档案；群聊额外写旁听文件，作为「最近上下文」。
+    this._archiveWechat({
+      chatId, chatType, chatTitle, senderId, senderName
+    }, 'in', text, msgId || key);
+    if (chatType !== 'group') {
+      return jsonReply(res, 200, { ok: true, archived: true, recorded: false, skipped: 'private_listen' });
+    }
     const rec = {
       chatId: chatId,
-      chatTitle: String(p.chat_title || p.chatTitle || '').slice(0, 80),
-      senderId: String(p.sender_id || p.senderId || '').slice(0, 120),
-      senderName: String(p.sender_name || p.senderName || '').slice(0, 80),
+      chatTitle: chatTitle,
+      senderId: senderId,
+      senderName: senderName,
       text: text,
       at: now,
       msgId: msgId
@@ -2977,6 +3190,70 @@ class WechatService {
     }
   }
 
+  // 按需表情只负责「图库没有的情绪」；固定分类命中时不走生成，避免每句都烧图。
+  // wait=true 时本条回复等生成结果；失败/超时就回文字，绝不让聊天卡死。
+  _queueDynamicSticker(cfg, p, name, replyText, opts) {
+    const label = cleanStickerLabel(name);
+    const miss = (error) => ({ ok: false, label: label, error: error });
+    if (!label || this.dynamicStickers.has(label)) return miss('invalid_or_busy');
+    const h = this._home(cfg);
+    if (!h || !h.home) return miss(h && h.error || 'no_whale_home');
+    const qwen = readQwenImage(h.home);
+    const nativeCfg = Object.assign({}, NATIVE_DEFAULTS, (cfg && cfg.native) || {});
+    if (!nativeCfg.stickers || !qwen.auto || !qwen.apiKeyConfigured) return miss('sticker_gen_off');
+
+    const day = new Date().toLocaleDateString('en-CA');
+    if (this.dynamicDay.key !== day) this.dynamicDay = { key: day, count: 0 };
+    if (this.dynamicDay.count >= qwen.autoMax) {
+      this._appendLog('dynamic sticker skip=day_limit label=' + label + ' count=' + this.dynamicDay.count);
+      return miss('day_limit');
+    }
+    if (this.dynamicStickers.size >= 2) {
+      this._appendLog('dynamic sticker skip=busy label=' + label);
+      return miss('busy');
+    }
+
+    const situation = ('对方说：' + String(p && p.text || '').slice(0, 180) +
+      '；鲸鲸回复：' + String(replyText || '').slice(0, 180) +
+      '。请按这个语境做出「' + label + '」的表情。').slice(0, 700);
+    const waitMs = Math.max(10000, Math.min(90000, Number(opts && opts.timeoutMs) || 30000));
+    this.dynamicStickers.set(label, { at: Date.now() });
+    this._appendLog('dynamic sticker start label=' + label + ' chat=' + shortHash(p && p.chatId) +
+      ' wait=' + (opts && opts.wait ? '1' : '0'));
+    const task = (async () => {
+      try {
+        const r = await this.stickerGenerate({
+          apiKey: qwen.apiKey,
+          model: qwen.model,
+          emotion: label,
+          situation: situation,
+          timeoutMs: waitMs
+        });
+        if (r && r.ok) {
+          this.dynamicDay.count++;
+          this.lastDynamicSticker = { at: Date.now(), label: label, ok: true, category: r.category };
+          this._appendLog('dynamic sticker ok label=' + label + ' category=' + (r.category || label) +
+            ' files=' + (Array.isArray(r.files) ? r.files.length : 0));
+          return { ok: true, label: label, category: r.category || label };
+        }
+        const error = String((r && r.error) || 'unknown').slice(0, 240);
+        this.lastDynamicSticker = { at: Date.now(), label: label, ok: false, error: error };
+        this._appendLog('dynamic sticker failed label=' + label + '：' + error);
+        return { ok: false, label: label, error: error };
+      } catch (e) {
+        const error = String((e && e.message) || e).slice(0, 240);
+        this.lastDynamicSticker = { at: Date.now(), label: label, ok: false, error: error };
+        this._appendLog('dynamic sticker failed label=' + label + '：' + error);
+        return { ok: false, label: label, error: error };
+      } finally {
+        this.dynamicStickers.delete(label);
+      }
+    })();
+    if (opts && opts.wait) return task;
+    task.catch(() => {});
+    return { ok: true, label: label, started: true };
+  }
+
   _formatPrompt(p, cfg, max, marker) {
     const kind = p.chatType === 'group'
       ? '群聊「' + (p.chatTitle || '群聊') + '」'
@@ -3019,6 +3296,8 @@ class WechatService {
       context.push('\n[语音消息已转写] 对方发的是语音，本条按语音语境回复；语音回复由通道按设置合成，不要解释技术细节。');
     }
     const categories = this._stickerCategories(cfg);
+    const qwen = readQwenImage(this._home(cfg).home);
+    const dynamicSticker = !!nativeCfg.stickers && qwen.auto && qwen.apiKeyConfigured;
     const socialPolicy = socialReply.policyFor('wechat', p.chatType, p.chatId);
     const socialPrompt = socialReply.promptFragment({
       channel: 'wechat',
@@ -3026,7 +3305,8 @@ class WechatService {
       chatId: p.chatId,
       policy: socialPolicy,
       capabilities: { sticker: !!nativeCfg.stickers },
-      categories: categories
+      categories: categories,
+      dynamicSticker: dynamicSticker
     });
     return '（微信' + kind + ' · ' + who + ' 说）\n' + p.text + roster + context.join('') +
       '\n\n[通道] 这是微信真实对话。直接回复对方，只输出要发出去的那条消息；' +
@@ -3211,15 +3491,20 @@ class WechatService {
     let text = this._clean(r.text, max);
     // 通用回复策略只做「出站裁剪」：通道不支持表情包、分类不存在、超过条数时
     // 把模型多写的 [[sticker:...]] 删掉，避免出现「正文说发了图、实际没发」。
+    // 图库没有的情绪名先记到 pending；本条等生成结果，成功才补回图，失败就只发文字。
+    const qwen = readQwenImage(this._home(cfg).home);
+    const dynamicSticker = !!nativeCfg.stickers && qwen.auto && qwen.apiKeyConfigured;
     const filtered = socialReply.filterReply(text, {
       channel: 'wechat',
       chatType: p.chatType,
       chatId: p.chatId,
       capabilities: { sticker: !!nativeCfg.stickers },
-      categories: this._stickerCategories(cfg)
+      categories: this._stickerCategories(cfg),
+      dynamicSticker: dynamicSticker
     });
     text = filtered.text;
-    if (!text) {
+    const pendingName = dynamicSticker && Array.isArray(filtered.pending) ? filtered.pending[0] : '';
+    if (!text && !pendingName) {
       this.counts.skipped++;
       this._appendLog('reply empty chat=' + shortHash(p.chatId) + ' type=' + p.chatType +
         ' session=' + String(r.sessionId || '') + ' timeout=' + !!r.timeout +
@@ -3229,7 +3514,7 @@ class WechatService {
     // 外发安全闸门：先审再截断（截在前会把 IP 截成半截，反而更难判）。
     // block ⇒ 换成固定安全话术（不静默消失）；redact ⇒ 用打码正文；shadow ⇒ pass 但闸门已记日志。
     let gated = null;
-    if (this.gate && typeof this.gate.check === 'function') {
+    if (text && this.gate && typeof this.gate.check === 'function') {
       gated = this.gate.check(text, { channel: 'wechat', chatType: p.chatType, chatId: p.chatId });
       this.lastGate = { at: Date.now(), verdict: gated.verdict, rules: (gated.rules || []).slice(0, 8) };
       if (gated.verdict === 'block') {
@@ -3248,6 +3533,29 @@ class WechatService {
           ' chat=' + shortHash(p.chatId) + ' type=' + p.chatType + ' turn=' + (r.turn || 0));
       }
     }
+
+    // 图库没有的情绪：本条同步等生成，成功才把 [[sticker:分类]] 补回正文；
+    // 超时 / Key 没费用 / 上传失败都只发正文，不阻塞、不硬发错图。
+    let finalStickers = gated && gated.verdict === 'block' ? [] : filtered.stickers.slice();
+    let pending = gated && gated.verdict === 'block' ? [] : (filtered.pending || []).slice();
+    if (pendingName && !(gated && gated.verdict === 'block')) {
+      const gen = await this._queueDynamicSticker(cfg, p, pendingName, text, { wait: true, timeoutMs: 30000 });
+      if (gen && gen.ok) {
+        const label = cleanStickerLabel(gen.label || pendingName);
+        if (label) {
+          finalStickers.push(label);
+          text = text ? text + ' [[sticker:' + label + ']]' : '[[sticker:' + label + ']]';
+          pending = (filtered.pending || []).slice(1);
+        }
+      }
+    }
+    if (!text) {
+      this.counts.skipped++;
+      this._appendLog('reply empty chat=' + shortHash(p.chatId) + ' type=' + p.chatType +
+        ' session=' + String(r.sessionId || '') + ' timeout=' + !!r.timeout +
+        ' turn=' + (r.turn || 0));
+      return { ok: true, text: '', skipped: r.timeout ? 'timeout' : 'empty_reply', turn: r.turn || 0 };
+    }
     this.counts.replied++;
     this.counts.lastAt = Date.now();
     this.counts.lastChat = shortHash(p.chatId);
@@ -3263,7 +3571,8 @@ class WechatService {
         chatType: p.chatType,
         chatId: p.chatId,
         text: text,
-        stickers: gated && gated.verdict === 'block' ? [] : filtered.stickers,
+        stickers: gated && gated.verdict === 'block' ? [] : finalStickers,
+        pending: gated && gated.verdict === 'block' ? [] : pending,
         dropped: filtered.dropped
       });
     } catch (e) {
@@ -3355,6 +3664,7 @@ module.exports = {
 //   node 外壳\微信通道.js status
 //   node 外壳\微信通道.js selfcheck
 //   node 外壳\微信通道.js sticker-generate
+//   node 外壳\微信通道.js sticker-generate --emotion "惊讶" --situation "对方讲了个意外消息"
 //   node 外壳\微信通道.js sticker-send --chat "静音胡闹"
 if (require.main === module) {
   const cmd = String(process.argv[2] || 'status');
@@ -3369,7 +3679,9 @@ if (require.main === module) {
     if (cmd === 'stop') return svc.stop();
     if (cmd === 'sticker-generate') return svc.stickerGenerate({
       apiKey: String(process.env.QWEN_API_KEY || ''),
-      category: cli('category')
+      category: cli('category'),
+      emotion: cli('emotion'),
+      situation: cli('situation')
     });
     if (cmd === 'sticker-send') return svc.stickerSend({
       chat: cli('chat'),
