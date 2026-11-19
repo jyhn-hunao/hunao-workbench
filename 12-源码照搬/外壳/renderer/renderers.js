@@ -7856,6 +7856,28 @@ renderers.channels = function (body, meta, head) {
 
   var collapsed = false;
   if (head && typeof head.appendChild === 'function') {
+    // 通用回复入口：常驻文字按钮，不藏进齿轮/右键/长弹层。
+    // 微信 / QQ / 飞书共用一套语气、emoji、表情包频率；通道自己的能力在弹窗里只读展示。
+    var replyBtn = document.createElement('button');
+    replyBtn.type = 'button';
+    replyBtn.className = 'ch-hub-toggle';
+    replyBtn.textContent = '回复风格';
+    replyBtn.title = '配置微信 / QQ / 飞书共用的语气、emoji、表情包频率与会话登记';
+    replyBtn.addEventListener('click', function () {
+      if (typeof window.openSocialReplySettings !== 'function') {
+        toast('回复风格设置还没接上：重启一次工作台（preload / renderer 是旧的）', true);
+        return;
+      }
+      replyBtn.disabled = true;
+      Promise.resolve(window.openSocialReplySettings()).then(function () {
+        replyBtn.disabled = false;
+      }).catch(function (e) {
+        replyBtn.disabled = false;
+        toast('打开回复风格设置失败：' + String((e && e.message) || e), true);
+      });
+    });
+    head.appendChild(replyBtn);
+
     var gateState = document.createElement('span');
     gateState.className = 'ch-gate-state';
     gateState.textContent = '闸门 读取中…';
