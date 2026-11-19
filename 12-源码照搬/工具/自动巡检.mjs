@@ -46,7 +46,11 @@ function runOne(t, node) {
   })
   const out = (String(r.stdout || '') + '\n' + String(r.stderr || '')).trim()
   const lines = out.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
-  const tail = lines.filter((l) => /^✗|^⛔|^!|全部通过|通过|健康|✓/.test(l)).pop() || lines[lines.length - 1] || ''
+  // 2026-11-19 修：失败时不能取最后一条「✓」当原因（旧版把 check-gui 的 6 个 FAIL
+  // 显示成一条「✓ 版本不一致的提示样式在位」，看报告的人会以为只是样式问题）。
+  const passLine = lines.filter((l) => /全部通过|通过|健康|✓/.test(l)).pop()
+  const failLine = lines.filter((l) => /^✗|^⛔|^!|FAIL|^发现\s+\d+\s+个/.test(l)).pop()
+  const tail = (r.status === 0 && !r.error ? passLine : (failLine || lines[lines.length - 1])) || ''
   return {
     name: t.name, ok: r.status === 0 && !r.error, code: r.status,
     ms: Date.now() - t0, tail: tail.slice(0, 200),

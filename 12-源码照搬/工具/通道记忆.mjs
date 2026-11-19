@@ -64,11 +64,19 @@ files = files.slice(0, 12);          // 只扫最近 12 个会话，防止越跑
 
 // 2. 按会话解：通道消息（them）带平台标记；她的回复本身没有标记，所以不能按 key 过滤掉。
 //    同一条消息可能在多个 inbox 事件里重复出现，按「角色 + 原文前 80 字」去重。
+// 2026-11-19 补：微信信封与注入块（联网检索结果 / 通道 / 社交回复规范 / 旁听记录）都要剥掉，
+//    否则人格记忆里记的是整段系统提示词，不是对方说的话。
+const CUT_MARK = /^(?:\[(?:联网检索结果|通道|群聊旁听记录|最近群聊上下文|链接已抽取|语音消息已转写|系统)\]|【社交回复规范】)/;
 function bodyOf(t) {
-  const raw = String(t || '').trim();
-  const m = /（(?:QQ|飞书)[^）]*）/ .exec(raw);
-  if (m) return raw.slice(m.index + m[0].length).trim();
-  return raw.replace(/^（关于他[^）]*）/,'').replace(/^（\d{4}-\d{2}-\d{2}[^）]*）\[#[^\]]*\]/,'').trim();
+  let raw = String(t || '').trim();
+  const m = /（(?:QQ|飞书|微信)[^）]*）/.exec(raw);
+  if (m) raw = raw.slice(m.index + m[0].length).trim();
+  else raw = raw.replace(/^（关于他[^）]*）/, '').replace(/^（\d{4}-\d{2}-\d{2}[^）]*）\[#[^\]]*\]/, '').trim();
+  // 注入块从第一个标记行开始，后面全是系统上下文；只保留标记之前对方真正说的话
+  const lines = raw.split(/\r?\n/);
+  const cut = lines.findIndex((l) => CUT_MARK.test(l.trim()));
+  const keep = (cut >= 0 ? lines.slice(0, cut) : lines).join('\n');
+  return keep.replace(/〔WX#[0-9a-f]{8}〕/gi, '').replace(/\[\[sticker:[^\]]+\]\]/gi, '').replace(/\s+/g, ' ').trim();
 }
 // 2.2 她真正发出去的话：从桥接日志里按「被引用的消息 id」对上（转录里有时只有空的 assistant 消息）
 const replyById = {};
@@ -111,7 +119,12 @@ for (let i = 0; i < line.length; i++) {
   const hers = [];
   for (let j = i + 1; j < line.length && hers.length < 3; j++) {
     const nx = line[j];
-    if (nx.role === 'them' && nx.key !== 'other') break;   // 只有「下一句通道来话」才算打断；换会话注入的开场/系统消息不算
+    if (nx.role === 'them' && nx.key !== 'other') {
+      // 同一条消息的重复事件（转录里 inbox + user/message 各一条）不算「下一句来话」，
+      // 否则她明明回了也会在这里被打断，记成「未回」。
+      if (nx.key === m.key && String(nx.text || '').slice(0, 80) === String(m.text || '').slice(0, 80) && Math.abs(nx.at - m.at) <= 5000) continue;
+      break;   // 只有「下一句真的通道来话」才算打断；换会话注入的开场/系统消息不算
+    }
     if (nx.at - m.at > 15 * 60 * 1000) break;
     if (nx.text) hers.push(nx.text);
   }
@@ -120,7 +133,7 @@ for (let i = 0; i < line.length; i++) {
   if (lg && lg.text && hers.indexOf(lg.text) < 0) hers.unshift(lg.text);
   groups.push({ key: m.key, at: m.at, them: m.text, hers });
 }
-if (!groups.length) { say('✓ 最近 ' + DAYS + ' 天的会话里没有通道往来（QQ / 飞书）'); process.exit(0); }
+if (!groups.length) { say('✓ 最近 ' + DAYS + ' 天的会话里没有通道往来（QQ / 飞书 / 微信）'); process.exit(0); }
 // 3. 游标：已记过的消息不再记（按 平台+时间+原话 的短哈希）
 let state = {};
 try { state = JSON.parse(fs.readFileSync(CURSOR, 'utf8')) || {}; } catch (e) { state = {}; }
@@ -141,10 +154,16 @@ for (const g of fresh.slice(-LIMIT)) {
   const k = g.key + '|' + d.date;
   if (!buckets.has(k)) buckets.set(k, { key: g.key, date: d.date, start: d.hm, items: [] });
   const b = buckets.get(k);
-  const clean = (t) => String(t).replace(/[|｜]/g, '｜').replace(/\s+/g, ' ').slice(0, 200);
+  const clean = (t) => String(t)
+    .replace(/\[\[sticker:[^\]]+\]\]/gi, '')
+    .replace(/〔WX#[0-9a-f]{8}〕/gi, '')
+    .replace(/[|｜]/g, '｜')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 200);
   b.items.push(d.hm + ' 他：' + clean(g.them) + (g.hers.length ? ' → 她：' + g.hers.map(clean).join(' / ') : ' → 她：（未回）'));
 }
-const PLAT = { qq: 'QQ', feishu: '飞书' };
+const PLAT = { qq: 'QQ', feishu: '飞书', wechat: '微信' };
 
 if (DRY) {
   say('（--dry）会写 ' + buckets.size + ' 条，共 ' + fresh.length + ' 组往来：');
