@@ -6678,6 +6678,18 @@ html[data-theme="light"] .kneu-btn { border-color: var(--line-2); }
 .ch-input:focus { outline: 1px solid var(--accent); outline-offset: 1px; }
 .ch-input:disabled { opacity: .55; }
 .ch-account-pick .ch-btn { align-self: flex-start; }
+/* QQ 私聊/群聊独立会话：表单一行放类型、号码、备注；路由行右侧只留移除 */
+.ch-qq-route-form { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.ch-qq-route-form .ch-select { width: auto; min-width: 72px; flex: 0 0 auto; }
+.ch-qq-route-form .ch-input { flex: 1 1 120px; width: auto; min-width: 0; }
+.ch-qq-route-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.ch-qq-route-row .ch-btn { flex: 0 0 auto; margin-left: auto; }
+/* QQ 群旁听 / 随机接话：参数按网格铺开，一次改一项；状态行始终在顶部 */
+.ch-qq-group-actions { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 4px; }
+.ch-qq-group-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 10px; margin-top: 6px; }
+.ch-qq-group-field { display: flex; flex-direction: column; gap: 2px; min-width: 0; font-size: 12px; color: var(--text-dim); }
+.ch-qq-group-field .ch-input { font-variant-numeric: tabular-nums; }
+.ch-qq-group-row { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ch-detail { font-size: 12px; line-height: 1.5; color: var(--text-dim); }
 .ch-detail.is-warn { color: var(--warn); }
 .ch-stats { font-size: 12px; color: var(--text-dim); padding-top: 2px; border-top: 1px solid var(--border); }

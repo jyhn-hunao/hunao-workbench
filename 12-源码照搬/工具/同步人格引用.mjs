@@ -7,7 +7,8 @@
 // 唯一真源：外壳\scenarios\pet.json 的 panel `pet-ai`（sessionId + sessionTitle）。
 // 同步范围：
 //   1) 外壳\scenarios\*.json 里 sessionTitle 与人格相同的面板（通道卡片 / 消息流）→ 改 sessionId
-//   2) %USERPROFILE%\.dsh\qq-bridge.config.json 的 routes.private[*].sessionId（+ 老字段 sessionId）
+//   2) %USERPROFILE%\.dsh\qq-bridge.config.json 的 routes.private[*] / routes.group[*].sessionId
+//      只同步仍共用人格主会话的 route；社交会话表里 chatMode=per-chat 的独立私聊/群聊保持不动
 // 安全：写前备份（.bak-时间戳）；json 原子写（.tmp → rename）；幂等，没差异就只报「已是最新」。
 //
 // 用法：
@@ -24,6 +25,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SCEN = path.join(ROOT, '外壳', 'scenarios');
 const PET = path.join(SCEN, 'pet.json');
 const CONF = path.join(os.homedir(), '.dsh', 'qq-bridge.config.json');
+const SOCIAL = path.join(ROOT, '引擎数据', '.dsh', '场景记忆', '_共享记忆', '社交会话.json');
 const DRY = process.argv.includes('--dry');
 const CHECK = process.argv.includes('--check');
 const say = (s) => console.log(s);
@@ -78,13 +80,26 @@ if (!qqAuto) {
 } else if (fs.existsSync(CONF)) {
   const cfg = readJson(CONF);
   if (!cfg) { say('✗ 插件配置不是合法 JSON：' + CONF); process.exit(3); }
-  const routes = (cfg.routes && cfg.routes.private) || {};
+  const socialRaw = readJson(SOCIAL) || {};
+  const social = socialRaw.sessions && typeof socialRaw.sessions === 'object' ? socialRaw.sessions : socialRaw;
+  const routeTables = [
+    ['private', (cfg.routes && cfg.routes.private) || {}],
+    ['group', (cfg.routes && cfg.routes.group) || {}]
+  ];
   let touched = 0;
-  for (const k of Object.keys(routes)) {
-    if (String(routes[k].sessionId || '') === sid) continue;
-    changes.push({ kind: 'qq', key: k, from: String(routes[k].sessionId || '(空)'), to: sid });
-    routes[k].sessionId = sid;
-    touched += 1;
+  for (const [kind, routes] of routeTables) {
+    for (const k of Object.keys(routes)) {
+      const old = routes[k] || {};
+      const oldSid = String(old.sessionId || '');
+      const rec = social[oldSid] || {};
+      // 每个聊天独立会话：社交会话表里带 per-chat 标记的 route 不再跟着人格主会话走。
+      // 否则换一次人格会话就会把 QQ 私聊/群聊全部冲回主会话，串数据复发。
+      if (rec && rec.chatMode === 'per-chat' && String(rec.chatId || k) === String(k)) continue;
+      if (oldSid === sid) continue;
+      changes.push({ kind: 'qq', key: kind + '[' + k + ']', from: oldSid || '(空)', to: sid });
+      old.sessionId = sid;
+      touched += 1;
+    }
   }
   if (cfg.sessionId !== undefined && String(cfg.sessionId) !== sid) {
     changes.push({ kind: 'qq', key: '(顶层 sessionId)', from: String(cfg.sessionId), to: sid });

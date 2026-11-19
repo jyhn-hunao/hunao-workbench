@@ -17,6 +17,8 @@ const fs = require('fs');
 const crypto = require('crypto');
 const projectSwitch = require('./项目切换');   // 程序开发场景「项目下拉」的数据面（可单测：scripts\项目切换自检.mjs）
 const socialSvc = require('./社交');           // 社交场景「消息流」的数据面（只读 transcript + 探 OneBot 端口；可单测：工具\消息流.mjs）
+const qqChatSvc = require('./QQ会话');         // QQ 私聊/群聊独立 DSH 会话路由（建会话 + 写 qq-bridge routes）
+const qqGroupSvc = require('./QQ群聊');        // QQ 群旁听 + 随机接话（不抢 @ 原生路由）
 const bridgeSvc = require('./桥接');           // QQ 个人号桥接（SnowLuma）的进程面：随壳启动/退出、面板按钮按需打开
 const wechatSvc = require('./微信通道');       // 微信个人号通道（whale_girl）的进程面 + 31241 换脑适配器
 const outGateSvc = require('./外发闸门');       // 外发安全闸门：QQ 代理 + 正文判定 + 审计（唯一判据出处）
@@ -4547,6 +4549,39 @@ const socialReplySvc = require('./社交回复');
 ipcMain.handle('social:reply-policy-get', () => socialReplySvc.settingsGet(DSH_HOME));
 ipcMain.handle('social:reply-policy-save', (e, patch) => socialReplySvc.settingsSave(patch || {}, DSH_HOME));
 
+// ---- QQ 私聊 / 群聊独立会话（2026-11-19）----
+// 用户原话：QQ 也要私聊群聊独立会话，不然会串数据。这里只改 Q 桥接的 routes，
+// 建会话走 建会话.mjs；写配置优先走插件 /api/qq-bridge/save 热生效，失败才落文件等重启。
+const qqChatService = qqChatSvc.createService({
+  dshHome: DSH_HOME,
+  scenariosDir: SCENARIOS_DIR,
+  base: BASE,
+  getToken: function () { return harnessToken; },
+  env: function (extra) { return scriptEnv(extra); },
+  log: log
+});
+ipcMain.handle('qq-chat:status', () => qqChatService.status());
+ipcMain.handle('qq-chat:ensure', () => qqChatService.ensureAll());
+ipcMain.handle('qq-chat:add', (e, args) => qqChatService.add(args || {}));
+ipcMain.handle('qq-chat:remove', (e, args) => qqChatService.remove(args || {}));
+ipcMain.handle('qq-chat:contacts', () => qqChatService.contacts());
+
+// ---- QQ 群聊旁听 / 随机接话（2026-11-19）----
+// 普通 @ 仍由 dsh-onebot-channel 走原路由；这里只旁听没被 @ 的群消息，
+// 按概率和闸门决定是否在那个群的独立 DSH 会话里生成一句，再用 OneBot 发出去。
+const qqGroupService = qqGroupSvc.createService({
+  dshHome: DSH_HOME,
+  base: BASE,
+  getToken: function () { return harnessToken; },
+  // 外发闸门在下方创建（outGateService）；这里延迟取，群消息发送时它一定已就绪。
+  gate: { sendGroupText: function (groupId, text) { return outGateService.sendQqGroupText(groupId, text); } },
+  log: log
+});
+ipcMain.handle('qq-group:status', () => qqGroupService.statusGet());
+ipcMain.handle('qq-group:settings-get', () => qqGroupService.settingsGet());
+ipcMain.handle('qq-group:settings-save', (e, patch) => qqGroupService.settingsSave(patch || {}));
+ipcMain.handle('qq-group:refresh', () => qqGroupService.refreshGroups());
+
 // ---- 社交消息流的视图偏好（2026-11-17）----
 // 只存两个值：时间范围（today/7/30/all）+ 归档游标（毫秒）。为什么放主进程 userData：
 //   localStorage 可能被清理软件连带清掉；这里丢了也只是回默认，不影响消息源（transcript 只读）。
@@ -5589,6 +5624,15 @@ if (!gotLock) {
         outGateService.ensureQqProxy().catch(function (e) { log('[gate] QQ 接管重试失败: ' + ((e && e.message) || e)); });
       }, 20000);
     } catch (err) { log('[gate] QQ 接管异常: ' + ((err && err.message) || err)); }
+    // QQ 私聊/群聊独立会话：引擎就绪后把共用/重复的 routes 迁成各自会话。
+    // 5 秒先试一次；token 行有时比端口晚到，20 秒再兜一次（幂等，迁过就不会重复建）。
+    function ensureQqChatRoutes(why) {
+      qqChatService.ensureAll().then(function (r) {
+        if (r && r.changed) log('[qq-chat] 启动迁移完成（' + why + '）：' + JSON.stringify(r.status || {}));
+      }).catch(function (e) { log('[qq-chat] 启动迁移失败（' + why + '）: ' + ((e && e.message) || e)); });
+    }
+    setTimeout(function () { ensureQqChatRoutes('5s'); }, 5000);
+    setTimeout(function () { ensureQqChatRoutes('20s'); }, 20000);
     // 2026-10-24：升级/崩溃保险 —— 后台跑，引擎 60 秒没起来就自动回退（不阻塞启动）
     guardCheckAfterBoot().catch(function (e) { log('[guard] 检查自身失败：' + ((e && e.message) || e)); });
   }).catch(function (err) {

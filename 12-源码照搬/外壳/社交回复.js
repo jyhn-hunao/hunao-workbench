@@ -417,6 +417,9 @@ function entryOf(item) {
     chatId: String(it.chatId || ''),
     chatTitle: String(it.chatTitle || ''),
     title: String(it.title || it.sessionTitle || ''),
+    // 每个聊天独立 DSH 会话的标记：同步人格引用靠它区分「独立会话」和「共用人格主会话」，
+    // 不然换人格会话时会把独立 route 又冲回主会话，串数据的问题会复发。
+    chatMode: String(it.chatMode || ''),
     senderName: String(it.senderName || it.lastSender || ''),
     updatedAt: Number(it.updatedAt || it.lastAt || Date.now()) || Date.now()
   };
@@ -533,6 +536,8 @@ function syncQqSessions(dshHome) {
       const prefix = String(route.prefix || '');
       const chatTitle = prefix || (typ === 'group' ? 'QQ 群 ' + id : 'QQ ' + id);
       const old = existing[String(route.sessionId)];
+      const keepName = old && old.chatMode === 'per-chat' && old.chatTitle;
+      const keepTitle = old && old.title;
       // 配置没变时不刷新 updatedAt，否则每 10 秒巡检都会写一次总表。
       items[String(route.sessionId)] = {
         scene: '胡闹的大肥鱼',
@@ -541,9 +546,10 @@ function syncQqSessions(dshHome) {
         account: self,
         chatType: typ,
         chatId: String(id),
-        chatTitle: chatTitle,
-        title: chatTitle,
+        chatTitle: String(keepName || chatTitle),
+        title: String(keepTitle || chatTitle),
         senderName: '',
+        chatMode: old && old.chatMode === 'per-chat' ? 'per-chat' : '',
         updatedAt: old && old.channel === 'qq' ? old.updatedAt : (Number(route.updatedAt) || Date.now())
       };
     }

@@ -1078,6 +1078,42 @@ function createService(opts) {
     return selfTest();
   }
 
+  // QQ 群文本发送（2026-11-19）：发送动作只允许出现在闸门本体里。
+  // 群消息也是「她发到工作台之外」的正文，先按同一套规则审：block 不发、redact 用打码正文。
+  // 闸门接管时 onebotHttp 已指向本地代理（applyQqProxy 写的），这一发在代理里还会再过一次。
+  async function sendQqGroupText(groupId, text) {
+    const body = String(text || '');
+    const ctx = { channel: 'qq', chatType: 'group', chatId: String(groupId || '') };
+    const g = check(body, ctx);
+    if (g.verdict === 'block') {
+      return { ok: false, blocked: true, rules: (g.rules || []).slice(0, 8), fallback: String(g.fallback || '') };
+    }
+    const finalText = g.verdict === 'redact' ? String(g.text || body) : body;
+    const qq = readJson(QQ_CONFIG_FILE) || {};
+    const url = String(qq.onebotHttp || '').trim();
+    if (!url) return { ok: false, error: 'QQ 协议端地址为空（qq-bridge.config.json onebotHttp）' };
+    const r = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer ' + String(qq.token || '')
+      },
+      body: JSON.stringify({
+        action: 'send_group_msg',
+        params: { group_id: Number(groupId), message: [{ type: 'text', data: { text: finalText } }] }
+      }),
+      signal: AbortSignal.timeout(8000)
+    });
+    const raw = await r.text();
+    let j = null;
+    try { j = JSON.parse(raw); } catch (e) { /* 下面按原文报 */ }
+    if (!r.ok) return { ok: false, error: 'OneBot HTTP ' + r.status + '：' + raw.slice(0, 120) };
+    if (!j || Number(j.retcode) !== 0) {
+      return { ok: false, error: 'OneBot send_group_msg 返回 retcode ' + (j && j.retcode) + '：' + raw.slice(0, 120) };
+    }
+    return { ok: true, messageId: String((j.data && j.data.message_id) || ''), text: finalText, verdict: g.verdict };
+  }
+
   async function stop() {
     await stopProxy();
   }
@@ -1087,6 +1123,7 @@ function createService(opts) {
     stop: stop,
     check: check,
     testText: testText,
+    sendQqGroupText: sendQqGroupText,
     getSettings: getSettings,
     saveSettings: saveSettings,
     refreshAssets: refreshAssets,

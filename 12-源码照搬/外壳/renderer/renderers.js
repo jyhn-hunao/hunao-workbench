@@ -7352,7 +7352,10 @@ renderers.chan = function (body, meta, head) {
   var KEY = String(meta.channel || '');
   var st = { ch: null, err: '', others: 0, at: 0, busy: false, toasted: false,
     checks: null, checking: false, action: '', accountSel: null,
-    auto: null, autoBusy: false, autoModeDraft: null, autoUinDraft: null, autoEditing: false, autoSig: '' };
+    auto: null, autoBusy: false, autoModeDraft: null, autoUinDraft: null, autoEditing: false, autoSig: '',
+    routes: null, routesErr: '', routesBusy: '', routeKind: 'private', routeId: '', routeName: '',
+    routeEditing: false, routeContacts: null, routeContactBusy: false, routeSig: '',
+    qqGroup: null, qqGroupErr: '', qqGroupBusy: '', qqGroupEditing: false, qqGroupDraft: null, qqGroupSig: '' };
 
   var card = document.createElement('div');
   card.className = 'ch-card';
@@ -7716,6 +7719,440 @@ renderers.chan = function (body, meta, head) {
       sendTest, busy));
     card.appendChild(acts);
   }
+
+  // ---------- QQ 会话隔离（2026-11-19）----------
+  // QQ 的 routes.private/group 是「一个聊天 → 一个 DSH 会话」。这里把每个私聊/群单独绑会话，
+  // 并把「共用主会话」显式标出来；用户不用翻 qq-bridge.config.json 才知道有没有生效。
+  function qqChatApi() { return (window.app && window.app.qqChats) || null; }
+
+  function loadQqRoutes() {
+    if (KEY !== 'qq') return;
+    var api = qqChatApi();
+    if (!api || typeof api.status !== 'function') {
+      st.routesErr = '需重启一次工作台：主进程/preload 还是旧的（没有 qqChats.status）';
+      draw();
+      return;
+    }
+    Promise.resolve(api.status()).then(function (r) {
+      if (!r || r.ok === false) {
+        st.routesErr = '读取 QQ 路由失败：' + ((r && r.error) || '主进程没返回');
+        draw();
+        return;
+      }
+      st.routesErr = '';
+      st.routes = r;
+      var sig = JSON.stringify({ shared: r.shared, independent: r.independent, routes: r.routes });
+      if (sig !== st.routeSig) { st.routeSig = sig; draw(); }
+    }).catch(function (e) {
+      st.routesErr = '读取 QQ 路由失败：' + String((e && e.message) || e);
+      draw();
+    });
+  }
+
+  function drawQqRoutes() {
+    if (KEY !== 'qq') return;
+    var box = document.createElement('div');
+    box.className = 'ch-account-pick ch-qq-routes';
+    var lab = document.createElement('div');
+    lab.className = 'ch-account-pick-label';
+    lab.textContent = 'QQ 会话隔离（私聊 / 群聊各自一条 DSH 会话）';
+    box.appendChild(lab);
+
+    var api = qqChatApi();
+    if (!api || typeof api.status !== 'function') {
+      var miss = document.createElement('div');
+      miss.className = 'ch-account-pick-empty';
+      miss.textContent = st.routesErr || '读取中…（一直这样 = 主进程/preload 是旧的，重启一次工作台）';
+      box.appendChild(miss);
+      card.appendChild(box);
+      return;
+    }
+
+    if (st.routesErr) {
+      var er = document.createElement('div');
+      er.className = 'ch-detail is-warn';
+      er.textContent = st.routesErr;
+      box.appendChild(er);
+    }
+
+    var r = st.routes;
+    if (!r) {
+      var wait = document.createElement('div');
+      wait.className = 'ch-account-pick-empty';
+      wait.textContent = '读取中…';
+      box.appendChild(wait);
+      card.appendChild(box);
+      return;
+    }
+
+    var sum = document.createElement('div');
+    sum.className = 'ch-account-pick-empty';
+    sum.textContent = '私聊 ' + (Number(r.privates) || 0) + ' · 群 ' + (Number(r.groups) || 0)
+      + ' · 独立 ' + (Number(r.independent) || 0) + (r.shared ? ' · 共用主会话 ' + r.shared : '');
+    box.appendChild(sum);
+
+    if (r.shared) {
+      var ensure = chBtn(st.routesBusy === 'ensure' ? '迁移中…' : '把共用路由迁成独立会话',
+        '给每个共用主会话的 QQ 私聊/群建一条独立 DSH 会话并改绑 routes；不会动聊天记录',
+        function () {
+          if (st.routesBusy) return;
+          st.routesBusy = 'ensure'; draw();
+          Promise.resolve(api.ensure()).then(function (x) {
+            st.routesBusy = '';
+            if (!x || x.ok === false) { toast('迁移失败：' + ((x && x.error) || '未知原因'), true); }
+            else {
+              var note = x.saved && x.saved.restartRequired ? '；配置已落文件，重启整壳后生效' : '';
+              toast((x.changed ? '已迁成独立会话' : '已经都是独立会话') + note, !!note);
+            }
+            loadQqRoutes(); draw();
+          }).catch(function (e) {
+            st.routesBusy = '';
+            toast('迁移失败：' + String((e && e.message) || e), true);
+            draw();
+          });
+        }, !!st.routesBusy);
+      box.appendChild(ensure);
+    }
+
+    // 新增聊天：必须手动加 QQ 号/群号，明确「加了才监听」；不做静默全量接入。
+    var form = document.createElement('div');
+    form.className = 'ch-qq-route-form';
+    var kind = document.createElement('select');
+    kind.className = 'ch-select';
+    kind.title = '私聊：单个 QQ 号；群聊：QQ 群号。加完后插件才会监听这个聊天。';
+    [['private', '私聊'], ['group', '群聊']].forEach(function (o) {
+      var op = document.createElement('option');
+      op.value = o[0]; op.textContent = o[1]; kind.appendChild(op);
+    });
+    kind.value = st.routeKind;
+    kind.disabled = !!st.routesBusy;
+    kind.addEventListener('change', function () { st.routeKind = kind.value; });
+    kind.addEventListener('focus', function () { st.routeEditing = true; });
+    kind.addEventListener('blur', function () { st.routeEditing = false; });
+    form.appendChild(kind);
+
+    var idInp = document.createElement('input');
+    idInp.className = 'ch-input';
+    idInp.type = 'text';
+    idInp.inputMode = 'numeric';
+    idInp.placeholder = 'QQ号 / 群号，例：2310468741';
+    idInp.value = st.routeId;
+    idInp.disabled = !!st.routesBusy;
+    idInp.addEventListener('input', function () { st.routeId = idInp.value; });
+    idInp.addEventListener('focus', function () { st.routeEditing = true; });
+    idInp.addEventListener('blur', function () { st.routeEditing = false; });
+    form.appendChild(idInp);
+
+    var nameInp = document.createElement('input');
+    nameInp.className = 'ch-input';
+    nameInp.type = 'text';
+    nameInp.placeholder = '备注名（可选，方便认人）';
+    nameInp.value = st.routeName;
+    nameInp.disabled = !!st.routesBusy;
+    nameInp.addEventListener('input', function () { st.routeName = nameInp.value; });
+    nameInp.addEventListener('focus', function () { st.routeEditing = true; });
+    nameInp.addEventListener('blur', function () { st.routeEditing = false; });
+    form.appendChild(nameInp);
+
+    var add = chBtn(st.routesBusy === 'add' ? '接入中…' : '接入并建独立会话',
+      '先建一条独立 DSH 会话，再把这类聊天的 routes 指过去；建成功后才算接通',
+      function () {
+        if (st.routesBusy) return;
+        var id = String(st.routeId || '').replace(/\D/g, '');
+        if (!/^\d{5,12}$/.test(id)) { toast('QQ号/群号要 5–12 位数字', true); return; }
+        st.routesBusy = 'add'; draw();
+        Promise.resolve(api.add({ kind: st.routeKind, id: id, name: st.routeName })).then(function (x) {
+          st.routesBusy = '';
+          if (!x || x.ok === false) { toast('接入失败：' + ((x && x.error) || '未知原因'), true); }
+          else {
+            st.routeId = ''; st.routeName = '';
+            var note = x.saved && x.saved.restartRequired ? '；配置已落文件，重启整壳后生效' : '';
+            toast((x.reused ? '这个聊天已经有独立会话，已复用' : '已建独立会话并接入 QQ') + note, !!note);
+          }
+          loadQqRoutes(); draw();
+        }).catch(function (e) {
+          st.routesBusy = '';
+          toast('接入失败：' + String((e && e.message) || e), true);
+          draw();
+        });
+      }, !!st.routesBusy);
+    form.appendChild(add);
+    box.appendChild(form);
+
+    var list = Array.isArray(r.routes) ? r.routes : [];
+    if (!list.length) {
+      var none = document.createElement('div');
+      none.className = 'ch-account-pick-empty';
+      none.textContent = '还没有 QQ 聊天路由。加一个 QQ 号/群号后，插件才会监听它。';
+      box.appendChild(none);
+    } else {
+      list.forEach(function (row) {
+        var line = document.createElement('div');
+        line.className = 'ch-account-pick-empty ch-qq-route-row';
+        var word = row.kind === 'group' ? '群' : '私聊';
+        line.textContent = word + ' ' + row.id + ' · '
+          + (row.independent ? '独立会话' : (row.shared ? '共用人格主会话' : '未绑定会话'))
+          + (row.sessionTitle ? ' · ' + row.sessionTitle : '');
+        line.title = 'DSH 会话：' + (row.sessionId || '（空）') + (row.chatTitle ? '\n聊天备注：' + row.chatTitle : '');
+        var del = chBtn('移除', '只解除这个聊天的路由，不删除已有会话；之后这个聊天不会再进来', function () {
+          if (st.routesBusy) return;
+          var ok = true;
+          try { ok = window.confirm('解除「' + word + ' ' + row.id + '」的 QQ 路由？\n只改路由，不删聊天记录；之后这个聊天不会再自动进来。'); } catch (e) { ok = true; }
+          if (!ok) return;
+          st.routesBusy = 'remove'; draw();
+          Promise.resolve(api.remove({ kind: row.kind, id: row.id })).then(function (x) {
+            st.routesBusy = '';
+            var note = x && x.saved && x.saved.restartRequired ? '；配置已落文件，重启整壳后生效' : '';
+            toast(x && x.ok === false ? ('移除失败：' + ((x && x.error) || '未知原因')) : ('已解除该聊天的路由' + note), !!(x && x.ok === false) || !!note);
+            loadQqRoutes(); draw();
+          }).catch(function (e) {
+            st.routesBusy = '';
+            toast('移除失败：' + String((e && e.message) || e), true);
+            draw();
+          });
+        }, !!st.routesBusy);
+        line.appendChild(del);
+        box.appendChild(line);
+      });
+    }
+
+    card.appendChild(box);
+  }
+
+  // ---------- QQ 群旁听 / 随机接话（2026-11-19）----------
+  // 状态常驻：已连/未连、监听几个群、最近为什么没接（quiet_gap / chance / at_other / cooldown），
+  // 以及最近一次接话。开关默认关，打开才按概率接话；不存在「打开就每句都回」的默认。
+  function qqGroupApi() { return (window.app && window.app.qqGroups) || null; }
+
+  function loadQqGroup() {
+    if (KEY !== 'qq') return;
+    var api = qqGroupApi();
+    if (!api || typeof api.status !== 'function') {
+      st.qqGroupErr = '需重启一次工作台：主进程/preload 还是旧的（没有 qqGroups.status）';
+      draw();
+      return;
+    }
+    Promise.resolve(api.status()).then(function (r) {
+      if (!r || r.ok === false) {
+        st.qqGroupErr = '读取 QQ 群旁听失败：' + ((r && r.error) || '主进程没返回');
+        draw();
+        return;
+      }
+      st.qqGroupErr = '';
+      st.qqGroup = r;
+      if (!st.qqGroupDraft && r.settings) st.qqGroupDraft = Object.assign({}, r.settings);
+      var sig = JSON.stringify({
+        settings: r.settings,
+        connected: r.connected,
+        counts: r.counts,
+        groups: r.groups,
+        lastDecision: r.lastDecision,
+        lastReply: r.lastReply,
+        lastError: r.lastError
+      });
+      if (sig !== st.qqGroupSig) { st.qqGroupSig = sig; draw(); }
+    }).catch(function (e) {
+      st.qqGroupErr = '读取 QQ 群旁听失败：' + String((e && e.message) || e);
+      draw();
+    });
+  }
+
+  function drawQqGroup() {
+    if (KEY !== 'qq') return;
+    var box = document.createElement('div');
+    box.className = 'ch-account-pick ch-qq-group';
+    var lab = document.createElement('div');
+    lab.className = 'ch-account-pick-label';
+    lab.textContent = 'QQ 群旁听 / 随机接话';
+    box.appendChild(lab);
+
+    var api = qqGroupApi();
+    if (!api || typeof api.status !== 'function') {
+      var miss = document.createElement('div');
+      miss.className = 'ch-account-pick-empty';
+      miss.textContent = st.qqGroupErr || '读取中…（一直这样 = 主进程/preload 是旧的，重启一次工作台）';
+      box.appendChild(miss);
+      card.appendChild(box);
+      return;
+    }
+    if (st.qqGroupErr) {
+      var er = document.createElement('div');
+      er.className = 'ch-detail is-warn';
+      er.textContent = st.qqGroupErr;
+      box.appendChild(er);
+    }
+    var g = st.qqGroup;
+    if (!g) {
+      var wait = document.createElement('div');
+      wait.className = 'ch-account-pick-empty';
+      wait.textContent = '读取中…';
+      box.appendChild(wait);
+      card.appendChild(box);
+      return;
+    }
+
+    var s = g.settings || {};
+    var draft = st.qqGroupDraft || s;
+    if (!st.qqGroupDraft) st.qqGroupDraft = Object.assign({}, s);
+    var connected = !!g.connected;
+    var freeOn = draft.freeChat === true;
+    var boundGroups = (g.groups || []).filter(function (row) { return row && row.managed !== false; });
+
+    var state = document.createElement('div');
+    state.className = 'ch-detail' + (connected ? '' : ' is-warn');
+    state.textContent = '旁听：' + (connected ? '已连' : '未连')
+      + ' · 已绑定群 ' + boundGroups.length + ' 个'
+      + ' · 事件 ' + ((g.counts && g.counts.events) || 0)
+      + ' · 随机接话：' + (freeOn ? '开' : '关');
+    box.appendChild(state);
+
+    if (g.lastError) {
+      var errLine = document.createElement('div');
+      errLine.className = 'ch-detail is-warn';
+      errLine.textContent = '最近错误：' + g.lastError;
+      box.appendChild(errLine);
+    }
+
+    var last = g.lastReply || g.lastDecision;
+    if (last) {
+      var lastLine = document.createElement('div');
+      lastLine.className = 'ch-detail';
+      var word = last.ok === true ? '最近接话' : '最近跳过';
+      lastLine.textContent = word + ' · ' + ((last.groupId && ('群 ' + last.groupId)) || '')
+        + (last.text ? ' · ' + String(last.text).slice(0, 80) : '')
+        + (last.reason ? ' · ' + String(last.reason).slice(0, 120) : '')
+        + (last.at ? ' · ' + hhmm(last.at) : '');
+      box.appendChild(lastLine);
+    }
+
+    // 群列表：每个绑定的群一行；没有绑群时明确说下一步，而不是留空白。
+    var groups = boundGroups;
+    if (!groups.length) {
+      var noGroup = document.createElement('div');
+      noGroup.className = 'ch-account-pick-empty';
+      noGroup.textContent = '还没有绑定 QQ 群。先在「QQ 会话隔离」里接入一个群号；旁听和随机接话只在你绑定的群里生效。';
+      box.appendChild(noGroup);
+    } else {
+      groups.slice(0, 20).forEach(function (row) {
+        var line = document.createElement('div');
+        line.className = 'ch-account-pick-empty ch-qq-group-row';
+        line.textContent = (row.name || ('QQ群 ' + row.id)) + '（' + row.id + '）· '
+          + (row.sessionId ? '独立群会话已绑' : '未绑独立会话（不会接话）');
+        box.appendChild(line);
+      });
+    }
+
+    var actions = document.createElement('div');
+    actions.className = 'ch-qq-group-actions';
+    actions.appendChild(chBtn(freeOn ? '关闭随机接话' : '打开随机接话',
+      '打开后只对已绑定、没 @ 人的群消息按概率接话；默认关，避免打扰群',
+      function () {
+        if (st.qqGroupBusy) return;
+        st.qqGroupDraft.freeChat = !freeOn;
+        saveQqGroup();
+      }, !!st.qqGroupBusy));
+    actions.appendChild(chBtn(st.qqGroupBusy === 'refresh' ? '刷新中…' : '刷新群列表',
+      '重新从 OneBot 拉群列表；不改变任何策略',
+      function () {
+        if (st.qqGroupBusy) return;
+        st.qqGroupBusy = 'refresh';
+        draw();
+        Promise.resolve(api.refresh()).then(function (x) {
+          st.qqGroupBusy = '';
+          toast(x && x.ok === false ? ('刷新失败：' + ((x && x.error) || '未知原因')) : '群列表已刷新');
+          loadQqGroup(); draw();
+        }).catch(function (e) {
+          st.qqGroupBusy = '';
+          toast('刷新失败：' + String((e && e.message) || e), true);
+          draw();
+        });
+      }, !!st.qqGroupBusy));
+    actions.appendChild(chBtn(st.qqGroupBusy === 'save' ? '保存中…' : '保存设置',
+      '保存概率、接话窗口、静默、冷却、每分钟上限；输入框不会被轮询顶掉',
+      saveQqGroup, !!st.qqGroupBusy));
+    actions.appendChild(chBtn('群地址保护：' + (draft.addressGuard !== false ? '开' : '关'),
+      '开：消息在 @ 别人（含 @全体）时，这次不抢话',
+      function () {
+        if (st.qqGroupBusy) return;
+        st.qqGroupDraft.addressGuard = draft.addressGuard === false;
+        saveQqGroup();
+      }, !!st.qqGroupBusy));
+    box.appendChild(actions);
+
+    // 参数用网格；每个输入框失焦后才解除「编辑中」，4 秒轮询不会顶掉光标。
+    var fields = document.createElement('div');
+    fields.className = 'ch-qq-group-fields';
+    function field(label, key, value, hint, step) {
+      var wrap = document.createElement('label');
+      wrap.className = 'ch-qq-group-field';
+      var cap = document.createElement('span');
+      cap.textContent = label;
+      wrap.appendChild(cap);
+      var inp = document.createElement('input');
+      inp.className = 'ch-input';
+      inp.type = 'number';
+      inp.min = '0';
+      inp.step = step || '1';
+      inp.value = value === null || value === undefined ? '' : value;
+      inp.title = hint || '';
+      inp.disabled = !!st.qqGroupBusy;
+      inp.addEventListener('focus', function () { st.qqGroupEditing = true; });
+      inp.addEventListener('blur', function () { setTimeout(function () { st.qqGroupEditing = false; }, 0); });
+      inp.addEventListener('input', function () {
+        st.qqGroupDraft[key] = inp.value;
+        st.qqGroupEditing = true;
+      });
+      wrap.appendChild(inp);
+      return wrap;
+    }
+    fields.appendChild(field('接话概率 %', 'chancePct', draft.chancePct, '6 = 约 6% 的旁听消息会尝试接话', '0.1'));
+    fields.appendChild(field('接话窗口 分钟', 'engagedMinutes', draft.engagedMinutes, '群连续聊起来后，这段时间内才允许随机接话'));
+    fields.appendChild(field('静默重置 分钟', 'silentMinutes', draft.silentMinutes, '群安静超过这么久，下一条只旁听不接，避免冷群突然插话'));
+    fields.appendChild(field('冷却 秒', 'cooldownSec', draft.cooldownSec, '两次随机接话之间的最短间隔'));
+    fields.appendChild(field('每分钟上限', 'maxRepliesPerMinute', draft.maxRepliesPerMinute, '防刷屏；到上限只旁听'));
+    fields.appendChild(field('单句字数上限', 'maxChars', draft.maxChars, '生成太长时截断，避免刷屏'));
+    box.appendChild(fields);
+
+    var guard = document.createElement('div');
+    guard.className = 'ch-detail';
+    guard.textContent = '群地址保护：' + (draft.addressGuard !== false ? '开（消息在 @ 别人时，不抢话）' : '关');
+    box.appendChild(guard);
+
+    card.appendChild(box);
+
+    function saveQqGroup() {
+      if (st.qqGroupBusy) return;
+      var p = {
+        freeChat: st.qqGroupDraft.freeChat === true,
+        chancePct: Number(st.qqGroupDraft.chancePct),
+        engagedMinutes: Number(st.qqGroupDraft.engagedMinutes),
+        silentMinutes: Number(st.qqGroupDraft.silentMinutes),
+        cooldownSec: Number(st.qqGroupDraft.cooldownSec),
+        maxRepliesPerMinute: Number(st.qqGroupDraft.maxRepliesPerMinute),
+        maxChars: Number(st.qqGroupDraft.maxChars),
+        addressGuard: st.qqGroupDraft.addressGuard !== false
+      };
+      st.qqGroupBusy = 'save';
+      draw();
+      Promise.resolve(api.settingsSave(p)).then(function (r) {
+        st.qqGroupBusy = '';
+        st.qqGroupEditing = false;
+        if (!r || r.ok === false) {
+          toast('保存失败：' + ((r && r.error) || '主进程没返回'), true);
+          draw();
+          return;
+        }
+        st.qqGroupDraft = Object.assign({}, r.settings || r);
+        toast('QQ 群旁听设置已保存');
+        loadQqGroup(); draw();
+      }).catch(function (e) {
+        st.qqGroupBusy = '';
+        toast('保存失败：' + String((e && e.message) || e), true);
+        draw();
+      });
+    }
+  }
+
   function drawChecks() {
     var box = document.createElement('div');
     box.className = 'ch-checks';
@@ -7767,8 +8204,8 @@ renderers.chan = function (body, meta, head) {
 
   // ---------- 画卡片 ----------
   function draw() {
-    // 正在填「默认接入 QQ 号」时别重画：4 秒轮询会把输入框焦点/光标顶掉
-    if (st.autoEditing) return;
+    // 正在填「默认接入 QQ 号」或 QQ 路由表单时别重画：4 秒轮询会把输入框焦点/光标顶掉
+    if (st.autoEditing || st.routeEditing || st.qqGroupEditing) return;
     card.textContent = '';
     if (Array.isArray(card.children) && card.children.length) card.children.length = 0;
 
@@ -7814,6 +8251,8 @@ renderers.chan = function (body, meta, head) {
       head1.appendChild(setBtn);
     }
     card.appendChild(head1);
+    // QQ 路由配置不依赖通道状态：QQ 没在线时也要能先接入/迁移，通道报错不能把入口藏掉。
+    if (KEY === 'qq') { drawQqRoutes(); drawQqGroup(); drawAuto(); }
 
     if (st.err) {
       var e1 = document.createElement('div');
@@ -7827,7 +8266,6 @@ renderers.chan = function (body, meta, head) {
     acct.className = 'ch-account';
     acct.textContent = (c && (c.accountLabel || c.account)) || '—';
     card.appendChild(acct);
-    if (KEY === 'qq') drawAuto();
 
     // 微信卡片常驻「会话隔离」一行：用户不用翻日志就能看出每个私聊/群聊是否真的分开。
     if (meta.selfCheck) {
@@ -7962,10 +8400,14 @@ renderers.chan = function (body, meta, head) {
   draw();
   load();
   loadAuto();
+  loadQqRoutes();
+  loadQqGroup();
   var timer = setInterval(function () {
     try { if (document.hidden) return; } catch (e) { wbWarn(e) }
     load();
     loadAuto();
+    loadQqRoutes();
+    loadQqGroup();
   }, POLL_MS);
   return function () { clearInterval(timer); };
 };

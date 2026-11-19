@@ -90,6 +90,22 @@ contextBridge.exposeInMainWorld('app', {
     replyPolicyGet: () => ipcRenderer.invoke('social:reply-policy-get'),
     replyPolicySave: (patch) => ipcRenderer.invoke('social:reply-policy-save', patch || {})
   },
+  // ---- QQ 私聊 / 群聊独立会话（2026-11-19）----
+  // 缺这个命名空间 = preload/主进程还是旧的 ⇒ QQ 卡片显示「重启一次工作台」，不假装能配。
+  qqChats: {
+    status: () => ipcRenderer.invoke('qq-chat:status'),
+    ensure: () => ipcRenderer.invoke('qq-chat:ensure'),
+    add: (args) => ipcRenderer.invoke('qq-chat:add', args || {}),
+    remove: (args) => ipcRenderer.invoke('qq-chat:remove', args || {}),
+    contacts: () => ipcRenderer.invoke('qq-chat:contacts')
+  },
+  // ---- QQ 群聊旁听 / 随机接话（2026-11-19）----
+  qqGroups: {
+    status: () => ipcRenderer.invoke('qq-group:status'),
+    settingsGet: () => ipcRenderer.invoke('qq-group:settings-get'),
+    settingsSave: (patch) => ipcRenderer.invoke('qq-group:settings-save', patch || {}),
+    refresh: () => ipcRenderer.invoke('qq-group:refresh')
+  },
   // ---- QQ 个人号桥接（SnowLuma，2026-11-13）----
   // 随壳启动/退出；面板上的齿轮按钮用它确认"起没起"，没起就先拉起再开窗口。
   bridge: {
