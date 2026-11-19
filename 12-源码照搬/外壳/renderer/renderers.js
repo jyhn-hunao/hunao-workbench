@@ -7351,7 +7351,8 @@ renderers.chan = function (body, meta, head) {
   var POLL_MS = 4000;
   var KEY = String(meta.channel || '');
   var st = { ch: null, err: '', others: 0, at: 0, busy: false, toasted: false,
-    checks: null, checking: false, action: '', accountSel: null };
+    checks: null, checking: false, action: '', accountSel: null,
+    auto: null, autoBusy: false, autoModeDraft: null, autoUinDraft: null, autoEditing: false, autoSig: '' };
 
   var card = document.createElement('div');
   card.className = 'ch-card';
@@ -7572,6 +7573,132 @@ renderers.chan = function (body, meta, head) {
     card.appendChild(box);
   }
 
+  // ---------- QQ 自动注入：双开只接指定号（2026-11-19）----------
+  // 需求原话：「让我能选择默认接入哪个 QQ 号，不然有两个两个都接是不对的」。
+  // 所以这里常驻一个「默认接入 QQ 号」块：指定号 / 全部 / 不自动；保存写
+  // 外壳\data\桥接.json（autoLoadMode + autoLoadUin），后端 QQ自动注入.js 立即重新识别。
+  function drawAuto() {
+    if (KEY !== 'qq') return;
+    var a = st.auto;
+    var box = document.createElement('div');
+    box.className = 'ch-account-pick';
+    var lab = document.createElement('div');
+    lab.className = 'ch-account-pick-label';
+    lab.textContent = '默认接入 QQ 号（双开只接这一个）';
+    box.appendChild(lab);
+
+    if (!a) {
+      var miss = document.createElement('div');
+      miss.className = 'ch-account-pick-empty';
+      miss.textContent = '正在读取自动注入状态…（一直这样 = 主进程/preload 是旧的，重启一次工作台）';
+      box.appendChild(miss);
+      card.appendChild(box);
+      return;
+    }
+
+    var mode = st.autoModeDraft || String(a.mode || 'uin');
+    var sel = document.createElement('select');
+    sel.className = 'ch-select';
+    sel.title = '指定号：双开只注入这个号，其它号自动卸载；全部：双开两个都接；不自动：进 5099 控制台手动加载';
+    sel.disabled = !!st.autoBusy;
+    [['uin', '只接指定 QQ 号'], ['all', '本机全部 QQ（双开都接）'], ['off', '不自动接（手动加载）']].forEach(function (o) {
+      var op = document.createElement('option');
+      op.value = o[0];
+      op.textContent = o[1];
+      sel.appendChild(op);
+    });
+    sel.value = mode;
+    sel.addEventListener('change', function () {
+      st.autoModeDraft = sel.value;
+      draw();
+    });
+    box.appendChild(sel);
+
+    var inp = document.createElement('input');
+    inp.className = 'ch-input';
+    inp.type = 'text';
+    inp.inputMode = 'numeric';
+    inp.placeholder = '要接的 QQ 号，例：2531357970';
+    inp.value = st.autoUinDraft !== null ? String(st.autoUinDraft) : String(a.targetUin || '');
+    inp.disabled = !!st.autoBusy || mode !== 'uin';
+    inp.title = '只接这个 QQ 号；双开时另一个号不会被注入';
+    inp.addEventListener('input', function () { st.autoUinDraft = inp.value; });
+    inp.addEventListener('focus', function () { st.autoEditing = true; });
+    inp.addEventListener('blur', function () { st.autoEditing = false; });
+    box.appendChild(inp);
+
+    var btn = chBtn(st.autoBusy ? '保存中…' : '保存号', '把「只接这个号」写进本机配置；保存后立即按新号重新识别', function () {
+      if (st.autoBusy) return;
+      var m = sel.value;
+      var uin = String(inp.value || '').replace(/\D/g, '');
+      if (m === 'uin' && !/^\d{5,12}$/.test(uin)) {
+        toast('要接的 QQ 号要 5–12 位数字', true);
+        return;
+      }
+      var api = window.app && window.app.bridge;
+      if (!api || typeof api.qqAutoLoadSet !== 'function') {
+        toast('需重启一次工作台：主进程/preload 还是旧的（没有 bridge.qqAutoLoadSet）', true);
+        return;
+      }
+      if (m === 'all') {
+        var okAll = true;
+        try { okAll = window.confirm('「全部 QQ」会把双开的主号和小号都注入 Hook，确定？'); } catch (e) { okAll = true; }
+        if (!okAll) return;
+      }
+      st.autoBusy = true;
+      st.autoEditing = false;
+      draw();
+      Promise.resolve(api.qqAutoLoadSet({ mode: m, uin: uin })).then(function (r) {
+        st.autoBusy = false;
+        if (!r || r.ok === false) {
+          toast('保存失败：' + ((r && r.error) || '未知原因'), true);
+          draw();
+          return;
+        }
+        st.auto = r;
+        st.autoModeDraft = null;
+        st.autoUinDraft = null;
+        var msg = '已保存：' + (r.detail || '自动注入策略已更新') + (r.note ? '；' + r.note : '');
+        if (r.note && typeof window.__tbsToast === 'function') window.__tbsToast(msg, false, 8000);
+        else toast(msg);
+        draw();
+        setTimeout(loadAuto, 1500);
+      }).catch(function (e) {
+        st.autoBusy = false;
+        toast('保存失败：' + String((e && e.message) || e), true);
+        draw();
+      });
+    }, !!st.autoBusy);
+    box.appendChild(btn);
+
+    var status = document.createElement('div');
+    status.className = 'ch-account-pick-empty';
+    var mark = a.status === 'connected' ? '● 已接' : (a.status === 'probing' ? '○ 正在识别' : (a.status === 'error' ? '× ' : '· '));
+    status.textContent = mark + (a.detail || '等 QQ');
+    status.title = '实际注入结果；有错会写进 外壳\\data\\桥接\\snowluma.log 的 [QQ注入] 行';
+    box.appendChild(status);
+
+    var cs = Array.isArray(a.candidates) ? a.candidates : [];
+    if (cs.length) {
+      var list = document.createElement('div');
+      list.className = 'ch-account-pick-empty';
+      list.textContent = '本机 QQ：' + cs.map(function (c) {
+        return 'pid ' + c.pid + (c.loggedIn ? '（' + c.uin + ' 在线）' : (c.injected ? '（已注入）' : '（未接）'));
+      }).join(' · ');
+      box.appendChild(list);
+    }
+
+    if (a.targetUin && a.selfUin && String(a.selfUin) !== String(a.targetUin)) {
+      var mismatch = document.createElement('div');
+      mismatch.className = 'ch-detail is-warn';
+      mismatch.textContent = '注意：QQ 桥接插件的 selfUin 还是 ' + a.selfUin
+        + '，换号要同步改 ~/.dsh/qq-bridge.config.json，否则会把自己的消息当别人';
+      box.appendChild(mismatch);
+    }
+
+    card.appendChild(box);
+  }
+
   function drawActions(c) {
     var acts = document.createElement('div');
     acts.className = 'ch-actions';
@@ -7640,6 +7767,8 @@ renderers.chan = function (body, meta, head) {
 
   // ---------- 画卡片 ----------
   function draw() {
+    // 正在填「默认接入 QQ 号」时别重画：4 秒轮询会把输入框焦点/光标顶掉
+    if (st.autoEditing) return;
     card.textContent = '';
     if (Array.isArray(card.children) && card.children.length) card.children.length = 0;
 
@@ -7698,6 +7827,7 @@ renderers.chan = function (body, meta, head) {
     acct.className = 'ch-account';
     acct.textContent = (c && (c.accountLabel || c.account)) || '—';
     card.appendChild(acct);
+    if (KEY === 'qq') drawAuto();
 
     // 微信卡片常驻「会话隔离」一行：用户不用翻日志就能看出每个私聊/群聊是否真的分开。
     if (meta.selfCheck) {
@@ -7773,6 +7903,26 @@ renderers.chan = function (body, meta, head) {
     }
   }
 
+  // ---------- QQ 自动注入状态：只 QQ 卡片拉，4 秒一次 ----------
+  function loadAuto() {
+    if (KEY !== 'qq') return;
+    var api = window.app && window.app.bridge;
+    if (!api || typeof api.qqAutoLoadStatus !== 'function') return;
+    Promise.resolve(api.qqAutoLoadStatus()).then(function (r) {
+      if (r && r.ok !== false) {
+        var sig = JSON.stringify({
+          mode: r.mode, uin: r.targetUin, status: r.status, detail: r.detail,
+          pid: r.pid, online: r.uin, candidates: r.candidates, selfUin: r.selfUin
+        });
+        st.auto = r;
+        if (sig !== st.autoSig) {
+          st.autoSig = sig;
+          draw();
+        }
+      }
+    }).catch(function (e) { wbWarn(e) });
+  }
+
   // ---------- 取数：与 msgflow 同一套 ----------
   function load() {
     if (st.busy) return;
@@ -7811,9 +7961,11 @@ renderers.chan = function (body, meta, head) {
 
   draw();
   load();
+  loadAuto();
   var timer = setInterval(function () {
     try { if (document.hidden) return; } catch (e) { wbWarn(e) }
     load();
+    loadAuto();
   }, POLL_MS);
   return function () { clearInterval(timer); };
 };
