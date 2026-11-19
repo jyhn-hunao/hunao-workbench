@@ -21511,6 +21511,58 @@ renderers.git = function (body, meta) {
     } catch (e) { wbWarn(e); }
     msg(t);
   }
+  /* ---------- 工具栏「更新 / 获取」的进行中反馈（2026-11-19）---------- */
+  //   宿主原话：「拉取远程分支 / 更新的时候没有反馈，以为卡住了，会去重复点」。
+  //   原因：这两个动作都要走网络（fetch 十几秒到两分钟），原来只发一条 2.6 秒就消失的通知，
+  //         按钮本身一个字都不变 ⇒ 眼睛看不出「点到了没有、还在不在跑」，自然会再点一次。
+  //   现在三件事一起做：
+  //     ① 点下去当场变：按钮禁用 + 转圈 + 文案「更新中…」，3 秒后每秒带上已跑秒数（说明它还活着）
+  //     ② 跑完还原文案，结果另发一条通知（失败 ≥8 秒、可点关闭）
+  //     ③ 跑着的时候再点，回一句「还在跑（已 N 秒），不用重复点」—— 不让第二次点击像没反应
+  var runTask = null;                     // { name, at, btn, text0, title0, timer }
+  function runSecs() { return runTask ? Math.floor((Date.now() - runTask.at) / 1000) : 0; }
+  function paintRun() {
+    if (!runTask || !runTask.btn) return;
+    var n = runSecs();
+    if (n < 3) return;                    // 前 3 秒只留「更新中…」：秒数还没意义，也免得一闪一闪
+    runTask.btn.textContent = runTask.name + '中 ' + n + 's';
+    runTask.btn.title = '正在' + runTask.name + '（已 ' + n + ' 秒），跑完会提示；别重复点';
+  }
+  // beginRun：禁用按钮是**重复点的第一道闸**（disabled 后 click 根本不触发），转圈 + 秒数是第二道。
+  function beginRun(btn, name, startMsg) {
+    runTask = {
+      name: name, at: Date.now(), btn: btn || null,
+      text0: btn ? btn.textContent : '', title0: btn ? btn.title : '', timer: 0
+    };
+    if (btn) {
+      btn.disabled = true;
+      btn.classList.add('is-run');
+      btn.textContent = name + '中…';
+      btn.title = '正在' + name + '，跑完会提示；别重复点';
+    }
+    runTask.timer = setInterval(paintRun, 1000);
+    tip(startMsg || ('开始' + name + '（可能要几十秒，按钮变灰是正常的）…'), false, 8000);
+  }
+  function endRun() {
+    if (!runTask) return;
+    if (runTask.timer) clearInterval(runTask.timer);
+    var b = runTask.btn;
+    if (b) {
+      b.textContent = runTask.text0 || (runTask.name === '获取' ? '获取' : '更新');
+      b.title = runTask.title0 || '';
+      b.classList.remove('is-run');
+      b.disabled = false;
+    }
+    runTask = null;
+  }
+  // 正在跑别的 git 操作时再点按钮：说清「是谁在跑、跑了多久」，而不是一句含糊的「还没干完」。
+  function busyHint() {
+    if (runTask) {
+      tip('「' + runTask.name + '」还在跑（已 ' + Math.max(1, runSecs()) + ' 秒），不用重复点；跑完会自动提示结果', false, 6000);
+      return;
+    }
+    tip('上一件事还没干完，等它结束', false, 5000);
+  }
   function cfgApi() {
     var a = api();
     return (a && a.listsGet && a.listsSet) ? a : null;
@@ -22484,9 +22536,9 @@ renderers.git = function (body, meta) {
   async function doPush() {
     var a = api();
     if (!a || !a.push) { tip('这次启动的界面还没有推送能力 ⇒ 重启一次工作台', true); return; }
-    if (busy) { tip('上一件事还没干完，等它结束'); return; }
+    if (busy) { busyHint(); return; }
     busy = true;
-    tip('推送中（可能几十秒）…');
+    tip('开始推送（可能要几十秒）：推送没有按钮可看，跑完 / 失败都会再弹一条结果，别重复点', false, 8000);
     var r = null;
     try { r = await a.push(repo); } catch (e) { r = { ok: false, err: String((e && e.message) || e) }; }
     busy = false;
@@ -22499,15 +22551,18 @@ renderers.git = function (body, meta) {
   async function doPull(mode, allowConflict) {
     var a = api();
     if (!a || !a.pull) { tip('这次启动的界面还没有拉取能力 ⇒ 重启一次工作台', true); return; }
-    if (busy) { tip('上一件事还没干完，等它结束'); return; }
+    if (busy) { busyHint(); return; }
     // 上一次拉取还留着冲突/autostash 没收尾：先处理完，别再叠一次 merge --autostash
     if (data && data.merge && data.merge.active) { tip('先在上面的冲突卡里收尾（完成 / 放弃），再更新', true); return; }
     busy = true;
     pullConflict = null;
-    tip(mode === 'rebase' ? '变基更新中…' : '更新中（fetch + 判断冲突 + 合并）…');
+    beginRun(btnUpdate, mode === 'rebase' ? '变基' : '更新', mode === 'rebase'
+      ? '开始变基更新：先 fetch 远程，再把本地提交接到它后面（可能要几十秒）…'
+      : '开始更新：先 fetch 远程，再判断冲突并合并（可能要几十秒）…');
     var r = null;
     try { r = await a.pull(repo, { mode: mode, allowConflict: !!allowConflict }); } catch (e) { r = { ok: false, err: String((e && e.message) || e) }; }
     busy = false;
+    endRun();                       // 动作结束就还原文案；下面各分支再发结果通知（失败 ≥8 秒）
     // 预检发现冲突（还没动工作区）：不合并、不弹「是否继续」，直接把冲突文件摊在面板上
     if (r && r.code === 'conflict' && !r.mergeInProgress) {
       pullConflict = r;
@@ -22523,8 +22578,8 @@ renderers.git = function (body, meta) {
     }
     await load();
     if (r && r.ok) {
-      if (r.upToDate) tip('已是最新：远程没有新提交');
-      else tip('已更新 ' + r.behind + ' 条（' + (r.mode === 'merge' ? '合并' : (r.mode === 'rebase' ? '变基' : '快进')) + (r.ahead ? '，本地未推送 ' + r.ahead + ' 条' : '') + '）');
+      if (r.upToDate) tip('已是最新：远程没有新提交（什么都不用做）', false, 5000);
+      else tip('已更新 ' + r.behind + ' 条（' + (r.mode === 'merge' ? '合并' : (r.mode === 'rebase' ? '变基' : '快进')) + (r.ahead ? '，本地未推送 ' + r.ahead + ' 条' : '') + '）', false, 5000);
     } else if (r && r.code === 'conflict' && r.mergeInProgress) {
       tip('合并已留在工作区：' + ((r.unmerged || []).length) + ' 个文件有冲突，在「变更」页签逐个解决', true);
     } else {
@@ -23440,20 +23495,19 @@ renderers.git = function (body, meta) {
   async function doFetch() {
     var a = api();
     if (!a || !a.fetch) { tip('这次启动的界面还没有 fetch 能力 ⇒ 重启一次工作台', true); return; }
-    if (busy) { tip('上一件事还没干完，等它结束'); return; }
+    if (busy) { busyHint(); return; }
     busy = true;
     closePop();
-    btnFetch.classList.add('g-busy');
-    tip('获取中（只取远程引用，可能几十秒）…');
+    beginRun(btnFetch, '获取', '开始获取：只取远程引用，不动工作区与本地分支（可能要几十秒）…');
     var r = null;
     try { r = await a.fetch(repo); } catch (e) { r = { ok: false, err: String((e && e.message) || e) }; }
     busy = false;
-    btnFetch.classList.remove('g-busy');
+    endRun();
     await load();                       // 取完立刻重读：工具栏 ↑/↓ 与分支列表一起变
     if (r && r.ok) {
       var n = Number(r.behind || 0) || (r.incoming || []).length;   // 条数以 behind 为准（incoming 只列最近 20 条）
-      if (n) tip('已获取 ' + (r.remote || '远程') + '：' + n + ' 条新提交，本地落后 ' + n + ' 条（点「更新」拉下来）');
-      else tip('已获取 ' + (r.remote || '远程') + '：没有新提交');
+      if (n) tip('已获取 ' + (r.remote || '远程') + '：' + n + ' 条新提交，本地落后 ' + n + ' 条（点「更新」拉下来）', false, 5000);
+      else tip('已获取 ' + (r.remote || '远程') + '：没有新提交（远程与你一致）', false, 5000);
     } else {
       tip('✗ ' + ((r && r.err) || 'fetch 失败'), true);
     }
@@ -23714,6 +23768,9 @@ renderers.git = function (body, meta) {
     dead = true;
     if (liveTimer) { clearInterval(liveTimer); liveTimer = 0; }
     if (slowTimer) { clearInterval(slowTimer); slowTimer = 0; }
+    // 进行中的「更新 / 获取」计时器也要停：场景切走后面板已经销毁，秒数没人看（别让 timer 泄漏）
+    if (runTask && runTask.timer) { clearInterval(runTask.timer); runTask.timer = 0; }
+    runTask = null;
     // 还有没落盘的变更单配置 ⇒ 卸载前补写一次（别让刚改的名字 / 规则 / 草稿丢掉）
     if (draftTimer) { clearTimeout(draftTimer); draftTimer = 0; }
     stashDraft();

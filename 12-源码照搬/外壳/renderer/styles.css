@@ -6104,6 +6104,15 @@ html[data-theme="dark"] .kneu-dot { box-shadow: 0 0 5px rgba(255, 255, 255, .22)
   background: transparent; color: inherit; font-size: 11.5px; line-height: 20px; cursor: pointer; }
 .g-txt:hover { border-color: var(--accent); color: var(--accent); }
 .g-txt:disabled { opacity: .45; cursor: default; }
+/* 长任务进行中（更新 / 获取，2026-11-19）：禁用后仍要「看起来在动」——
+   转圈 + 「更新中 12s」，让「点到了 / 还在跑 / 跑了多久」一眼可见，不用再点第二次。 */
+.g-txt.is-run:disabled { opacity: 1; color: var(--accent); border-color: var(--accent); cursor: progress;
+  min-width: 64px; font-variant-numeric: tabular-nums; }
+.g-txt.is-run::before { content: ''; display: inline-block; width: 8px; height: 8px; margin-right: 5px; border-radius: 50%;
+  border: 2px solid currentColor; border-top-color: transparent; vertical-align: -1px; animation: gRunSpin .8s linear infinite; }
+@keyframes gRunSpin { to { transform: rotate(360deg); } }
+/* 减少动态效果的系统设置下不转：留一个带缺口的静态环，状态仍然看得见 */
+@media (prefers-reduced-motion: reduce) { .g-txt.is-run::before { animation: none; } }
 .g-filter { flex: 1 1 auto; min-width: 60px; height: 22px; border: 1px solid var(--line-1); border-radius: 5px; background: transparent; color: inherit; padding: 0 8px; font-size: 12px; outline: none; }
 .g-filter:focus { border-color: var(--accent); }
 .g-tabs { display: flex; gap: 2px; padding: 0 8px; border-bottom: 1px solid var(--line-1); }
