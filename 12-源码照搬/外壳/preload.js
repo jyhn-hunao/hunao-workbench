@@ -85,14 +85,20 @@ contextBridge.exposeInMainWorld('app', {
   social: {
     flow: (args) => ipcRenderer.invoke('social:flow', args),
     viewGet: () => ipcRenderer.invoke('social:view-get'),
-    viewSet: (patch) => ipcRenderer.invoke('social:view-set', patch)
+    viewSet: (patch) => ipcRenderer.invoke('social:view-set', patch),
+    // 通用回复策略：微信 / QQ / 飞书共用；读不到就返回 null，渲染层显示「重启一次工作台」。
+    replyPolicyGet: () => ipcRenderer.invoke('social:reply-policy-get'),
+    replyPolicySave: (patch) => ipcRenderer.invoke('social:reply-policy-save', patch || {})
   },
   // ---- QQ 个人号桥接（SnowLuma，2026-11-13）----
   // 随壳启动/退出；面板上的齿轮按钮用它确认"起没起"，没起就先拉起再开窗口。
   bridge: {
     snowlumaStatus: () => ipcRenderer.invoke('bridge:snowluma-status'),
     snowlumaStart: () => ipcRenderer.invoke('bridge:snowluma-start'),
-    snowlumaStop: () => ipcRenderer.invoke('bridge:snowluma-stop')
+    snowlumaStop: () => ipcRenderer.invoke('bridge:snowluma-stop'),
+    // 双开只接指定的 QQ 号：读当前策略 / 写 autoLoadMode + autoLoadUin
+    qqAutoLoadStatus: () => ipcRenderer.invoke('bridge:qq-autoload-status'),
+    qqAutoLoadSet: (patch) => ipcRenderer.invoke('bridge:qq-autoload-set', patch || {})
   },
   // ---- 微信个人号通道（whale_girl，2026-11-18）----
   // 缺这个命名空间 = preload/主进程还是旧的 ⇒ 微信卡片显示「重启一次工作台」，不自作聪明。

@@ -4539,6 +4539,14 @@ ipcMain.handle('usage:list', () => usageSvc.list());
 const socialService = socialSvc.createService({ dshHome: DSH_HOME });
 ipcMain.handle('social:flow', (e, args) => socialService.flow(args || {}));
 
+// ---- 通用社交回复策略（2026-11-19）----
+// 微信 / QQ / 飞书共用一套语气、emoji、表情包频率；通道只声明能力，不各装一套开关。
+// 这里读写的是 外壳\data\社交回复.json；DSH_HOME 显式传入，避免主进程环境变量
+// 只给引擎子进程设了 DSH_HOME、外壳自己读不到镜像路径。
+const socialReplySvc = require('./社交回复');
+ipcMain.handle('social:reply-policy-get', () => socialReplySvc.settingsGet(DSH_HOME));
+ipcMain.handle('social:reply-policy-save', (e, patch) => socialReplySvc.settingsSave(patch || {}, DSH_HOME));
+
 // ---- 社交消息流的视图偏好（2026-11-17）----
 // 只存两个值：时间范围（today/7/30/all）+ 归档游标（毫秒）。为什么放主进程 userData：
 //   localStorage 可能被清理软件连带清掉；这里丢了也只是回默认，不影响消息源（transcript 只读）。
