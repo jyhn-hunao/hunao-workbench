@@ -946,8 +946,8 @@ function createWindow(opts) {
     title: isMain ? 'DSH 引擎' : (sceneNameOf(scene) + ' · 胡闹的工作台'),
     autoHideMenuBar: true,
     frame: false,
-    // 2026-11-10：视觉重设计后默认浅色画布 #fafafa（渲染层 applyTheme 会再按实际主题同步一次）
-    backgroundColor: '#fafafa',
+    // 2026-11-19：视觉分层后默认浅色画布 #e9edf2（渲染层 applyTheme 会再按实际主题同步一次）
+    backgroundColor: '#e9edf2',
     icon: path.join(__dirname, 'icon.ico'),
     show: false,
     webPreferences: {

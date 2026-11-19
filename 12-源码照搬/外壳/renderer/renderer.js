@@ -739,7 +739,8 @@ function applyTheme(mode) {
   // 同步窗口底色，避免浅色下缩放/重绘闪黑
   try {
     if (window.app.theme && window.app.theme.setWindowBg) {
-      window.app.theme.setWindowBg(resolved === 'light' ? '#fafafa' : '#0a0a0a');
+      // 与 styles.css「2026-11-19 视觉分层」的 --bg 同值：浅色 #e9edf2 / 深色 #04060a
+      window.app.theme.setWindowBg(resolved === 'light' ? '#e9edf2' : '#04060a');
     }
   } catch (e) { wbWarn(e) }
 }

@@ -7438,3 +7438,297 @@ textarea.fb-input { height: auto; min-height: 60px; padding: 7px 9px; resize: ve
 }
 .fc-none-n { flex: 0 0 auto; font-size: 12px; color: var(--text); }
 .fc-none-w { flex: 1; min-width: 0; font-size: 11.5px; line-height: 1.5; color: var(--text-dim); }
+
+/* ==========================================================================================
+   2026-11-19（宿主：「颜色样式单调没有层次感，也不要花哨，至少要有层次，每个界面和弹窗能看出分区」）
+   —— 视觉分层一层。只改「表面色阶 / 描边 / 内外高光 / 阴影 / 浮层分区」，
+      ⛔ 不动 display / position / grid / flex / width / height / padding / margin。
+   ① 表面色阶（暗色）：画布 → 面板 → 标题条 / 卡片 → 选中项；内凹井比面板再暗一档
+   ② 组件一律引用令牌，新增颜色只出现在本段的两套令牌里
+   ③ 想整体回滚：整段删除即可（本段之前没有任何规则依赖它）
+   ========================================================================================== */
+
+/* ---------- ① 五级表面令牌 ---------- */
+:root,
+html[data-theme="dark"] {
+  --bg: #04060a;              /* 画布：最底一层 */
+  --bg-chrome: #070a0f;       /* 标题栏 */
+  --bg-panel: #0c1017;        /* 面板 / 弹窗主体 */
+  --bg-panel-hover: #151b24;  /* 悬停 */
+  --bg-elevated: #12171f;     /* 面板标题条 / 弹窗头尾 / 浮层 */
+  --bg-elevated-2: #1a2029;   /* 标题条里的控件底、选中项 */
+  --bg-sunken: #07090e;       /* 内凹井：输入框 / 列表底 */
+  --bg-card: #141a23;         /* 卡内卡片：比面板高一层 */
+  --bg-card-hover: #1b222c;
+  --line-1: rgba(255, 255, 255, .065);
+  --line-2: rgba(255, 255, 255, .105);
+  --line-3: rgba(255, 255, 255, .16);
+  --hi-line: rgba(255, 255, 255, .05);
+  --canvas-glow: rgba(122, 162, 255, .05);
+  --sh-1: 0 1px 2px rgba(0, 0, 0, .50), 0 10px 26px -18px rgba(0, 0, 0, .85);
+  --sh-2: 0 2px 8px rgba(0, 0, 0, .42), 0 20px 48px -24px rgba(0, 0, 0, .90);
+  --sh-3: 0 28px 72px -16px rgba(0, 0, 0, .90), 0 0 0 1px rgba(255, 255, 255, .06);
+}
+html[data-theme="light"] {
+  --bg: #e9edf2;              /* 画布比白卡暗一档，白卡才浮得起来 */
+  --bg-chrome: #ffffff;
+  --bg-panel: #ffffff;
+  --bg-panel-hover: #f2f5f9;
+  --bg-elevated: #f3f6fa;
+  --bg-elevated-2: #e9eef5;
+  --bg-sunken: #f1f4f8;
+  --bg-card: #fbfcfe;
+  --bg-card-hover: #f3f6fa;
+  --line-1: rgba(15, 23, 42, .06);
+  --line-2: rgba(15, 23, 42, .10);
+  --line-3: rgba(15, 23, 42, .16);
+  --hi-line: #ffffff;
+  --canvas-glow: rgba(0, 112, 243, .035);
+  --sh-1: 0 1px 2px rgba(16, 24, 40, .05);
+  --sh-2: 0 6px 18px -8px rgba(16, 24, 40, .14);
+  --sh-3: 0 28px 64px -16px rgba(16, 24, 40, .24), 0 0 0 1px rgba(16, 24, 40, .06);
+}
+
+/* ---------- ② 窗口底座：标题栏 / 场景栏 / 画布三层拉开 ---------- */
+html[data-theme] body { background: var(--bg); }
+html[data-theme] #titlebar {
+  background: var(--bg-chrome);
+  box-shadow: inset 0 -1px 0 var(--line-2);
+}
+html[data-theme] #scenebar {
+  background: var(--bg-elevated) !important;
+  box-shadow: inset 0 1px 0 var(--hi-line), inset 0 -1px 0 var(--line-2);
+}
+html[data-theme] #scenario-view {
+  background: radial-gradient(1100px 520px at 50% 0%, var(--canvas-glow), transparent 72%);
+}
+/* 当前场景标签：从场景栏里「抬起来」一块（用 elevated-2，和 elevated 的场景栏拉开一档） */
+html[data-theme] .tab.active {
+  background: var(--bg-elevated-2);
+  color: var(--text);
+  box-shadow: inset 0 1px 0 var(--hi-line), 0 0 0 1px var(--line-2), var(--sh-1);
+}
+html[data-theme] .tab.active .tab-ico,
+html[data-theme] .tab.active .tab-ico-img { filter: none; opacity: 1; }
+/* 场景栏右侧的余额 / 状态胶囊：控件底，不跟场景栏同色 */
+html[data-theme] .balance-chip,
+html[data-theme] .tbs-pill {
+  background: var(--bg-elevated-2);
+  box-shadow: 0 0 0 1px var(--line-2);
+}
+/* 浅色主题里 519 / 3787 两条老规则特异性更高（会拉回蓝色渐变选中态与旧悬停影），这里统一回同一套语言 */
+html[data-theme="light"] .tab.active {
+  background: var(--bg-elevated-2);
+  color: var(--text);
+  box-shadow: inset 0 1px 0 var(--hi-line), 0 0 0 1px var(--line-2), var(--sh-1);
+}
+html[data-theme="light"] .panel:hover {
+  border-color: var(--line-3);
+  box-shadow: inset 0 1px 0 var(--hi-line), var(--sh-2);
+}
+
+/* ---------- ③ 面板：底面 + 标题条两级 ---------- */
+html[data-theme] .panel {
+  background: var(--bg-panel);
+  border: 1px solid var(--line-2);
+  border-radius: 12px;
+  box-shadow: inset 0 1px 0 var(--hi-line), var(--sh-1);
+}
+html[data-theme] .panel:hover {
+  border-color: var(--line-3);
+  box-shadow: inset 0 1px 0 var(--hi-line), var(--sh-2);
+}
+html[data-theme] .panel.panel-expanded {
+  border: 1px solid var(--line-3) !important;
+  box-shadow: inset 0 1px 0 var(--hi-line), var(--sh-3) !important;
+}
+html[data-theme] .panel-head {
+  background: var(--bg-elevated);
+  box-shadow: inset 0 1px 0 var(--hi-line), inset 0 -1px 0 var(--line-1);
+}
+/* 组合窗子面板的标题行：压过 3230 行那条「浅色主题下透明」的旧规则 */
+html[data-theme] .panel-head.combo-slot-head { background: var(--bg-elevated); }
+html[data-theme] .panel-body { background: var(--bg-panel); }
+/* 顶边那道细线不再发蓝，收成一条中性高光 */
+html[data-theme] .panel::before {
+  left: 12px; right: 12px;
+  background: linear-gradient(90deg, transparent, var(--hi-line), transparent);
+  opacity: .9;
+}
+
+/* ---------- ④ 卡内卡片：比面板再高一层（原来和面板同色 ⇒ 看不出分区）---------- */
+html[data-theme] .stat-card,
+html[data-theme] .web-card,
+html[data-theme] .plg-card,
+html[data-theme] .mdl-card,
+html[data-theme] .sk-card,
+html[data-theme] .site-project-card,
+html[data-theme] .site-media-card,
+html[data-theme] .site-contact-card,
+html[data-theme] .site-donate-card,
+html[data-theme] .site-about-card,
+html[data-theme] .bd-stk-card,
+html[data-theme] .wbc-card,
+html[data-theme] .pc-drive-card,
+html[data-theme] .ch-card,
+html[data-theme] .scr-card,
+html[data-theme] .ft-card,
+html[data-theme] .bd-card,
+html[data-theme] .file-col,
+html[data-theme] .fb-cfg,
+html[data-theme] .fc-plug {
+  background: var(--bg-card);
+  border: 1px solid var(--line-1);
+  border-radius: 10px;
+  box-shadow: inset 0 1px 0 var(--hi-line), var(--sh-1);
+}
+html[data-theme] .stat-card:hover,
+html[data-theme] .sk-card:hover,
+html[data-theme] .wbc-card:hover,
+html[data-theme] .site-project-card:hover,
+html[data-theme] .pc-drive-card:hover,
+html[data-theme] .ch-card:hover,
+html[data-theme] .scr-card:hover,
+html[data-theme] .ft-card:hover {
+  background: var(--bg-card-hover);
+  border-color: var(--line-2);
+  box-shadow: inset 0 1px 0 var(--hi-line), var(--sh-1);
+}
+/* 卡片里的列表行：悬停要比卡片底再亮一档，不然 hover 看不见 */
+html[data-theme] .file-row:hover { background: var(--bg-card-hover); }
+
+/* ---------- ⑤ 内凹井：输入框 / 面板内工具条 ---------- */
+html[data-theme] input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not(.kneu-search),
+html[data-theme] textarea,
+html[data-theme] select {
+  background: var(--bg-sunken);
+  box-shadow: inset 0 0 0 1px var(--line-2);
+}
+/* 预览 / 编辑器是整块正文，留在面板底色上，只给一条发丝边 */
+html[data-theme] .view-ta {
+  background: var(--bg-panel);
+  box-shadow: inset 0 0 0 1px var(--line-1);
+}
+html[data-theme] .view-bar,
+html[data-theme] .file-col-head,
+html[data-theme] .combo-slot-head {
+  background: var(--bg-elevated);
+  border: 0 !important;
+  box-shadow: inset 0 -1px 0 var(--line-1);
+}
+/* 技能弹窗顶部工具条是"吸顶小卡"（自带 10px 圆角与外边距），不是通栏，保留边框 */
+html[data-theme] .sk-bar {
+  background: var(--bg-elevated);
+  border: 1px solid var(--line-2) !important;
+  box-shadow: var(--sh-1);
+}
+/* 顶栏弹层的底栏：分隔靠顶边发丝线（原来 5781 那条底边线在"页脚"位置是反的） */
+html[data-theme] .tbs-pop-f {
+  background: transparent;
+  border: 0 !important;
+  box-shadow: inset 0 1px 0 var(--line-1);
+}
+
+/* ---------- ⑥ 弹窗：标题条 / 内容区两段 ---------- */
+html[data-theme] .modal-mask { background: rgba(2, 4, 7, .66); }
+html[data-theme="light"] .modal-mask { background: rgba(15, 23, 42, .34); }
+html[data-theme] .modal {
+  background: var(--bg-panel);
+  border: 1px solid var(--line-3);
+  box-shadow: var(--sh-3);
+}
+html[data-theme] .modal-head {
+  background: var(--bg-elevated);
+  box-shadow: inset 0 1px 0 var(--hi-line), inset 0 -1px 0 var(--line-2);
+}
+html[data-theme] .modal-body { background: var(--bg-panel); }
+
+/* ---------- ⑦ 浮层：菜单 / 顶栏弹层 / 版本卡 ---------- */
+html[data-theme] .theme-menu,
+html[data-theme] .tbs-pop,
+html[data-theme] .flow-ctxmenu,
+html[data-theme] .flow-nodemenu,
+html[data-theme] .brand-tip,
+html[data-theme] .cut-modelmenu {
+  background: var(--bg-elevated);
+  border: 1px solid var(--line-2);
+  box-shadow: var(--sh-3);
+}
+html[data-theme] .theme-item:hover,
+html[data-theme] .tbs-row:hover,
+html[data-theme] .flow-menu-item:hover { background: var(--bg-elevated-2); }
+
+/* ---------- ⑧ 通知条：浮层底 + 发丝边 ---------- */
+html[data-theme] .tbs-toast {
+  background: var(--bg-elevated);
+  border: 1px solid var(--line-2);
+  box-shadow: var(--sh-3);
+}
+
+/* ---------- ⑨ 自绘弹窗：微信 / 外发 / 桌宠 / 切片 / Git / 流程 ---------- */
+html[data-theme] .wxs-dlg,
+html[data-theme] .psed-dlg,
+html[data-theme] .g-modal,
+html[data-theme] .cut-modal {
+  background: var(--bg-panel);
+  border: 1px solid var(--line-3);
+  box-shadow: var(--sh-3);
+}
+html[data-theme] .wxs-head,
+html[data-theme] .psed-head,
+html[data-theme] .g-modal-h {
+  background: var(--bg-elevated);
+  box-shadow: inset 0 1px 0 var(--hi-line), inset 0 -1px 0 var(--line-1);
+}
+html[data-theme] .wxs-foot,
+html[data-theme] .psed-foot,
+html[data-theme] .g-modal-f {
+  background: var(--bg-elevated);
+  box-shadow: inset 0 1px 0 var(--line-1);
+}
+/* 桌宠设置：吸顶跳转条 + 分区卡片各一层 */
+html[data-theme] .psed-nav {
+  background: var(--bg-elevated);
+  border-bottom-color: var(--line-1);
+}
+html[data-theme] .psed-sec {
+  background: var(--bg-card);
+  border-color: var(--line-1);
+  box-shadow: inset 0 1px 0 var(--hi-line);
+}
+html[data-theme] .psed-num {
+  background: var(--bg-elevated-2);
+  border-color: var(--line-1);
+}
+html[data-theme] .wxs-row { border-top-color: var(--line-1); }
+html[data-theme] .wxs-sum,
+html[data-theme] .ogs-list {
+  background: var(--bg-sunken);
+  border-color: var(--line-1);
+}
+html[data-theme] .psed-seg.is-on,
+html[data-theme] .psed-btn.is-primary,
+html[data-theme] .psed-btn.is-primary:hover:not(:disabled),
+html[data-theme] .wxs-btn.is-primary,
+html[data-theme] .wxs-btn.is-primary:hover:not(:disabled) {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--btn-solid-fg);
+}
+/* 弹窗页签：选中是卡（未选中态保持 base 的 var(--bg) 井，hover 才不被压掉） */
+html[data-theme] .wxs-tab.is-on {
+  background: var(--bg-elevated-2);
+  border-color: var(--accent);
+  border-bottom-color: var(--bg-elevated-2);
+}
+/* 切片 / 流程对话框 */
+html[data-theme] .cut-bar {
+  background: var(--bg-elevated);
+  border-radius: var(--r-sm);
+  box-shadow: inset 0 -1px 0 var(--line-1);
+}
+html[data-theme] .flow-dlg-box {
+  background: var(--bg-elevated);
+  border-color: var(--accent-line);
+}
+
