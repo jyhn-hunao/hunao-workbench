@@ -81,6 +81,8 @@ else {
 {
   const srcDir = path.join(ROOT, '插件')
   const instDir = path.join(PROFILE, 'node_modules')
+  const profPkg = readJson(path.join(PROFILE, 'package.json')) || {}
+  const bundles = (profPkg.dsh && profPkg.dsh.profile && Array.isArray(profPkg.dsh.profile.bundles)) ? profPkg.dsh.profile.bundles : []
   if (!exists(srcDir)) warn('没有 插件\\ 目录（私有插件一个都没带）')
   else {
     const dirs = fs.readdirSync(srcDir, { withFileTypes: true }).filter((e) => e.isDirectory())
@@ -94,13 +96,16 @@ else {
       if (!pj || !pj.name) { notPkg.push(d.name); continue }
       const installed = exists(path.join(instDir, pj.name))
       const inPatch = exists(PATCH) && fs.readFileSync(PATCH, 'utf8').includes(pj.name)
-      if (installed && inPatch) wired.push(pj.name)
-      else if (installed && !inPatch) off.push(pj.name)
-      else if (!installed && inPatch) broken.push(pj.name)
+      // 2026-11-19 修：bundles 登记也是「接线」，不再只认 patch（token-guard 就是 bundle 型）
+      const inBundles = bundles.includes(pj.name)
+      const registered = inPatch || inBundles
+      if (installed && registered) wired.push(pj.name)
+      else if (installed && !registered) off.push(pj.name)
+      else if (!installed && registered) broken.push(pj.name)
       else absent.push(pj.name)
     }
     if (wired.length) ok('私有插件已接线：' + wired.join(' / '))
-    if (broken.length) bad('patch 登记了但没装（启动会报加载失败）：' + broken.join(' / '))
+    if (broken.length) bad('patch/bundles 登记了但没装（启动会报加载失败）：' + broken.join(' / '))
     for (const n of off) warn('已安装但未登记（当前是关的，要开跑 工具\\守卫开关.mjs --on 之类）：' + n)
     if (absent.length) warn('没装也没登记（未启用）：' + absent.join(' / '))
     // 没有 package.json 的目录多半是"只读调研"，不算失败（2026-11-14 实测 社交通道 就是这种）

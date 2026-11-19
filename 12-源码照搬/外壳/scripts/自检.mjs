@@ -86,23 +86,36 @@ check('端口', true, busy.length ? '已占用: ' + busy.join(',') + '（工作�
 
 // 6) 私有插件落位（2026-11-12 跨机器移植必查）：插件\ 里有源码，但 profile 的 node_modules 里没落位
 //    ⇒ 引擎按 bundles 解析不到该包（表现是 did not activate / ERR_MODULE_NOT_FOUND，不是配置错）
+//    2026-11-19 补：只查「已接线」的插件（bundles 或 cordis.patch.yml 登记过）。
+//    原来只查副本在不在，漏掉了「副本在、bundles 没登记」的半摘状态 → 自检假绿（旧 P1-1）。
 const PLUG = path.join(ROOT, '插件');
 const PROF = path.join(ROOT, '引擎数据', '.dsh', 'profiles', 'web');
 const readJ = (p) => { try { return JSON.parse(fs.readFileSync(p, 'utf8')); } catch { return null; } };
 if (!fs.existsSync(PROF)) {
   check('私有插件落位', true, '⚠ profile 未安装，跳过（引擎装好后跑 node 外壳\\scripts\\环境适配.mjs --apply）');
 } else {
+  const profPkg = readJ(path.join(PROF, 'package.json')) || {};
+  const bundles = (profPkg.dsh && profPkg.dsh.profile && Array.isArray(profPkg.dsh.profile.bundles)) ? profPkg.dsh.profile.bundles : [];
+  let patchTxt = '';
+  try { patchTxt = fs.readFileSync(path.join(PROF, 'cordis.patch.yml'), 'utf8'); } catch { patchTxt = ''; }
   const lost = [];
+  const half = [];
   if (fs.existsSync(PLUG)) {
     for (const d of fs.readdirSync(PLUG, { withFileTypes: true })) {
       if (!d.isDirectory()) continue;
       const pkg = readJ(path.join(PLUG, d.name, 'package.json'));
       if (!pkg || !pkg.name) continue;
-      if (!fs.existsSync(path.join(PROF, 'node_modules', pkg.name))) lost.push(pkg.name);
+      const present = fs.existsSync(path.join(PROF, 'node_modules', pkg.name));
+      const wired = bundles.includes(pkg.name) || patchTxt.includes(pkg.name);
+      if (wired && !present) lost.push(pkg.name);
+      if (!wired && present) half.push(pkg.name);
     }
   }
-  check('私有插件落位', !lost.length,
-    lost.length ? '未落位: ' + lost.join('、') + '（跑 node 外壳\\scripts\\环境适配.mjs --apply）' : '全部已落位');
+  const okPlug = !lost.length && !half.length;
+  check('私有插件落位', okPlug,
+    lost.length ? '未落位: ' + lost.join('、') + '（跑 node 外壳\\scripts\\环境适配.mjs --apply）'
+      : half.length ? '已装但没登记: ' + half.join('、') + '（bundles / cordis.patch 都没有 → 引擎不会加载）'
+        : '全部已接线（bundles / patch 均有登记）');
 }
 
 // 7) 场景路径（2026-11-12 跨机器移植必查）：homeFolders / drives / repo 在本机是否存在

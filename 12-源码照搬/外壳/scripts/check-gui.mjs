@@ -420,8 +420,14 @@ const ALLOWED_FILES = [
   'main.js', 'preload.js', 'stock-store.js', 'oa-store.js', 'oa-ssh.js', 'updater.js', 'crash.js',
   '项目切换.js',   // 2026-11-11：程序开发「项目下拉」的数据面（main.js require；单测见 scripts\项目切换自检.mjs）
   '桌宠设置.js',   // 2026-11-13：桌宠参数 + 审批策略 + 主动闸门（main.js require；工具\桌宠.mjs 也 require）
+  '桌宠状态.js',   // 2026-11-13：桌宠运行状态快照（桌宠面板读）
   '桥接.js',       // 2026-11-13：SnowLuma 桥接进程（main.js require）
   '社交.js',       // 2026-11-13：社交通道消息流数据面（main.js require）
+  '社交回复.js',   // 2026-11-18：各通道回复策略与出站裁剪（微信通道.js require）
+  '微信通道.js',   // 2026-11-18：微信鲸鲸通道进程（main.js require）
+  '外发闸门.js',   // 2026-11-18：出站内容安全闸门（微信通道 / 社交回复 require）
+  'QQ自动注入.js', // 2026-11-19：QQ 按号注入 SnowLuma（桥接.js 调用）
+  '功能台.js',     // 2026-11-18：功能台动作登记表（功能台面板读）
   '用量.js',       // 2026-11-13：用量统计数据面（main.js require）
   '工具清单.js',   // 2026-11-13：工具白名单元数据（渲染层取名字用）
   '架构索引.md',  // 2026-11-13：外壳架构索引（改 main.js / renderers.js 前先查；文档，不进备份清单）
@@ -470,20 +476,32 @@ else warn('captures/ 有 ' + capCount + ' 个文件（诊断截图，可随时�
 
 // 备份清单必须覆盖所有顶层源码条目（否则"回滚后少文件/回滚不干净"）
 if (exists('scripts/backup-gui.mjs')) {
-  const bk = read('scripts/backup-gui.mjs');
+  // 2026-11-19：清单搬到 scripts/备份清单.mjs（backup 与 restore 共用），优先读它
+  const bkListFile = exists('scripts/备份清单.mjs') ? 'scripts/备份清单.mjs' : 'scripts/backup-gui.mjs';
+  const bk = read(bkListFile);
   const bkFiles = (bk.match(/const FILES = \[([\s\S]*?)\]/) || [, ''])[1];
   const bkDirs = (bk.match(/const DIRS = \[([\s\S]*?)\]/) || [, ''])[1];
   const listed = (bkFiles + bkDirs).replace(/\/\/.*$/gm, '');
   // runtimeOnly = 不需要进备份清单的顶层条目：
   //   data/captures = 运行时数据；node_modules = 可重装；日志 = 可再生；
   //   .gitignore = 一行的配置；**`.git` = 版本控制本身**（备份快照就在仓库内，纳入会自我嵌套）
-  const runtimeOnly = ['data', 'captures', 'node_modules', 'server.log', 'server.log.prev', '.gitignore', '.git'];
+  const runtimeOnly = ['data', 'captures', 'node_modules', 'server.log', 'server.log.prev', '.gitignore', '.git', '.idea'];
   const missing = ALLOWED_DIRS.concat(ALLOWED_FILES)
     .filter((x) => !runtimeOnly.includes(x))
-    .filter((x) => !new RegExp("['\"]" + x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + "['\"]").test(listed));
-  if (!missing.length) ok('backup-gui.mjs 的备份清单覆盖了全部顶层源码条目');
-  else bad('这些顶层条目没进备份清单（回滚会漏）：' + missing.join(', ') + ' → 加进 scripts/backup-gui.mjs 的 FILES/DIRS');
+    .filter((x) => exists(x))   // 只要求备份「现在真的存在」的条目；历史清单里的旧文件名不该逼着备份空文件
+    .filter((x) => {
+      const esc = x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      // 目录：清单里写 'pet3d' 或写 'pet3d/app.js' 这类具体文件都算覆盖
+      // （pet3d 只备份源码文件，不搬 39MB 的模型/贴图）
+      if (ALLOWED_DIRS.includes(x)) return !new RegExp("['\"]" + esc + "(?:/|['\"])").test(listed);
+      return !new RegExp("['\"]" + esc + "['\"]").test(listed);
+    });
+  if (!missing.length) ok('备份清单（' + bkListFile + '）覆盖了全部顶层源码条目');
+  else bad('这些顶层条目没进备份清单（回滚会漏）：' + missing.join(', ') + ' → 加进 scripts/备份清单.mjs 的 FILES/DIRS');
+} else {
+  bad('scripts/backup-gui.mjs 不存在 → 顶栏「快照」不可用，回滚安全网整体失效');
 }
+if (!exists('scripts/restore-gui.mjs')) bad('scripts/restore-gui.mjs 不存在 → 顶栏「回滚」不可用');
 
 // 引擎侧扩展点（技能 / 插件）结构是否正确
 // 引擎目录：2026-10-10 起 main.js 把它改成了「与本工作台同级」自动推导（带写死兜底）。
