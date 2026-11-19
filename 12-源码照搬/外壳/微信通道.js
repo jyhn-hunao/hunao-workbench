@@ -26,6 +26,7 @@ const os = require('os');
 const crypto = require('crypto');
 const { spawn, spawnSync, execFileSync, execFile } = require('child_process');
 const { pathToFileURL } = require('url');
+const socialReply = require('./社交回复');
 
 const SHELL = __dirname;
 const ROOT = path.dirname(SHELL);
@@ -1380,6 +1381,12 @@ class WechatService {
     wc.chat.privateMaxChars = maxChars;
     wc.chat.groupMaxChars = maxChars;
     wc.chat.maxBubbles = 1;
+    // 表情/emoji 的随机层跟通用社交回复策略对齐。DSH 的提示词每轮从社交回复.json
+    // 现读；鲸鲸原生这层只在启动/改配置时读，所以这里把概率写成同一个值，避免
+    // 设置页写 30% 而鲸鲸还按旧的 70% 索图。
+    try { socialReply.applyWechatWhale(wc, socialReply.readPolicy()); } catch (e) {
+      if (process.env.DSH_DEBUG) console.warn('[wechat] apply social policy failed', e);
+    }
 
     // 语音回复策略是桥接独立文件：显式“发语音”永远优先，Probability=0 只表示不主动加语音。
     // 不给它写文件，界面上即使开了语音回复也永远不会发。
@@ -2888,6 +2895,16 @@ class WechatService {
     return Math.max(40, Math.min(cap, base * bubbles));
   }
 
+  _stickerCategories(cfg) {
+    try {
+      const h = this._home(cfg);
+      return h && h.home ? socialReply.stickerCatalog(path.join(h.home, 'data', 'stickers')) : [];
+    } catch (e) {
+      if (process.env.DSH_DEBUG) console.warn('[wechat] sticker catalog failed', e);
+      return [];
+    }
+  }
+
   _formatPrompt(p, cfg, max, marker) {
     const kind = p.chatType === 'group'
       ? '群聊「' + (p.chatTitle || '群聊') + '」'
@@ -2929,12 +2946,19 @@ class WechatService {
     if (p.voiceRequested) {
       context.push('\n[语音消息已转写] 对方发的是语音，本条按语音语境回复；语音回复由通道按设置合成，不要解释技术细节。');
     }
-    const sticker = nativeCfg.stickers
-      ? '\n[表情包] 需要配表情包时，在正文最后单独附一个 [[sticker:happy]] 或 [[sticker:angry]] 或 [[sticker:cute]]；程序会剥掉标记并补图。不要自己发图片或解释标记。'
-      : '';
+    const categories = this._stickerCategories(cfg);
+    const socialPolicy = socialReply.policyFor('wechat', p.chatType, p.chatId);
+    const socialPrompt = socialReply.promptFragment({
+      channel: 'wechat',
+      chatType: p.chatType,
+      chatId: p.chatId,
+      policy: socialPolicy,
+      capabilities: { sticker: !!nativeCfg.stickers },
+      categories: categories
+    });
     return '（微信' + kind + ' · ' + who + ' 说）\n' + p.text + roster + context.join('') +
       '\n\n[通道] 这是微信真实对话。直接回复对方，只输出要发出去的那条消息；' +
-      '不要解释系统/工具，不要 @ 任何人，控制在 ' + max + ' 字内。' + sticker + '\n' + marker;
+      '不要解释系统/工具，不要 @ 任何人，控制在 ' + max + ' 字内。' + socialPrompt + '\n' + marker;
   }
 
   _workspaceId() {
@@ -3107,11 +3131,22 @@ class WechatService {
 
   async _reply(p, cfg) {
     const max = this._maxChars(cfg, p.chatType);
+    const nativeCfg = Object.assign({}, NATIVE_DEFAULTS, (cfg && cfg.native) || {});
     const marker = '〔WX#' + crypto.randomBytes(4).toString('hex') + '〕';
     const prompt = this._formatPrompt(p, cfg, max, marker);
     const started = Date.now();
     const r = await this._callSession(cfg, p, prompt, marker, cfg.replyTimeoutMs);
     let text = this._clean(r.text, max);
+    // 通用回复策略只做「出站裁剪」：通道不支持表情包、分类不存在、超过条数时
+    // 把模型多写的 [[sticker:...]] 删掉，避免出现「正文说发了图、实际没发」。
+    const filtered = socialReply.filterReply(text, {
+      channel: 'wechat',
+      chatType: p.chatType,
+      chatId: p.chatId,
+      capabilities: { sticker: !!nativeCfg.stickers },
+      categories: this._stickerCategories(cfg)
+    });
+    text = filtered.text;
     if (!text) {
       this.counts.skipped++;
       this._appendLog('reply empty chat=' + shortHash(p.chatId) + ' type=' + p.chatType +
@@ -3149,6 +3184,19 @@ class WechatService {
       ' session=' + String(r.sessionId || '') + ' len=' + text.length +
       ' ms=' + (Date.now() - started) + ' turn=' + (r.turn || 0) +
       (gated ? ' gate=' + gated.verdict : ''));
+    // 观察面：设置页读的是最近一次实际回复，不是「策略写了什么」。
+    try {
+      socialReply.recordReply({
+        channel: 'wechat',
+        chatType: p.chatType,
+        chatId: p.chatId,
+        text: text,
+        stickers: gated && gated.verdict === 'block' ? [] : filtered.stickers,
+        dropped: filtered.dropped
+      });
+    } catch (e) {
+      if (process.env.DSH_DEBUG) console.warn('[wechat] record social reply failed', e);
+    }
     return { ok: true, text, turn: r.turn || 0, ms: Date.now() - started };
   }
 
