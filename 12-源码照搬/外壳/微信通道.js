@@ -161,6 +161,11 @@ function writeChatMap(map, dshHome) {
     try {
       writeText(path.join(dshHome, PERSONA_MAP_REL), JSON.stringify(direct, null, 2));
     } catch (e) { /* 写不进只影响人格注入，不影响收发；状态卡会显示 */ }
+    // 通用社交会话总表：微信不再只写自己的 _共享记忆/微信会话.json，
+    // 否则 QQ / 飞书接进来时记忆回响还得再写一套。镜像写不进时不影响收发。
+    try { socialReply.syncFromWechatMap(out, dshHome); } catch (e) {
+      if (process.env.DSH_DEBUG) console.warn('[wechat] sync social sessions failed', e);
+    }
   }
   return out;
 }

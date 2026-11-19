@@ -12,7 +12,9 @@
 //   ③ DSH profile 的 node_modules：@xmanrui/dsh-im / dsh-onebot-channel 装没装。
 //
 // 规矩：
-//   · 只读：不写 transcript、不改场景 JSON、不启停引擎（引擎生命周期归壳，见 AGENTS.md §8）。
+//   · 基本只读：不写 transcript、不改场景 JSON、不启停引擎（引擎生命周期归壳，见 AGENTS.md §8）。
+//     唯一写操作是通道巡检时把 QQ 原生路由登记进 外壳\data\社交会话.json（派生索引，
+//     不碰 transcript / 场景 / 引擎），供设置页与记忆回响共用。
 //   · 通道状态要敢说「没通」：探不到就 off，装了没绑就 warn，**不许把「装了」显示成「通了」**。
 'use strict';
 
@@ -21,6 +23,7 @@ const os = require('os');
 const path = require('path');
 const zlib = require('zlib');
 const net = require('net');
+const socialReply = require('./社交回复');
 
 const ZSTD_MAGIC = Buffer.from([0x28, 0xb5, 0x2f, 0xfd]);
 const NOISE = ['<system-reminder', '<permission', '<environment', '<agent', '<tool', '<workspace',
@@ -169,6 +172,25 @@ function platformOf(text) {
   const t = String(text || '');
   for (const p of PLATFORM_TAG) if (p.re.test(t)) return p.key;
   return 'other';
+}
+
+// 6.6 聚合消息流的人话标签：按聊天独立会话后，同一屏里会出现多个私聊/群聊，
+//     只标「微信」不够 —— 用户要能一眼区分「微信 · 静音胡闹」和「微信群 · 一个儿子多个爹」。
+//     ⛔ 不从正文猜聊天名：聊天名/类型来自 社交会话.json（通道写回的真源）。
+const CHANNEL_LABEL = { wechat: '微信', qq: 'QQ', feishu: '飞书' };
+function channelLabelOf(key) {
+  const k = String(key || '');
+  if (!k || k === 'other') return '其他';
+  return CHANNEL_LABEL[k] || k;
+}
+function sessionLabelOf(entry) {
+  const e = entry || {};
+  const ch = channelLabelOf(e.channel);
+  const typ = String(e.chatType || '') === 'group' ? '群' : '';
+  // QQ 的 chatTitle 本身就是「（QQ 私聊）」，再加「私聊」会变成「QQ · 私聊 · （QQ 私聊）」。
+  // 只有群聊才拼「群」，私聊直接用通道 + 聊天名，标签更短。
+  const name = String(e.chatTitle || e.title || e.sessionTitle || e.sessionId || '').trim();
+  return ch + (typ ? '群' : '') + (name ? ' · ' + name : '');
 }
 
 // 桥接配置的真实位置：插件按 用户主目录\.dsh 落（lib\env.js 的 CONFIG_FILE），不在引擎 home 里。
@@ -402,6 +424,11 @@ function createService(opts) {
     if (chCache && now - chCache.at < CHANNEL_CACHE_MS) {
       return chCache.value.map(function (c) { return Object.assign({}, c); });
     }
+    // 通道巡检时顺手把 QQ 的原生路由登记进社交会话总表（只读第三方配置，写的是
+    // 工作台自己的 data/社交会话.json）。配置没变时 syncQqSessions 不会重复写盘。
+    try { socialReply.syncQqSessions(dshHome); } catch (e) {
+      if (process.env.DSH_DEBUG) console.warn('[social] sync QQ sessions failed', e);
+    }
     const v = await channelStates(dshHome);
     chCache = { at: now, value: v.map(function (c) { return Object.assign({}, c); }) };
     return v;
@@ -420,9 +447,155 @@ function createService(opts) {
     return v;
   }
 
+  // 10.4 聚合流（2026-11-19）：按聊天独立 DSH 会话后，一条消息不再都落进人格主会话。
+  //      「全部消息」如果还只读面板上写死的那一个 sessionId，就会永远显示旧消息/空列表。
+  //      这里按 外壳\data\社交会话.json 的总表把每个私聊/群聊的消息合并、打上来源标签，
+  //      再按时间/搜索/「只看某个会话」过滤。只读转录 + 读总表，不写会话。
+  async function flowAll(a) {
+    const limit = Math.max(1, Math.min(200, Number(a.limit) || 40));
+    const since = Number(a.since) || 0;
+    const before = Number(a.before) || 0;
+    const q = String(a.q || '').trim();
+    const onlySession = String(a.onlySession || '').trim();
+
+    // 1) 先让总表跟上微信映射 / QQ 原生路由（失败不阻断：能读到多少会话就聚合多少）
+    let map = { version: 1, updatedAt: 0, sessions: {} };
+    try { socialReply.migrateLegacyWechat(dshHome); } catch (e) {
+      if (process.env.DSH_DEBUG) console.warn('[social] aggregate migrate wechat failed', e);
+    }
+    try { socialReply.syncQqSessions(dshHome); } catch (e) {
+      if (process.env.DSH_DEBUG) console.warn('[social] aggregate sync QQ failed', e);
+    }
+    try { map = socialReply.readSessions(); } catch (e) {
+      if (process.env.DSH_DEBUG) console.warn('[social] aggregate read sessions failed', e);
+    }
+
+    // 2) 总表里每条会话都要；面板绑定的 sessionId 如果不在总表里（例如人格主会话），也带上，
+    //    否则「全部消息」会漏掉用户在人格面板里直接教她的内容。
+    const entries = [];
+    const seen = new Set();
+    for (const [sid, item] of Object.entries((map && map.sessions) || {})) {
+      if (!sid) continue;
+      entries.push(Object.assign({}, item || {}, { sessionId: sid }));
+      seen.add(sid);
+    }
+    const boundId = String(a.sessionId || '').trim();
+    if (boundId && !seen.has(boundId)) {
+      entries.push({
+        sessionId: boundId,
+        channel: 'other',
+        chatType: '',
+        chatId: '',
+        chatTitle: String(a.sessionTitle || '人格主会话'),
+        title: String(a.sessionTitle || '人格主会话'),
+        senderName: ''
+      });
+    }
+
+    // 3) 逐会话读转录、合并消息；每条消息带上会话来源，前端才能画「微信 · 静音胡闹」。
+    const sessions = [];
+    const combined = [];
+    let events = 0;
+    let truncated = false;
+    let foundAny = false;
+    for (const e of entries) {
+      const file = transcriptOf(dshHome, e.sessionId);
+      const meta = {
+        sessionId: e.sessionId,
+        channel: String(e.channel || 'other'),
+        chatType: String(e.chatType || ''),
+        chatId: String(e.chatId || ''),
+        chatTitle: String(e.chatTitle || ''),
+        title: String(e.title || ''),
+        senderName: String(e.senderName || ''),
+        channelLabel: channelLabelOf(e.channel),
+        label: sessionLabelOf(e)
+      };
+      if (!file) {
+        sessions.push(Object.assign({}, meta, { n: 0, lastAt: 0, found: false }));
+        continue;
+      }
+      foundAny = true;
+      const loaded = await loadAllMessages(file);
+      if (!loaded) {
+        sessions.push(Object.assign({}, meta, { n: 0, lastAt: 0, found: false }));
+        continue;
+      }
+      events += Number(loaded.events) || 0;
+      truncated = truncated || !!loaded.truncated;
+      const msgs = loaded.messages || [];
+      sessions.push(Object.assign({}, meta, {
+        n: msgs.length,
+        lastAt: msgs.length ? msgs[msgs.length - 1].at : 0,
+        found: true
+      }));
+      for (const m of msgs) {
+        // 入站消息的正文里常带平台标记，优先用它；她自己的回复没有标记，用会话登记的平台兜底。
+        const key = (m.key && m.key !== 'other') ? m.key : (meta.channel || 'other');
+        combined.push(Object.assign({}, m, meta, { key: key }));
+      }
+    }
+
+    // 4) 合并后必须先按时间升序排——各会话是分别读出来的，不能拿「最后一条会话」的尾部当最新消息。
+    combined.sort(function (x, y) { return (Number(x.at) || 0) - (Number(y.at) || 0); });
+    // 5) 「只看某个会话」→ 时间/搜索 → 分页。会话下拉的计数用全量 n，筛选后才用 page.total。
+    const scoped = onlySession
+      ? combined.filter(function (m) { return m.sessionId === onlySession; })
+      : combined;
+    const base = filterMessages(scoped, { since: since, q: q });
+    const filtered = before ? filterMessages(base, { before: before }) : base;
+    const page = filtered.slice(-limit);
+    sessions.sort(function (x, y) { return (Number(y.lastAt) || 0) - (Number(x.lastAt) || 0); });
+
+    // 6) 通道状态与统计照旧；统计基于 base，避免被 limit / 分页截断成假数
+    const channels = await cachedChannelStates();
+    const dayStart = new Date();
+    dayStart.setHours(0, 0, 0, 0);
+    const t0 = dayStart.getTime();
+    const byKey = {};
+    for (const m of base) {
+      const k = m.key || 'other';
+      (byKey[k] = byKey[k] || []).push(m);
+    }
+    for (const c of channels) {
+      const arr = byKey[c.key] || [];
+      c.n = arr.length;
+      c.today = arr.filter(function (m) { return m.at >= t0; }).length;
+      const last = arr.length ? arr[arr.length - 1] : null;
+      c.last = last ? { at: last.at, role: last.role, text: last.text } : null;
+    }
+
+    // 7) 只挑一条会话时，session 信息也跟着切，空列表提示才能说清是哪条会话没消息
+    const picked = onlySession ? sessions.find(function (s) { return s.sessionId === onlySession; }) : null;
+    return {
+      ok: true,
+      at: Date.now(),
+      aggregate: true,
+      session: {
+        id: onlySession || '*',
+        title: picked ? picked.label : (onlySession || '全部会话'),
+        found: onlySession ? !!picked && picked.found : foundAny,
+        resolvedBy: 'all',
+        events: events
+      },
+      sessions: sessions,
+      channels: channels,
+      others: (byKey.other || []).length,
+      messages: page,
+      page: {
+        total: base.length,
+        returned: page.length,
+        hasMore: filtered.length > page.length,
+        oldestAt: page.length ? page[0].at : 0,
+        truncated: truncated
+      }
+    };
+  }
+
   return {
     async flow(args) {
       const a = args || {};
+      if (a.allSessions || a.mode === 'all') return flowAll(a);
       const sessionId = String(a.sessionId || '');
       const sessionTitle = String(a.sessionTitle || '');
       const limit = Math.max(1, Math.min(200, Number(a.limit) || 40));

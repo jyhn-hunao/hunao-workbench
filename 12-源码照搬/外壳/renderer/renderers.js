@@ -6843,14 +6843,20 @@ renderers.view = (body, meta, head) => {
 renderers.msgflow = function (body, meta, head) {
   body.classList.add('mf-panel');
   var POLL_MS = 4000;
+  var RANGES = ['today', '7', '30', 'all'];
   var st = { channels: [], messages: [], err: '', at: 0, title: '', found: false, busy: false, toasted: false,
-    range: '7', q: '', archivedBefore: 0, page: null, loadedMore: false, loadingMore: false };
+    range: (RANGES.indexOf(String(meta && meta.defaultRange)) >= 0 ? String(meta.defaultRange) : '7'),
+    q: '', archivedBefore: 0, page: null, loadedMore: false, loadingMore: false,
+    // 按聊天独立 DSH 会话后，一个面板要能看多条会话（全部消息 / 人格场景的通道消息）。
+    // aggregate 来自场景 JSON；false 时行为与旧版完全一致（只读 meta.sessionId）。
+    aggregate: !!(meta && meta.aggregate),
+    sessions: [], sessionFilter: '', sessionSig: '' };
 
   // 视图偏好优先存主进程 userData（2026-11-17：localStorage 可能被清理软件连带清掉）；
   // localStorage 只作兜底/一次性迁移。⚠ 归档游标只影响这个面板的显示，不动会话转录。
   try {
     var savedRange = localStorage.getItem('app.social.msg.range');
-    if (savedRange && ['today', '7', '30', 'all'].indexOf(savedRange) >= 0) st.range = savedRange;
+    if (savedRange && RANGES.indexOf(savedRange) >= 0) st.range = savedRange;
     st.archivedBefore = Math.max(0, Number(localStorage.getItem('app.social.msg.archivedBefore')) || 0);
   } catch (e) { wbWarn(e) }
 
@@ -6878,6 +6884,20 @@ renderers.msgflow = function (body, meta, head) {
   });
   rangeSel.value = st.range;
 
+  // 会话下拉（仅 aggregate）：把「每种私聊/群聊各自一条 DSH 会话」直接摆到界面上。
+  // 默认「全部会话」；选了就只读那一条会话。入口常驻、默认安全（不改源数据、不切会话）。
+  var sessionSel = null;
+  if (st.aggregate) {
+    sessionSel = document.createElement('select');
+    sessionSel.className = 'mf-session';
+    sessionSel.title = '按会话过滤：每个私聊 / 每个群各自一条 DSH 会话，互不串消息';
+    sessionSel.addEventListener('change', function () {
+      st.sessionFilter = String(sessionSel.value || '');
+      st.loadedMore = false;
+      load({ reset: true });
+    });
+  }
+
   var search = document.createElement('input');
   search.className = 'mf-search';
   search.type = 'search';
@@ -6903,6 +6923,7 @@ renderers.msgflow = function (body, meta, head) {
   count.className = 'mf-count';
 
   tools.appendChild(rangeSel);
+  if (sessionSel) tools.appendChild(sessionSel);
   tools.appendChild(search);
   tools.appendChild(more);
   tools.appendChild(archBtn);
@@ -6971,7 +6992,10 @@ renderers.msgflow = function (body, meta, head) {
     if (st.archivedBefore) since = Math.max(since, st.archivedBefore);
     return since;
   }
-  function msgKey(m) { return String(m.at || 0) + '|' + String(m.role || '') + '|' + String(m.text || ''); }
+  function msgKey(m) {
+    // 聚合视图里两个会话可能在同一毫秒说出同样的话；sessionId 必须进去，否则「更早」会把其中一条吃掉。
+    return String(m.at || 0) + '|' + String(m.role || '') + '|' + String(m.sessionId || '') + '|' + String(m.text || '');
+  }
   function mergeMessages(a, b) {
     var map = {};
     (a || []).concat(b || []).forEach(function (m) {
@@ -6982,12 +7006,44 @@ renderers.msgflow = function (body, meta, head) {
     return Object.keys(map).map(function (k) { return map[k]; })
       .sort(function (x, y) { return (x.at || 0) - (y.at || 0); });
   }
+  function syncSessionOptions() {
+    if (!sessionSel) return;
+    // 用户正拉开会话下拉时不重建选项（轮询有新消息时重建会把下拉关掉）；失焦后的下一轮再补新会话。
+    if (st.sessionSig && document.activeElement === sessionSel) return;
+    var list = Array.isArray(st.sessions) ? st.sessions : [];
+    var sig = list.map(function (s) {
+      return String(s.sessionId || '') + '|' + String(s.label || '') + '|' + String(s.n || 0);
+    }).join('~');
+    if (sig === st.sessionSig) { sessionSel.value = st.sessionFilter || ''; return; }
+    st.sessionSig = sig;
+    clearAll(sessionSel);
+    var all = document.createElement('option');
+    all.value = '';
+    all.textContent = '全部会话' + (list.length ? '（' + list.length + '）' : '');
+    sessionSel.appendChild(all);
+    list.forEach(function (s) {
+      var op = document.createElement('option');
+      op.value = String(s.sessionId || '');
+      op.textContent = (s.label || s.sessionId || '会话') + ' · ' + (Number(s.n) || 0) + ' 条';
+      sessionSel.appendChild(op);
+    });
+    // 选中的会话如果已经不在了（例如换过会话/聊天下线），退回「全部会话」，不让面板空在一个死 id 上。
+    if (st.sessionFilter && list.length && !list.some(function (s) { return String(s.sessionId) === st.sessionFilter; })) {
+      st.sessionFilter = '';
+    }
+    sessionSel.value = st.sessionFilter || '';
+  }
   function drawTools() {
+    syncSessionOptions();
     var total = st.page ? st.page.total : st.messages.length;
     var shown = st.messages.length;
     var hasMore = !!(st.page && st.page.hasMore);
     if (hasMore && st.page && shown >= total) hasMore = false;   // 已经加载全了就别再提示「更早还有」
     var txt = '共 ' + total + ' 条 · 显示 ' + shown + ' 条';
+    if (st.aggregate) {
+      var live = st.sessionFilter ? 1 : (Array.isArray(st.sessions) ? st.sessions.length : 0);
+      txt += ' · ' + live + ' 个会话';
+    }
     if (hasMore) txt += ' · 更早还有';
     if (st.page && st.page.truncated) txt += ' · 缓存只留最近 2 万条';
     count.textContent = txt;
@@ -6999,7 +7055,7 @@ renderers.msgflow = function (body, meta, head) {
     if (!p) return;
     // 主进程还没存过（exists:false）⇒ 保留 localStorage 里的旧值，别用默认值盖掉它
     if (p.exists) {
-      if (p.range && ['today', '7', '30', 'all'].indexOf(p.range) >= 0) st.range = p.range;
+      if (p.range && RANGES.indexOf(p.range) >= 0) st.range = p.range;
       if (Number.isFinite(Number(p.archivedBefore)) && Number(p.archivedBefore) >= 0) st.archivedBefore = Number(p.archivedBefore);
     }
     rangeSel.value = st.range;
@@ -7135,8 +7191,12 @@ renderers.msgflow = function (body, meta, head) {
       e3.textContent = st.q
         ? '没有匹配「' + st.q + '」的消息。'
         : (st.found
-          ? '这个筛选范围内还没有消息（切到「全部」或点「↩ 恢复」看看更早的）。'
-          : '场景会话的转录没找到（可能刚换过会话）：' + (meta.sessionId || '未绑定 sessionId'));
+          ? (st.aggregate
+            ? '这个筛选范围内还没有通道消息（切到「全部」或点「↩ 恢复」看看更早的）。'
+            : '这个筛选范围内还没有消息（切到「全部」或点「↩ 恢复」看看更早的）。')
+          : (st.aggregate
+            ? '还没有可读的社交会话转录（先在各通道发一条需要回的消息，或检查会话是否被换掉）。'
+            : '场景会话的转录没找到（可能刚换过会话）：' + (meta.sessionId || '未绑定 sessionId')));
       list.appendChild(e3);
       return;
     }
@@ -7148,10 +7208,21 @@ renderers.msgflow = function (body, meta, head) {
       var who = document.createElement('span');
       who.className = 'mf-who';
       who.textContent = m.role === 'her' ? '她' : '对面';
+      // 聚合视图里必须能区分「微信 · 静音胡闹」和「微信群 · 一个儿子多个爹」；
+      // 单会话视图不重复标来源（面板标题已经写了）。
+      if (st.aggregate && (m.label || m.chatTitle)) {
+        var src = document.createElement('span');
+        src.className = 'mf-src';
+        src.textContent = m.label || m.chatTitle;
+        src.title = String(m.label || m.chatTitle || '') + '\n会话：' + String(m.sessionId || '') + (m.chatId ? '\n聊天：' + m.chatId : '');
+        top.appendChild(who);
+        top.appendChild(src);
+      } else {
+        top.appendChild(who);
+      }
       var tm = document.createElement('span');
       tm.className = 'mf-time';
       tm.textContent = hhmm(m.at);
-      top.appendChild(who);
       top.appendChild(tm);
       var txt = document.createElement('div');
       txt.className = 'mf-text';
@@ -7193,7 +7264,9 @@ renderers.msgflow = function (body, meta, head) {
       limit: opt.limit || 50,
       since: effectiveSince(),
       before: opt.before || 0,
-      q: st.q
+      q: st.q,
+      allSessions: !!st.aggregate,
+      onlySession: st.aggregate ? st.sessionFilter : ''
     })).then(function (r) {
       st.busy = false;
       st.loadingMore = false;
@@ -7206,6 +7279,7 @@ renderers.msgflow = function (body, meta, head) {
       st.err = '';
       st.toasted = false;
       st.channels = r.channels || [];
+      st.sessions = st.aggregate ? (Array.isArray(r.sessions) ? r.sessions : []) : [];
       st.page = r.page || null;
       st.at = r.at || Date.now();
       st.title = (r.session && r.session.title) || '';

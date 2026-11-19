@@ -6607,17 +6607,28 @@ html[data-theme="light"] .kneu-btn { border-color: var(--line-2); }
 .mf-row.is-her { align-self: flex-end; border-color: var(--accent); background: transparent; }
 .mf-meta { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-dim); }
 .mf-who { font-weight: 600; color: var(--text); }
+/* 聚合流来源（2026-11-19）：每条消息标出所属私聊/群聊；单会话视图不显示，避免重复。 */
+.mf-src { color: var(--text-dim); max-width: 48%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mf-time { margin-left: auto; white-space: nowrap; }
 .mf-text { white-space: pre-wrap; word-break: break-word; color: var(--text); }
 .mf-empty { color: var(--text-dim); font-size: 13px; line-height: 1.6; padding: 10px 2px; }
 /* 管理工具栏（2026-11-17）：时间范围 / 搜索 / 加载更早 / 归档 / 条数统计 */
 .mf-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; flex: 0 0 auto; }
 .mf-tools .file-refresh { font-size: 12px; }
-.mf-range, .mf-search {
+.mf-range, .mf-session, .mf-search {
   height: 26px; padding: 0 8px; border: 1px solid var(--border); border-radius: 6px;
   background: var(--bg-panel); color: var(--text); font-size: 12px; outline: none;
 }
 .mf-range option { background: var(--bg-panel); color: var(--text); }
-.mf-range:focus, .mf-search:focus { border-color: var(--accent); }
+.mf-session {
+  /* 会话名可能带聊天名（微信 · 静音胡闹）；给足宽度但不超过工具栏一半，让搜索还能用 */
+  flex: 0 1 240px;
+  min-width: 130px;
+  max-width: min(240px, 46%);
+  text-overflow: ellipsis;
+}
+.mf-session option { background: var(--bg-panel); color: var(--text); }
+.mf-range:focus, .mf-session:focus, .mf-search:focus { border-color: var(--accent); }
 .mf-search { flex: 1 1 150px; min-width: 110px; }
 .mf-count { margin-left: auto; font-size: 12px; color: var(--text-dim); white-space: nowrap; }
 
