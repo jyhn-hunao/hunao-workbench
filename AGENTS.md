@@ -50,6 +50,7 @@
 | 场景记忆巩固（同主题 ≥3 篇 → `定论\<主题>.md` 草案；evidence 取要点原文第一行并写回 `consolidated_into` 回链；`confirmed` 不被 `--force` 覆盖） | `node 12-源码照搬\工具\场景记忆.mjs 沉淀 --场景 <场景> [--dry] [--force]` | `12-源码照搬/工具/场景记忆.mjs` `cmdDistill` |
 | 场景记忆召回（标题 ×3 / 标签 ×2 / 正文 ×1 + 45 天热度，排序给绝对路径；默认排除归档/过期，`--含归档` 时归档 ×0.3 降权） | `node 12-源码照搬\工具\场景记忆.mjs 召回 --场景 <场景>\|--all --词 "<关键词>" [--条 5] [--含归档]` | `12-源码照搬/工具/场景记忆.mjs` `cmdRecall` |
 | 每轮记忆注入插件（`agent/pre-step` 注入 §〇/近期/命中条目；装完**重启整壳**） | `node 12-源码照搬\工具\记忆回响.mjs --check`／`--apply`／`--mode shadow`／`--off` | `12-源码照搬/插件/记忆回响/index.js`、`12-源码照搬/工具/记忆回响.mjs` |
+| 社交策略插件（DSH 侧给已登记社交会话注入回复卡；飞书绑定事件 + 启动扫描自动登记；装完**重启整壳**） | `node 12-源码照搬\工具\社交策略.mjs --check`／`--apply`／`--mode shadow`／`--off` | `12-源码照搬/插件/社交策略/index.js`、`12-源码照搬/工具/社交策略.mjs` |
 | 场景记忆写入闸门（相似 ≥50% 拒写；拿不准进待确认；词像义不同写 `distinct`） | 写时加 `--不确定 "疑问"` → `待确认 --场景 X` → `确认 --场景 X --序号 N [--放弃]`；消歧加 `--不是同一条 "词：区别"`；收工 `收工 --场景 X`（索引 + 近期 + 自动沉淀定论 + check + 待确认计数） | `12-源码照搬/工具/场景记忆.mjs` `cmdPending`/`cmdConfirm`/`cmdFinish` |
 | 近期记忆重建（每场景一份 `_近期.md`，开场注入第三段；人格场景归 人格记忆.mjs） | `node 12-源码照搬\工具\近期记忆.mjs 生成 --场景 <场景>` ／ `生成 --all` | `12-源码照搬/工具/近期记忆.mjs` |
 | 读场景 §〇（只取这一节，约 2–4 KB） | `node 12-源码照搬\工具\场景记忆.mjs 读 --场景 程序开发 --节 §〇` | `12-源码照搬/工具/场景记忆.mjs` `cmdRead` |
@@ -148,6 +149,7 @@
 - **引擎契约随版本漂移**：`建会话.mjs` 依赖「server.log 取 token → 换 cookie → POST /api/<method>」这套现状（`12-源码照搬/外壳/scripts/建会话.mjs:54`），引擎升级后要重跑一次建会话验证。
 - **记忆回响插件升级适配（2026-11-17 补）**：插件只装在 profile 的 `node_modules\dsh-memory-recall`，引擎整目录替换不覆盖；但引擎若改 `agent/pre-step` 契约，插件会静默退回 `next()`（对话不断、记忆不注入）。升级后先搜 `server.log` 的 `[memory-recall] 已挂载`，再在绑定面板发一条消息验证；重装用 `node 12-源码照搬\工具\记忆回响.mjs --apply` + 重启整壳。换会话/建会话默认不写开场消息（`--seed` 回退），交接全靠这个插件。
 - **引擎生命周期归壳所有**：引擎必须由壳拉起（`启动.vbs` → `main.js` 的 spawn 计划），token 由壳从引擎 stdout 捕获（`main.js:401-403`）。⛔ 不得在壳外 `Stop-Process`/`Start-Process` 自行重启引擎——外部重启后旧 token 立刻失效，界面报 `dsh web authentication required`（白屏）。要重载插件或换引擎版本，重启整壳，不要只重启引擎。
+- **QQ 通道重启后自动注入，且双开只接指定号（2026-11-19）**：SnowLuma 的 `hookAutoLoad` 默认 `false` 且是「发现即全注入」；`外壳\桥接.js` 固定设 `SNOWLUMA_HOOK_AUTOLOAD=0`，改由 `外壳\QQ自动注入.js` 登录 5099 按 `autoLoadUin` 挑进程：命令行带号直接认，认不出按最早启动逐个试注入、非目标立即卸载，目标在线上后只留它。配置在 `外壳\data\桥接.json`（`autoLoadMode` uin/all/off、`autoLoadUin`、`autoLoadProbe`、改过控制台密码要填 `webuiPassword`）；面板入口在社交 → 通道 → QQ 卡片「默认接入 QQ 号」。换号时同步改 `~/.dsh/qq-bridge.config.json` 的 `selfUin`（否则插件会把新号的消息当别人）；双开不要把主号填成 `autoLoadUin`；试注入会短暂挂上非目标号（2–15 秒）后卸载。
 - **引擎 token 只在壳内存里（2026-11-17 补）**：2026-11-14 起 `server.log` 里的 `?token=` 被打成 `token=***`（防日志外发泄露）。脚本一律走 `12-源码照搬/工具/引擎token.mjs`：壳 spawn 子进程时注入 `DSH_TOKEN`（env 优先），日志只作兜底。⛔ 新脚本别自己正则翻 `server.log` 取 token —— 必然「换不到 cookie」。手工跑 CLI 时没有 `DSH_TOKEN`，只能在壳里点按钮或先设该环境变量。
 - **自检认两套引擎布局**（2026-11-12 已修，勿再按旧记忆判断）：`自检.mjs` 同时探 `引擎/lib/bin.js`（打包版，当前本机）与 `引擎/apps/cli/lib/bin.js`（源码版）；两者都不在、且端口上也没有引擎在跑时才会报「缺引擎」，别当自己改坏。
 - **sessionId 是本机数据**：换机器后场景面板必然空白，先跑 `sessions.mjs --check` 再怀疑代码。
