@@ -37,6 +37,34 @@ function scenariosDir() {
 
 let mapCache = { at: 0, data: null, forcedAt: 0 }
 let wxMapCache = { at: 0, data: null }
+let socialMapCache = { at: 0, data: null }
+
+/** 通用社交会话总表（微信 / QQ / 飞书共用）：
+    外壳写 <DSH_HOME>/场景记忆/_共享记忆/社交会话.json，结构是 sessionId -> {scene,panel,channel,...}。
+    这是通道无关的归属源；旧微信映射继续兜底，升级前已建的会话不会丢人格。 */
+function socialSessionMap() {
+  const now = Date.now()
+  if (socialMapCache.data && now - socialMapCache.at < 5000) return socialMapCache.data
+  const out = {}
+  try {
+    const f = path.join(memRoot(), '_共享记忆', '社交会话.json')
+    if (fs.existsSync(f)) {
+      const j = JSON.parse(fs.readFileSync(f, 'utf8'))
+      const src = j && j.sessions && typeof j.sessions === 'object' ? j.sessions : (j || {})
+      for (const [sid, v] of Object.entries(src)) {
+        if (!sid || !v || typeof v !== 'object') continue
+        out[sid] = {
+          scene: String(v.scene || '胡闹的大肥鱼'),
+          panel: String(v.panel || '')
+        }
+      }
+    }
+  } catch (e) {
+    if (process.env.DSH_DEBUG) console.warn('[memory-recall] read social session map failed', e)
+  }
+  socialMapCache = { at: now, data: out }
+  return out
+}
 
 /** 微信通道按聊天动态建的会话不写在 scenarios/*.json 里；外壳把映射写到
     <DSH_HOME>/场景记忆/_共享记忆/微信会话.json。这里 5 秒读一次，给这些会话补上
@@ -110,6 +138,9 @@ function sceneOf(agent) {
   if (!sid) return null
   const hit = sessionMap()[sid]
   if (hit) return hit
+  // 通用社交总表优先：微信 / QQ / 飞书都从这一张表补人格归属；旧微信映射兜底。
+  const social = socialSessionMap()[sid]
+  if (social) return social
   const wx = wxSessionMap()[sid]
   if (wx) return wx
   // 换会话刚建好时 scenario JSON 已回写，但本对象可能还停在 30 秒缓存里 ⇒ 强制重建一次。
