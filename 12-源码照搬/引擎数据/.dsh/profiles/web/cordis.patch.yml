@@ -26,3 +26,10 @@
       name: "dsh-memory-recall"
       config:
         mode: enforce
+
+# ---- 2026-11-19 社交策略：给已登记的社交会话注入回复卡（工具\社交策略.mjs 装）----
+- insert:
+    - id: social-policy
+      name: "dsh-social-policy"
+      config:
+        mode: enforce
