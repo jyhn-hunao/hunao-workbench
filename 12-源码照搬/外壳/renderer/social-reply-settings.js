@@ -176,7 +176,7 @@
     var rowSticker = mk('div', 'wxs-row');
     var sl = mk('div', 'wxs-lab-wrap');
     sl.appendChild(mk('div', 'wxs-lab', '表情包频率'));
-    sl.appendChild(mk('div', 'wxs-hint', '微信图库有开心 / 傲娇 / 炸毛 / 鲸鲸千问；QQ 用原生表情语法；飞书暂不支持贴纸包。'));
+    sl.appendChild(mk('div', 'wxs-hint', '微信固定图库有开心 / 傲娇 / 炸毛 / 鲸鲸千问；开启「按需生成」后，图库没有的合理情绪由微信功能页的千问补图并入库。QQ 用原生表情语法；飞书暂不支持贴纸包。'));
     rowSticker.appendChild(sl);
     var sc = mk('div', 'wxs-ctrl');
     var si = mk('input', 'wxs-num');
@@ -282,6 +282,7 @@
     var st = data.status || {};
     var statusLine = mk('div', 'wxs-note', '最近一次实际回复：' + (st.last
       ? hhmm(st.last.at) + ' · ' + channelName(st.last.channel) + ' · ' + Number(st.last.chars || 0) + ' 字 · 表情 ' + (Array.isArray(st.last.stickers) ? st.last.stickers.length : 0) + ' 张' +
+        (Array.isArray(st.last.pending) && st.last.pending.length ? ' · 待按需生成 ' + st.last.pending.join('、') : '') +
         (Array.isArray(st.last.dropped) && st.last.dropped.length ? ' · 裁掉 ' + st.last.dropped.join('、') : '')
       : '还没有（通道回复后这里会出现）'));
     sec4.appendChild(statusLine);
