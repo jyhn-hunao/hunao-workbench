@@ -106,6 +106,13 @@ contextBridge.exposeInMainWorld('app', {
     settingsSave: (patch) => ipcRenderer.invoke('qq-group:settings-save', patch || {}),
     refresh: () => ipcRenderer.invoke('qq-group:refresh')
   },
+  // ---- QQ 媒体能力（2026-11-19）----
+  // 语音转写 / 千问表情包 / 语音合成。缺这个命名空间 = preload 还是旧的，QQ 卡片明确显示重启提示。
+  qqMedia: {
+    status: () => ipcRenderer.invoke('qq-media:status'),
+    settingsSave: (patch) => ipcRenderer.invoke('qq-media:settings-save', patch || {}),
+    stickerGenerate: (args) => ipcRenderer.invoke('qq-media:sticker-generate', args || {})
+  },
   // ---- 聊天长期档案（2026-11-19）----
   // 缺这个命名空间 = preload/主进程还是旧的 ⇒ 社交标题行的「聊天档案」按钮显示重启提示，不假装有数据。
   chatArchive: {
@@ -114,6 +121,7 @@ contextBridge.exposeInMainWorld('app', {
     settingsSave: (patch) => ipcRenderer.invoke('archive:settings-save', patch || {}),
     sync: () => ipcRenderer.invoke('archive:sync'),
     chats: () => ipcRenderer.invoke('archive:chats'),
+    recent: (args) => ipcRenderer.invoke('archive:recent', args || {}),
     search: (args) => ipcRenderer.invoke('archive:search', args || {}),
     quote: (args) => ipcRenderer.invoke('archive:quote', args || {}),
     daily: (args) => ipcRenderer.invoke('archive:daily', args || {}),

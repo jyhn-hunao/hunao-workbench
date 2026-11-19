@@ -37,7 +37,9 @@ const DEFAULTS = {
   maxRepliesPerMinute: 15,
   addressGuard: true,
   maxChars: 70,
-  replyTimeoutMs: 90000
+  replyTimeoutMs: 90000,
+  // 媒体能力由 QQ能力.js 管；这里只保留旁听链自己的开关，避免两套配置各说各话。
+  voiceListen: true
 };
 
 function clamp(n, lo, hi) {
@@ -78,6 +80,7 @@ function normalizeConfig(raw) {
   x.addressGuard = x.addressGuard !== false;
   x.maxChars = clamp(Math.round(Number(x.maxChars) || 70), 20, 300);
   x.replyTimeoutMs = clamp(Math.round(Number(x.replyTimeoutMs) || 90000), 20000, 118000);
+  x.voiceListen = x.voiceListen !== false;
   return x;
 }
 
@@ -90,9 +93,13 @@ function createService(options) {
   // 外发闸门（2026-11-19）：群消息也是外发正文，发送动作统一由闸门代发；
   // 没接闸门就拒绝发送，不静默直连（测试.mjs 把直连发送字面量当违规）。
   const gate = opt.gate || null;
+  // 媒体层（2026-11-19）：语音转写 / 千问表情包 / 语音合成由 QQ能力.js 提供。
+  // 群聊只消费能力，不复制一套 ASR/TTS；没有接上就退回纯文字，不假装支持。
+  const media = opt.media || null;
 
   let config = normalizeConfig(readJson(CONFIG_FILE));
   let socket = null;
+  let mediaCache = { at: 0, value: null };
   let retryTimer = null;
   let groupTimer = null;
   let libCache = null;
@@ -122,6 +129,29 @@ function createService(options) {
     const text = '[' + nowText() + '] ' + String(line || '').slice(0, 1000);
     try { fs.mkdirSync(WORK_DIR, { recursive: true }); fs.appendFileSync(LOG_FILE, text + '\r\n', 'utf8'); } catch (e) { /* 日志不影响主流程 */ }
     try { log('[qq-group] ' + text); } catch (e) { /* 外部日志失败不影响 */ }
+  }
+
+  // QQ能力.js 的状态读一次缓存 5 秒：群事件可能成串到达，不能每条都去扫图库/起 PowerShell。
+  function mediaSettings() {
+    if (!media || typeof media.settingsGet !== 'function') {
+      return { config: { voice: false, stickers: false, voiceReply: false, voiceReplyGroups: false,
+        voiceReplyChance: 0, stickerChance: 0, stickerDynamic: false }, categories: [] };
+    }
+    const now = Date.now();
+    if (mediaCache.value && now - mediaCache.at < 1000) return mediaCache.value;
+    try {
+      const st = media.settingsGet() || {};
+      const cfg = st.config || {};
+      mediaCache = { at: now, value: {
+        config: cfg,
+        categories: (st.stickers && Array.isArray(st.stickers.categories)) ? st.stickers.categories : [],
+        asr: st.asr || {}, tts: st.tts || {}, qwen: st.qwen || {}
+      } };
+      return mediaCache.value;
+    } catch (e) {
+      appendLog('读取媒体能力失败：' + ((e && e.message) || e));
+      return { config: { voice: false, stickers: false, voiceReply: false, voiceReplyChance: 0, stickerChance: 0 }, categories: [] };
+    }
   }
 
   function writeStatus() {
@@ -231,8 +261,33 @@ function createService(options) {
       if (seg.type === 'at') return '@' + String(seg.data && seg.data.qq || '');
       if (seg.type === 'image') return '[图片]';
       if (seg.type === 'face') return '[表情]';
+      // mface 是商城大表情：至少把名字带进旁听，不然模型看到「[表情]」分不出是哭还是笑。
+      if (seg.type === 'mface') {
+        const name = String((seg.data && (seg.data.summary || seg.data.emoji_name || seg.data.name)) || '').trim();
+        return name ? '[表情:' + name.slice(0, 20) + ']' : '[表情包]';
+      }
+      if (seg.type === 'record') return '[语音]';
       return '';
     }).join('');
+  }
+
+  // 入站转写只做「群旁听」这一段；私聊仍由 dsh-onebot-channel 投递。
+  // 语音失败时保留 [语音] 占位并把原因写进旁听，不把失败的语音当成没说话。
+  async function describeMessage(ev) {
+    let text = textOf(ev && ev.message).trim();
+    if (!media || typeof media.transcribeMessage !== 'function') return text;
+    const ms = mediaSettings();
+    if (ms.config.voiceListen === false || !ms.config.voice) return text;
+    const hasRecord = (Array.isArray(ev.message) ? ev.message : [ev.message])
+      .some((seg) => seg && seg.type === 'record');
+    if (!hasRecord) return text;
+    const tr = await media.transcribeMessage(ev.message);
+    if (tr && tr.ok && tr.text) {
+      text = text.replace('[语音]', '[语音转写] ' + String(tr.text).slice(0, 500));
+    } else if (tr && tr.error) {
+      text = text.replace('[语音]', '[语音]（转写失败：' + String(tr.error).slice(0, 120) + '）');
+    }
+    return text.trim();
   }
 
   function atInfo(message, selfUin) {
@@ -318,18 +373,30 @@ function createService(options) {
     return { ok: true, reason: 'hit', chance: config.chance, roll: roll };
   }
 
-  function cleanReply(text, marker) {
+  // 模型允许写 [[sticker:情绪]]：正文剥掉标记，标记单独交给发送层补图。
+  // 旧的 cleanReply 继续保留为「只取正文」，测试和别处调用不会因为新增返回值而坏掉。
+  function parseReply(text, marker) {
     let t = String(text || '').replace(marker, '').trim();
-    if (!t) return '';
-    if (/^(?:\[?(?:不接|pass|跳过|沉默)\]?|pass)$/i.test(t)) return '';
-    if (t.length <= 16 && /(不接|pass|跳过|沉默)/i.test(t)) return '';
+    if (!t) return { text: '', sticker: '', pass: false };
+    if (/^(?:\[?(?:不接|pass|跳过|沉默)\]?|pass)$/i.test(t)) return { text: '', sticker: '', pass: true };
+    if (t.length <= 16 && /(不接|pass|跳过|沉默)/i.test(t)) return { text: '', sticker: '', pass: true };
     t = t.replace(/^["“”'「」『』]+|["“”'「」『』]+$/g, '').trim();
     t = t.replace(/@[^\s]+/g, '').trim();
-    t = t.replace(/\[\[sticker:[^\]]+\]\]/g, '').trim();
+    let sticker = '';
+    t = t.replace(/\[\[\s*sticker\s*:\s*([^\]\n]{1,24})\s*\]\]/gi, function (whole, name) {
+      if (!sticker) sticker = String(name || '').trim();
+      return '';
+    }).trim();
+    // 经典表情标记在随机接话链没有工具可用；剥掉，别把标记当正文发出去。
     t = t.replace(/\[表情:[^\]]+\]/g, '').trim();
-    if (/^[（(][^）)]{0,16}[）)]$/.test(t)) return '';
+    if (/^[（(][^）)]{0,16}[）)]$/.test(t)) return { text: '', sticker: '', pass: true };
     t = t.replace(/\s+/g, ' ');
-    return t.slice(0, config.maxChars);
+    if (t.length > config.maxChars) t = t.slice(0, config.maxChars);
+    return { text: t, sticker: sticker, pass: false };
+  }
+
+  function cleanReply(text, marker) {
+    return parseReply(text, marker).text;
   }
 
   function gateReply(text, rec) {
@@ -355,20 +422,38 @@ function createService(options) {
     const records = readListenRecords(groupId, 24).filter((r) => r && r.text && (r.msgId || '') !== currentId);
     const recent = records.slice(-20).map((r) => (r.senderName || '群友') + '：' + String(r.text).slice(0, 240));
     const policy = socialReply.policyFor('qq', 'group', groupId);
+    const ms = mediaSettings();
+    const cats = ms.categories || [];
+    // 随机接话现在允许带表情包（有图库且开关打开时）；语音由发送层按概率自动合成，
+    // 不让模型写 [[voice]]，避免模型以为写个标记就会替它发声。
+    const stickerOn = ms.config.stickers === true && Number(ms.config.stickerChance) > 0 && cats.length > 0;
+    // 把 QQ 媒体层的频率覆盖到通用策略里：界面上的 10% 就是模型看到的 10%，
+    // 不再出现「界面 10%、模型按默认 30% 写标记」的两套频率。
+    const effectivePolicy = JSON.parse(JSON.stringify(policy || {}));
+    if (!effectivePolicy.global || typeof effectivePolicy.global !== 'object') effectivePolicy.global = {};
+    if (!effectivePolicy.global.sticker || typeof effectivePolicy.global.sticker !== 'object') effectivePolicy.global.sticker = {};
+    effectivePolicy.global.sticker.enabled = stickerOn;
+    effectivePolicy.global.sticker.chance = stickerOn ? Number(ms.config.stickerChance) : 0;
+    effectivePolicy.global.sticker.maxPerReply = Math.max(1, Number(ms.config.stickerMaxPerReply) || 1);
     const frag = socialReply.promptFragment({
       channel: 'qq',
       chatType: 'group',
       chatId: groupId,
-      policy: policy,
-      // 随机接话这条链只发文字：不让模型写 QQ 表情标记，否则正文会被清空/截断。
-      // 正常 @ 回复仍由 dsh-onebot-channel 的表情/图片能力处理。
-      capabilities: { sticker: false, voice: false, image: false }
+      policy: effectivePolicy,
+      capabilities: { sticker: stickerOn, voice: false, image: false },
+      categories: cats,
+      dynamicSticker: stickerOn && ms.config.stickerDynamic === true
     });
+    const voiceOn = ms.config.voiceReply === true && ms.config.voiceReplyGroups === true && Number(ms.config.voiceReplyChance) > 0;
+    const voiceLine = voiceOn
+      ? '\n语音：这条有可能被程序合成为语音发出去；你只写正常正文，不要写 [[voice]] 或解释语音。'
+      : '';
     return '（QQ群聊「' + groupName(groupId) + '」· 旁听）\n'
       + (recent.length ? '[最近群聊旁听记录]\n' + recent.join('\n') + '\n' : '')
       + '（现在，' + (rec.senderName || '群友') + ' 说：' + String(rec.text).slice(0, 500) + '）\n\n'
       + '[通道] 你在群里旁听。现在如果适合接一句，就只输出要发到群里的那一句话（' + config.maxChars + ' 字内）；'
       + '不要 @ 人，不要解释系统或工具，不要写小作文；如果不适合接，只输出「[不接]」。'
+      + voiceLine
       + frag;
   }
 
@@ -428,17 +513,56 @@ function createService(options) {
         appendLog(status.lastError);
         return;
       }
-      const text = cleanReply(generated && generated.text, marker);
-      if (!text) {
+      const parsed = parseReply(generated && generated.text, marker);
+      if (!parsed.text && !parsed.sticker) {
         status.counts.skipped++;
         status.lastReply = { at: Date.now(), groupId: groupId, ok: false, reason: generated && generated.timeout ? 'timeout' : 'empty_or_pass' };
         appendLog('未接话 group=' + groupId + ' timeout=' + !!(generated && generated.timeout));
         return;
       }
+      // 表情包 / 语音都从同一份媒体配置读，界面关掉就立刻退回文字。
+      const ms = mediaSettings();
+      let imageFile = '';
+      let stickerLabel = '';
+      // 模型可以提议表情，但最终频率仍由界面控制：超过本段概率就丢弃，
+      // 避免模型每次都写标记导致「设置 10% 实际 100%」。
+      if (parsed.sticker && Math.random() >= Number(ms.config.stickerChance)) parsed.sticker = '';
+      if (parsed.sticker && ms.config.stickers === true && Number(ms.config.stickerChance) > 0) {
+        try {
+          const sticker = media && typeof media.ensureSticker === 'function'
+            ? await media.ensureSticker(parsed.sticker, (rec.text || '').slice(0, 600))
+            : null;
+          if (sticker && sticker.file && fs.existsSync(sticker.file)) {
+            imageFile = sticker.file;
+            stickerLabel = sticker.label || parsed.sticker;
+          } else {
+            appendLog('表情包没取到 group=' + groupId + ' label=' + parsed.sticker + '（本条只发文字）');
+          }
+        } catch (e) {
+          appendLog('表情包失败 group=' + groupId + '：' + ((e && e.message) || e));
+        }
+      }
+      let voiceFile = '';
+      if (ms.config.voiceReply === true && ms.config.voiceReplyGroups === true && Number(ms.config.voiceReplyChance) > 0) {
+        const roll = Math.random();
+        if (roll < Number(ms.config.voiceReplyChance)) {
+          try {
+            const voice = media && typeof media.synthesizeVoice === 'function'
+              ? await media.synthesizeVoice(parsed.text)
+              : null;
+            if (voice && voice.file && fs.existsSync(voice.file)) voiceFile = voice.file;
+            else appendLog('语音合成没成功 group=' + groupId + '：' + ((voice && voice.error) || '未知原因'));
+          } catch (e) {
+            appendLog('语音合成失败 group=' + groupId + '：' + ((e && e.message) || e));
+          }
+        }
+      }
       try {
-        const sent = gate && typeof gate.sendGroupText === 'function'
-          ? await gate.sendGroupText(groupId, text)
-          : { ok: false, error: '外发闸门未接线，拒绝直连发送' };
+        const sent = gate && typeof gate.sendGroupMessage === 'function'
+          ? await gate.sendGroupMessage(groupId, { text: parsed.text, imageFile: imageFile, voiceFile: voiceFile })
+          : (gate && typeof gate.sendGroupText === 'function'
+            ? await gate.sendGroupText(groupId, parsed.text)
+            : { ok: false, error: '外发闸门未接线，拒绝直连发送' });
         if (!sent || sent.ok !== true) {
           throw new Error(sent && sent.blocked
             ? '闸门拦下（规则 ' + ((sent.rules || []).join('|') || '未知') + '）'
@@ -451,10 +575,14 @@ function createService(options) {
         status.counts.replied++;
         status.lastError = '';
         status.lastReply = {
-          at: s.lastRandomAt, groupId: groupId, ok: true, text: text,
+          at: s.lastRandomAt, groupId: groupId, ok: true, text: String(sent.text || parsed.text),
+          sticker: stickerLabel || '', voice: !!voiceFile, mediaError: String(sent.mediaError || ''),
           ms: Date.now() - started, messageId: String(sent.messageId || '')
         };
-        appendLog('接话 group=' + groupId + ' len=' + text.length + ' ms=' + (Date.now() - started));
+        if (sent.mediaError) appendLog('正文已发，媒体没发出去 group=' + groupId + '：' + sent.mediaError);
+        appendLog('接话 group=' + groupId + ' len=' + parsed.text.length
+          + ' sticker=' + (stickerLabel || '-') + ' voice=' + (voiceFile ? '1' : '0')
+          + ' ms=' + (Date.now() - started));
       } catch (e) {
         status.counts.errors++;
         status.lastError = '发送失败：' + ((e && e.message) || e);
@@ -469,7 +597,7 @@ function createService(options) {
     return true;
   }
 
-  function handleEvent(ev) {
+  async function handleEvent(ev) {
     if (!ev || (ev.post_type !== 'message' && ev.post_type !== 'message_sent')) return;
     if (String(ev.message_type || '') !== 'group') return;
     const groupId = String(ev.group_id || '');
@@ -479,10 +607,10 @@ function createService(options) {
     const selfUin = String(ev.self_id || qqCfg.selfUin || '');
     const userId = String(ev.user_id || '');
     const out = String(ev.post_type) === 'message_sent' || (selfUin && userId === selfUin);
-    const text = textOf(ev.message).trim();
-    if (!text) return;
+    const rawText = textOf(ev.message).trim();
+    if (!rawText) return;
     const msgId = String(ev.message_id || '');
-    const key = groupId + '|' + (msgId || (userId + '|' + text));
+    const key = groupId + '|' + (msgId || (userId + '|' + rawText));
     const old = seen.get(key);
     const now = Date.now();
     if (old && now - old < 300000) return;
@@ -490,6 +618,10 @@ function createService(options) {
     if (seen.size > 2000) {
       for (const [k, v] of seen) if (now - v > 300000) seen.delete(k);
     }
+    // 语音转写放在去重之后、落旁听之前：同一条语音不会因为重连被识别两遍。
+    // 自己发出去的语音不再转写（message_sent 只用于记「我刚说过话」和防刷屏）。
+    const text = out ? rawText : await describeMessage(ev);
+    if (!text) return;
     const ai = atInfo(ev.message, selfUin);
     const senderName = out ? '我' : String((ev.sender && (ev.sender.card || ev.sender.nickname)) || ('群友 ' + userId));
     const rec = {
@@ -524,6 +656,14 @@ function createService(options) {
     writeStatus();
     if (!decision.ok) {
       status.counts.skipped++;
+      return;
+    }
+    if (!sessionOf(groupId)) {
+      status.counts.skipped++;
+      status.lastDecision = Object.assign({}, status.lastDecision, {
+        ok: false, reason: 'no_session（群还没绑独立 DSH 会话）'
+      });
+      writeStatus();
       return;
     }
     enqueueReply(groupId, rec);
@@ -562,11 +702,11 @@ function createService(options) {
       socket.onmessage = function (event) {
         let data = null;
         try { data = JSON.parse(typeof event.data === 'string' ? event.data : String(event.data)); } catch (e) { return; }
-        try { handleEvent(data); } catch (e) {
+        Promise.resolve(handleEvent(data)).catch(function (e) {
           status.counts.errors++;
           status.lastError = '处理群消息失败：' + ((e && e.message) || e);
           appendLog(status.lastError);
-        }
+        });
       };
       socket.onerror = function () {
         status.connected = false;
@@ -598,6 +738,9 @@ function createService(options) {
     status.enabled = config.enabled;
     status.listen = config.listen;
     status.startedAt = Date.now();
+    if (media && typeof media.cleanupVoice === 'function') {
+      try { media.cleanupVoice(); } catch (e) { appendLog('清理旧语音失败：' + ((e && e.message) || e)); }
+    }
     if (!config.enabled) {
       status.lastError = 'QQ 群聊服务已关闭';
       writeStatus();
@@ -640,7 +783,8 @@ function createService(options) {
       cooldownSec: config.cooldownSec,
       maxRepliesPerMinute: config.maxRepliesPerMinute,
       addressGuard: config.addressGuard,
-      maxChars: config.maxChars
+      maxChars: config.maxChars,
+      voiceListen: config.voiceListen
     };
   }
 
@@ -659,6 +803,7 @@ function createService(options) {
     if (Object.prototype.hasOwnProperty.call(p, 'maxRepliesPerMinute')) next.maxRepliesPerMinute = clamp(Math.round(Number(p.maxRepliesPerMinute) || 15), 1, 30);
     if (Object.prototype.hasOwnProperty.call(p, 'addressGuard')) next.addressGuard = p.addressGuard !== false;
     if (Object.prototype.hasOwnProperty.call(p, 'maxChars')) next.maxChars = clamp(Math.round(Number(p.maxChars) || 70), 20, 300);
+    if (Object.prototype.hasOwnProperty.call(p, 'voiceListen')) next.voiceListen = p.voiceListen !== false;
     config = normalizeConfig(next);
     writeAtomic(CONFIG_FILE, config);
     status.enabled = config.enabled;
@@ -670,6 +815,7 @@ function createService(options) {
   function statusGet() {
     return Object.assign({}, status, {
       settings: settingsGet(),
+      media: mediaSettings(),
       groups: Array.from(groups.values()).map((x) => ({
         id: x.id,
         name: x.name || ('QQ群 ' + x.id),
@@ -688,7 +834,7 @@ function createService(options) {
     settingsSave: settingsSave,
     refreshGroups: refreshGroups,
     // 给本地测试 / 后续诊断用，不对外暴露 HTTP。
-    _test: { handleEvent: handleEvent, decide: decide, cleanReply: cleanReply, buildPrompt: buildPrompt, configFile: CONFIG_FILE }
+    _test: { handleEvent: handleEvent, decide: decide, cleanReply: cleanReply, parseReply: parseReply, buildPrompt: buildPrompt, configFile: CONFIG_FILE }
   };
 }
 

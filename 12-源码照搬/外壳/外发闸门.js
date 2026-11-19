@@ -1082,16 +1082,76 @@ function createService(opts) {
   // 群消息也是「她发到工作台之外」的正文，先按同一套规则审：block 不发、redact 用打码正文。
   // 闸门接管时 onebotHttp 已指向本地代理（applyQqProxy 写的），这一发在代理里还会再过一次。
   async function sendQqGroupText(groupId, text) {
-    const body = String(text || '');
+    return sendQqGroupMessage(groupId, { text: text });
+  }
+
+  // QQ 群媒体发送（2026-11-19）：语音、表情包和正文走同一条闸门。
+  // 只允许工作台自己生成的媒体：表情包必须在 pet3d\表情包 下，语音必须在 QQ能力\voice 下。
+  // 这是防止模型/调用方把任意本机文件当附件发出去，不是「媒体免检」。
+  function mediaAllowed(file, kind) {
+    const p = String(file || '').trim();
+    if (!p) return '';
+    let full = '';
+    try { full = fs.realpathSync(p); } catch (e) { return ''; }
+    const roots = kind === 'image'
+      ? [path.join(__dirname, 'pet3d', '表情包')]
+      : [path.join(__dirname, 'data', 'QQ能力', 'voice')];
+    for (const root of roots) {
+      let real = '';
+      try { real = fs.realpathSync(root); } catch (e) { continue; }
+      if (full === real || full.startsWith(real + path.sep)) return full;
+    }
+    return '';
+  }
+
+  async function sendQqGroupMessage(groupId, parts) {
+    const p = parts && typeof parts === 'object' ? parts : {};
+    const body = String(p.text || '');
     const ctx = { channel: 'qq', chatType: 'group', chatId: String(groupId || '') };
     const g = check(body, ctx);
     if (g.verdict === 'block') {
       return { ok: false, blocked: true, rules: (g.rules || []).slice(0, 8), fallback: String(g.fallback || '') };
     }
     const finalText = g.verdict === 'redact' ? String(g.text || body) : body;
+    const imageFile = mediaAllowed(p.imageFile, 'image');
+    const voiceFile = mediaAllowed(p.voiceFile, 'voice');
+    const mediaErrors = [];
+    if (p.imageFile && !imageFile) mediaErrors.push('表情包路径不在工作台图库内');
+    if (p.voiceFile && !voiceFile) mediaErrors.push('语音路径不在工作台语音目录内');
+    if (!finalText && !imageFile && !voiceFile) return { ok: false, error: '空消息，不发送' };
     const qq = readJson(QQ_CONFIG_FILE) || {};
     const url = String(qq.onebotHttp || '').trim();
     if (!url) return { ok: false, error: 'QQ 协议端地址为空（qq-bridge.config.json onebotHttp）' };
+
+    // 先发正文，再发媒体：语音段/表情段协议端不认时，正文不能跟着一起丢。
+    // 两步都在闸门里，路径都已校验；第二步失败会作为 mediaError 返回，不静默吞。
+    let messageId = '';
+    if (finalText) {
+      const textResult = await postQqGroupAction(url, qq, groupId, [{ type: 'text', data: { text: finalText } }]);
+      if (!textResult.ok) return textResult;
+      messageId = textResult.messageId;
+    }
+    let mediaError = mediaErrors.join('；');
+    if (imageFile || voiceFile) {
+      const segments = [];
+      if (imageFile) segments.push({ type: 'image', data: { file: imageFile, sub_type: 1 } });
+      if (voiceFile) segments.push({ type: 'record', data: { file: voiceFile } });
+      const mediaResult = await postQqGroupAction(url, qq, groupId, segments);
+      if (!mediaResult.ok) mediaError = mediaError || mediaResult.error;
+      else messageId = messageId || mediaResult.messageId;
+    }
+    return {
+      ok: true,
+      messageId: messageId,
+      text: finalText,
+      verdict: g.verdict,
+      image: !!imageFile,
+      voice: !!voiceFile,
+      mediaError: mediaError
+    };
+  }
+
+  async function postQqGroupAction(url, qq, groupId, message) {
     const r = await fetch(url, {
       method: 'POST',
       headers: {
@@ -1100,9 +1160,9 @@ function createService(opts) {
       },
       body: JSON.stringify({
         action: 'send_group_msg',
-        params: { group_id: Number(groupId), message: [{ type: 'text', data: { text: finalText } }] }
+        params: { group_id: Number(groupId), message: message }
       }),
-      signal: AbortSignal.timeout(8000)
+      signal: AbortSignal.timeout(12000)
     });
     const raw = await r.text();
     let j = null;
@@ -1111,7 +1171,7 @@ function createService(opts) {
     if (!j || Number(j.retcode) !== 0) {
       return { ok: false, error: 'OneBot send_group_msg 返回 retcode ' + (j && j.retcode) + '：' + raw.slice(0, 120) };
     }
-    return { ok: true, messageId: String((j.data && j.data.message_id) || ''), text: finalText, verdict: g.verdict };
+    return { ok: true, messageId: String((j.data && j.data.message_id) || '') };
   }
 
   async function stop() {
@@ -1124,6 +1184,7 @@ function createService(opts) {
     check: check,
     testText: testText,
     sendQqGroupText: sendQqGroupText,
+    sendQqGroupMessage: sendQqGroupMessage,
     getSettings: getSettings,
     saveSettings: saveSettings,
     refreshAssets: refreshAssets,

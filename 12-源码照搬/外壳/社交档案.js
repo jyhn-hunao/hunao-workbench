@@ -835,6 +835,16 @@ function createService(opt) {
     return { ok: true, chatKey: r.chatKey, query: a.query || '', date: a.date || '', count: rows.length, matches: rows }
   }
 
+  function recent(args) {
+    const a = args || {}
+    const d = ensureDb()
+    const rows = lib.recentMessages(d, {
+      chatKey: a.chat || a.chatKey || '',
+      limit: a.limit
+    })
+    return { ok: true, count: rows.length, messages: rows }
+  }
+
   function quote(args, sessionId) {
     const a = args || {}
     const r = scopeForUi(a, sessionId)
@@ -917,7 +927,7 @@ function createService(opt) {
 
   return {
     start, stop, close, syncOnce, statusGet, settingsGet, settingsSave,
-    listChats: listChatsForUi, search, quote, daily, memories, memoryAdd,
+    listChats: listChatsForUi, search, recent, quote, daily, memories, memoryAdd,
     archiveExternal,
     archiveWechat: function (x) { return archiveExternal(Object.assign({ channel: 'wechat', account: 'wechat' }, x || {})) },
     resolveChat: resolveForArgs, findAccounts: function () { return findAccounts(settingsGet()) },

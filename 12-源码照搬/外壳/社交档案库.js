@@ -411,6 +411,19 @@ function searchMessages(db, opts) {
   return rows.map((r) => decorate(db, r, context))
 }
 
+function recentMessages(db, opts) {
+  const o = opts || {}
+  const chat = String(o.chatKey || '')
+  const limit = Math.max(1, Math.min(300, Number(o.limit) || 40))
+  const rows = db.prepare(`
+    SELECT id, chat_key, ts, day, sender_id, sender_name, text, direction, source_message_id
+    FROM messages
+    ${chat ? 'WHERE chat_key=?' : ''}
+    ORDER BY ts DESC, id DESC LIMIT ?
+  `).all(...(chat ? [chat, limit] : [limit]))
+  return rows.map((r) => decorate(db, r, 0))
+}
+
 function quoteLookup(db, opts) {
   const o = opts || {}
   const chat = String(o.chatKey || '')
@@ -588,6 +601,7 @@ module.exports = {
   resolveChat,
   getChat,
   searchMessages,
+  recentMessages,
   quoteLookup,
   dailyPage,
   dailyStats,

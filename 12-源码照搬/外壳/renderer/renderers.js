@@ -6732,7 +6732,8 @@ renderers.view = (body, meta, head) => {
     const p = String(o.path || '').trim();
     const url = String(o.url || '').trim();
     await flushDirty();                                   // 切走之前先把没存的手改存了（防丢）
-    if (disposed) return;
+    // 面板已经重建掉了还收到 show()：别静默返回，日志里留一条，别人查「点了没反应」才有线索
+    if (disposed) { wbWarn('预览面板已销毁却仍在收 show()：pid=' + pid + ' path=' + p, 'view.disposed'); return; }
     const kind = o.kind || (p ? pickKind(p) : 'web');
     // 画布上两类"没有文件"的东西走这两条支线（**必须排在 !p && !url 那道判空前面**，
     // 否则它们没有路径，会直接被当成"空预览"清屏 —— 用户点了个预设却什么都没发生）
@@ -6805,6 +6806,10 @@ renderers.view = (body, meta, head) => {
   const api = {
     pid: pid,
     current: () => ({ kind: cur.kind, path: cur.path, url: cur.url, title: cur.title, dirty: !!cur.dirty }),
+    // 面板还活着没：别的面板（git「看改动 diff」/ 文件面板的预览）往里塞内容前先问一句。
+    //   面板重建时旧实例的登记项会被删掉，但别处拿到的旧引用还在 —— 往已销毁的实例里 show() 等于石沉大海，
+    //   用户看到的就是「点了没反应」（2026-11-19 宿主反馈）。
+    alive: () => !disposed,
     show: (o) => open(o || {}),
     clear: () => showEmpty()
   };
@@ -8020,6 +8025,9 @@ renderers.chan = function (body, meta, head) {
       var word = last.ok === true ? '最近接话' : '最近跳过';
       lastLine.textContent = word + ' · ' + ((last.groupId && ('群 ' + last.groupId)) || '')
         + (last.text ? ' · ' + String(last.text).slice(0, 80) : '')
+        + (last.sticker ? ' · 表情：' + String(last.sticker).slice(0, 24) : '')
+        + (last.voice ? ' · 语音' : '')
+        + (last.mediaError ? ' · 媒体没发出去：' + String(last.mediaError).slice(0, 80) : '')
         + (last.reason ? ' · ' + String(last.reason).slice(0, 120) : '')
         + (last.at ? ' · ' + hhmm(last.at) : '');
       box.appendChild(lastLine);
@@ -8154,6 +8162,217 @@ renderers.chan = function (body, meta, head) {
     }
   }
 
+  // ---------- QQ 语音 / 表情包（2026-11-19）----------
+  // 这里的开关全部落到 QQ能力.js；群随机接话读取同一份配置，不开第二套。
+  // 语音转写只作用于「群旁听」；私聊仍由 dsh-onebot-channel 投递（插件本身不带 ASR）。
+  function qqMediaApi() { return (window.app && window.app.qqMedia) || null; }
+
+  function loadQqMedia() {
+    if (KEY !== 'qq') return;
+    var api = qqMediaApi();
+    if (!api || typeof api.status !== 'function') {
+      st.qqMediaErr = '需重启一次工作台：主进程/preload 还是旧的（没有 qqMedia.status）';
+      draw();
+      return;
+    }
+    Promise.resolve(api.status()).then(function (r) {
+      if (!r || r.ok === false) {
+        st.qqMediaErr = '读取 QQ 媒体能力失败：' + ((r && r.error) || '主进程没返回');
+        draw();
+        return;
+      }
+      st.qqMediaErr = '';
+      st.qqMedia = r;
+      if (!st.qqMediaDraft || !st.qqMediaEditing) {
+        st.qqMediaDraft = Object.assign({}, r.config || {});
+      }
+      var sig = JSON.stringify({
+        config: r.config, asr: r.asr, qwen: r.qwen, stickers: r.stickers, tts: r.tts
+      });
+      if (sig !== st.qqMediaSig) { st.qqMediaSig = sig; draw(); }
+    }).catch(function (e) {
+      st.qqMediaErr = '读取 QQ 媒体能力失败：' + String((e && e.message) || e);
+      draw();
+    });
+  }
+
+  function drawQqMedia() {
+    if (KEY !== 'qq') return;
+    var api = qqMediaApi();
+    var box = document.createElement('div');
+    box.className = 'ch-account-pick ch-qq-media';
+    var lab = document.createElement('div');
+    lab.className = 'ch-account-pick-label';
+    lab.textContent = 'QQ 语音 / 表情包';
+    box.appendChild(lab);
+
+    if (!api || typeof api.status !== 'function') {
+      var miss = document.createElement('div');
+      miss.className = 'ch-account-pick-empty';
+      miss.textContent = st.qqMediaErr || '读取中…（一直这样 = 主进程/preload 是旧的，重启一次工作台）';
+      box.appendChild(miss);
+      card.appendChild(box);
+      return;
+    }
+    if (st.qqMediaErr) {
+      var er = document.createElement('div');
+      er.className = 'ch-detail is-warn';
+      er.textContent = st.qqMediaErr;
+      box.appendChild(er);
+    }
+    var m = st.qqMedia;
+    if (!m) {
+      var wait = document.createElement('div');
+      wait.className = 'ch-account-pick-empty';
+      wait.textContent = '读取中…';
+      box.appendChild(wait);
+      card.appendChild(box);
+      return;
+    }
+    var d = st.qqMediaDraft || m.config || {};
+    var cats = (m.stickers && m.stickers.categories) || [];
+    var catText = cats.map(function (c) { return c.name + '(' + c.count + ')'; }).join('、') || '无';
+    var asrOk = m.asr && m.asr.configured === true && m.asr.deepseek === true;
+    var qwenOk = m.qwen && m.qwen.configured === true;
+    var ttsOk = m.tts && m.tts.available === true;
+
+    var state = document.createElement('div');
+    state.className = 'ch-detail' + (asrOk && qwenOk && ttsOk ? '' : ' is-warn');
+    state.textContent = '语音转写：' + (d.voice !== false ? '开' : '关')
+      + (asrOk ? ' · ASR 已配置' : ' · ASR 未配置')
+      + ' · 群旁听转写：' + (d.voiceListen !== false ? '开' : '关')
+      + ' · 语音回复（群随机）：' + (d.voiceReplyGroups === true ? '开' : '关')
+      + ' · 语音合成：' + (ttsOk ? '可用' : '不可用')
+      + (m.tts && m.tts.silk ? '（SILK）' : '（仅 WAV）');
+    box.appendChild(state);
+
+    var line2 = document.createElement('div');
+    line2.className = 'ch-detail' + (qwenOk ? '' : ' is-warn');
+    line2.textContent = '表情包：' + (d.stickers !== false ? '开' : '关')
+      + ' · 图库 ' + ((m.stickers && m.stickers.total) || 0) + ' 张（' + catText + '）'
+      + ' · 动态生成：' + (d.stickerDynamic !== false ? '开' : '关')
+      + ' · 千问：' + (qwenOk ? '已配置' : '未配置');
+    box.appendChild(line2);
+
+    var tip = document.createElement('div');
+    tip.className = 'ch-detail';
+    tip.textContent = '语音转写复用微信通道的 ASR Key；千问表情包复用微信通道的千问 Key 和 pet3d 概念图。两个 Key 都不在 QQ 侧重复保存。';
+    box.appendChild(tip);
+
+    var actions = document.createElement('div');
+    actions.className = 'ch-qq-group-actions';
+    function toggle(key, label, safeText) {
+      var on = d[key] !== false;
+      actions.appendChild(chBtn(label + '：' + (on ? '开' : '关'), safeText, function () {
+        if (st.qqMediaBusy) return;
+        st.qqMediaDraft[key] = !on;
+        saveQqMedia();
+      }, !!st.qqMediaBusy));
+    }
+    toggle('stickers', '随机接话带表情包', '关掉后随机接话只发文字；正常 @ 回复仍走插件自带表情');
+    toggle('stickerDynamic', '表情包动态生成', '图库没有合适情绪时，用千问按当前语境生成一张并入库');
+    toggle('voiceReplyGroups', '群随机语音回复', '打开后按概率把正文合成为语音；默认关，避免群里突然出现语音');
+    toggle('voiceListen', '群旁听语音转写', '开：群里语音先转成文字再进旁听上下文；关：只留 [语音] 占位；聊天档案里的语音原文仍以协议端同步为准');
+    actions.appendChild(chBtn(st.qqMediaBusy === 'save' ? '保存中…' : '保存语音 / 表情包设置',
+      '保存到 QQ 能力配置；不重启工作台，下一轮群消息就按新设置走',
+      saveQqMedia, !!st.qqMediaBusy));
+    box.appendChild(actions);
+
+    var fields = document.createElement('div');
+    fields.className = 'ch-qq-group-fields';
+    function mfield(label, key, value, hint, step) {
+      var wrap = document.createElement('label');
+      wrap.className = 'ch-qq-group-field';
+      var cap = document.createElement('span');
+      cap.textContent = label;
+      wrap.appendChild(cap);
+      var inp = document.createElement('input');
+      inp.className = 'ch-input';
+      inp.type = 'number';
+      inp.min = '0';
+      inp.step = step || '1';
+      inp.value = value === undefined || value === null ? '' : value;
+      inp.title = hint || '';
+      inp.disabled = !!st.qqMediaBusy;
+      inp.addEventListener('focus', function () { st.qqMediaEditing = true; });
+      inp.addEventListener('blur', function () { setTimeout(function () { st.qqMediaEditing = false; }, 0); });
+      inp.addEventListener('input', function () {
+        st.qqMediaEditing = true;
+        st.qqMediaDraft[key] = inp.value;
+      });
+      wrap.appendChild(inp);
+      return wrap;
+    }
+    fields.appendChild(mfield('表情概率 %', 'stickerChancePct', d.stickerChancePct, '普通闲聊里带表情包的比例；0 = 不带', '0.1'));
+    fields.appendChild(mfield('语音概率 %', 'voiceReplyChancePct', d.voiceReplyChancePct, '群随机接话转成语音的比例；需要先打开「群随机语音回复」', '0.1'));
+    fields.appendChild(mfield('语音字数上限', 'voiceMaxChars', d.voiceMaxChars, '超过就截断，避免一条语音太长'));
+    box.appendChild(fields);
+
+    var genRow = document.createElement('div');
+    genRow.className = 'ch-qq-group-actions';
+    var emotion = document.createElement('input');
+    emotion.className = 'ch-input ch-qq-media-emotion';
+    emotion.placeholder = '情绪名，如 惊讶 / 无语';
+    emotion.maxLength = 12;
+    emotion.title = '生成到 QQ千问 分类；同一情绪之后可以直接复用';
+    genRow.appendChild(emotion);
+    genRow.appendChild(chBtn(st.qqMediaBusy === 'generate' ? '生成中…' : '生成一张表情包',
+      '按 pet3d 概念图和千问生成一张，存进 QQ千问 分类；只入库，不自动发到任何聊天',
+      function () {
+        if (st.qqMediaBusy) return;
+        var label = String(emotion.value || '').trim();
+        if (!label) { toast('先填一个情绪名（2–6 个汉字）', true); return; }
+        st.qqMediaBusy = 'generate';
+        draw();
+        Promise.resolve(api.stickerGenerate({ emotion: label, situation: label })).then(function (r) {
+          st.qqMediaBusy = '';
+          if (!r || r.ok === false) toast('生成失败：' + ((r && r.error) || '主进程没返回'), true);
+          else toast('已生成并入库：' + (r.label || label));
+          loadQqMedia(); draw();
+        }).catch(function (e) {
+          st.qqMediaBusy = '';
+          toast('生成失败：' + String((e && e.message) || e), true);
+          draw();
+        });
+      }, !!st.qqMediaBusy));
+    box.appendChild(genRow);
+
+    card.appendChild(box);
+
+    function saveQqMedia() {
+      if (st.qqMediaBusy) return;
+      var p = {
+        stickers: st.qqMediaDraft.stickers !== false,
+        stickerDynamic: st.qqMediaDraft.stickerDynamic !== false,
+        stickerChancePct: Number(st.qqMediaDraft.stickerChancePct),
+        voiceReplyGroups: st.qqMediaDraft.voiceReplyGroups === true,
+        voiceListen: st.qqMediaDraft.voiceListen !== false,
+        voice: st.qqMediaDraft.voice !== false,
+        voiceReply: st.qqMediaDraft.voiceReply !== false,
+        voiceReplyChancePct: Number(st.qqMediaDraft.voiceReplyChancePct),
+        voiceMaxChars: Number(st.qqMediaDraft.voiceMaxChars)
+      };
+      st.qqMediaBusy = 'save';
+      st.qqMediaEditing = false;
+      draw();
+      Promise.resolve(api.settingsSave(p)).then(function (r) {
+        st.qqMediaBusy = '';
+        if (!r || r.ok === false) {
+          toast('保存失败：' + ((r && r.error) || '主进程没返回'), true);
+          draw();
+          return;
+        }
+        st.qqMediaDraft = Object.assign({}, (r.config || r));
+        toast('QQ 语音 / 表情包设置已保存');
+        loadQqMedia(); draw();
+      }).catch(function (e) {
+        st.qqMediaBusy = '';
+        toast('保存失败：' + String((e && e.message) || e), true);
+        draw();
+      });
+    }
+  }
+
   function drawChecks() {
     var box = document.createElement('div');
     box.className = 'ch-checks';
@@ -8253,7 +8472,7 @@ renderers.chan = function (body, meta, head) {
     }
     card.appendChild(head1);
     // QQ 路由配置不依赖通道状态：QQ 没在线时也要能先接入/迁移，通道报错不能把入口藏掉。
-    if (KEY === 'qq') { drawQqRoutes(); drawQqGroup(); drawAuto(); }
+    if (KEY === 'qq') { drawQqRoutes(); drawQqGroup(); drawQqMedia(); drawAuto(); }
 
     if (st.err) {
       var e1 = document.createElement('div');
@@ -8403,12 +8622,14 @@ renderers.chan = function (body, meta, head) {
   loadAuto();
   loadQqRoutes();
   loadQqGroup();
+  loadQqMedia();
   var timer = setInterval(function () {
     try { if (document.hidden) return; } catch (e) { wbWarn(e) }
     load();
     loadAuto();
     loadQqRoutes();
     loadQqGroup();
+    loadQqMedia();
   }, POLL_MS);
   return function () { clearInterval(timer); };
 };
@@ -8473,13 +8694,13 @@ renderers.channels = function (body, meta, head) {
     });
     head.appendChild(replyBtn);
 
-    // 聊天档案：和「回复风格」并列的常驻文字入口，不藏进 QQ 卡片的齿轮里。
-    // 默认不选聊天、不自动查询；打开后自己选聊天再搜/按天读/看记忆。
+    // 聊天档案库：和「回复风格」并列的常驻文字入口，不藏进 QQ 卡片的齿轮里。
+    // 默认只读库概览，不预选聊天、不自动查询；会话分类看「全部消息」，这里看数据库长期保存效果。
     var archiveBtn = document.createElement('button');
     archiveBtn.type = 'button';
     archiveBtn.className = 'ch-hub-toggle';
-    archiveBtn.textContent = '聊天档案';
-    archiveBtn.title = '查 QQ 私聊/群聊的长期原文、按天读、看单聊天记忆；只读，不会发消息';
+    archiveBtn.textContent = '聊天档案库';
+    archiveBtn.title = '看档案库存了什么、最近入库、按关键词/原话查、按天读、看记忆表；只读，不会发消息';
     archiveBtn.addEventListener('click', function () {
       if (typeof window.openChatArchive !== 'function') {
         toast('聊天档案还没接上：重启一次工作台（preload / renderer 是旧的）', true);
@@ -21972,9 +22193,9 @@ renderers.git = function (body, meta) {
   //   ② 不参与提交 = 路径规则（目录前缀 / 单文件 / 通配），命中的文件照样列出来（置灰 + ⊘ 徽标），
   //      但勾选框禁用、提交时强制过滤 —— 防手滑，不代替 .gitignore。
   //   ③ 配置只存本机（外壳\data\git-变更单.json，按仓库分桶），不写进仓库、不跟 git 走。
-  function tip(t, bad) {
+  function tip(t, bad, ms) {
     try {
-      if (typeof window.__tbsToast === 'function') { window.__tbsToast(t, !!bad, bad ? 8000 : 2600); return; }
+      if (typeof window.__tbsToast === 'function') { window.__tbsToast(t, !!bad, ms || (bad ? 8000 : 2600)); return; }
     } catch (e) { wbWarn(e); }
     msg(t);
   }
@@ -22842,12 +23063,66 @@ renderers.git = function (body, meta) {
   // diff 该送哪儿：预览面板（renderers.view 注册在 window.__kunViews[面板id]），**不是文件面板**。
   //   以前送的是 window.__kunFiles['cd-files'].open()，可 diff 是 %TEMP% 里的临时 .txt，
   //   文件面板只认自己树里的路径 ⇒ 一定弹「找不到路径」。预览面板按路径取内容，临时文件照样能看。
-  //   优先用场景 json 的 viewPanel，没配就取第一个注册的预览面板（与 file 面板同一套 flowFindView）。
-  function previewTo(path, title) {
+  // 2026-11-19 宿主反馈「右键 → 看改动 diff，点了没反应」：这条链路原来有三处只当没看见 ——
+  //   ① 按 viewPanel 名取实例，取到的可能是**已销毁**的（面板重建后登记项换了人，旧引用还在）⇒ show() 石沉大海；
+  //   ② 取不到只发一句面板内的 msg：11.5px、6 秒就没、还在 3 列宽的小面板顶上，用户根本不知道点没点上；
+  //   ③ 送过去之后没人校验"预览面板到底接没接住"。
+  //   ⇒ 现在三处都补：挑活着的（且优先看得见的）预览面板、失败原因原样说清、送完 500ms 回读一次。
+  // 面板在不在网格里看得见：true = 在且可见，false = 收起了/不在当前页签，undefined = 网格里找不到（不判断）
+  function viewPanelInGrid(pid) {
+    if (!pid) return undefined;
+    var el = null;
+    try { el = document.querySelector('.panel[data-panel-id="' + String(pid).replace(/["\\]/g, '\\$&') + '"]'); } catch (e) { return undefined; }
+    if (!el) return undefined;
+    try { if (el.getClientRects && !el.getClientRects().length) return false; } catch (e) { return undefined; }
+    return true;
+  }
+  function viewApiAlive(v) {
+    if (!v || typeof v.show !== 'function') return false;
+    return !(typeof v.alive === 'function' && !v.alive());
+  }
+  // 挑一个真能接住内容的预览面板：
+  //   1) 场景 json 配的 viewPanel（优先，必须是活着的实例）
+  //   2) 其余登记项里"网格里看得见"的（防止场景改过名字 / 面板没登记到想找的那个 id）
+  //   3) 都看不见就退回任意活着的（内容至少进去了，展开面板还能看到；接没接住由外面回读）
+  function pickViewApi() {
+    var want = String((meta && meta.viewPanel) || '');
+    var m = (window.__kunViews || {});
+    if (want && viewApiAlive(m[want])) return m[want];
+    var keys = Object.keys(m);
+    var seen = keys.filter(function (k) { return viewApiAlive(m[k]) && viewPanelInGrid(k) === true; });
+    if (seen.length) return m[seen[0]];
+    var live = keys.filter(function (k) { return viewApiAlive(m[k]); });
+    return live.length ? m[live[0]] : null;
+  }
+  // 返回 { ok, err, vp }：失败原因要能原样说给用户听（只给 bool 的话外层只能发一句笼统提示）
+  function previewTo(path, title, kind, noRemember) {
     var VP = null;
-    try { VP = (typeof flowFindView === 'function') ? flowFindView(meta && meta.viewPanel) : null; } catch (e) { VP = null; }
-    if (VP && typeof VP.show === 'function') { VP.show({ path: path, title: String(title || ''), kind: 'diff', noRemember: true }); return true; }
-    return false;
+    try { VP = pickViewApi(); } catch (e) { VP = null; }
+    if (!VP) return { ok: false, err: '这块场景没有活着的预览面板（场景 json 的 viewPanel 没配上，或面板已被销毁）' };
+    try {
+      // show() 是 async：它 reject 时没人接就只剩控制台一行红字，用户看到的就是"点了没反应"
+      var r = VP.show({ path: path, title: String(title || ''), kind: kind || undefined, noRemember: noRemember === undefined ? true : !!noRemember });
+      if (r && typeof r.then === 'function') r.then(null, function (e) { tip('预览面板打开失败：' + ((e && e.message) || e), true); });
+      return { ok: true, vp: VP };
+    } catch (e) {
+      return { ok: false, err: String((e && e.message) || e) };
+    }
+  }
+  // 送完回读一次：预览面板当前显示的就是这份 diff 吗？不是 ⇒ 明说（这块面板的全部反馈都在右边预览里）
+  function verifyDiffShown(vp, path) {
+    try {
+      if (!vp || typeof vp.current !== 'function') return;
+      var cur = vp.current() || {};
+      var same = cur.kind === 'diff' && String(cur.path || '') === String(path || '');
+      if (same) {
+        // 接住了但面板被收起/不在当前页签：也提示一句，否则用户还是"看不见"
+        if (viewPanelInGrid(vp.pid) === false) tip('diff 已经送到预览面板，但它现在是收起/不在当前页签 —— 切到「预览」就能看到', false, 6000);
+        return;
+      }
+      tip('diff 已生成，但预览面板没显示这份（当前：' + (cur.title || cur.kind || '空')
+        + '）。文件在：' + path + ' —— 预览面板被挡住时，切到「预览」再点一次右键即可', true, 12000);
+    } catch (e) { wbWarn(e, 'git.diffVerify'); }
   }
 
   // 双击变更文件：两种查看方式（宿主 2026-11-17 原话「要可选择两种方式查看，而不是默认预览变化视图，默认为直接查看文件」）
@@ -22895,25 +23170,15 @@ renderers.git = function (body, meta) {
     return false;
   }
   function openWorkFile(rel, row) {
-    var VP = null;
-    try { VP = (typeof flowFindView === 'function') ? flowFindView(meta && meta.viewPanel) : null; } catch (e) { VP = null; }
-    if (!VP || typeof VP.show !== 'function') {
-      msg('这块场景没有预览面板，看不了文件内容：' + rel);
-      return;
-    }
-    var full = repoFull(rel);
-    if (row) row.classList.add('g-busy');
-    try {
-      VP.show({ path: full, title: String(rel || ''), kind: previewKind(rel), noRemember: false });
-    } catch (e) {
-      wbWarn(e, 'git.openWorkFile');
-      if (row) row.classList.remove('g-busy');
-      msg('预览打不开：' + ((e && e.message) || e));
+    var to = null;
+    try { to = previewTo(repoFull(rel), String(rel || ''), previewKind(rel), false); } catch (e) { to = { ok: false, err: String((e && e.message) || e) }; }
+    if (!to || !to.ok) {
+      tip('这块场景没有可用的预览面板，看不了文件内容：' + rel + '（' + ((to && to.err) || '未知原因') + '）', true);
       return;
     }
     if (row) row.classList.remove('g-busy');
     // 「看文件时文件目录面板要定位到该文件」：送预览后立刻让文件面板翻到父目录并选中这一行
-    if (!locateInFiles(rel)) msg('文件内容已送到预览，但文件面板没有定位能力（重启一次工作台试试）');
+    if (!locateInFiles(rel)) tip('文件内容已送到预览，但文件面板没有定位能力（重启一次工作台试试）', true);
   }
   function openChange(c, row) {
     if (openMode === 'diff') { openDiff(c.path, row); return; }
@@ -22924,23 +23189,29 @@ renderers.git = function (body, meta) {
 
   async function openDiff(rel, row) {
     var a = api();
-    if (!a || !a.diff) { msg('这次启动的界面还没有 diff 能力 ⇒ 重启一次工作台'); return; }
+    if (!a || !a.diff) { tip('这次启动的界面还没有 diff 能力 ⇒ 重启一次工作台', true); return; }
     if (row) row.classList.add('g-busy');
     var d = null;
     try { d = await a.diff(repo, rel); } catch (e) { d = { ok: false, err: String((e && e.message) || e) }; }
     if (row) row.classList.remove('g-busy');
-    if (!d || !d.ok) { msg('✗ ' + ((d && d.err) || '取 diff 失败')); return; }
-    if (!previewTo(d.path, rel + '（工作区改动）')) msg('diff 已生成，但这块场景没有预览面板可显示：' + d.path);
+    if (!d || !d.ok) { tip('✗ ' + ((d && d.err) || '取 diff 失败'), true); return; }
+    // 1. 送预览：送不到就当场说清原因 + 给出临时文件路径（不再只发面板里 6 秒就没的小字）
+    var to = previewTo(d.path, rel + '（工作区改动）', 'diff');
+    if (!to.ok) { tip('diff 已生成，但送不到预览：' + to.err + '（文件：' + d.path + '）', true); return; }
+    // 2. 送过去 ≠ 看见：500ms 回读一次，预览面板没接住就明确提示
+    setTimeout(function () { verifyDiffShown(to.vp, d.path); }, 500);
   }
   async function openCommitFile(hash, rel, row) {
     var a = api();
-    if (!a || !a.diff) { msg('这次启动的界面还没有 diff 能力 ⇒ 重启一次工作台'); return; }
+    if (!a || !a.diff) { tip('这次启动的界面还没有 diff 能力 ⇒ 重启一次工作台', true); return; }
     if (row) row.classList.add('g-busy');
     var d = null;
     try { d = await a.diff(repo, rel, hash); } catch (e) { d = { ok: false, err: String((e && e.message) || e) }; }
     if (row) row.classList.remove('g-busy');
-    if (!d || !d.ok) { msg('✗ ' + ((d && d.err) || '取 diff 失败')); return; }
-    if (!previewTo(d.path, rel + ' @ ' + String(hash || '').slice(0, 7))) msg('diff 已生成，但这块场景没有预览面板可显示：' + d.path);
+    if (!d || !d.ok) { tip('✗ ' + ((d && d.err) || '取 diff 失败'), true); return; }
+    var to = previewTo(d.path, rel + ' @ ' + String(hash || '').slice(0, 7), 'diff');
+    if (!to.ok) { tip('diff 已生成，但送不到预览：' + to.err + '（文件：' + d.path + '）', true); return; }
+    setTimeout(function () { verifyDiffShown(to.vp, d.path); }, 500);
   }
 
   /* ---------- 右键菜单：Copy Hash / Copy Subject / Checkout Revision ---------- */

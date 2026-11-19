@@ -18,6 +18,7 @@ const crypto = require('crypto');
 const projectSwitch = require('./项目切换');   // 程序开发场景「项目下拉」的数据面（可单测：scripts\项目切换自检.mjs）
 const socialSvc = require('./社交');           // 社交场景「消息流」的数据面（只读 transcript + 探 OneBot 端口；可单测：工具\消息流.mjs）
 const qqChatSvc = require('./QQ会话');         // QQ 私聊/群聊独立 DSH 会话路由（建会话 + 写 qq-bridge routes）
+const qqMediaSvc = require('./QQ能力');        // QQ 媒体能力：语音转写 / 千问表情包 / 语音合成（不碰第三方插件）
 const qqGroupSvc = require('./QQ群聊');        // QQ 群旁听 + 随机接话（不抢 @ 原生路由）
 const bridgeSvc = require('./桥接');           // QQ 个人号桥接（SnowLuma）的进程面：随壳启动/退出、面板按钮按需打开
 const wechatSvc = require('./微信通道');       // 微信个人号通道（whale_girl）的进程面 + 31241 换脑适配器
@@ -4567,6 +4568,14 @@ ipcMain.handle('qq-chat:add', (e, args) => qqChatService.add(args || {}));
 ipcMain.handle('qq-chat:remove', (e, args) => qqChatService.remove(args || {}));
 ipcMain.handle('qq-chat:contacts', () => qqChatService.contacts());
 
+// ---- QQ 媒体能力（2026-11-19）----
+// 语音转写 / 千问表情包 / 语音合成统一在这里；不写进 dsh-onebot-channel，
+// 插件升级不会被覆盖，群聊随机接话和 QQ 卡片共用同一份状态。
+const qqMediaService = qqMediaSvc.createService({ dshHome: DSH_HOME, log: log });
+ipcMain.handle('qq-media:status', () => qqMediaService.status());
+ipcMain.handle('qq-media:settings-save', (e, patch) => qqMediaService.settingsSave(patch || {}));
+ipcMain.handle('qq-media:sticker-generate', (e, args) => qqMediaService.generateSticker((args && args.emotion) || '', (args && args.situation) || ''));
+
 // ---- QQ 群聊旁听 / 随机接话（2026-11-19）----
 // 普通 @ 仍由 dsh-onebot-channel 走原路由；这里只旁听没被 @ 的群消息，
 // 按概率和闸门决定是否在那个群的独立 DSH 会话里生成一句，再用 OneBot 发出去。
@@ -4574,8 +4583,12 @@ const qqGroupService = qqGroupSvc.createService({
   dshHome: DSH_HOME,
   base: BASE,
   getToken: function () { return harnessToken; },
+  media: qqMediaService,
   // 外发闸门在下方创建（outGateService）；这里延迟取，群消息发送时它一定已就绪。
-  gate: { sendGroupText: function (groupId, text) { return outGateService.sendQqGroupText(groupId, text); } },
+  gate: {
+    sendGroupText: function (groupId, text) { return outGateService.sendQqGroupText(groupId, text); },
+    sendGroupMessage: function (groupId, parts) { return outGateService.sendQqGroupMessage(groupId, parts); }
+  },
   log: log
 });
 ipcMain.handle('qq-group:status', () => qqGroupService.statusGet());
@@ -4596,6 +4609,7 @@ ipcMain.handle('archive:settings-get', () => chatArchiveService.settingsGet());
 ipcMain.handle('archive:settings-save', (e, patch) => chatArchiveService.settingsSave(patch || {}));
 ipcMain.handle('archive:sync', () => chatArchiveService.syncOnce('manual'));
 ipcMain.handle('archive:chats', () => chatArchiveService.listChats());
+ipcMain.handle('archive:recent', (e, args) => chatArchiveService.recent(args || {}));
 ipcMain.handle('archive:search', (e, args) => chatArchiveService.search(args || {}));
 ipcMain.handle('archive:quote', (e, args) => chatArchiveService.quote(args || {}));
 ipcMain.handle('archive:daily', (e, args) => chatArchiveService.daily(args || {}));
@@ -6093,6 +6107,13 @@ ipcMain.handle('kun:git:diff', async (_e, repo, file, hash) => {
   const dir = String(repo || '').trim();
   const rel = String(file || '').trim();
   if (!dir || !rel) return { ok: false, err: '缺少仓库或文件路径' };
+  // 1. 先备好跑 git 的壳子：下面「指定提交」那段也要用它（以前它声明在后面，
+  //    历史页双击文件看改动会踩 TDZ ⇒ ReferenceError，表现就是「点了没反应」）
+  const run = (args) => new Promise((resolve) => {
+    execFile('git', ['-c', 'core.quotepath=false', '--no-optional-locks', '-C', dir, ...args],
+      { windowsHide: true, maxBuffer: 16 << 20, timeout: 20000 },
+      (err, stdout, stderr) => resolve({ ok: !err, out: String(stdout || ''), err: String(stderr || (err && err.message) || '') }));
+  });
   // 指定了提交 ⇒ 看那次提交里这个文件的改动（历史详情用）
   if (hash) {
     const rr = await run(['show', '--no-renames', '--no-color', String(hash), '--', rel]);
@@ -6102,11 +6123,6 @@ ipcMain.handle('kun:git:diff', async (_e, repo, file, hash) => {
     return { ok: true, path: p2, bytes: Buffer.byteLength(rr.out) };
   }
   if (!fs.existsSync(dir)) return { ok: false, err: '仓库目录不存在：' + dir };
-  const run = (args) => new Promise((resolve) => {
-    execFile('git', ['-c', 'core.quotepath=false', '--no-optional-locks', '-C', dir, ...args],
-      { windowsHide: true, maxBuffer: 16 << 20, timeout: 20000 },
-      (err, stdout, stderr) => resolve({ ok: !err, out: String(stdout || ''), err: String(stderr || (err && err.message) || '') }));
-  });
   const [unstaged, staged, st] = await Promise.all([
     run(['diff', '--no-color', '--', rel]),
     run(['diff', '--cached', '--no-color', '--', rel]),
