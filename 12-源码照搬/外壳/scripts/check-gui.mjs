@@ -404,7 +404,7 @@ for (const s of ['scripts/sessions.mjs']) {
 // ---------- 10. 目录契约（防止"装插件/扩功能时到处乱建目录、补丁乱放"） ----------
 // 为什么要有这一项：功能是会长出来的，人（和 AI）最容易做的就是"随手新建一个目录/临时文件"，
 // 半年后目录就烂了：不知道哪个文件夹有用、哪个能删、回滚该备份谁。
-// 这里把"哪里放什么"变成机器可校验的规则（对应 项目信息.md §18 目录契约）。
+// 这里把"哪里放什么"变成机器可校验的规则（契约本体就是本文件的 ALLOWED_DIRS / ALLOWED_FILES）。
 //
 // 规则：
 //   10.1 顶层只允许清单内的条目；多出来的 → FAIL 并告诉它该放哪
@@ -445,8 +445,8 @@ const topEntries = fs.readdirSync(ROOT, { withFileTypes: true }).map((e) => ({ n
 const extraDirs = topEntries.filter((e) => e.dir && !ALLOWED_DIRS.includes(e.name));
 const extraFiles = topEntries.filter((e) => !e.dir && !ALLOWED_FILES.includes(e.name));
 if (!extraDirs.length && !extraFiles.length) ok('顶层条目都在契约清单内（' + ALLOWED_DIRS.length + ' 个目录 + ' + ALLOWED_FILES.length + ' 个文件）');
-for (const e of extraDirs) bad('顶层多了目录「' + e.name + '」→ 不属于契约（放哪：见 项目信息.md §18；确需保留就登记进 ALLOWED_DIRS）');
-for (const e of extraFiles) bad('顶层多了文件「' + e.name + '」→ 不属于契约（放哪：见 项目信息.md §18；源码文件还要加进 backup-gui.mjs 的 FILES）');
+for (const e of extraDirs) bad('顶层多了目录「' + e.name + '」→ 不属于契约（放哪：见本文件 ALLOWED_DIRS；确需保留就登记进去）');
+for (const e of extraFiles) bad('顶层多了文件「' + e.name + '」→ 不属于契约（放哪：见本文件 ALLOWED_FILES；源码文件还要加进 scripts/备份清单.mjs 的 FILES）');
 
 const wrongPlace = topEntries.filter((e) => e.dir && WRONG_PLACE_DIRS.includes(e.name.toLowerCase()));
 if (!wrongPlace.length) ok('GUI 根目录没有 skills/插件/extensions 这类"第二存放点"');
