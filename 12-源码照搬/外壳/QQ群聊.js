@@ -25,9 +25,6 @@ const LISTEN_DIR = path.join(WORK_DIR, '旁听');
 const STATUS_FILE = path.join(WORK_DIR, '状态.json');
 const LOG_FILE = path.join(WORK_DIR, '通道.log');
 const LIB_FILE = path.join(__dirname, '..', '工具', '派发-公共.mjs');
-// 静态扫描要求「发送动作只许出现在闸门本体」；这里拆开拼，实际请求仍走 onebotHttp
-// （当前配置指向 3100 外发闸门代理，内容审计由闸门完成）。
-const SEND_GROUP_ACTION = 'send' + '_group_msg';
 
 const DEFAULTS = {
   enabled: true,
@@ -211,6 +208,7 @@ function createService(options) {
         id: x.id, name: x.name || ('QQ群 ' + x.id), sessionId: x.sessionId || '',
         managed: managedGroupIds().has(String(x.id))
       }));
+      if (String(status.lastError || '').indexOf('读群列表失败') === 0) status.lastError = '';
       writeStatus();
       return { ok: true, count: groups.size };
     } catch (e) {
@@ -223,7 +221,10 @@ function createService(options) {
 
   function textOf(message) {
     if (typeof message === 'string') return message;
-    if (!Array.isArray(message)) return String(message || '');
+    if (!Array.isArray(message)) {
+      if (message && typeof message === 'object' && message.type) return textOf([message]);
+      return String(message || '');
+    }
     return message.map((seg) => {
       if (!seg || typeof seg !== 'object') return '';
       if (seg.type === 'text') return String(seg.data && seg.data.text || '');
@@ -237,13 +238,12 @@ function createService(options) {
   function atInfo(message, selfUin) {
     let atMe = false;
     let atOther = false;
-    if (Array.isArray(message)) {
-      for (const seg of message) {
-        if (!seg || seg.type !== 'at') continue;
-        const qq = String(seg.data && seg.data.qq || '');
-        if (qq === String(selfUin)) atMe = true;
-        else if (qq) atOther = true;
-      }
+    const segs = Array.isArray(message) ? message : (message && message.type ? [message] : []);
+    for (const seg of segs) {
+      if (!seg || seg.type !== 'at') continue;
+      const qq = String(seg.data && seg.data.qq || '');
+      if (qq === String(selfUin)) atMe = true;
+      else if (qq) atOther = true;
     }
     return { atMe: atMe, atOther: atOther };
   }
@@ -297,11 +297,15 @@ function createService(options) {
     const now = rec.at || Date.now();
     const prevAt = s.lastAt;
     const quietGap = prevAt > 0 && (now - prevAt) > config.silentMinutes * 60000;
+    const engagedWindow = !prevAt || (now - prevAt) <= config.engagedMinutes * 60000;
     s.lastAt = now;
     if (quietGap) {
       s.cooldownUntil = 0;
       s.randomTimes = [];
       return { ok: false, reason: 'quiet_gap（群刚安静下来，第一条不接）', chance: config.chance, roll: null };
+    }
+    if (!engagedWindow) {
+      return { ok: false, reason: 'engaged_expired（上一条消息离现在超过接话窗口）', chance: config.chance, roll: null };
     }
     if (!config.freeChat) return { ok: false, reason: 'freeChat 关' };
     if (atMe) return { ok: false, reason: 'at_me（交给原生 @ 回复）' };

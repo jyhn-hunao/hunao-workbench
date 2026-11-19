@@ -8133,6 +8133,7 @@ renderers.chan = function (body, meta, head) {
         addressGuard: st.qqGroupDraft.addressGuard !== false
       };
       st.qqGroupBusy = 'save';
+      st.qqGroupEditing = false;
       draw();
       Promise.resolve(api.settingsSave(p)).then(function (r) {
         st.qqGroupBusy = '';
