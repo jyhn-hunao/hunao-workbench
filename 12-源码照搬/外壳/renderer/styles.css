@@ -7744,3 +7744,129 @@ html[data-theme] .flow-dlg-box {
   border-color: var(--accent-line);
 }
 
+/* ===== 聊天档案弹窗（2026-11-19）=====
+   复用 wxs-mask / wxs-dlg / wxs-head 的基础弹窗外壳；这里只补内容区的可读性与分页列表。
+   原则：默认不选聊天、不自动查询；所有按钮文字常驻；结果区可滚动但不抢焦点。 */
+.wxs-dlg.is-archive {
+  width: min(980px, 94vw);
+  max-height: 90vh;
+}
+.arc-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 0 10px;
+  flex-wrap: wrap;
+}
+.arc-sync-info {
+  flex: 1 1 360px;
+  min-width: 220px;
+  font-size: 12px;
+  color: var(--text-dim);
+  line-height: 1.5;
+}
+.arc-tabs {
+  display: flex;
+  gap: 6px;
+  padding: 0 0 10px;
+}
+.arc-tab {
+  appearance: none;
+  border: 1px solid var(--border);
+  background: var(--bg-panel);
+  color: var(--text-dim);
+  border-radius: var(--r-sm);
+  padding: 5px 12px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.arc-tab.is-on {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--bg-elevated-2);
+}
+.arc-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 0 8px;
+  flex-wrap: wrap;
+}
+.arc-lab {
+  width: 42px;
+  flex: 0 0 42px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.arc-chat,
+.arc-q,
+.arc-date {
+  flex: 1 1 260px;
+  min-width: 160px;
+}
+.arc-hint,
+.arc-note {
+  font-size: 12px;
+  color: var(--text-dim);
+  line-height: 1.6;
+  padding: 2px 0 8px;
+}
+.arc-note {
+  padding-top: 10px;
+  border-top: 1px solid var(--line-1);
+  margin-top: 10px;
+}
+.arc-pane.is-hide { display: none; }
+.arc-result {
+  max-height: 52vh;
+  overflow: auto;
+  border: 1px solid var(--line-1);
+  background: var(--bg-sunken);
+  border-radius: var(--r-sm);
+  padding: 8px;
+}
+.arc-empty {
+  font-size: 12px;
+  color: var(--text-dim);
+  padding: 10px 4px;
+  line-height: 1.6;
+}
+.arc-empty.is-bad { color: var(--err); }
+.arc-msg {
+  padding: 8px 8px 9px;
+  border-bottom: 1px dashed var(--line-1);
+}
+.arc-msg:last-child { border-bottom: 0; }
+.arc-meta {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-bottom: 3px;
+}
+.arc-text {
+  font-size: 13px;
+  color: var(--text);
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.arc-ctx {
+  font-size: 11px;
+  color: var(--text-dim);
+  line-height: 1.5;
+  padding-top: 3px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.arc-daily-head {
+  font-size: 12px;
+  color: var(--accent);
+  padding: 4px 4px 8px;
+}
+.arc-foot {
+  padding: 10px 2px 0;
+}
+.arc-foot-text {
+  font-size: 11px;
+  color: var(--text-dim);
+  line-height: 1.5;
+}

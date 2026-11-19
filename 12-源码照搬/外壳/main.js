@@ -23,6 +23,7 @@ const bridgeSvc = require('./桥接');           // QQ 个人号桥接（SnowLum
 const wechatSvc = require('./微信通道');       // 微信个人号通道（whale_girl）的进程面 + 31241 换脑适配器
 const outGateSvc = require('./外发闸门');       // 外发安全闸门：QQ 代理 + 正文判定 + 审计（唯一判据出处）
 const petSvc = require('./桌宠设置');          // 桌宠层的机器可读设置 + 路由打分 + 派发日志（面板与 工具\桌宠.mjs 共用）
+const chatArchiveSvc = require('./社交档案');   // 聊天长期档案：SnowLuma messages.db → 本地 SQLite/FTS5（只读源库）
 
 const DSH_PORT = String(process.env.DSH_PORT || '3083');
 const BASE = 'http://127.0.0.1:' + DSH_PORT;
@@ -4582,6 +4583,25 @@ ipcMain.handle('qq-group:settings-get', () => qqGroupService.settingsGet());
 ipcMain.handle('qq-group:settings-save', (e, patch) => qqGroupService.settingsSave(patch || {}));
 ipcMain.handle('qq-group:refresh', () => qqGroupService.refreshGroups());
 
+// ---- 聊天长期档案（2026-11-19）----
+// 数据面在 社交档案.js：读 SnowLuma 的 messages.db（只读），写 引擎数据\.dsh\社交档案\chat-archive.db。
+// 普通闲聊不查；只有 DSH 工具在「昨天/上次/谁说过/原话」这类历史意图时按需查。
+// 不含任何发送动作；同步失败把原因写进状态，面板显示红项，不静默当「没消息」。
+const chatArchiveService = chatArchiveSvc.createService({
+  dshHome: DSH_HOME,
+  log: log
+});
+ipcMain.handle('archive:status', () => chatArchiveService.statusGet());
+ipcMain.handle('archive:settings-get', () => chatArchiveService.settingsGet());
+ipcMain.handle('archive:settings-save', (e, patch) => chatArchiveService.settingsSave(patch || {}));
+ipcMain.handle('archive:sync', () => chatArchiveService.syncOnce('manual'));
+ipcMain.handle('archive:chats', () => chatArchiveService.listChats());
+ipcMain.handle('archive:search', (e, args) => chatArchiveService.search(args || {}));
+ipcMain.handle('archive:quote', (e, args) => chatArchiveService.quote(args || {}));
+ipcMain.handle('archive:daily', (e, args) => chatArchiveService.daily(args || {}));
+ipcMain.handle('archive:memories', (e, args) => chatArchiveService.memories(args || {}));
+ipcMain.handle('archive:memory-add', (e, args) => chatArchiveService.memoryAdd(args || {}));
+
 // ---- 社交消息流的视图偏好（2026-11-17）----
 // 只存两个值：时间范围（today/7/30/all）+ 归档游标（毫秒）。为什么放主进程 userData：
 //   localStorage 可能被清理软件连带清掉；这里丢了也只是回默认，不影响消息源（transcript 只读）。
@@ -4673,6 +4693,10 @@ const wechatService = wechatSvc.createService({
   base: BASE,
   getToken: function () { return harnessToken; },
   gate: outGateService,
+  // 微信入站/出站都写聊天档案；档案故障只记日志，不影响回消息。
+  archive: function (msg) {
+    try { return chatArchiveService.archiveWechat(msg); } catch (e) { log('[wechat] 档案写入异常：' + ((e && e.message) || e)); return null; }
+  },
   log: log
 });
 ipcMain.handle('wechat:status', () => wechatService.status());
@@ -5586,6 +5610,23 @@ if (!gotLock) {
       wechatService.autoStart().catch(function (e) { log('[wechat] 随壳启动失败: ' + ((e && e.message) || e)); });
       wechatService.status().catch(function (e) { log('[wechat] 初始状态失败: ' + ((e && e.message) || e)); });
     } catch (err) { log('[wechat] 随壳启动异常: ' + ((err && err.message) || err)); }
+    // 聊天长期档案：跟着工作台起。它只读 SnowLuma 的 messages.db，不需要等引擎 token；
+    // 先给桥接 8 秒把 SnowLuma 拉起来，再开始首轮回填；失败不阻塞主流程，状态里能看见。
+    setTimeout(function () {
+      try {
+        chatArchiveService.start();
+        log('[archive] 随壳启动（只读 SnowLuma messages.db → 本地档案库）');
+      } catch (e) {
+        log('[archive] 随壳启动失败: ' + ((e && e.message) || e));
+      }
+      // QQ 群旁听也等桥接把 SnowLuma 拉起来；没有绑定群时只保持 WS，不接话。
+      try {
+        const gr = qqGroupService.start();
+        log('[qq-group] 随壳启动旁听：' + JSON.stringify(gr && (gr.skipped || gr.error || { started: gr.started, connected: gr.connected }) || {}));
+      } catch (e) {
+        log('[qq-group] 随壳启动失败: ' + ((e && e.message) || e));
+      }
+    }, 8000);
     let ok = false;
     // 2026-11-14：起引擎之前先收拾"孤儿 staging"（不动 state 指向的那份），失败不影响启动
     try { cleanOrphanStaging(); } catch (e) { warnOnce("auto-staging", e); }
@@ -5652,6 +5693,8 @@ if (!gotLock) {
     killServer();
     try { bridgeService.stop(); } catch (e) { warnOnce("main", e) }
     try { wechatService.stop(); } catch (e) { warnOnce("main", e) }
+    try { chatArchiveService.close(); } catch (e) { warnOnce("main", e) }
+    try { qqGroupService.stop(); } catch (e) { warnOnce("main", e) }
     try { outGateService.stop(); } catch (e) { warnOnce("main", e) }
   });
 }

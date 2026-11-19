@@ -106,6 +106,20 @@ contextBridge.exposeInMainWorld('app', {
     settingsSave: (patch) => ipcRenderer.invoke('qq-group:settings-save', patch || {}),
     refresh: () => ipcRenderer.invoke('qq-group:refresh')
   },
+  // ---- 聊天长期档案（2026-11-19）----
+  // 缺这个命名空间 = preload/主进程还是旧的 ⇒ 社交标题行的「聊天档案」按钮显示重启提示，不假装有数据。
+  chatArchive: {
+    status: () => ipcRenderer.invoke('archive:status'),
+    settingsGet: () => ipcRenderer.invoke('archive:settings-get'),
+    settingsSave: (patch) => ipcRenderer.invoke('archive:settings-save', patch || {}),
+    sync: () => ipcRenderer.invoke('archive:sync'),
+    chats: () => ipcRenderer.invoke('archive:chats'),
+    search: (args) => ipcRenderer.invoke('archive:search', args || {}),
+    quote: (args) => ipcRenderer.invoke('archive:quote', args || {}),
+    daily: (args) => ipcRenderer.invoke('archive:daily', args || {}),
+    memories: (args) => ipcRenderer.invoke('archive:memories', args || {}),
+    memoryAdd: (args) => ipcRenderer.invoke('archive:memory-add', args || {})
+  },
   // ---- QQ 个人号桥接（SnowLuma，2026-11-13）----
   // 随壳启动/退出；面板上的齿轮按钮用它确认"起没起"，没起就先拉起再开窗口。
   bridge: {

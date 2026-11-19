@@ -1,0 +1,11 @@
+{
+  "name": "dsh-chat-archive",
+  "version": "1.0.0",
+  "description": "聊天长期档案：按需查询 QQ/微信/飞书聊天的原文历史与单聊天记忆；不整段注入。",
+  "type": "module",
+  "main": "index.js",
+  "private": true,
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "*"
+  }
+}

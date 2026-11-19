@@ -33,3 +33,10 @@
       name: "dsh-social-policy"
       config:
         mode: enforce
+
+# ---- 2026-11-19 聊天档案：按需查历史原文与单聊天记忆（工具\聊天档案.mjs 装）----
+- insert:
+    - id: chat-archive
+      name: "dsh-chat-archive"
+      config:
+        mode: enforce

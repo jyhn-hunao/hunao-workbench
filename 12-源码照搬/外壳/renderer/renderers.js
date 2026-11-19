@@ -8472,6 +8472,28 @@ renderers.channels = function (body, meta, head) {
     });
     head.appendChild(replyBtn);
 
+    // 聊天档案：和「回复风格」并列的常驻文字入口，不藏进 QQ 卡片的齿轮里。
+    // 默认不选聊天、不自动查询；打开后自己选聊天再搜/按天读/看记忆。
+    var archiveBtn = document.createElement('button');
+    archiveBtn.type = 'button';
+    archiveBtn.className = 'ch-hub-toggle';
+    archiveBtn.textContent = '聊天档案';
+    archiveBtn.title = '查 QQ 私聊/群聊的长期原文、按天读、看单聊天记忆；只读，不会发消息';
+    archiveBtn.addEventListener('click', function () {
+      if (typeof window.openChatArchive !== 'function') {
+        toast('聊天档案还没接上：重启一次工作台（preload / renderer 是旧的）', true);
+        return;
+      }
+      archiveBtn.disabled = true;
+      Promise.resolve(window.openChatArchive()).then(function () {
+        archiveBtn.disabled = false;
+      }).catch(function (e) {
+        archiveBtn.disabled = false;
+        toast('打开聊天档案失败：' + String((e && e.message) || e), true);
+      });
+    });
+    head.appendChild(archiveBtn);
+
     var gateState = document.createElement('span');
     gateState.className = 'ch-gate-state';
     gateState.textContent = '闸门 读取中…';
