@@ -93,6 +93,20 @@ function textOf(content) {
 //        只有 source.kind === 'user' 才是真有人说话 —— 不筛这一下，面板会满屏「Current runtime context」。
 function messagesOf(events, limit) {
   const out = [];
+  // 2026-11-19 补：同一条通道消息会以两种事件各记一次 —— 先是 agent/inbox/spliced 插入，
+  // 紧接着 user/message 又落一条正文。两种都算会让面板/通道记忆出现「每句说两遍」，
+  // 通道记忆配对时还会被重复的「他」打断（表现是她回了也记「未回」）。
+  // 这里按「角色 + 原文前 80 字 + 5 秒内」去重；5 秒外仍算新消息，不吞真正的连发。
+  const lastThem = new Map();
+  const pushMsg = (m) => {
+    if (m.role === 'them') {
+      const sig = m.key + '|' + String(m.text || '').slice(0, 80);
+      const prev = lastThem.get(sig);
+      if (prev && Math.abs(m.at - prev) <= 5000) return;
+      lastThem.set(sig, m.at);
+    }
+    out.push(m);
+  };
   for (const e of events || []) {
     if (!e || !e.type) continue;
     // 通道消息（QQ / 飞书）不走 user/message，而是由桥接插件以 agent/inbox/spliced 投递进来；
@@ -105,7 +119,7 @@ function messagesOf(events, limit) {
         if (rk === 'them' && !(it.source && it.source.kind === 'user')) continue;
         const t1 = textOf(it.content || (it.message && it.message.content));
         if (!t1) continue;
-        out.push({ at: Number(it.time || e.time) || 0, role: rk, key: platformOf(t1), text: t1.length > 420 ? t1.slice(0, 420) + '…' : t1 });
+        pushMsg({ at: Number(it.time || e.time) || 0, role: rk, key: platformOf(t1), text: t1.length > 420 ? t1.slice(0, 420) + '…' : t1 });
       }
       continue;
     }
@@ -119,7 +133,7 @@ function messagesOf(events, limit) {
     } else continue;
     const t = textOf(content);
     if (!t) continue;
-    out.push({
+    pushMsg({
       at: Number(e.time) || 0,
       role,
       key: platformOf(t),
