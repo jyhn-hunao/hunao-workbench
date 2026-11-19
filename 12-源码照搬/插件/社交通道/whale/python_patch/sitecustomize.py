@@ -18,7 +18,6 @@
 import os
 import sys
 import time
-import types
 
 try:
     import psutil
@@ -32,42 +31,6 @@ except Exception:  # noqa: BLE001
 
 _ACCOUNT_DIR = str(os.environ.get('DSH_WX_ACCOUNT_DIR') or '').strip()
 _ORIGINAL_OPEN_FILES = getattr(psutil.Process, 'open_files', None) if psutil else None
-_WINDOW_CACHE = {'at': 0.0, 'count': 0}
-
-
-def _visible_main_windows():
-    """当前可见（含最小化）的微信主窗数量（不带登录页/托盘消息窗）。"""
-    if not win32gui:
-        return 0
-    now = time.monotonic()
-    if now - _WINDOW_CACHE['at'] < 0.8:
-        return _WINDOW_CACHE['count']
-    count = [0]
-
-    def cb(hwnd, _):
-        try:
-            visible = bool(win32gui.IsWindowVisible(hwnd))
-            iconic = bool(win32gui.IsIconic(hwnd))
-            if not visible and not iconic:
-                return
-            title = (win32gui.GetWindowText(hwnd) or '').strip()
-            cls = win32gui.GetClassName(hwnd) or ''
-            if title in ('微信', 'Weixin') and (cls.startswith('Qt') or cls.startswith('mmui')):
-                # 最小化的主窗还原后仍是完整聊天窗；显式排除小于 300×250 的辅助窗。
-                rc = win32gui.GetWindowPlacement(hwnd)[4] if iconic else win32gui.GetWindowRect(hwnd)
-                area = max(0, int(rc[2]) - int(rc[0])) * max(0, int(rc[3]) - int(rc[1]))
-                if area >= 300 * 250:
-                    count[0] += 1
-        except Exception:  # noqa: BLE001
-            pass
-
-    try:
-        win32gui.EnumWindows(cb, None)
-    except Exception:  # noqa: BLE001
-        return 0
-    _WINDOW_CACHE['at'] = now
-    _WINDOW_CACHE['count'] = count[0]
-    return count[0]
 
 
 def _is_weixin(proc):
@@ -78,14 +41,11 @@ def _is_weixin(proc):
 
 
 def _open_files(self):
-    # 只在已选账号时接管 Weixin.exe 的打开文件探测；其它进程照旧。
+    # 多开/虚拟桌面下不能按「当前桌面可见窗数」伪造账号归属：小号在另一个
+    # 虚拟桌面时，当前桌面只看得见大号，旧逻辑会把大号进程伪装成已选小号。
+    # 微信进程这里一律返回空；明确钉住的 windowHwnd 由 _install_account_match
+    # 用真实 open_files 核对账号目录名，对不上就否决。
     if _ACCOUNT_DIR and _is_weixin(self):
-        n = _visible_main_windows()
-        if n == 1:
-            # DSH_WX_ACCOUNT_DIR 指向 <账号>\db_storage，占位文件必须直接放
-            # 在 db_storage 下；再多拼一层会让鲸鲸把账号目录读成 "db_storage"。
-            return [types.SimpleNamespace(path=os.path.join(_ACCOUNT_DIR, '.dsh-account-probe'))]
-        # 0 个（缩托盘/未开窗）或多个（双开都可见）都不猜，交给鲸鲸报未确认。
         return []
     if _ORIGINAL_OPEN_FILES:
         return _ORIGINAL_OPEN_FILES(self)
@@ -180,12 +140,13 @@ _install_window_filter()
 
 
 def _install_account_match():
-    """让「配置里明确指定 windowHwnd」的窗口直接通过账号归属校验。
+    """让「配置里明确指定 windowHwnd」的窗口通过账号归属校验。
 
     微信数据目录是 Junction 时，鲸鲸用 psutil 打开文件拿到的真实路径，和
     配置里的 D:\\MyApp 别名路径字符串不相等，_window_account_matches 会
-    返回 False。这里只对配置中明确钉住的 hwnd 放行（不猜其它窗口），
-    其余窗口仍然走鲸鲸原来的数据库归属校验。
+    返回 False。这里对显式钉住的 hwnd 先用**真实** open_files 核对账号目录名，
+    对得上才放行；对不上直接否决，不能只凭 PID 相同就信任——否则双开时把
+    另一个账号的窗口写进配置，就会安静地串号发送。
     """
     import threading
 
@@ -211,13 +172,29 @@ def _install_account_match():
             try:
                 import win32gui
                 import win32process
+                from pathlib import Path
                 h = int(getattr(engine, 'WINDOW_HWND', 0) or 0)
-                if h and win32gui.IsWindow(h):
-                    if int(win32process.GetWindowThreadProcessId(h)[1]) == int(pid):
-                        return True
+                if not h or not win32gui.IsWindow(h):
+                    return original(self, pid)
+                if int(win32process.GetWindowThreadProcessId(h)[1]) != int(pid):
+                    return original(self, pid)
+                account_dir = str(getattr(getattr(self, 'db', None), 'account_dir', '') or '')
+                account_name = os.path.basename(os.path.normpath(account_dir)).lower() if account_dir else ''
+                if not account_name:
+                    return original(self, pid)
+                if _ORIGINAL_OPEN_FILES is None or psutil is None:
+                    return False
+                owners = set()
+                for item in _ORIGINAL_OPEN_FILES(psutil.Process(int(pid))):
+                    for directory in Path(item.path).parents:
+                        if directory.name.lower() == 'db_storage':
+                            owners.add(directory.parent.name.lower())
+                            break
+                # 显式 hwnd 必须真的打开着所选账号的 db_storage；查不到也否决，
+                # 宁可让桥接报「账号未确认」，也不拿别的账号窗口发消息。
+                return account_name in owners if owners else False
             except Exception:  # noqa: BLE001
-                pass
-            return original(self, pid)
+                return False
 
         cls._window_account_matches = _match
         cls._dsh_hwnd_match = True

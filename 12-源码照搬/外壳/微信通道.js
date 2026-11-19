@@ -1231,31 +1231,58 @@ class WechatService {
     }
   }
 
-  // 读当前可见的微信主窗。鲸鲸的 UIA 驱动必须有一个明确的主窗，
-  // 双开时如果看到多个主窗，不猜，交给用户关掉一个再启动。
+  // 读微信主窗，并按进程打开的 db_storage 认出它属于哪个账号。
+  // 双开/虚拟桌面时 EnumWindows 只看得见当前桌面，必须用 EnumThreadWindows
+  // 逐进程枚举；窗口在托盘、最小化或另一个虚拟桌面也能拿到句柄。
   _findWechatWindows(home, cfg) {
     const py = this._python(home, cfg);
     const script = [
-      'import json, win32gui, win32process',
-      'rows=[]',
-      'def cb(h,_):',
+      'import json, os, win32gui, psutil',
+      'from pathlib import Path',
+      'rows=[]; seen=set()',
+      'def account_dirs(pid):',
+      '  out=set()',
       '  try:',
-      '    if not win32gui.IsWindowVisible(h): return',
-      "    title=(win32gui.GetWindowText(h) or '').strip()",
-      "    if title not in ('微信','Weixin'): return",
-      '    cls=win32gui.GetClassName(h) or ""',
-      '    rc=win32gui.GetWindowRect(h)',
-      '    area=max(0,rc[2]-rc[0])*max(0,rc[3]-rc[1])',
-      '    if not win32gui.IsIconic(h) and area < 300*250: return',
-      '    rows.append({"hwnd":int(h),"pid":int(win32process.GetWindowThreadProcessId(h)[1]),"title":title,"class":cls,"area":area})',
+      '    for f in psutil.Process(pid).open_files():',
+      '      try:',
+      '        for d in Path(f.path).parents:',
+      "          if d.name.lower()=='db_storage':",
+      '            out.add(os.path.normpath(str(d.parent))); break',
+      '      except Exception: pass',
       '  except Exception: pass',
-      'win32gui.EnumWindows(cb,None)',
+      '  return sorted(out)',
+      'def make_cb(pid, dirs):',
+      '  account=os.path.basename(dirs[0]) if dirs else ""',
+      '  def cb(h,_):',
+      '    try:',
+      '      h=int(h)',
+      '      if h in seen: return',
+      "      title=(win32gui.GetWindowText(h) or '').strip()",
+      "      if title not in ('微信','Weixin'): return",
+      '      cls=win32gui.GetClassName(h) or ""',
+      "      if 'QWindowIcon' not in cls and 'mmui' not in cls: return",
+      '      iconic=bool(win32gui.IsIconic(h))',
+      '      rc=win32gui.GetWindowPlacement(h)[4] if iconic else win32gui.GetWindowRect(h)',
+      '      area=max(0,int(rc[2])-int(rc[0]))*max(0,int(rc[3])-int(rc[1]))',
+      '      if not iconic and area < 300*250: return',
+      '      seen.add(h)',
+      '      rows.append({"hwnd":h,"pid":int(pid),"title":title,"class":cls,"area":area,"iconic":iconic,"visible":bool(win32gui.IsWindowVisible(h)),"dbDirs":dirs,"account":account})',
+      '    except Exception: pass',
+      '  return cb',
+      "for proc in psutil.process_iter(['pid','name']):",
+      '  try:',
+      "    if (proc.info.get('name') or '').lower() not in ('weixin.exe','wechat.exe'): continue",
+      '    pid=int(proc.info["pid"]); dirs=account_dirs(pid)',
+      '    for th in proc.threads():',
+      '      try: win32gui.EnumThreadWindows(int(th.id), make_cb(pid,dirs), None)',
+      '      except Exception: pass',
+      '  except Exception: pass',
       "print(json.dumps(rows,ensure_ascii=False))"
     ].join('\n');
     const env = Object.assign(this._childEnv(), { DSH_WHALE_HOME: home });
     try {
       const out = execFileSync(py.cmd, py.args.concat(['-c', script]), {
-        cwd: home, env, encoding: 'utf8', timeout: 15000, windowsHide: true
+        cwd: home, env, encoding: 'utf8', timeout: 20000, windowsHide: true
       });
       const rows = JSON.parse(String(out || '').trim() || '[]');
       return Array.isArray(rows) ? rows : [];
@@ -1267,13 +1294,58 @@ class WechatService {
 
   _prepareWindow(home, cfg) {
     const rows = this._findWechatWindows(home, cfg);
+    const wanted = String((cfg && cfg.wechatAccount) || '').trim();
+    const chooseMain = function (list) {
+      const pool = list.slice().sort(function (a, b) {
+        const aMain = (String(a.title) === '微信' ? 1 : 0) + (/QWindowIcon/.test(String(a.class)) ? 1 : 0);
+        const bMain = (String(b.title) === '微信' ? 1 : 0) + (/QWindowIcon/.test(String(b.class)) ? 1 : 0);
+        return (bMain - aMain) || (Number(b.area) - Number(a.area)) || (Number(a.iconic) - Number(b.iconic));
+      });
+      return pool[0] || null;
+    };
+    const accountOf = function (row) {
+      if (row && row.account) return String(row.account);
+      const dirs = Array.isArray(row && row.dbDirs) ? row.dbDirs : [];
+      return dirs.length ? path.basename(String(dirs[0])) : '';
+    };
+    const hasAccount = function (row, value) {
+      if (sameAccount(accountOf(row), value)) return true;
+      const dirs = Array.isArray(row && row.dbDirs) ? row.dbDirs : [];
+      return dirs.some(function (d) { return sameAccount(path.basename(String(d)), value); });
+    };
+
     let hwnd = 0;
-    if (rows.length === 1) hwnd = Number(rows[0].hwnd) || 0;
-    if (rows.length > 1) {
-      this._appendLog('看到 ' + rows.length + ' 个微信主窗：先只保留小号主窗，否则不启动发送通道');
+    let reason = '';
+    let candidates = rows;
+    if (wanted) {
+      candidates = rows.filter(function (r) { return hasAccount(r, wanted); });
+      if (!candidates.length) {
+        reason = 'account-window-missing';
+        this._appendLog('已选账号 ' + wanted + '，但没找到它对应的微信主窗（窗口可在托盘/其它虚拟桌面；不拿别的账号窗口凑数）');
+      } else {
+        const main = chooseMain(candidates);
+        hwnd = Number(main && main.hwnd) || 0;
+        reason = 'account';
+        if (hwnd) {
+          this._appendLog('按账号目录锁定微信主窗 hwnd=' + hwnd +
+            '（' + (main.visible ? '可见' : '托盘/其它虚拟桌面') + '，后台发送）');
+        }
+      }
+    } else {
+      const accounts = {};
+      rows.forEach(function (r) { const a = accountCore(accountOf(r)); if (a) accounts[a.toLowerCase()] = 1; });
+      if (Object.keys(accounts).length > 1) {
+        reason = 'multi-account';
+        this._appendLog('看到 ' + Object.keys(accounts).length + ' 个微信账号的主窗：先在微信列选账号，不猜窗口');
+      } else if (rows.length) {
+        const main = chooseMain(rows);
+        hwnd = Number(main && main.hwnd) || 0;
+        reason = 'single-account';
+      }
     }
+
     cfg.windowHwnd = hwnd;
-    return { rows: rows, hwnd: hwnd };
+    return { rows: rows, hwnd: hwnd, reason: reason };
   }
 
   _writeConfig(cfg) {
@@ -2167,7 +2239,7 @@ class WechatService {
       const win = this._prepareWindow(h.home, cfg);
       this._writeConfig(cfg);
       if (cfg.wechatAccount && !win.hwnd) {
-        this._appendLog('已选账号但没找到唯一微信主窗：先把小号主窗打开、关掉另一个微信窗口');
+        this._appendLog('已选账号但没找到该账号的微信主窗：确认小号已登录（窗口可以在托盘/其它虚拟桌面），不会拿别的账号窗口代替');
       }
       this._patchWhaleConfig(h.home, cfg);
       const plugin = this._ensurePlugin(h.home, cfg, this._adapterPort(cfg));
@@ -2624,10 +2696,10 @@ class WechatService {
     }
 
     const port = snap.kernelPort;
-    // 账号必须和「窗口」一起钉：鲸鲸只认 config 里的 account + windowHwnd。
-    // 这里顺手把工作台自己的选择持久化，壳重启 autoStart 才能知道接哪个号。
-    const win = this._prepareWindow(h.home, cfg);
+    // 账号必须先写入 cfg，_prepareWindow 才会按「这次选中的账号」过滤窗口；
+    // 旧顺序是先选窗口再改账号，换号时会把上一个号的窗口钉给新号。
     cfg.wechatAccount = target;
+    const win = this._prepareWindow(h.home, cfg);
     cfg.windowHwnd = win.hwnd;
     this._writeConfig(cfg);
 
@@ -2647,7 +2719,7 @@ class WechatService {
     let restarted = false;
     let note = '';
     if (!win.hwnd && target) {
-      note = '已保存账号，但没找到唯一微信主窗：先只留小号主窗、关掉另一个微信窗口，再启动';
+      note = '已保存账号，但没找到该账号的微信主窗：确认小号已登录（窗口可在托盘/其它虚拟桌面）；不会拿另一个账号的窗口顶替';
     } else if (!snap.kernel.online) {
       note = '内核未启动：已写入本地配置，点「启动」后按这个账号选';
     } else if (this.bridgeChild) {
