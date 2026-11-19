@@ -16844,6 +16844,10 @@ renderers.harness = (body, meta, head) => {
       try { new MutationObserver(fix).observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['style'] }); } catch (e) { wbWarn(e) }
       setInterval(fix, 1000);
     }
+    // ---- 钉住「oa系统运维」会话：面板固定显示该会话，主窗口切换会话不跟随 ----
+    // 2026-11-19 修：PIN_JS 必须在「返回 JSON 的 IIFE」里面执行。放在 IIFE 外面时，
+    // executeJavaScript 的返回值是 PIN_JS（无 return）→ undefined → 宿主 JSON.parse 必抛（旧 P2-1）。
+    ${HARNESS_PIN_JS}
     const all = document.querySelectorAll('[style*="grid-template-columns"]');
     const f2 = pick();
     const vals = [];
@@ -16863,8 +16867,6 @@ renderers.harness = (body, meta, head) => {
       url: location.href
     });
   })();
-  // ---- 钉住「oa系统运维」会话：面板固定显示该会话，主窗口切换会话不跟随 ----
-  ${HARNESS_PIN_JS}
   `;
 
   const injectFix = async () => {
