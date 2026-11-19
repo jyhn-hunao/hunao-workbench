@@ -1,0 +1,8 @@
+{
+  "name": "dsh-social-policy",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "index.js",
+  "description": "给已登记的社交会话每轮注入通用回复规范（QQ / 飞书等；微信由通道自身注入时自动跳过）"
+}
