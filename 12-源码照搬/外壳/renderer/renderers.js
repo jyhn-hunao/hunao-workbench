@@ -23830,6 +23830,7 @@ window.openPetSettings = function () {
     var s = r.settings || {};
     var scenes = Array.isArray(r.scenes) ? r.scenes : [];
     var persona = s.persona || {};
+    var selfName = String(persona.selfName || '饭团');
     var tools = s.tools || {};
     var approval = s.approval || {};
     var quiet = s.quiet || {};
@@ -23850,7 +23851,7 @@ window.openPetSettings = function () {
     var headRow = mk('div', 'psed-head');
     var hWrap = mk('div', 'psed-hw');
     var hT = mk('div', 'psed-title', '桌宠设置');
-    var hS = mk('div', 'psed-sub', (persona.name || '人格') + ' · 改完点保存即生效，不用碰任何 JSON');
+    var hS = mk('div', 'psed-sub', selfName + '（定位：' + (persona.name || '胡闹的大肥鱼') + '） · 改完点保存即生效，不用碰任何 JSON');
     hWrap.appendChild(hT); hWrap.appendChild(hS);
     var closeBtn = mk('button', 'psed-x', '✕');
     closeBtn.title = '关闭';
@@ -23897,15 +23898,25 @@ window.openPetSettings = function () {
       parent.appendChild(row);
     }
 
-    // 3. ① 人格卡：四块（我是谁 / 说话 / 我在意什么 / 我绝不会）+ 只读现状
-    var cardC = section('ov', 1, '人格卡：她是谁', '四块内容会原样进每一轮开场（人格口径），保存即生效；人格只有一个，改名字不等于换人');
+    // 3. ① 人格卡：定位 / 名字分开 + 五块（我是谁 / 性格 / 说话 / 我在意什么 / 我绝不会）
+    var cardC = section('ov', 1, '人格卡：她是谁', '「胡闹的大肥鱼」是场景定位，「饭团」是她的名字；名字只影响她怎么自称，不改变记忆目录与会话归属');
     navBtn('ov', '人格卡');
     var nameWrap = mk('div', 'psed-field');
-    nameWrap.appendChild(mk('div', 'psed-fl', '名字'));
+    nameWrap.appendChild(mk('div', 'psed-fl', '场景定位'));
     var pName = document.createElement('input');
     pName.className = 'psed-input'; pName.value = String(persona.name || '胡闹的大肥鱼'); pName.maxLength = 30;
+    pName.readOnly = true;
+    pName.title = '场景定位名：改它要同步记忆目录、会话标题和索引，不在这里改';
     nameWrap.appendChild(pName);
     cardC.appendChild(nameWrap);
+
+    var selfWrap = mk('div', 'psed-field');
+    selfWrap.appendChild(mk('div', 'psed-fl', '名字　· 她怎么自称'));
+    var sName = document.createElement('input');
+    sName.className = 'psed-input'; sName.value = selfName; sName.maxLength = 20;
+    sName.placeholder = '例：饭团';
+    selfWrap.appendChild(sName);
+    cardC.appendChild(selfWrap);
 
     // 五块固定维度：填得越具体，她越像一个人，越不像客服
     var PC_FIELDS = [
@@ -24108,6 +24119,7 @@ window.openPetSettings = function () {
       return {
         persona: {
           name: (pName.value || '胡闹的大肥鱼').trim(),
+          selfName: (sName.value || '饭团').trim(),
           identity: pcBox.identity.value.trim(),
           personality: pcBox.personality.value.trim(),
           speech: pcBox.speech.value.trim(),
