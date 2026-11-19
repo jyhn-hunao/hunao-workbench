@@ -4588,10 +4588,13 @@ ipcMain.handle('social:view-set', (e, patch) => writeSocialView(patch));
 // 用户要求：随工作台一起启动、省掉单独启动；控制台不常驻面板，由「社交」场景里的齿轮按钮按需开窗。
 // 生命周期归壳（和引擎同一条规矩）：壳退出时把子进程一起收掉，不在壳外单开一只。
 // 只读状态 + 两个动作：status / start / stop；协议本身（QQ 注入、OneBot 端口）在 SnowLuma 控制台里配。
+// 2026-11-19：注入不再交给 SnowLuma 的「全量 autoLoad」，由本壳按 QQ 号挑（bridge:qq-autoload-*）。
 const bridgeService = bridgeSvc.createService();
 ipcMain.handle('bridge:snowluma-status', () => bridgeService.status());
 ipcMain.handle('bridge:snowluma-start', () => bridgeService.start());
 ipcMain.handle('bridge:snowluma-stop', () => bridgeService.stop());
+ipcMain.handle('bridge:qq-autoload-status', () => bridgeService.qqAutoLoadStatus());
+ipcMain.handle('bridge:qq-autoload-set', (e, patch) => bridgeService.qqAutoLoadSet(patch));
 
 // ---- 外发安全闸门（2026-11-18）----
 // 用户要求：只写提示词不够，要有机制；机制要可配置。落位：
