@@ -111,7 +111,8 @@ contextBridge.exposeInMainWorld('app', {
   qqMedia: {
     status: () => ipcRenderer.invoke('qq-media:status'),
     settingsSave: (patch) => ipcRenderer.invoke('qq-media:settings-save', patch || {}),
-    stickerGenerate: (args) => ipcRenderer.invoke('qq-media:sticker-generate', args || {})
+    stickerGenerate: (args) => ipcRenderer.invoke('qq-media:sticker-generate', args || {}),
+    ttsTest: (args) => ipcRenderer.invoke('qq-media:tts-test', args || {})
   },
   // ---- 聊天长期档案（2026-11-19）----
   // 缺这个命名空间 = preload/主进程还是旧的 ⇒ 社交标题行的「聊天档案」按钮显示重启提示，不假装有数据。
@@ -149,6 +150,7 @@ contextBridge.exposeInMainWorld('app', {
     pinAccount: (account) => ipcRenderer.invoke('wechat:pin-account', { account: account || '' }),
     settingsGet: () => ipcRenderer.invoke('wechat:settings-get'),
     settingsSave: (args) => ipcRenderer.invoke('wechat:settings-save', args || {}),
+    syncBreeze: () => ipcRenderer.invoke('wechat:sync-breeze'),
     visionTest: () => ipcRenderer.invoke('wechat:vision-test'),
     stickerGenerate: (args) => ipcRenderer.invoke('wechat:sticker-generate', args || {}),
     stickerSend: (args) => ipcRenderer.invoke('wechat:sticker-send', args || {}),

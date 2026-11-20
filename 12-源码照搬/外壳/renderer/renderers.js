@@ -8026,7 +8026,7 @@ renderers.chan = function (body, meta, head) {
       lastLine.textContent = word + ' · ' + ((last.groupId && ('群 ' + last.groupId)) || '')
         + (last.text ? ' · ' + String(last.text).slice(0, 80) : '')
         + (last.sticker ? ' · 表情：' + String(last.sticker).slice(0, 24) : '')
-        + (last.voice ? ' · 语音' : '')
+        + (last.voice ? ' · 语音' + (last.voiceProvider ? '（' + String(last.voiceProvider).slice(0, 24) + '）' : '') : '')
         + (last.mediaError ? ' · 媒体没发出去：' + String(last.mediaError).slice(0, 80) : '')
         + (last.reason ? ' · ' + String(last.reason).slice(0, 120) : '')
         + (last.at ? ' · ' + hhmm(last.at) : '');
@@ -8162,6 +8162,69 @@ renderers.chan = function (body, meta, head) {
     }
   }
 
+  // ---------- QQ 回复策略摘要（2026-11-19）----------
+  // 通道卡片只放只读摘要 + 标题行「⚙ 回复设置」入口；真正的开关全在
+  // renderer\qq-reply-settings.js 弹窗里。这里不再渲染任何回复参数输入框，
+  // 避免同一项在卡片和弹窗各有一个控件、用户不知道哪个生效。
+  function drawQqReplySummary() {
+    if (KEY !== 'qq') return;
+    var box = document.createElement('div');
+    box.className = 'ch-account-pick ch-qq-reply-summary';
+    var lab = document.createElement('div');
+    lab.className = 'ch-account-pick-label';
+    lab.textContent = 'QQ 回复策略';
+    box.appendChild(lab);
+
+    var g = st.qqGroup;
+    var m = st.qqMedia;
+    if (!g && !m) {
+      var wait = document.createElement('div');
+      wait.className = 'ch-account-pick-empty';
+      wait.textContent = st.qqGroupErr || st.qqMediaErr || '读取中…';
+      box.appendChild(wait);
+      card.appendChild(box);
+      return;
+    }
+
+    var gs = (g && g.settings) || {};
+    var mc = (m && m.config) || {};
+    var line = document.createElement('div');
+    line.className = 'ch-detail';
+    line.textContent = '群随机接话：' + (gs.freeChat === true ? '开' : '关')
+      + '（' + (Number(gs.chancePct) || 0) + '%）'
+      + ' · 语音总开关：' + (mc.voiceReply !== false ? '开' : '关')
+      + ' · 群语音：' + (mc.voiceReplyGroups === true ? '开' : '关')
+      + ' · @ 语音：' + (mc.voiceReplyMentions === true ? '开' : '关')
+      + ' · 私聊语音：' + (mc.voiceReplyPrivate === true ? '开' : '关')
+      + ' · 表情包：' + (mc.stickers !== false ? '开' : '关')
+      + ' · 合成：' + (mc.ttsProvider === 'breeze' ? 'BreezeBlue' : 'SAPI');
+    box.appendChild(line);
+
+    if (g && g.connected === false) {
+      var off = document.createElement('div');
+      off.className = 'ch-detail is-warn';
+      off.textContent = '群旁听当前未连接；设置仍可先改，连上 OneBot 后按新参数工作。';
+      box.appendChild(off);
+    }
+    if (g && g.lastError) {
+      var er = document.createElement('div');
+      er.className = 'ch-detail is-warn';
+      er.textContent = '最近错误：' + g.lastError;
+      box.appendChild(er);
+    }
+    if (m && m.tts && m.tts.breeze && m.tts.breeze.last && m.tts.breeze.last.error) {
+      var ter = document.createElement('div');
+      ter.className = 'ch-detail is-warn';
+      ter.textContent = '最近语音合成失败：' + m.tts.breeze.last.error;
+      box.appendChild(ter);
+    }
+    var hint = document.createElement('div');
+    hint.className = 'ch-account-pick-empty';
+    hint.textContent = '改开关、概率、语音和表情包请点标题行的「⚙ 回复设置」；通道面板不重复放这些控件。';
+    box.appendChild(hint);
+    card.appendChild(box);
+  }
+
   // ---------- QQ 语音 / 表情包（2026-11-19）----------
   // 这里的开关全部落到 QQ能力.js；群随机接话读取同一份配置，不开第二套。
   // 语音转写只作用于「群旁听」；私聊仍由 dsh-onebot-channel 投递（插件本身不带 ASR）。
@@ -8187,7 +8250,7 @@ renderers.chan = function (body, meta, head) {
         st.qqMediaDraft = Object.assign({}, r.config || {});
       }
       var sig = JSON.stringify({
-        config: r.config, asr: r.asr, qwen: r.qwen, stickers: r.stickers, tts: r.tts
+        config: r.config, asr: r.asr, qwen: r.qwen, stickers: r.stickers, tts: r.tts, directVoice: r.directVoice
       });
       if (sig !== st.qqMediaSig) { st.qqMediaSig = sig; draw(); }
     }).catch(function (e) {
@@ -8234,17 +8297,39 @@ renderers.chan = function (body, meta, head) {
     var catText = cats.map(function (c) { return c.name + '(' + c.count + ')'; }).join('、') || '无';
     var asrOk = m.asr && m.asr.configured === true && m.asr.deepseek === true;
     var qwenOk = m.qwen && m.qwen.configured === true;
-    var ttsOk = m.tts && m.tts.available === true;
+    var ttsProvider = d.ttsProvider === 'breeze' ? 'breeze' : 'sapi';
+    var ttsInfo = m.tts || {};
+    var breezeInfo = ttsInfo.breeze || {};
+    var sapiInfo = ttsInfo.sapi || {};
+    var ttsAvailable = ttsProvider === 'breeze' ? breezeInfo.configured === true : sapiInfo.available === true;
+    var ttsLabel = ttsProvider === 'breeze'
+      ? ('BreezeBlue' + (breezeInfo.configured ? ' 已配置' : ' 未配置'))
+      : ('Windows SAPI' + (sapiInfo.available ? ' 可用' : ' 不可用'));
 
     var state = document.createElement('div');
-    state.className = 'ch-detail' + (asrOk && qwenOk && ttsOk ? '' : ' is-warn');
+    state.className = 'ch-detail' + (asrOk && qwenOk && ttsAvailable ? '' : ' is-warn');
     state.textContent = '语音转写：' + (d.voice !== false ? '开' : '关')
       + (asrOk ? ' · ASR 已配置' : ' · ASR 未配置')
       + ' · 群旁听转写：' + (d.voiceListen !== false ? '开' : '关')
       + ' · 语音回复（群随机）：' + (d.voiceReplyGroups === true ? '开' : '关')
-      + ' · 语音合成：' + (ttsOk ? '可用' : '不可用')
-      + (m.tts && m.tts.silk ? '（SILK）' : '（仅 WAV）');
+      + ' · 直接语音：@ ' + (d.voiceReplyMentions === true ? '开' : '关')
+      + ' / 私聊 ' + (d.voiceReplyPrivate === true ? '开' : '关')
+      + ' · 语音合成：' + ttsLabel
+      + (ttsInfo.silk ? '（SILK）' : '（仅 WAV）');
     box.appendChild(state);
+
+    var dv = m.directVoice || {};
+    var dvLast = dv.last || {};
+    if (dvLast.at) {
+      var dvLine = document.createElement('div');
+      dvLine.className = 'ch-detail' + (dvLast.ok ? '' : ' is-warn');
+      dvLine.textContent = '最近直接语音：' + (dvLast.ok ? '成功' : '失败')
+        + (dvLast.chatType ? ' · ' + (dvLast.chatType === 'group' ? '群 ' : '私聊 ') + dvLast.chatId : '')
+        + (dvLast.provider ? ' · ' + dvLast.provider : '')
+        + (dvLast.bytes ? ' · ' + dvLast.bytes + 'B' : '')
+        + (dvLast.error ? ' · ' + dvLast.error : '');
+      box.appendChild(dvLine);
+    }
 
     var line2 = document.createElement('div');
     line2.className = 'ch-detail' + (qwenOk ? '' : ' is-warn');
@@ -8256,7 +8341,7 @@ renderers.chan = function (body, meta, head) {
 
     var tip = document.createElement('div');
     tip.className = 'ch-detail';
-    tip.textContent = '语音转写复用微信通道的 ASR Key；千问表情包复用微信通道的千问 Key 和 pet3d 概念图。两个 Key 都不在 QQ 侧重复保存。';
+    tip.textContent = '语音转写复用微信通道的 ASR Key；千问表情包复用微信通道的千问 Key 和 pet3d 概念图；Breeze 的 Key 与音色只保存在本机 QQ 能力配置里，界面只显示末尾四位。';
     box.appendChild(tip);
 
     var actions = document.createElement('div');
@@ -8269,9 +8354,20 @@ renderers.chan = function (body, meta, head) {
         saveQqMedia();
       }, !!st.qqMediaBusy));
     }
+    // 默认关的开关不能复用上面的 toggle（它把 undefined 当开）。
+    function toggleOff(key, label, safeText) {
+      var on = d[key] === true;
+      actions.appendChild(chBtn(label + '：' + (on ? '开' : '关'), safeText, function () {
+        if (st.qqMediaBusy) return;
+        st.qqMediaDraft[key] = !on;
+        saveQqMedia();
+      }, !!st.qqMediaBusy));
+    }
     toggle('stickers', '随机接话带表情包', '关掉后随机接话只发文字；正常 @ 回复仍走插件自带表情');
     toggle('stickerDynamic', '表情包动态生成', '图库没有合适情绪时，用千问按当前语境生成一张并入库');
     toggle('voiceReplyGroups', '群随机语音回复', '打开后按概率把正文合成为语音；默认关，避免群里突然出现语音');
+    toggleOff('voiceReplyMentions', '普通 @ 直接语音', '普通群里被 @ 时，正文发完后按概率补一条语音；默认关，不会和群随机语音重复');
+    toggleOff('voiceReplyPrivate', '私聊直接语音', '私聊回复时，正文发完后按概率补一条语音；默认关');
     toggle('voiceListen', '群旁听语音转写', '开：群里语音先转成文字再进旁听上下文；关：只留 [语音] 占位；聊天档案里的语音原文仍以协议端同步为准');
     actions.appendChild(chBtn(st.qqMediaBusy === 'save' ? '保存中…' : '保存语音 / 表情包设置',
       '保存到 QQ 能力配置；不重启工作台，下一轮群消息就按新设置走',
@@ -8304,9 +8400,171 @@ renderers.chan = function (body, meta, head) {
       return wrap;
     }
     fields.appendChild(mfield('表情概率 %', 'stickerChancePct', d.stickerChancePct, '普通闲聊里带表情包的比例；0 = 不带', '0.1'));
-    fields.appendChild(mfield('语音概率 %', 'voiceReplyChancePct', d.voiceReplyChancePct, '群随机接话转成语音的比例；需要先打开「群随机语音回复」', '0.1'));
+    fields.appendChild(mfield('群随机语音概率 %', 'voiceReplyChancePct', d.voiceReplyChancePct, '群随机接话转成语音的比例；需要先打开「群随机语音回复」', '0.1'));
+    fields.appendChild(mfield('@ 语音概率 %', 'voiceReplyMentionsChancePct', d.voiceReplyMentionsChancePct, '普通 @ 正文发完后补语音的比例；需要先打开「普通 @ 直接语音」', '0.1'));
+    fields.appendChild(mfield('私聊语音概率 %', 'voiceReplyPrivateChancePct', d.voiceReplyPrivateChancePct, '私聊正文发完后补语音的比例；需要先打开「私聊直接语音」', '0.1'));
     fields.appendChild(mfield('语音字数上限', 'voiceMaxChars', d.voiceMaxChars, '超过就截断，避免一条语音太长'));
     box.appendChild(fields);
+
+    // 语音合成服务：一个区块只解决「谁来说」；不另开一套 QQ/微信重复配置。
+    var ttsBox = document.createElement('div');
+    ttsBox.className = 'ch-qq-tts';
+    var ttsTitle = document.createElement('div');
+    ttsTitle.className = 'ch-qq-tts-title';
+    ttsTitle.textContent = '语音合成服务';
+    ttsBox.appendChild(ttsTitle);
+
+    var providerRow = document.createElement('div');
+    providerRow.className = 'ch-qq-tts-row';
+    var providerCap = document.createElement('span');
+    providerCap.textContent = '使用';
+    providerRow.appendChild(providerCap);
+    var providerSel = document.createElement('select');
+    providerSel.className = 'ch-select ch-qq-tts-provider';
+    providerSel.disabled = !!st.qqMediaBusy;
+    [['sapi', 'Windows SAPI（本地）'], ['breeze', 'BreezeBlue（云端）']].forEach(function (opt) {
+      var o = document.createElement('option');
+      o.value = opt[0];
+      o.textContent = opt[1];
+      providerSel.appendChild(o);
+    });
+    providerSel.value = ttsProvider;
+    providerSel.title = 'Breeze 只负责文字转语音；语音转写仍走现有 ASR';
+    providerSel.addEventListener('change', function () {
+      st.qqMediaDraft.ttsProvider = providerSel.value === 'breeze' ? 'breeze' : 'sapi';
+    });
+    providerRow.appendChild(providerSel);
+    ttsBox.appendChild(providerRow);
+
+    var bzState = document.createElement('div');
+    bzState.className = 'ch-detail' + (ttsProvider === 'breeze' && !breezeInfo.configured ? ' is-warn' : '');
+    var bzLine = 'Breeze 状态：' + (breezeInfo.configured ? '已配置' : '未配置');
+    if (breezeInfo.keyConfigured) bzLine += ' · Key ' + (breezeInfo.keyMasked || '••••');
+    if (breezeInfo.voiceName || breezeInfo.voiceId) bzLine += ' · 音色 ' + (breezeInfo.voiceName || breezeInfo.voiceId);
+    if (breezeInfo.model) bzLine += ' · ' + breezeInfo.model + ' / ' + (breezeInfo.language || 'zh');
+    if (breezeInfo.last && breezeInfo.last.at) {
+      bzLine += ' · 上次' + (breezeInfo.last.ok ? '成功' : '失败')
+        + (breezeInfo.last.ms ? ' ' + breezeInfo.last.ms + 'ms' : '')
+        + (breezeInfo.last.bytes ? ' · ' + breezeInfo.last.bytes + 'B' : '');
+    }
+    bzState.textContent = bzLine;
+    ttsBox.appendChild(bzState);
+
+    if (breezeInfo.last && breezeInfo.last.error) {
+      var bzErr = document.createElement('div');
+      bzErr.className = 'ch-detail is-warn';
+      bzErr.textContent = '上次错误：' + breezeInfo.last.error;
+      ttsBox.appendChild(bzErr);
+    }
+
+    var ttsFields = document.createElement('div');
+    ttsFields.className = 'ch-qq-tts-fields';
+    function tfield(label, key, value, placeholder, hint, type, multiline) {
+      var wrap = document.createElement('label');
+      wrap.className = 'ch-qq-tts-field';
+      var cap = document.createElement('span');
+      cap.textContent = label;
+      wrap.appendChild(cap);
+      var inp = document.createElement(multiline ? 'textarea' : 'input');
+      inp.className = 'ch-input' + (multiline ? ' ch-qq-tts-area' : '');
+      if (!multiline) inp.type = type || 'text';
+      inp.value = value === undefined || value === null ? '' : value;
+      inp.placeholder = placeholder || '';
+      inp.title = hint || '';
+      inp.disabled = !!st.qqMediaBusy;
+      inp.autocomplete = 'off';
+      inp.addEventListener('focus', function () { st.qqMediaEditing = true; });
+      inp.addEventListener('blur', function () { setTimeout(function () { st.qqMediaEditing = false; }, 0); });
+      inp.addEventListener('input', function () {
+        st.qqMediaEditing = true;
+        st.qqMediaDraft[key] = inp.value;
+      });
+      wrap.appendChild(inp);
+      return wrap;
+    }
+    ttsFields.appendChild(tfield('API Key', 'breezeApiKey', '',
+      breezeInfo.keyConfigured ? '已配置（' + (breezeInfo.keyMasked || '••••') + '）；留空不改' : 'brz_...',
+      '只写入本机 QQ能力.json，界面不回显完整 Key', 'password'));
+    ttsFields.appendChild(tfield('音色 ID', 'breezeVoiceId', d.breezeVoiceId, 'voc_...',
+      'Breeze 控制台的 voice_id；公共音色或自己设计的音色都可以'));
+    ttsFields.appendChild(tfield('音色名称', 'breezeVoiceName', d.breezeVoiceName, '例如 大肥鱼（迷糊版）',
+      '只用于界面识别，不会发给服务端'));
+    ttsFields.appendChild(tfield('演绎指令', 'breezeInstructions', d.breezeInstructions, '用饭团的语气……',
+      '每次请求都会带上；用中文写，控制语气、节奏和情绪', 'text', true));
+    ttsBox.appendChild(ttsFields);
+
+    // 微信原生语音由 WhaleLauncher 自己合成；它内置 BreezeBlue，但 provider/Key/音色
+    // 存在它自己的 data/settings.json。这里只做一次同步，不另开第二套 Key 输入框。
+    var syncRow = document.createElement('div');
+    syncRow.className = 'ch-qq-tts-row';
+    var syncHint = document.createElement('span');
+    syncHint.className = 'ch-detail';
+    syncHint.textContent = '微信原生语音跟随上面这份 Breeze 配置；同步后微信「发语音」由鲸鲸启动器合成，不经过 QQ 语音文件。';
+    syncRow.appendChild(syncHint);
+    syncRow.appendChild(chBtn('同步到微信原生语音',
+      '把当前已保存的 Breeze Key / 音色 / 演绎指令写入 WhaleLauncher 的 data/settings.json；不改微信账号和聊天策略',
+      function () {
+        if (st.qqMediaBusy) return;
+        var wx = wxApi();
+        if (!wx || typeof wx.syncBreeze !== 'function') {
+          toast('当前版本没有微信语音同步入口：重启一次工作台（preload 还是旧的）', true, 12000);
+          return;
+        }
+        st.qqMediaBusy = 'breeze-sync';
+        draw();
+        Promise.resolve(wx.syncBreeze()).then(function (r) {
+          st.qqMediaBusy = '';
+          if (!r || r.ok === false) toast('同步失败：' + ((r && r.error) || '主进程没返回'), true, 12000);
+          else toast('微信原生语音已同步：' + (r.provider || 'breezeblue') + ' · ' + (r.voiceId || ''), false, 8000);
+          draw();
+        }).catch(function (e) {
+          st.qqMediaBusy = '';
+          toast('同步失败：' + String((e && e.message) || e), true, 12000);
+          draw();
+        });
+      }, !!st.qqMediaBusy));
+    ttsBox.appendChild(syncRow);
+
+    var ttsFoot = document.createElement('div');
+    ttsFoot.className = 'ch-qq-tts-row';
+    var fallback = document.createElement('label');
+    fallback.className = 'ch-qq-tts-check';
+    var fb = document.createElement('input');
+    fb.type = 'checkbox';
+    fb.checked = d.breezeFallback !== false;
+    fb.disabled = !!st.qqMediaBusy;
+    fb.addEventListener('change', function () { st.qqMediaDraft.breezeFallback = fb.checked; });
+    fallback.appendChild(fb);
+    fallback.appendChild(document.createTextNode(' Breeze 失败时回退 Windows SAPI'));
+    ttsFoot.appendChild(fallback);
+    var testText = document.createElement('input');
+    testText.className = 'ch-input ch-qq-tts-test-text';
+    testText.placeholder = '试音文字，默认：你好，我是饭团';
+    testText.maxLength = 80;
+    testText.disabled = !!st.qqMediaBusy;
+    testText.addEventListener('focus', function () { st.qqMediaEditing = true; });
+    testText.addEventListener('blur', function () { setTimeout(function () { st.qqMediaEditing = false; }, 0); });
+    ttsFoot.appendChild(testText);
+    ttsFoot.appendChild(chBtn(st.qqMediaBusy === 'tts-test' ? '合成中…' : '试音',
+      '使用已保存配置生成一条试音，只落本地，不发送到任何 QQ 聊天；先点下面的保存',
+      function () {
+        if (st.qqMediaBusy) return;
+        var text = String(testText.value || '').trim() || '你好，我是饭团。';
+        st.qqMediaBusy = 'tts-test';
+        draw();
+        Promise.resolve(api.ttsTest({ text: text })).then(function (r) {
+          st.qqMediaBusy = '';
+          if (!r || r.ok === false) toast('试音失败：' + ((r && r.error) || '主进程没返回'), true);
+          else toast('试音成功：' + (r.provider || '') + ' · ' + (r.bytes || 0) + 'B' + (r.silk ? ' · SILK' : ' · WAV'));
+          loadQqMedia(); draw();
+        }).catch(function (e) {
+          st.qqMediaBusy = '';
+          toast('试音失败：' + String((e && e.message) || e), true);
+          draw();
+        });
+      }, !!st.qqMediaBusy || !breezeInfo.configured || ttsProvider !== 'breeze'));
+    ttsBox.appendChild(ttsFoot);
+    box.appendChild(ttsBox);
 
     var genRow = document.createElement('div');
     genRow.className = 'ch-qq-group-actions';
@@ -8346,11 +8604,21 @@ renderers.chan = function (body, meta, head) {
         stickerDynamic: st.qqMediaDraft.stickerDynamic !== false,
         stickerChancePct: Number(st.qqMediaDraft.stickerChancePct),
         voiceReplyGroups: st.qqMediaDraft.voiceReplyGroups === true,
+        voiceReplyMentions: st.qqMediaDraft.voiceReplyMentions === true,
+        voiceReplyPrivate: st.qqMediaDraft.voiceReplyPrivate === true,
         voiceListen: st.qqMediaDraft.voiceListen !== false,
         voice: st.qqMediaDraft.voice !== false,
         voiceReply: st.qqMediaDraft.voiceReply !== false,
         voiceReplyChancePct: Number(st.qqMediaDraft.voiceReplyChancePct),
-        voiceMaxChars: Number(st.qqMediaDraft.voiceMaxChars)
+        voiceReplyMentionsChancePct: Number(st.qqMediaDraft.voiceReplyMentionsChancePct),
+        voiceReplyPrivateChancePct: Number(st.qqMediaDraft.voiceReplyPrivateChancePct),
+        voiceMaxChars: Number(st.qqMediaDraft.voiceMaxChars),
+        ttsProvider: st.qqMediaDraft.ttsProvider === 'breeze' ? 'breeze' : 'sapi',
+        breezeApiKey: String(st.qqMediaDraft.breezeApiKey || ''),
+        breezeVoiceId: String(st.qqMediaDraft.breezeVoiceId || ''),
+        breezeVoiceName: String(st.qqMediaDraft.breezeVoiceName || ''),
+        breezeInstructions: String(st.qqMediaDraft.breezeInstructions || ''),
+        breezeFallback: st.qqMediaDraft.breezeFallback !== false
       };
       st.qqMediaBusy = 'save';
       st.qqMediaEditing = false;
@@ -8470,9 +8738,31 @@ renderers.chan = function (body, meta, head) {
       });
       head1.appendChild(setBtn);
     }
+    // QQ 回复设置入口：常驻在卡片标题行，和微信「⚙ 鲸鲸设置」同一层级。
+    // 只开弹窗，不在这里铺开关；通道停着也能先改群旁听/语音/表情策略。
+    if (KEY === 'qq') {
+      var qqSetBtn = document.createElement('button');
+      qqSetBtn.className = 'ch-btn ch-settings';
+      qqSetBtn.textContent = '⚙ 回复设置';
+      qqSetBtn.title = '配置 QQ 群旁听、随机接话、语音、表情包和 Breeze 合成；不碰会话路由';
+      qqSetBtn.addEventListener('click', function () {
+        if (typeof window.openQqReplySettings !== 'function') {
+          toast('QQ 回复设置界面还没接上：重启一次工作台（preload/renderer 是旧的）', true);
+          return;
+        }
+        qqSetBtn.disabled = true;
+        Promise.resolve(window.openQqReplySettings()).then(function () {
+          qqSetBtn.disabled = false;
+        }).catch(function (e) {
+          qqSetBtn.disabled = false;
+          toast('打开 QQ 回复设置失败：' + String((e && e.message) || e), true);
+        });
+      });
+      head1.appendChild(qqSetBtn);
+    }
     card.appendChild(head1);
     // QQ 路由配置不依赖通道状态：QQ 没在线时也要能先接入/迁移，通道报错不能把入口藏掉。
-    if (KEY === 'qq') { drawQqRoutes(); drawQqGroup(); drawQqMedia(); drawAuto(); }
+    if (KEY === 'qq') { drawQqRoutes(); drawQqReplySummary(); drawAuto(); }
 
     if (st.err) {
       var e1 = document.createElement('div');

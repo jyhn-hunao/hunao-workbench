@@ -394,6 +394,41 @@ function writeVoicePolicy(home, policy) {
   return next;
 }
 
+// WhaleLauncher 的语音合成 provider 存在 data/settings.json（它的「设置」页优先级最高）。
+// 工作台只在「语音合成服务」里维护一套 Key/音色，QQ 与微信原生语音共用这份配置；
+// 同步动作只写这几个 voice* 键，不碰聊天/视觉的 provider 与 Key。
+function readVoiceSynth(home) {
+  const file = path.join(String(home || ''), 'data', 'settings.json');
+  const j = readJson(file) || {};
+  const key = String(j.voiceApiKey || '');
+  return {
+    file: file,
+    exists: fs.existsSync(file),
+    provider: String(j.voiceProvider || ''),
+    model: String(j.voiceModel || ''),
+    baseUrl: String(j.voiceBaseUrl || ''),
+    voiceId: String(j.voiceId || j.DefaultVoiceId || ''),
+    keyConfigured: !!key,
+    keyMasked: key ? '••••' + key.slice(-4) : '',
+    instructions: String(j.voiceInstructions || '')
+  };
+}
+function writeVoiceSynth(home, b) {
+  const file = path.join(String(home || ''), 'data', 'settings.json');
+  const next = Object.assign({}, (readJson(file) || {}), {
+    voiceProvider: 'breezeblue',
+    voiceBaseUrl: String((b && b.baseUrl) || 'https://api.breeze.blue/v1').trim(),
+    voiceApiKey: String((b && b.apiKey) || '').trim(),
+    voiceModel: String((b && b.model) || 'breeze-tts-2').trim(),
+    voiceId: String((b && b.voiceId) || '').trim(),
+    voiceInstructions: String((b && b.instructions) || '').trim().slice(0, 300)
+  });
+  // DefaultVoiceId 是启动器 UI 的显示回退；不写也能工作，但写上可避免旧界面显示默认音色。
+  if (next.voiceId) next.DefaultVoiceId = next.voiceId;
+  writeText(file, JSON.stringify(next, null, 2) + '\n');
+  return readVoiceSynth(home);
+}
+
 // 图片理解没有独立 Key 时，鲸鲸会自动跟随聊天服务商的视觉模型。
 // UI 不能只看 vision.apiKey 就判“没配”，否则会出现「实际能看图、界面说不可用」的假阴性。
 function visionReady(home, wc) {
@@ -1991,6 +2026,7 @@ class WechatService {
     view.native.voiceReplyPrivate = vp.exists ? vp.private : !!view.native.voiceReplyPrivate;
     view.native.voiceReplyGroups = vp.exists ? vp.groups : !!view.native.voiceReplyGroups;
     view.native.voiceReplyChance = vp.exists ? vp.probability : Number(view.native.voiceReplyChance) || 0;
+    view.native.voiceSynth = readVoiceSynth(h.home);
 
     const port = this._kernelPort(cfg, h.home);
     const online = !!(status && status.kernel && status.kernel.online);
@@ -2317,6 +2353,18 @@ class WechatService {
       status: started && started.status ? started.status : null,
       error: started && started.ok === false ? ('已保存，但重启失败：' + (started.error || '未知原因')) : ''
     };
+  }
+
+  async syncBreeze(breeze) {
+    const cfg = this.config();
+    const h = this._home(cfg);
+    if (!h.home) return { ok: false, error: h.error };
+    const b = breeze && typeof breeze === 'object' ? breeze : {};
+    if (!String(b.apiKey || '').trim()) return { ok: false, error: 'Breeze Key 未配置：先在上方「语音合成服务」填好并保存' };
+    if (!String(b.voiceId || '').trim()) return { ok: false, error: 'Breeze 音色 ID 未配置：先在上方「语音合成服务」填好并保存' };
+    const saved = writeVoiceSynth(h.home, b);
+    this._appendLog('微信原生语音合成已同步到 WhaleLauncher：provider=breezeblue voice=' + saved.voiceId);
+    return { ok: true, file: saved.file, provider: saved.provider, voiceId: saved.voiceId, keyMasked: saved.keyMasked, instructions: saved.instructions };
   }
 
   async start() {

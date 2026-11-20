@@ -18,6 +18,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
+const https = require('https');
 const { spawn, spawnSync, execFile } = require('child_process');
 
 const SHELL = __dirname;
@@ -33,6 +34,10 @@ const QQ_STICKER_DIR = path.join(STICKER_ROOT, 'QQ千问');
 const CONCEPT_REF = path.join(SHELL, 'pet3d', '概念', '07-气氛图.png');
 const WECHAT_CONFIG = path.join(DATA_DIR, '微信通道.json');
 const DEFAULT_ASR = 'https://api.deepseek.com/v1/tools/asr';
+const DEFAULT_BREEZE_BASE = 'https://api.breeze.blue';
+const DEFAULT_BREEZE_MODEL = 'breeze-tts-2';
+const DEFAULT_BREEZE_LANGUAGE = 'zh';
+const DEFAULT_BREEZE_INSTRUCTION = '用饭团的语气，自然、亲近、稍微俏皮，句尾轻快。';
 
 const DEFAULTS = {
   enabled: true,
@@ -41,12 +46,27 @@ const DEFAULTS = {
   voiceReply: true,
   voiceReplyGroups: false,
   voiceReplyChance: 0,
+  // 普通 @ / 私聊的直接语音：默认关，打开后才按各自概率决定；
+  // 群随机接话仍走 voiceReplyGroups + voiceReplyChance，两套互不干扰。
+  voiceReplyMentions: false,
+  voiceReplyMentionsChance: 1,
+  voiceReplyPrivate: false,
+  voiceReplyPrivateChance: 1,
   stickers: true,
   stickerChance: 0.3,
   stickerMaxPerReply: 1,
   stickerDynamic: true,
   voiceMaxChars: 80,
-  ttsVoice: 'Microsoft Huihui Desktop'
+  ttsProvider: 'sapi',
+  ttsVoice: 'Microsoft Huihui Desktop',
+  breezeBaseUrl: DEFAULT_BREEZE_BASE,
+  breezeApiKey: '',
+  breezeVoiceId: '',
+  breezeVoiceName: '',
+  breezeModel: DEFAULT_BREEZE_MODEL,
+  breezeLanguage: DEFAULT_BREEZE_LANGUAGE,
+  breezeInstructions: DEFAULT_BREEZE_INSTRUCTION,
+  breezeFallback: true
 };
 
 function clamp(n, lo, hi) {
@@ -82,15 +102,27 @@ function normalizeConfig(raw) {
   x.voice = x.voice !== false;
   x.voiceListen = x.voiceListen !== false;
   x.voiceReply = x.voiceReply !== false;
-  delete x.voiceReplyPrivate; // 私聊语音出站还没接，配置里不留一个看起来能用的假开关
   x.voiceReplyGroups = x.voiceReplyGroups === true;
   x.voiceReplyChance = clamp(x.voiceReplyChance, 0, 1);
+  x.voiceReplyMentions = x.voiceReplyMentions === true;
+  x.voiceReplyMentionsChance = clamp(x.voiceReplyMentionsChance, 0, 1);
+  x.voiceReplyPrivate = x.voiceReplyPrivate === true;
+  x.voiceReplyPrivateChance = clamp(x.voiceReplyPrivateChance, 0, 1);
   x.stickers = x.stickers !== false;
   x.stickerChance = clamp(x.stickerChance, 0, 1);
   x.stickerMaxPerReply = clamp(Math.round(Number(x.stickerMaxPerReply) || 1), 1, 2);
   x.stickerDynamic = x.stickerDynamic !== false;
   x.voiceMaxChars = clamp(Math.round(Number(x.voiceMaxChars) || 80), 10, 180);
   x.ttsVoice = String(x.ttsVoice || DEFAULTS.ttsVoice).slice(0, 120);
+  x.ttsProvider = x.ttsProvider === 'breeze' ? 'breeze' : 'sapi';
+  x.breezeBaseUrl = String(x.breezeBaseUrl || DEFAULT_BREEZE_BASE).trim().replace(/\/+$/, '').slice(0, 200);
+  x.breezeApiKey = String(x.breezeApiKey || '').trim().slice(0, 300);
+  x.breezeVoiceId = String(x.breezeVoiceId || '').trim().slice(0, 80);
+  x.breezeVoiceName = String(x.breezeVoiceName || '').trim().slice(0, 80);
+  x.breezeModel = String(x.breezeModel || DEFAULT_BREEZE_MODEL).trim().slice(0, 80);
+  x.breezeLanguage = String(x.breezeLanguage || DEFAULT_BREEZE_LANGUAGE).trim().slice(0, 16);
+  x.breezeInstructions = String(x.breezeInstructions || DEFAULT_BREEZE_INSTRUCTION).trim().slice(0, 300);
+  x.breezeFallback = x.breezeFallback !== false;
   return x;
 }
 
@@ -116,6 +148,8 @@ function createService(options) {
   const log = typeof opt.log === 'function' ? opt.log : function () {};
   let config = normalizeConfig(readJson(CONFIG_FILE));
   let sapiCache = { checkedAt: 0, available: false, voices: [] };
+  let breezeLast = { at: 0, ok: false, provider: 'breeze', ms: 0, bytes: 0, error: '' };
+  let directVoiceLast = { at: 0, ok: false, chatType: '', chatId: '', provider: '', bytes: 0, error: '' };
   const generating = new Map();
 
   function appendLog(line) {
@@ -533,6 +567,102 @@ function createService(options) {
     return { ok: true, file: silkFile, bytes: fs.statSync(silkFile).size };
   }
 
+  // BreezeBlue 只做 TTS：Key 和音色都落本机 QQ能力.json，界面只回显末尾四位。
+  function maskKey(value) {
+    const key = String(value || '').trim();
+    if (!key) return '';
+    return key.length <= 4 ? '••••' : '••••' + key.slice(-4);
+  }
+
+  function breezeStatus() {
+    return {
+      configured: !!(config.breezeApiKey && config.breezeVoiceId),
+      keyConfigured: !!config.breezeApiKey,
+      keyMasked: maskKey(config.breezeApiKey),
+      voiceId: config.breezeVoiceId,
+      voiceName: config.breezeVoiceName,
+      model: config.breezeModel,
+      language: config.breezeLanguage,
+      instructions: config.breezeInstructions,
+      fallback: config.breezeFallback,
+      baseUrl: config.breezeBaseUrl,
+      last: Object.assign({}, breezeLast)
+    };
+  }
+
+  // 只发一个 JSON、收一段二进制音频；不引入 SDK，避免把 Key 交给第三方包。
+  function postJsonBinary(url, key, body, timeoutMs) {
+    return new Promise(function (resolve, reject) {
+      let target;
+      try { target = new URL(url); } catch (e) { reject(new Error('Breeze 地址无效')); return; }
+      const payload = Buffer.from(JSON.stringify(body), 'utf8');
+      const req = https.request({
+        hostname: target.hostname,
+        port: target.port || 443,
+        path: target.pathname + target.search,
+        method: 'POST',
+        headers: {
+          'xi-api-key': key,
+          'content-type': 'application/json',
+          'content-length': payload.length
+        }
+      }, function (res) {
+        const chunks = [];
+        res.on('data', function (chunk) { chunks.push(chunk); });
+        res.on('end', function () {
+          resolve({ status: Number(res.statusCode) || 0, body: Buffer.concat(chunks) });
+        });
+      });
+      req.setTimeout(timeoutMs, function () { req.destroy(new Error('Breeze 合成超时')); });
+      req.on('error', reject);
+      req.end(payload);
+    });
+  }
+
+  function breezeErrorText(status, buf) {
+    let detail = '';
+    try {
+      const j = JSON.parse(buf.toString('utf8'));
+      detail = [j.code, j.detail].filter(Boolean).join(' · ');
+    } catch (e) {
+      detail = buf.toString('utf8').slice(0, 180);
+    }
+    return 'Breeze ' + status + (detail ? '：' + detail : '');
+  }
+
+  // 输出固定 wav_24000：24 kHz / 16-bit / 单声道，正好对上现有 pysilk 编码脚本。
+  async function synthesizeBreeze(text, wavFile) {
+    const started = Date.now();
+    if (!config.breezeApiKey) throw new Error('Breeze API Key 未配置');
+    if (!config.breezeVoiceId) throw new Error('Breeze 音色 ID 未配置');
+    const body = {
+      text: text,
+      language_code: config.breezeLanguage,
+      model_id: config.breezeModel
+    };
+    if (config.breezeInstructions) body.instructions = config.breezeInstructions;
+    const url = config.breezeBaseUrl + '/v1/text-to-speech/' + encodeURIComponent(config.breezeVoiceId) + '?output_format=wav_24000';
+    try {
+      const r = await postJsonBinary(url, config.breezeApiKey, body, 45000);
+      if (r.status !== 200) throw new Error(breezeErrorText(r.status, r.body));
+      if (r.body.length < 100) throw new Error('Breeze 返回空音频');
+      if (r.body.subarray(0, 4).toString('ascii') !== 'RIFF') throw new Error('Breeze 返回的不是 WAV');
+      fs.writeFileSync(wavFile, r.body);
+      breezeLast = {
+        at: Date.now(), ok: true, provider: 'breeze', ms: Date.now() - started,
+        bytes: r.body.length, chars: text.length, error: ''
+      };
+      return { ok: true, bytes: r.body.length, ms: Date.now() - started };
+    } catch (e) {
+      const msg = String((e && e.message) || e);
+      breezeLast = {
+        at: Date.now(), ok: false, provider: 'breeze', ms: Date.now() - started,
+        bytes: 0, chars: text.length, error: msg.slice(0, 180)
+      };
+      throw e;
+    }
+  }
+
   async function synthesizeVoice(text) {
     const body = String(text || '').replace(/\s+/g, ' ').trim().slice(0, config.voiceMaxChars);
     if (!body) return { ok: false, error: '语音正文为空' };
@@ -542,35 +672,55 @@ function createService(options) {
     const id = crypto.randomBytes(5).toString('hex');
     const textFile = path.join(TMP_DIR, 'tts-' + id + '.txt');
     const wavFile = path.join(VOICE_DIR, 'tts-' + id + '.wav');
-    fs.writeFileSync(textFile, body, 'utf8');
-    const ps = writeSapiScript();
-    const sapi = sapiInfo(true);
-    if (!sapi.available) {
-      try { fs.unlinkSync(textFile); } catch (e) { /* 清理失败不影响 */ }
-      return { ok: false, error: 'Windows 语音合成不可用（没有可用的 SAPI 中文语音）' };
+    let provider = config.ttsProvider;
+    let voice = config.breezeVoiceName || config.breezeVoiceId;
+    let breezeError = '';
+
+    // 1. 先走界面选中的 provider；Breeze 失败且允许回退时才落到 SAPI。
+    if (provider === 'breeze') {
+      try {
+        await synthesizeBreeze(body, wavFile);
+      } catch (e) {
+        breezeError = String((e && e.message) || e).slice(0, 180);
+        appendLog('Breeze 合成失败，' + (config.breezeFallback ? '回退 SAPI' : '不发送语音') + '：' + breezeError);
+        if (!config.breezeFallback) return { ok: false, error: breezeError, provider: 'breeze' };
+        provider = 'sapi';
+      }
     }
-    const voice = sapi.voices.indexOf(config.ttsVoice) >= 0
-      ? config.ttsVoice
-      : (sapi.voices.find((v) => /Huihui|Yaoyao|Kangkang/i.test(v)) || sapi.voices[0]);
-    const r = await new Promise((resolve) => {
-      const child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', ps], {
-        env: Object.assign({}, process.env, { QQ_TTS_TEXT: textFile, QQ_TTS_OUT: wavFile, QQ_TTS_VOICE: voice }),
-        windowsHide: true
+
+    // 2. SAPI 路径保持原样：16 kHz WAV，后面交给 pysilk。
+    if (provider === 'sapi') {
+      fs.writeFileSync(textFile, body, 'utf8');
+      const ps = writeSapiScript();
+      const sapi = sapiInfo(true);
+      if (!sapi.available) {
+        try { fs.unlinkSync(textFile); } catch (e) { /* 清理失败不影响 */ }
+        return { ok: false, error: 'Windows 语音合成不可用（没有可用的 SAPI 中文语音）', provider: 'sapi' };
+      }
+      voice = sapi.voices.indexOf(config.ttsVoice) >= 0
+        ? config.ttsVoice
+        : (sapi.voices.find((v) => /Huihui|Yaoyao|Kangkang/i.test(v)) || sapi.voices[0]);
+      const r = await new Promise((resolve) => {
+        const child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', ps], {
+          env: Object.assign({}, process.env, { QQ_TTS_TEXT: textFile, QQ_TTS_OUT: wavFile, QQ_TTS_VOICE: voice }),
+          windowsHide: true
+        });
+        let err = '';
+        const timer = setTimeout(() => { try { child.kill(); } catch (e) { /* 已退出 */ } resolve({ code: -1, err: 'TTS 超时' }); }, 30000);
+        child.stderr.on('data', (buf) => { err += String(buf || ''); });
+        child.on('error', (e) => { clearTimeout(timer); resolve({ code: -1, err: String((e && e.message) || e) }); });
+        child.on('close', (code) => { clearTimeout(timer); resolve({ code: code, err: err }); });
       });
-      let err = '';
-      const timer = setTimeout(() => { try { child.kill(); } catch (e) { /* 已退出 */ } resolve({ code: -1, err: 'TTS 超时' }); }, 30000);
-      child.stderr.on('data', (buf) => { err += String(buf || ''); });
-      child.on('error', (e) => { clearTimeout(timer); resolve({ code: -1, err: String((e && e.message) || e) }); });
-      child.on('close', (code) => { clearTimeout(timer); resolve({ code: code, err: err }); });
-    });
-    try { fs.unlinkSync(textFile); } catch (e) { /* 清理失败不影响 */ }
-    if (r.code !== 0 || !fs.existsSync(wavFile) || fs.statSync(wavFile).size < 100) {
-      return { ok: false, error: '语音合成失败：' + (r.err || ('退出码 ' + r.code)) };
+      try { fs.unlinkSync(textFile); } catch (e) { /* 清理失败不影响 */ }
+      if (r.code !== 0 || !fs.existsSync(wavFile) || fs.statSync(wavFile).size < 100) {
+        return { ok: false, error: '语音合成失败：' + (r.err || ('退出码 ' + r.code)), provider: 'sapi' };
+      }
     }
+
     const wavBytes = fs.statSync(wavFile).size;
     const silkFile = path.join(VOICE_DIR, 'tts-' + id + '.silk');
     const silk = await toSilk(wavFile, silkFile);
-    appendLog('语音合成 ' + body.length + ' 字 → ' + path.basename(silk.ok ? silkFile : wavFile)
+    appendLog('语音合成[' + provider + '] ' + body.length + ' 字 → ' + path.basename(silk.ok ? silkFile : wavFile)
       + (silk.ok ? ' · SILK' : ' · WAV（' + String(silk.error || '').slice(0, 80) + '）'));
     return {
       ok: true,
@@ -579,7 +729,37 @@ function createService(options) {
       silk: !!silk.ok,
       bytes: silk.ok ? silk.bytes : wavBytes,
       voice: voice,
+      provider: provider,
+      breezeError: breezeError,
       silkError: silk.ok ? '' : String(silk.error || '')
+    };
+  }
+
+  // 直接语音判定：只决定「这条正文发完后要不要补语音」，不碰群随机接话。
+  // ctx: { chatType: 'group'|'private', chatId, text, hasAt }
+  function shouldVoiceDirect(ctx) {
+    if (!config.voiceReply || !ctx || !String(ctx.text || '').trim()) return false;
+    if (ctx.chatType === 'group') {
+      if (!config.voiceReplyMentions || !ctx.hasAt) return false;
+      return Math.random() < config.voiceReplyMentionsChance;
+    }
+    if (ctx.chatType === 'private') {
+      if (!config.voiceReplyPrivate) return false;
+      return Math.random() < config.voiceReplyPrivateChance;
+    }
+    return false;
+  }
+
+  function noteDirectVoice(ok, info) {
+    const p = info && typeof info === 'object' ? info : {};
+    directVoiceLast = {
+      at: Date.now(),
+      ok: !!ok,
+      chatType: String(p.chatType || ''),
+      chatId: String(p.chatId || ''),
+      provider: String(p.provider || ''),
+      bytes: Number(p.bytes) || 0,
+      error: String(p.error || '')
     };
   }
 
@@ -588,16 +768,36 @@ function createService(options) {
     const asr = asrConfig();
     const qwen = qwenConfig();
     const sapi = sapiInfo(false);
+    const breeze = breezeStatus();
+    const publicConfig = Object.assign({}, config, {
+      breezeApiKey: '',
+      voiceReplyChancePct: Math.round(config.voiceReplyChance * 1000) / 10,
+      voiceReplyMentionsChancePct: Math.round(config.voiceReplyMentionsChance * 1000) / 10,
+      voiceReplyPrivateChancePct: Math.round(config.voiceReplyPrivateChance * 1000) / 10,
+      stickerChancePct: Math.round(config.stickerChance * 1000) / 10
+    });
     return {
       ok: true,
-      config: Object.assign({}, config, {
-        voiceReplyChancePct: Math.round(config.voiceReplyChance * 1000) / 10,
-        stickerChancePct: Math.round(config.stickerChance * 1000) / 10
-      }),
+      config: publicConfig,
       asr: { configured: !!asr.key, provider: asr.provider, deepseek: /api\.deepseek\.com/i.test(asr.baseUrl) },
       qwen: { configured: !!String(qwen.apiKey || '').trim(), model: String(qwen.model || '') },
       stickers: { dir: STICKER_ROOT, categories: cats, total: cats.reduce((n, c) => n + c.count, 0), qqDir: QQ_STICKER_DIR },
-      tts: { available: !!sapi.available, voices: sapi.voices.slice(0, 20), selected: config.ttsVoice, silk: !!findPython() },
+      tts: {
+        provider: config.ttsProvider,
+        available: config.ttsProvider === 'breeze' ? breeze.configured : !!sapi.available,
+        voices: sapi.voices.slice(0, 20),
+        selected: config.ttsVoice,
+        silk: !!findPython(),
+        sapi: { available: !!sapi.available, voices: sapi.voices.slice(0, 20), selected: config.ttsVoice },
+        breeze: breeze
+      },
+      directVoice: {
+        mentions: config.voiceReplyMentions,
+        private: config.voiceReplyPrivate,
+        mentionChancePct: Math.round(config.voiceReplyMentionsChance * 1000) / 10,
+        privateChancePct: Math.round(config.voiceReplyPrivateChance * 1000) / 10,
+        last: directVoiceLast
+      },
       configFile: CONFIG_FILE,
       logFile: LOG_FILE
     };
@@ -610,16 +810,31 @@ function createService(options) {
   function settingsSave(patch) {
     const p = patch && typeof patch === 'object' ? patch : {};
     const next = Object.assign({}, config);
-    for (const key of ['enabled', 'voice', 'voiceListen', 'voiceReply', 'voiceReplyGroups', 'stickers', 'stickerDynamic']) {
+    for (const key of ['enabled', 'voice', 'voiceListen', 'voiceReply', 'voiceReplyGroups', 'voiceReplyMentions', 'voiceReplyPrivate', 'stickers', 'stickerDynamic']) {
       if (Object.prototype.hasOwnProperty.call(p, key)) next[key] = p[key] !== false;
     }
     if (Object.prototype.hasOwnProperty.call(p, 'voiceReplyChancePct')) next.voiceReplyChance = clamp(Number(p.voiceReplyChancePct) / 100, 0, 1);
     else if (Object.prototype.hasOwnProperty.call(p, 'voiceReplyChance')) next.voiceReplyChance = clamp(Number(p.voiceReplyChance), 0, 1);
+    if (Object.prototype.hasOwnProperty.call(p, 'voiceReplyMentionsChancePct')) next.voiceReplyMentionsChance = clamp(Number(p.voiceReplyMentionsChancePct) / 100, 0, 1);
+    if (Object.prototype.hasOwnProperty.call(p, 'voiceReplyPrivateChancePct')) next.voiceReplyPrivateChance = clamp(Number(p.voiceReplyPrivateChancePct) / 100, 0, 1);
     if (Object.prototype.hasOwnProperty.call(p, 'stickerChancePct')) next.stickerChance = clamp(Number(p.stickerChancePct) / 100, 0, 1);
     else if (Object.prototype.hasOwnProperty.call(p, 'stickerChance')) next.stickerChance = clamp(Number(p.stickerChance), 0, 1);
     if (Object.prototype.hasOwnProperty.call(p, 'stickerMaxPerReply')) next.stickerMaxPerReply = clamp(Math.round(Number(p.stickerMaxPerReply) || 1), 1, 2);
     if (Object.prototype.hasOwnProperty.call(p, 'voiceMaxChars')) next.voiceMaxChars = clamp(Math.round(Number(p.voiceMaxChars) || 80), 10, 180);
     if (Object.prototype.hasOwnProperty.call(p, 'ttsVoice')) next.ttsVoice = String(p.ttsVoice || '').trim().slice(0, 120) || DEFAULTS.ttsVoice;
+    if (Object.prototype.hasOwnProperty.call(p, 'ttsProvider')) next.ttsProvider = p.ttsProvider === 'breeze' ? 'breeze' : 'sapi';
+    if (Object.prototype.hasOwnProperty.call(p, 'breezeApiKey')) {
+      const key = String(p.breezeApiKey || '').trim();
+      if (key) next.breezeApiKey = key.slice(0, 300);
+    }
+    if (p.breezeApiKeyClear === true) next.breezeApiKey = '';
+    if (Object.prototype.hasOwnProperty.call(p, 'breezeVoiceId')) next.breezeVoiceId = String(p.breezeVoiceId || '').trim().slice(0, 80);
+    if (Object.prototype.hasOwnProperty.call(p, 'breezeVoiceName')) next.breezeVoiceName = String(p.breezeVoiceName || '').trim().slice(0, 80);
+    if (Object.prototype.hasOwnProperty.call(p, 'breezeModel')) next.breezeModel = String(p.breezeModel || '').trim().slice(0, 80) || DEFAULT_BREEZE_MODEL;
+    if (Object.prototype.hasOwnProperty.call(p, 'breezeLanguage')) next.breezeLanguage = String(p.breezeLanguage || '').trim().slice(0, 16) || DEFAULT_BREEZE_LANGUAGE;
+    if (Object.prototype.hasOwnProperty.call(p, 'breezeInstructions')) next.breezeInstructions = String(p.breezeInstructions || '').trim().slice(0, 300);
+    if (Object.prototype.hasOwnProperty.call(p, 'breezeBaseUrl')) next.breezeBaseUrl = String(p.breezeBaseUrl || '').trim() || DEFAULT_BREEZE_BASE;
+    if (Object.prototype.hasOwnProperty.call(p, 'breezeFallback')) next.breezeFallback = p.breezeFallback !== false;
     config = normalizeConfig(next);
     writeAtomic(CONFIG_FILE, config);
     return settingsGet();
@@ -647,6 +862,21 @@ function createService(options) {
     ensureSticker: ensureSticker,
     generateSticker: generateSticker,
     synthesizeVoice: synthesizeVoice,
+    shouldVoiceDirect: shouldVoiceDirect,
+    noteDirectVoice: noteDirectVoice,
+    // 只给主进程内部用的同步接口；不经过 preload 暴露，完整 Key 不下发渲染层。
+    breezeConfig: function () {
+      return {
+        provider: config.ttsProvider,
+        apiKey: config.breezeApiKey,
+        baseUrl: config.breezeBaseUrl,
+        model: config.breezeModel,
+        voiceId: config.breezeVoiceId,
+        voiceName: config.breezeVoiceName,
+        language: config.breezeLanguage,
+        instructions: config.breezeInstructions
+      };
+    },
     cleanupVoice: cleanupVoice,
     configFile: CONFIG_FILE,
     logFile: LOG_FILE

@@ -481,6 +481,18 @@ function collectSegments(value, texts, attachments, depth) {
   if (value.content !== undefined && value.type !== 'text') collectSegments(value.content, texts, attachments, (depth || 0) + 1);
 }
 
+function collectMentions(value, out, depth) {
+  if ((depth || 0) > 8) return;
+  if (Array.isArray(value)) { value.forEach(function (v) { collectMentions(v, out, (depth || 0) + 1); }); return; }
+  if (!isObj(value)) return;
+  if (String(value.type || '') === 'at') out.push(String((value.data && value.data.qq) || (value.data && value.data.user_id) || ''));
+  if (isObj(value.data)) {
+    if (value.data.content !== undefined) collectMentions(value.data.content, out, (depth || 0) + 1);
+    if (Array.isArray(value.data.messages)) collectMentions(value.data.messages, out, (depth || 0) + 1);
+  }
+  if (Array.isArray(value.messages)) collectMentions(value.messages, out, (depth || 0) + 1);
+}
+
 function collectOneBot(payload, ctx) {
   const params = (payload && payload.params) || {};
   const action = String((payload && payload.action) || '');
@@ -497,10 +509,14 @@ function collectOneBot(payload, ctx) {
     if (typeof params.content === 'string') texts.push(params.content);
     if (typeof params.notice === 'string') texts.push(params.notice);
   }
+  const mentions = [];
+  if (params.message !== undefined) collectMentions(params.message, mentions, 0);
+  if (params.messages !== undefined) collectMentions(params.messages, mentions, 0);
   return {
     action: action,
     texts: texts,
     attachments: attachments,
+    mentions: mentions,
     chatType: String(params.message_type || (params.group_id ? 'group' : 'private')),
     chatId: String(params.group_id || params.user_id || '')
   };
@@ -544,7 +560,7 @@ function createProxy(opt) {
   const log = o.log || function () { };
   let server = null;
 
-  function forward(req, res, rawBody) {
+  function forward(req, res, rawBody, onSuccess) {
     let u;
     try { u = new URL(upstream); } catch (e) { u = new URL(DEFAULT_CONFIG.qq.upstream); }
     const headers = Object.assign({}, req.headers);
@@ -560,7 +576,32 @@ function createProxy(opt) {
     }, function (r2) {
       const h = Object.assign({}, r2.headers);
       res.writeHead(r2.statusCode || 502, h);
-      r2.pipe(res);
+      if (!onSuccess) {
+        r2.pipe(res);
+        return;
+      }
+      // 需要补语音的请求：先把上游响应读完，确认 OneBot 真的 retcode=0 再触发。
+      // 不能只看 HTTP 200 —— OneBot 失败时也常用 200 + status=failed。
+      let body = '';
+      let tooLarge = false;
+      r2.on('data', function (chunk) {
+        if (tooLarge) return;
+        body += chunk.toString('utf8');
+        if (body.length > 1024 * 1024) { tooLarge = true; body = ''; }
+      });
+      r2.on('end', function () {
+        let ok = r2.statusCode >= 200 && r2.statusCode < 300 && !tooLarge;
+        if (ok) {
+          try {
+            const j = JSON.parse(body);
+            ok = (!j || Number(j.retcode) === 0) && String((j && j.status) || '') !== 'failed';
+          } catch (e) { ok = false; }
+        }
+        try { res.end(body || ''); } catch (e) { log('[gate] 回写上游响应失败: ' + ((e && e.message) || e)); }
+        if (ok) {
+          try { onSuccess(); } catch (e) { log('[gate] 发送后钩子失败: ' + ((e && e.message) || e)); }
+        }
+      });
     });
     req2.on('timeout', function () { req2.destroy(new Error('timeout')); });
     req2.on('error', function (e) {
@@ -617,6 +658,21 @@ function createProxy(opt) {
         return;
       }
       const c = collectOneBot(payload, {});
+      const skipVoice = String(req.headers['x-wb-voice-skip'] || '') === '1';
+      const afterSendFor = function (cc) {
+        if (!o.afterSend) return;
+        const text = (cc.texts || []).join('\n').trim();
+        try {
+          Promise.resolve(o.afterSend({
+            chatType: cc.chatType,
+            chatId: cc.chatId,
+            text: text,
+            hasAt: !!(cc.mentions && cc.mentions.length),
+            attachments: (cc.attachments || []).slice(),
+            skipVoice: skipVoice
+          })).catch(function (e) { log('[gate] 发送后钩子异常: ' + ((e && e.message) || e)); });
+        } catch (e) { log('[gate] 发送后钩子异常: ' + ((e && e.message) || e)); }
+      };
       if (c.attachments.length) {
         const at = check('', { channel: 'qq', chatType: c.chatType, chatId: c.chatId, attachment: c.attachments[0] });
         // 附件单独走「附件」类动作；check 返回 pass 才允许
@@ -631,7 +687,7 @@ function createProxy(opt) {
         if (r.verdict === 'redact' && r.text !== t) changed = true;
       });
       if (blocked) { fail(res, blocked); return; }
-      if (!changed) { forward(req, res, raw); return; }
+      if (!changed) { forward(req, res, raw, function () { afterSendFor(c); }); return; }
       // 有打码：按段重写后再转发
       const mapper = function (t) {
         const r = check(t, { channel: 'qq', chatType: c.chatType, chatId: c.chatId });
@@ -655,7 +711,8 @@ function createProxy(opt) {
       const headers = Object.assign({}, req.headers);
       headers['content-length'] = Buffer.byteLength(body);
       req.headers = headers;
-      forward(req, res, body);
+      const outCtx = collectOneBot(next, {});
+      forward(req, res, body, function () { afterSendFor(outCtx); });
     });
   }
 
@@ -716,6 +773,9 @@ function createService(opts) {
   const base = String(o.base || '');
   const getToken = o.getToken || function () { return process.env.DSH_TOKEN || ''; };
   const dshHome = o.dshHome || DSH_HOME;
+  // QQ 普通 @ / 私聊的「正文后补语音」由闸门统一做：
+  // 普通 @ 与私聊都走 onebotHttp（3100 代理），只有这一层能同时看到两种出站。
+  const media = o.media || null;
 
   const svc = {
     cfg: readConfig(),
@@ -848,6 +908,68 @@ function createService(opts) {
     return { ok: true, status: await buildStatus() };
   }
 
+  // QQ 直接语音：正文已被闸门放行并真的发出去后，再决定补不补一条语音。
+  // 群随机接话由 QQ群聊.js 自己发正文+语音，并在请求头带 x-wb-voice-skip，避免这里再补一条。
+  async function afterQqSend(ctx) {
+    if (!media || !ctx || ctx.skipVoice) return;
+    if (!ctx.text || (ctx.attachments || []).indexOf('record') >= 0) return;
+    if (typeof media.shouldVoiceDirect !== 'function' || !media.shouldVoiceDirect(ctx)) return;
+    const qq = readJson(QQ_CONFIG_FILE) || {};
+    const url = String(svc.cfg.qq.upstream || '').trim();
+    if (!url) {
+      if (typeof media.noteDirectVoice === 'function') media.noteDirectVoice(false, Object.assign({}, ctx, { error: 'QQ 协议端地址为空' }));
+      log('[gate] QQ 直接语音跳过：协议端地址为空');
+      return;
+    }
+    try {
+      const result = await media.synthesizeVoice(ctx.text);
+      if (!result || !result.ok || !result.file) {
+        const err = String((result && (result.breezeError || result.silkError || result.error)) || '语音合成失败');
+        if (typeof media.noteDirectVoice === 'function') media.noteDirectVoice(false, Object.assign({}, ctx, { provider: (result && result.provider) || '', error: err }));
+        log('[gate] QQ 直接语音失败：' + err);
+        return;
+      }
+      const idKey = ctx.chatType === 'group' ? 'group_id' : 'user_id';
+      const id = Number(ctx.chatId);
+      if (!Number.isFinite(id) || id <= 0) {
+        if (typeof media.noteDirectVoice === 'function') media.noteDirectVoice(false, Object.assign({}, ctx, { provider: result.provider, error: '聊天 id 非法' }));
+        log('[gate] QQ 直接语音跳过：聊天 id 非法 ' + ctx.chatId);
+        return;
+      }
+      const r = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer ' + String(qq.token || '')
+        },
+        body: JSON.stringify({
+          action: ctx.chatType === 'group' ? 'send_group_msg' : 'send_private_msg',
+          params: Object.assign({}, { [idKey]: id }, {
+            message: [{ type: 'record', data: { file: result.file } }]
+          })
+        }),
+        signal: AbortSignal.timeout(15000)
+      });
+      const raw = await r.text();
+      let j = null;
+      try { j = JSON.parse(raw); } catch (e) { /* 下面按原文报 */ }
+      if (!r.ok || !j || Number(j.retcode) !== 0) {
+        const err = 'OneBot ' + (r.ok ? 'retcode ' + (j && j.retcode) : 'HTTP ' + r.status) + '：' + raw.slice(0, 120);
+        if (typeof media.noteDirectVoice === 'function') media.noteDirectVoice(false, Object.assign({}, ctx, { provider: result.provider, bytes: result.bytes, error: err }));
+        log('[gate] QQ 直接语音发送失败：' + err);
+        return;
+      }
+      if (typeof media.noteDirectVoice === 'function') {
+        media.noteDirectVoice(true, Object.assign({}, ctx, { provider: result.provider, bytes: result.bytes, error: '' }));
+      }
+      log('[gate] QQ 直接语音已发 ' + ctx.chatType + ':' + ctx.chatId + ' provider=' + (result.provider || '') + ' bytes=' + (result.bytes || 0));
+    } catch (e) {
+      const err = String((e && e.message) || e);
+      if (typeof media.noteDirectVoice === 'function') media.noteDirectVoice(false, Object.assign({}, ctx, { error: err }));
+      log('[gate] QQ 直接语音异常：' + err);
+    }
+  }
+
   async function startProxy() {
     if (svc.proxy && svc.proxy.listening && svc.proxy.port === svc.cfg.qq.listenPort) return;
     if (svc.proxy) { await svc.proxy.stop(); svc.proxy = null; }
@@ -855,7 +977,8 @@ function createService(opts) {
       upstream: svc.cfg.qq.upstream,
       unknownAction: svc.cfg.unknownAction,
       log: log,
-      check: function (text, ctx) { return check(text, ctx); }
+      check: function (text, ctx) { return check(text, ctx); },
+      afterSend: function (ctx) { return afterQqSend(ctx); }
     });
     try {
       await p.start(svc.cfg.qq.listenPort);
@@ -1156,7 +1279,8 @@ function createService(opts) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: 'Bearer ' + String(qq.token || '')
+        Authorization: 'Bearer ' + String(qq.token || ''),
+        'x-wb-voice-skip': '1'
       },
       body: JSON.stringify({
         action: 'send_group_msg',

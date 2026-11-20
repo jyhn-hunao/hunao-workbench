@@ -223,7 +223,7 @@
       var sub = key === 'wechat'
         ? '微信个人号：文本 / 分条 / 原生贴纸 / 语音 / 引用；发送走鲸鲸后台窗口。'
         : (key === 'qq'
-          ? 'QQ：文本 / 分条 / OneBot 原生表情 / 引用；路由由 qq-bridge.config.json 决定。'
+          ? 'QQ：文本 / 分条 / OneBot 原生表情 / 引用 / 语音（Breeze 或 SAPI）；具体回复开关在 QQ 卡标题行的「⚙ 回复设置」里。'
           : '飞书：文本 / 分条 / 语音 / 引用；不支持贴纸包，出站闸门尚未接入。');
       l.appendChild(mk('div', 'wxs-hint', sub));
       r.appendChild(l);

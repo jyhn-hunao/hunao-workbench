@@ -543,6 +543,7 @@ function createService(options) {
         }
       }
       let voiceFile = '';
+      let voiceProvider = '';
       if (ms.config.voiceReply === true && ms.config.voiceReplyGroups === true && Number(ms.config.voiceReplyChance) > 0) {
         const roll = Math.random();
         if (roll < Number(ms.config.voiceReplyChance)) {
@@ -550,8 +551,12 @@ function createService(options) {
             const voice = media && typeof media.synthesizeVoice === 'function'
               ? await media.synthesizeVoice(parsed.text)
               : null;
-            if (voice && voice.file && fs.existsSync(voice.file)) voiceFile = voice.file;
-            else appendLog('语音合成没成功 group=' + groupId + '：' + ((voice && voice.error) || '未知原因'));
+            if (voice && voice.file && fs.existsSync(voice.file)) {
+              voiceFile = voice.file;
+              voiceProvider = String(voice.provider || '');
+            } else {
+              appendLog('语音合成没成功 group=' + groupId + '：' + ((voice && voice.error) || '未知原因'));
+            }
           } catch (e) {
             appendLog('语音合成失败 group=' + groupId + '：' + ((e && e.message) || e));
           }
@@ -576,12 +581,14 @@ function createService(options) {
         status.lastError = '';
         status.lastReply = {
           at: s.lastRandomAt, groupId: groupId, ok: true, text: String(sent.text || parsed.text),
-          sticker: stickerLabel || '', voice: !!voiceFile, mediaError: String(sent.mediaError || ''),
+          sticker: stickerLabel || '', voice: !!voiceFile, voiceProvider: voiceProvider,
+          mediaError: String(sent.mediaError || ''),
           ms: Date.now() - started, messageId: String(sent.messageId || '')
         };
         if (sent.mediaError) appendLog('正文已发，媒体没发出去 group=' + groupId + '：' + sent.mediaError);
         appendLog('接话 group=' + groupId + ' len=' + parsed.text.length
           + ' sticker=' + (stickerLabel || '-') + ' voice=' + (voiceFile ? '1' : '0')
+          + ' voiceProvider=' + (voiceProvider || '-')
           + ' ms=' + (Date.now() - started));
       } catch (e) {
         status.counts.errors++;

@@ -4575,6 +4575,7 @@ const qqMediaService = qqMediaSvc.createService({ dshHome: DSH_HOME, log: log })
 ipcMain.handle('qq-media:status', () => qqMediaService.status());
 ipcMain.handle('qq-media:settings-save', (e, patch) => qqMediaService.settingsSave(patch || {}));
 ipcMain.handle('qq-media:sticker-generate', (e, args) => qqMediaService.generateSticker((args && args.emotion) || '', (args && args.situation) || ''));
+ipcMain.handle('qq-media:tts-test', (e, args) => qqMediaService.synthesizeVoice(String((args && args.text) || '').slice(0, 200)));
 
 // ---- QQ 群聊旁听 / 随机接话（2026-11-19）----
 // 普通 @ 仍由 dsh-onebot-channel 走原路由；这里只旁听没被 @ 的群消息，
@@ -4676,6 +4677,7 @@ const outGateService = outGateSvc.createService({
   dshHome: DSH_HOME,
   base: BASE,
   getToken: function () { return harnessToken; },
+  media: qqMediaService,
   log: log
 });
 ipcMain.handle('outbound:get', () => outGateService.getSettings());
@@ -4721,6 +4723,9 @@ ipcMain.handle('wechat:send-test', (e, args) => wechatService.sendTest(args || {
 ipcMain.handle('wechat:pin-account', (e, args) => wechatService.pinAccount(args || {}));
 ipcMain.handle('wechat:settings-get', () => wechatService.settingsGet());
 ipcMain.handle('wechat:settings-save', (e, args) => wechatService.saveSettings(args || {}));
+// QQ 卡片里的「语音合成服务」是全局唯一真源；这个 IPC 只把它同步到 WhaleLauncher，
+// 渲染层不持有完整 Key，主进程内部取 qqMediaService 的配置后直接落盘。
+ipcMain.handle('wechat:sync-breeze', () => wechatService.syncBreeze(qqMediaService.breezeConfig()));
 ipcMain.handle('wechat:vision-test', () => wechatService.visionTest());
 ipcMain.handle('wechat:sticker-generate', (e, args) => wechatService.stickerGenerate(args || {}));
 ipcMain.handle('wechat:sticker-send', (e, args) => wechatService.stickerSend(args || {}));
