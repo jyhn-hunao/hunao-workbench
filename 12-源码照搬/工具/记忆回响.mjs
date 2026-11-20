@@ -18,6 +18,7 @@ const PROFILE = path.join(ROOT, '12-源码照搬', '引擎数据', '.dsh', 'prof
 const DEST = path.join(PROFILE, 'node_modules', 'dsh-memory-recall')
 const PATCH = path.join(PROFILE, 'cordis.patch.yml')
 const MARK = 'dsh-memory-recall'
+const INJECT_LOG = path.join(ROOT, '12-源码照搬', '引擎数据', '.dsh', 'logs', 'memory-recall.jsonl')
 
 const argv = process.argv.slice(2)
 const mode = (argv.includes('--mode') ? argv[argv.indexOf('--mode') + 1] : '') || ''
@@ -27,6 +28,30 @@ function patchText() {
   return fs.existsSync(PATCH) ? fs.readFileSync(PATCH, 'utf8') : ''
 }
 
+function injectSummary() {
+  let lines = 0, errors = 0, last = null
+  const scenes = {}
+  const modes = {}
+  try {
+    const rows = fs.readFileSync(INJECT_LOG, 'utf8').trim().split(/\r?\n/).filter(Boolean)
+    lines = rows.length
+    for (const row of rows.slice(-500)) {
+      try {
+        const j = JSON.parse(row)
+        if (j.ok === false) errors++
+        if (j.scene) scenes[j.scene] = (scenes[j.scene] || 0) + 1
+        if (j.mode) modes[j.mode] = (modes[j.mode] || 0) + 1
+        last = j
+      } catch { /* 单行坏不挡统计 */ }
+    }
+  } catch { /* 还没有记录 */ }
+  return {
+    path: INJECT_LOG, lines: lines, errors: errors,
+    scenes: scenes, modes: modes,
+    last: last ? { at: last.at, scene: last.scene, panel: last.panel, mode: last.mode, bytes: last.bytes } : null,
+  }
+}
+
 function statusInfo() {
   const inst = fs.existsSync(path.join(DEST, 'index.js'))
   const inPatch = patchText().includes(MARK)
@@ -34,7 +59,7 @@ function statusInfo() {
   return {
     at: Date.now(), installed: inst, registered: inPatch,
     mode: m || (inPatch ? 'enforce' : null),
-    source: PATCH, pluginPath: DEST,
+    source: PATCH, pluginPath: DEST, inject: injectSummary(),
   }
 }
 function status() {
@@ -43,6 +68,13 @@ function status() {
   console.log('插件文件：' + (s.installed ? '已装 ' + DEST : '未装'))
   console.log('patch 登记：' + (s.registered ? '已登记' : '未登记'))
   console.log('注入模式：' + (s.mode || '—'))
+  const inj = s.inject || {}
+  if (inj.lines) {
+    console.log('注入记录：' + inj.lines + ' 轮' + (inj.errors ? '（失败 ' + inj.errors + ' 轮）' : '') + ' · 最近 ' + (inj.last ? (inj.last.at + ' · ' + inj.last.scene + ' · ' + inj.last.mode + ' · ' + inj.last.bytes + ' B') : '—'))
+    console.log('  按场景：' + Object.keys(inj.scenes || {}).map((k) => k + '×' + inj.scenes[k]).join(' / '))
+  } else {
+    console.log('注入记录：还没有（重启整壳后跑一轮会话再来看）')
+  }
   console.log('profile：' + PROFILE)
   return s.installed && s.registered
 }

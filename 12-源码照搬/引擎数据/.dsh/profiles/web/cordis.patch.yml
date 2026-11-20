@@ -40,3 +40,9 @@
       name: "dsh-chat-archive"
       config:
         mode: enforce
+- id: agent-default-model
+  name: "@deepseek-ai/dsh-agent-default-model"
+  config:
+    provider: deepseek-official
+    model: deepseek-flash
+    reasoningEffort: high
