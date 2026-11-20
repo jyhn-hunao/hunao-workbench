@@ -56,7 +56,8 @@ function checkPorts() {
       if (!/3083/.test(line)) return;
       if (/^\s*(\/\/|\*|#)/.test(line.trim())) return;                 // 注释里的说明不算
       // 白名单：外壳入口的默认值 + 环境.mjs 的 DEFAULT_PORTS（真源）
-      if (base === 'main.js' && /process\.env\.DSH_PORT\s*\|\|\s*'3083'/.test(line)) return;
+      // 2026-11-20：外壳也支持「机器配置.ports」覆盖，默认值仍只写一次
+      if (base === 'main.js' && (/process\.env\.DSH_PORT\s*\|\|\s*'3083'/.test(line) || /process\.env\.DSH_PORT\s*\|\|\s*machinePort\('dsh',\s*3083\)/.test(line))) return;
       if (base === '环境.mjs' && /dsh:\s*3083/.test(line)) return;
       hits.push(rel(f) + ':' + (i + 1) + '  ' + line.trim().slice(0, 100));
     });
@@ -331,6 +332,11 @@ function checkFeatureDesk() {
   });
   if (bad.length) add('功能台登记表', 'fail', '违规 ' + bad.length + ' 条', bad);
   else add('功能台登记表', 'ok', (o.stats.features || 0) + ' 项 / ' + (o.stats.actions || 0) + ' 个动作 · 说明齐全 · 脚本都在白名单目录 · 配置位 ' + (o.cfgStats.plugin || 0) + '/' + (o.cfgStats.machine || 0) + '/' + (o.cfgStats.external || 0) + '/' + (o.cfgStats.none || 0) + ' · 症状表 ' + tri.length + ' 条都能落到卡上');
+  // 自动发现：没声明也没手写的脚本要报出来（内部 / 已有入口只提示数量，不算违规）
+  const un = o.unregistered || [];
+  const open = un.filter((x) => !x.internal);
+  if (open.length) add('未登记脚本', 'warn', open.length + ' 个脚本没进功能台（写一行 @功能台 声明，或到管理总览一键收进）', open.map((x) => x.script + ' — ' + x.reason));
+  else add('未登记脚本', 'ok', '扫到的脚本都有归属：手写 / @功能台 声明 / 一键收进 / 内部入口（内部 ' + un.filter((x) => x.internal).length + ' 个）');
 }
 
 // ── 跑 ───────────────────────────────────────────────────────────────────────────────

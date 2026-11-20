@@ -25,12 +25,15 @@ const MEM_DIR = path.join(DSH, '场景记忆');
 const GROUPS = [
   { id: 'switch', title: '插件开关', plain: '省 token / 守卫 / 记忆回响：装没装、什么模式、一条命令切（改完重启整壳生效）' },
   { id: 'memory', title: '记忆维护', plain: '近期记忆 / 人格记忆 / 通道记忆 / 场景记忆体检与收工 —— 原来全在命令行' },
+  { id: 'auto', title: '自动维护', plain: '自动换会话 / 记忆整理 / 巡检 / 退出清缓存 / 孤儿 staging / 崩溃回滚：开关、阈值、上次与下次' },
   { id: 'guard', title: '自检与发布', plain: '发布前红线、各层自检、引擎升级后接线核对（只读，跑完看输出）' },
   { id: 'flow', title: '协作与通道', plain: '人格引用同步、跨场景发消息、会话改名' },
 ];
 
 // 2. 功能登记：一条 = 一个脚本 + 它能干的几件事（args 是纯函数，只吃白名单输入）
-const FEATURES = [
+//    —— 这张是「手写层」：按钮名 / 危险等级 / 参数能给准的才写这儿；
+//       新脚本不想手写，在头部加一行 `// @功能台 {...}` 就会自动进目录（见 2a）。
+const BASE_FEATURES = [
   // ── 插件开关 ─────────────────────────────────────────────────────────
   {
     id: 'token-switch', group: 'switch', name: '省 token 开关',
@@ -83,6 +86,44 @@ const FEATURES = [
           options: [{ v: 'shadow', t: 'shadow（只记日志）' }, { v: 'enforce', t: 'enforce（真注入）' }],
         }],
         args: (v) => ['--mode', v.mode === 'enforce' ? 'enforce' : 'shadow'],
+      },
+      { id: 'off', label: '摘掉', danger: 'write', args: () => ['--off'] },
+    ],
+  },
+  {
+    id: 'chat-archive', group: 'switch', name: '聊天档案（插件）',
+    plain: '把 dsh-chat-archive 装进 web profile：按需查历史原文与单聊天记忆，往来原话落 引擎数据\\.dsh\\社交档案\\chat-archive.db。',
+    why: '插件走 patch 才生效，手改 YAML 缩进错一位引擎就起不来；装完 / 改模式必须重启整壳。',
+    script: '工具\\聊天档案.mjs', restart: true, statusArgs: ['--check'],
+    actions: [
+      { id: 'check', label: '看状态', args: () => ['--check'] },
+      { id: 'apply', label: '装上', danger: 'write', args: () => ['--apply'] },
+      {
+        id: 'mode', label: '改模式', danger: 'write',
+        inputs: [{
+          key: 'mode', label: '模式', kind: 'select', def: 'enforce',
+          options: [{ v: 'shadow', t: 'shadow（只看不查）' }, { v: 'enforce', t: 'enforce（真查真记）' }],
+        }],
+        args: (v) => ['--mode', v.mode === 'shadow' ? 'shadow' : 'enforce'],
+      },
+      { id: 'off', label: '摘掉', danger: 'write', args: () => ['--off'] },
+    ],
+  },
+  {
+    id: 'social-policy', group: 'switch', name: '社交策略（插件）',
+    plain: '把 dsh-social-policy 装进 web profile：给已登记的社交会话每轮注入一张回复卡（语气 / 边界 / 频率）。',
+    why: '回复风格写在 外壳\\data\\社交回复.json，但「让她照着说」要靠插件在引擎侧注入；装完必须重启整壳。',
+    script: '工具\\社交策略.mjs', restart: true, statusArgs: ['--check'],
+    actions: [
+      { id: 'check', label: '看状态', args: () => ['--check'] },
+      { id: 'apply', label: '装上', danger: 'write', args: () => ['--apply'] },
+      {
+        id: 'mode', label: '改模式', danger: 'write',
+        inputs: [{
+          key: 'mode', label: '模式', kind: 'select', def: 'enforce',
+          options: [{ v: 'shadow', t: 'shadow（只记不注入）' }, { v: 'enforce', t: 'enforce（真注入）' }],
+        }],
+        args: (v) => ['--mode', v.mode === 'shadow' ? 'shadow' : 'enforce'],
       },
       { id: 'off', label: '摘掉', danger: 'write', args: () => ['--off'] },
     ],
@@ -299,10 +340,27 @@ const FEATURES = [
     actions: [{ id: 'run', label: '跑全套', args: () => [] }],
   },
   {
+    id: 'undef-check', group: 'guard', name: '未定义检查（no-undef）',
+    plain: '用 ESLint 的 no-undef 扫全仓：引用不存在的变量 / 函数（node --check 看不见的那类，比如换会话回滚的 body0）。',
+    why: '2026-11-16 换会话回滚抛 ReferenceError 才补的：语法检查过了，作用域越界照样炸；后来全仓扫出 6 类 7 处。',
+    script: '工具\\未定义检查.mjs', timeout: 180000,
+    actions: [{ id: 'run', label: '扫一遍', args: () => [] }],
+  },
+  {
     id: 'env-selftest', group: 'guard', name: '环境自检',
     plain: '开机前那套环境体检：引擎在不在、端口通不通、场景与会话对不对得上。',
     script: '外壳\\scripts\\自检.mjs', timeout: 120000,
     actions: [{ id: 'run', label: '跑一遍', args: () => [] }],
+  },
+  {
+    id: 'patrol', group: 'guard', name: '自动巡检（一次跑完）',
+    plain: '把 自检 / sessions / check-gui / 记忆体检 / 看门狗 收成一条只读巡检，结果落 外壳\\data\\巡检.json，只把有问题的项说清楚。',
+    why: '原来全靠人记得手动跑，红线（面板指到已归档会话）能挂好几天；现在引擎就绪 60 秒后每天最多自动跑一次，这里给手动补跑入口。',
+    script: '工具\\自动巡检.mjs', timeout: 300000,
+    actions: [
+      { id: 'run', label: '跑一遍', args: () => [] },
+      { id: 'json', label: '跑（机器读）', args: () => ['--json'] },
+    ],
   },
   {
     id: 'engine-after', group: 'guard', name: '引擎升级后接线核对',
@@ -406,6 +464,16 @@ const FEATURES = [
       },
     ],
   },
+  {
+    id: 'outbound-selftest', group: 'guard', name: '外发闸门自检',
+    plain: '跑 25 条行为用例 + 4 条代理用例：内网 / 公网 IP、路径、密钥、手机号、身份证、全角、零宽拆字、正常聊天；有漏退出码 1。',
+    why: '判定本体在 外壳\\外发闸门.js（工具\\外发闸门.mjs 只是命令行壳）；改了规则先跑它，再让她往外说话。',
+    script: '工具\\外发闸门.mjs', timeout: 180000,
+    actions: [
+      { id: 'selftest', label: '跑用例', args: () => ['--自检'] },
+      { id: 'status', label: '看闸门状态', args: () => ['--状态'] },
+    ],
+  },
 
   // ── 协作与通道 ────────────────────────────────────────────────────────
   {
@@ -469,6 +537,57 @@ const FEATURES = [
     ],
   },
 
+  // ── 自动维护（2026-11-20）─────────────────────────────────────────────
+  {
+    id: 'auto-maint', group: 'auto', name: '自动维护（后台六件事）',
+    plain: '自动换会话 / 记忆整理 / 巡检 / 退出清缓存 / 孤儿 staging / 崩溃回滚：开关、阈值、上次与下次、巡检失败项、清缓存最近结果都在这里。',
+    why: '原来默认全开、只能改 JSON 或看日志：关不掉，也看不到上次跑没跑、下次什么时候。',
+    script: '工具\\自动维护.mjs', timeout: 600000, statusArgs: ['status', '--json'],
+    actions: [
+      { id: 'status', label: '看状态（含上次 / 下次）', args: () => ['status'] },
+      {
+        id: 'rotate', label: '改自动换会话', danger: 'write',
+        inputs: [
+          { key: 'enabled', label: '开关', kind: 'select', def: 'keep', options: [{ v: 'keep', t: '不变（保持当前）' }, { v: 'on', t: '开' }, { v: 'off', t: '关' }] },
+          { key: 'threshold', label: '压力阈值 %', kind: 'number', def: '', hint: '留空 = 保持当前；50–100，越高越晚换' },
+          { key: 'turns', label: '最少轮数', kind: 'number', def: '', hint: '留空 = 保持当前；≥1，太少会刚开就换' },
+          { key: 'idle', label: '空闲分钟', kind: 'number', def: '', hint: '留空 = 保持当前；正在用就不打扰' },
+          { key: 'cooldown', label: '冷却分钟', kind: 'number', def: '', hint: '留空 = 保持当前；同一面板两次之间' },
+        ],
+        args: (v) => ['set', '--rotate', v.enabled || 'keep', '--threshold', v.threshold || '', '--turns', v.turns || '', '--idle', v.idle || '', '--cooldown', v.cooldown || ''],
+      },
+      {
+        id: 'toggle', label: '开关某一项', danger: 'write',
+        inputs: [
+          {
+            key: 'key', label: '哪一项', kind: 'select', def: 'tidy',
+            options: [
+              { v: 'tidy', t: '自动记忆整理（每周搬归档）' },
+              { v: 'inspect', t: '自动巡检（开机 60 秒后）' },
+              { v: 'cache', t: '退出后清缓存' },
+              { v: 'staging', t: '启动清孤儿 staging' },
+              { v: 'rollback', t: '崩溃自动回滚引擎配置' },
+            ],
+          },
+          { key: 'enabled', label: '开关', kind: 'select', def: 'on', options: [{ v: 'on', t: '开' }, { v: 'off', t: '关' }] },
+        ],
+        args: (v) => ['set', '--' + v.key, v.enabled],
+      },
+      {
+        id: 'limits', label: '改周期 / 阈值', danger: 'write',
+        inputs: [
+          { key: 'days', label: '记忆整理周期（天）', kind: 'number', def: '', hint: '留空 = 保持当前；1–30' },
+          { key: 'hours', label: '巡检周期（小时）', kind: 'number', def: '', hint: '留空 = 保持当前；1–168' },
+          { key: 'mb', label: '清缓存阈值（MB）', kind: 'number', def: '', hint: '留空 = 保持当前；100–10000，退壳后才真删' },
+        ],
+        args: (v) => ['set', '--tidy-days', v.days || '', '--inspect-hours', v.hours || '', '--cache-mb', v.mb || ''],
+      },
+      { id: 'tidy', label: '立即整理记忆（会搬归档）', danger: 'destructive', args: () => ['run', '--tidy'] },
+      { id: 'inspect', label: '立即巡检', args: () => ['run', '--inspect'] },
+    ],
+    next: [{ id: 'cache-clean' }],
+  },
+
   {
     id: 'package-build', group: 'guard', name: '打发布包',
     plain: '把工作台层打成可分发 zip（默认不带引擎）；内置自检不过就不出包。',
@@ -494,7 +613,144 @@ const FEATURES = [
   },
 ];
 
-// 2b. 配置模型（2026-11-18）：每项都要有配置位，允许为空，但空必须写清为什么。
+// 2a. 自动登记（2026-11-19）：新脚本不用每次手改下面那张表。
+//     ① 脚本头部写一行 `// @功能台 {...}` → 自动并入目录（默认只有只读「跑一遍」，复杂按钮仍手写）；
+//     ② 没声明也没手写的脚本 → 进「未登记」清单；管理总览里可一键收进 外壳\data\功能台自动.json（本机、不入库）。
+//     ⛔ 自动条目不带参数：声明只认 name / id / group / freq / plain / why / label / timeout / statusArgs，
+//        脚本路径由文件本身决定（不让声明指定别的脚本，防越权）。
+const AUTO_TAG = /^\s*\/\/\s*@功能台\s+(\{[^\n]*\})\s*$/;
+const AUTO_DIRS = [path.join(ROOT, '工具'), path.join(SHELL, 'scripts')];
+const ADOPT_FILE = path.join(CFG_DIR, '功能台自动.json');
+// 内部模块 / 已有面板入口 / 后台定时活：不登记也不算漏，未登记清单里标出来，不催人收进
+const INTERNAL = [
+  '环境.mjs', '引擎token.mjs', '派发-公共.mjs', '_共用-场景记忆.mjs',
+  '派发.mjs', '回执.mjs', '等回执.mjs', '看门狗.mjs', '交接并换会话.mjs',
+  '同步桥接路由.mjs', '消息流.mjs', '自动记忆整理.mjs',
+  // 壳维护 / 面板按钮 / 调试用：入口在顶栏或场景里，不重复占功能台
+  'check-gui.mjs', '备份清单.mjs', 'restore-gui.mjs', 'backup-gui.mjs', '接入项目.mjs',
+  '换会话.mjs', '建会话.mjs', '归档会话.mjs', '项目切换自检.mjs', '环境适配.mjs',
+  '图标库.mjs', 'pc-scan.mjs', '刷新面板.mjs',
+  // 要 key / 会写文件的功能：自动收进只能跑「空跑一遍」，要进就得手写（danger=write + 输入项）
+  '表情包生成.mjs',
+];
+
+function scanFiles() {
+  const out = [];
+  AUTO_DIRS.forEach((dir) => {
+    let ds = [];
+    try { ds = fs.readdirSync(dir, { withFileTypes: true }); }
+    catch (e) { if (e && e.code !== 'ENOENT') console.warn('[功能台] 自动登记扫描失败', dir, e.message); return; }
+    ds.forEach((d) => {
+      if (!d.isFile() || d.name.slice(-4) !== '.mjs' || d.name.charAt(0) === '_') return;
+      out.push(path.join(dir, d.name));
+    });
+  });
+  return out;
+}
+const relOf = (p) => path.relative(ROOT, p).replace(/\//g, '\\');
+
+// 只读头部 60 行：声明在文件最上面的注释块里，不扫正文（正文里的字符串不算）
+function declaredOf(file) {
+  let head = '';
+  try { head = fs.readFileSync(file, 'utf8').split(/\r?\n/).slice(0, 60).join('\n'); }
+  catch (e) { return null; }
+  const line = head.split(/\r?\n/).filter((l) => AUTO_TAG.test(l))[0];
+  if (!line) return null;
+  const m = line.match(AUTO_TAG);
+  try {
+    const d = JSON.parse(m[1]);
+    return (d && typeof d === 'object') ? d : { bad: '@功能台 声明不是对象' };
+  } catch (e) { return { bad: '@功能台 声明 JSON 写坏了：' + e.message }; }
+}
+// 自动条目的 id 只留安全字符：`.` 必须去掉，否则运行键「id.action」会被点号拆错
+const slugOf = (s) => String(s).replace(/\s+/g, '').replace(/[\\/:*?"<>|.]/g, '-');
+function autoFeature(file, d) {
+  const rel = relOf(file);
+  const base = path.basename(file, '.mjs');
+  const group = GROUPS.some((g) => g.id === d.group) ? d.group : 'guard';
+  const freq = (d.freq === 'daily' || d.freq === 'weekly' || d.freq === 'rare') ? d.freq : 'rare';
+  const timeout = Math.min(Math.max(Number(d.timeout) || 120000, 10000), 900000);
+  return {
+    id: 'auto-' + slugOf(d.id || base),
+    group: group,
+    name: String(d.name || base).slice(0, 40),
+    plain: String(d.plain || (base + '（脚本自己声明，只读跑一遍）')).slice(0, 400),
+    why: d.why ? String(d.why).slice(0, 400) : '',
+    script: rel, timeout: timeout,
+    statusArgs: Array.isArray(d.statusArgs) ? d.statusArgs.map(String).slice(0, 4) : null,
+    freq: freq,
+    actions: [{ id: 'run', label: String(d.label || '跑一遍').slice(0, 20), danger: 'read', args: () => [] }],
+  };
+}
+function readAdopted() {
+  try {
+    const o = JSON.parse(fs.readFileSync(ADOPT_FILE, 'utf8'));
+    return { items: (o && Array.isArray(o.items)) ? o.items.filter((x) => x && typeof x.script === 'string') : [] };
+  } catch (e) { return { items: [] }; }
+}
+function writeAdopted(o) {
+  fs.mkdirSync(CFG_DIR, { recursive: true });
+  const tmp = ADOPT_FILE + '.tmp';
+  fs.writeFileSync(tmp, JSON.stringify({ items: o.items || [] }, null, 1), 'utf8');
+  fs.renameSync(tmp, ADOPT_FILE);
+}
+
+// 2b. 清单重建：手写优先，其次脚本声明，最后一键收进；id / 脚本都不许重
+let FEATURES = BASE_FEATURES.slice();
+function reloadFeatures() {
+  const usedScript = new Set(BASE_FEATURES.map((f) => f.script));
+  const usedId = new Set(BASE_FEATURES.map((f) => f.id));
+  const out = BASE_FEATURES.slice();
+  const add = (f) => {
+    if (!f || usedScript.has(f.script) || usedId.has(f.id)) return false;
+    usedScript.add(f.script); usedId.add(f.id); out.push(f); return true;
+  };
+  scanFiles().forEach((file) => {
+    const rel = relOf(file);
+    if (usedScript.has(rel)) return;
+    const d = declaredOf(file);
+    if (!d || d.bad) return;
+    add(autoFeature(file, d));
+  });
+  readAdopted().items.forEach((it) => {
+    const rel = String(it.script);
+    if (!/^(工具|外壳\\scripts)\\[^\\]+\.mjs$/.test(rel)) return;
+    if (!fs.existsSync(path.join(ROOT, rel))) return;
+    const base = path.basename(rel, '.mjs');
+    add({
+      id: 'adopt-' + slugOf(base), group: 'guard', name: String(it.name || base).slice(0, 40),
+      plain: '一键收进（脚本没写 @功能台 声明）：只读跑一遍；要按钮 / 参数就照 功能台.js 手写一条。',
+      why: '脚本是新的、登记表还没跟上；先收进目录，别让它在界面上不存在。',
+      script: rel, timeout: 120000, freq: 'rare',
+      actions: [{ id: 'run', label: '跑一遍', args: () => [] }],
+    });
+  });
+  FEATURES = out;
+}
+
+// 2c. 未登记：扫到却没进目录的脚本（声明写坏了也在这里说原因）
+function unregistered() {
+  const used = new Set(FEATURES.map((f) => f.script));
+  const out = [];
+  scanFiles().forEach((file) => {
+    const rel = relOf(file);
+    if (used.has(rel)) return;
+    const d = declaredOf(file);
+    let at = 0, size = 0;
+    try { const st = fs.statSync(file); at = Math.floor(st.mtimeMs / 1000); size = st.size; }
+    catch (e) { if (e && e.code !== 'ENOENT') console.warn('[功能台] 未登记脚本读不到', rel, e.message); }
+    out.push({
+      script: rel,
+      name: (d && !d.bad && d.name) ? String(d.name) : path.basename(file, '.mjs'),
+      reason: (d && d.bad) ? d.bad : '没写 @功能台 声明，也没一键收进',
+      internal: INTERNAL.indexOf(path.basename(file)) >= 0,
+      at: at, size: size,
+    });
+  });
+  return out.sort((a, b) => ((a.internal ? 1 : 0) - (b.internal ? 1 : 0)) || (b.at - a.at));
+}
+
+// 2d. 配置模型（2026-11-18）：每项都要有配置位，允许为空，但空必须写清为什么。
 //     kind: plugin   = 真插件，值从脚本 --status --json 读，写入走对应动作
 //           machine  = 机器层只读（机器配置.json）
 //           external = 配置真源在别处，这里只指路
@@ -529,11 +785,37 @@ const CFG = {
       { key: 'mode', label: '模式', kind: 'select', from: 'mode', options: [{ v: 'shadow', t: 'shadow（只记日志）' }, { v: 'enforce', t: 'enforce（真注入）' }] },
     ],
   },
+  'chat-archive': {
+    kind: 'plugin',
+    source: '引擎数据\\.dsh\\profiles\\web\\cordis.patch.yml + node_modules\\dsh-chat-archive\\index.js',
+    sourceAbs: path.join(DSH, 'profiles', 'web', 'cordis.patch.yml'),
+    action: 'mode',
+    fields: [
+      { key: 'mode', label: '模式', kind: 'select', from: 'mode', options: [{ v: 'shadow', t: 'shadow（只看不查）' }, { v: 'enforce', t: 'enforce（真查真记）' }] },
+    ],
+    fixed: '档案库：引擎数据\\.dsh\\社交档案\\chat-archive.db（面板只读查看；原文不进 git）',
+  },
+  'social-policy': {
+    kind: 'plugin',
+    source: '引擎数据\\.dsh\\profiles\\web\\cordis.patch.yml',
+    sourceAbs: path.join(DSH, 'profiles', 'web', 'cordis.patch.yml'),
+    action: 'mode',
+    fields: [
+      { key: 'mode', label: '模式', kind: 'select', from: 'mode', options: [{ v: 'shadow', t: 'shadow（只记不注入）' }, { v: 'enforce', t: 'enforce（真注入）' }] },
+    ],
+    fixed: '回复策略真源：外壳\\data\\社交回复.json（保存后镜像到 场景记忆\\_共享记忆\\社交回复.json）',
+  },
   'env-selftest': {
     kind: 'machine',
     source: '引擎数据\\.dsh\\机器配置.json',
     sourceAbs: path.join(DSH, '机器配置.json'),
-    note: '机器层只读：换机器 / 换盘符先跑「环境适配」，不要手改端口与路径。',
+    note: '机器层只读展示；端口真源是 机器配置.json 的 ports（改完重启整壳生效），路径 / node 用「环境适配」。',
+  },
+  'auto-maint': {
+    kind: 'external',
+    source: '外壳\\data\\自动换会话.json + 外壳\\data\\自动维护.json',
+    sourceAbs: path.join(SHELL, 'data', '自动维护.json'),
+    note: '真源是这两个本机 JSON；本卡直接改它们，外壳下一次 5 分钟 tick / 下一次定时检查生效（staging 与回滚下次启动生效）。',
   },
   'sync-persona': {
     kind: 'external',
@@ -546,6 +828,12 @@ const CFG = {
     source: '外壳\\data\\pet\\设置.json + 引擎数据\\.dsh\\qq-bridge.config.json',
     sourceAbs: path.join(SHELL, 'data', 'pet', '设置.json'),
     note: '路由 / 主动闸门 / 桥接的设置，在「胡闹的大肥鱼」场景的 ⚙ 里改。',
+  },
+  'outbound-selftest': {
+    kind: 'external',
+    source: '外壳\\data\\安全闸门.json（模式 / 渠道开关 / 规则动作 / 回话）+ 外壳\\data\\安全资产.json（本机资产指纹）',
+    sourceAbs: path.join(SHELL, 'data', '安全闸门.json'),
+    note: '启用 / 关闭与每类规则的动作在「社交」场景的「外发设置」面板里改；这里只跑用例、看状态。',
   },
   'recent-mem': { kind: 'none', noWhy: '按场景一次性生成，没有跨次策略可配' },
   'persona-mem': { kind: 'none', noWhy: '记忆条目按次写入，没有跨次策略可配' },
@@ -570,6 +858,8 @@ const CFG = {
   'engine-snapshot': { kind: 'none', noWhy: '代次按次传入，无持久配置' },
   'cache-clean': { kind: 'none', noWhy: '只统计 / 真删两种一次性动作，无配置' },
   'usage-ledger': { kind: 'none', noWhy: '按次选会话口径，无持久配置' },
+  'undef-check': { kind: 'none', noWhy: '只读扫描；缺 eslint 会退 2（不等于通过），无配置可写' },
+  'patrol': { kind: 'none', noWhy: '只读巡检，无持久配置；结果落 外壳\\data\\巡检.json（清理由巡检自己按天节流）' },
   'send-msg': { kind: 'none', noWhy: '每次发一条，无持久配置' },
   'rename-session': { kind: 'none', noWhy: '每次改一条会话，无持久配置' },
   'package-build': { kind: 'none', noWhy: '输出目录按次传入，无持久配置' },
@@ -596,9 +886,11 @@ const FREQ = {
   'channel-mem': 'daily', 'scene-mem-check': 'daily',
   'publish-check': 'weekly', 'shell-test': 'weekly',
   'mem-recall': 'weekly', 'token-guard': 'weekly', 'token-switch': 'weekly',
+  'chat-archive': 'weekly', 'social-policy': 'weekly', 'undef-check': 'weekly', 'patrol': 'weekly',
   'scene-mem-index': 'weekly', 'mem-tool-check': 'weekly', 'scene-mem-finish': 'weekly',
   'pet-selftest': 'rare', 'render-selftest': 'rare', 'usage-selftest': 'rare',
   'env-selftest': 'rare', 'engine-after': 'rare', 'session-bind': 'rare',
+  'outbound-selftest': 'rare',
   'mem-selftest': 'rare', 'sync-persona': 'rare', 'rename-session': 'rare', 'package-build': 'rare',
 };
 const freqOf = (id) => FREQ[id] || 'weekly';
@@ -611,8 +903,9 @@ const NEXT = {
   'scene-mem-finish': ['scene-mem-maint'],
   'channel-mem': ['scene-mem-finish'],
   'recent-mem': ['scene-mem-check'],
-  'publish-check': ['shell-test', 'package-build'],
-  'shell-test': ['publish-check'],
+  'publish-check': ['shell-test', 'undef-check', 'package-build'],
+  'shell-test': ['undef-check', 'publish-check'],
+  'chat-archive': ['social-policy'],
   'sync-persona': ['pet-runtime'],
   'session-bind': ['env-selftest'],
   'env-selftest': ['session-bind'],
@@ -625,6 +918,10 @@ const ALSO = {
   'scene-mem-check': '顶栏 ⋯ 体检：只读快照；这里是真跑 check',
   'shell-test': '命令行 `npm test` 同效（CI 里跑这条）',
   'usage-selftest': '顶栏「用量」面板自带自检入口',
+  'chat-archive': '社交「通道」的「聊天档案库」按钮：同一份库的只读浏览视图；这里管插件装没装、什么模式',
+  'social-policy': '社交「回复风格」面板：策略内容（语气 / 边界 / 频率）在那边改；这里管插件装没装、什么模式',
+  'outbound-selftest': '社交「外发设置」面板：启用 / 关闭与每类规则的动作在那边改；这里只跑用例',
+  'patrol': '引擎就绪 60 秒后每天最多自动跑一次；这里手动补跑',
 };
 
 // 3b. 症状 → 该点哪张卡。界面上不指望你记 100 项功能，只记 6 条「出什么事点哪个」。
@@ -739,20 +1036,46 @@ function fileRow(label, p, note) {
 }
 function configSources() {
   return [
-    fileRow('cordis.patch.yml', path.join(DSH, 'profiles', 'web', 'cordis.patch.yml'), '插件真源（省 token / 记忆回响）'),
+    fileRow('cordis.patch.yml', path.join(DSH, 'profiles', 'web', 'cordis.patch.yml'), '插件真源（省 token / 记忆回响 / 聊天档案 / 社交策略）'),
     fileRow('profile package.json', path.join(DSH, 'profiles', 'web', 'package.json'), '插件 bundle 清单（守卫）'),
     fileRow('机器配置.json', path.join(DSH, '机器配置.json'), '端口 / node / 路径，只读'),
     fileRow('工具策略.json', POLICY_FILE, '本机策略值；缺文件时用代码默认'),
+    fileRow('功能台自动.json', ADOPT_FILE, '一键收进的脚本（本机、不入库；删一项 = 移出目录）'),
   ];
 }
 
-function configGet() {
-  return { ok: true, cfg: readCfg(), file: CFG_FILE, policy: policy(), policyFile: POLICY_FILE };
+// 配置快照：把「未登记 / 已收进」一起带回去，面板收进后不用再单独问一次
+function configSnap(cfg) {
+  return {
+    ok: true, cfg: cfg || readCfg(), file: CFG_FILE, policy: policy(), policyFile: POLICY_FILE,
+    adoptFile: ADOPT_FILE, adopted: readAdopted().items, unregistered: unregistered(),
+  };
 }
+function configGet() { return configSnap(null); }
+
 function configSet(patch) {
+  reloadFeatures();
   const p = patch || {};
+  // 收进 / 移出：只认白名单目录下的 .mjs，写本机 功能台自动.json；脚本本身一个字不改
+  if (typeof p.adopt === 'string' && p.adopt) {
+    const rel = String(p.adopt).replace(/\//g, '\\');
+    if (!/^(工具|外壳\\scripts)\\[^\\]+\.mjs$/.test(rel)) return Object.assign(configSnap(null), { ok: false, error: '只能收进 工具\\ 或 外壳\\scripts\\ 下的 .mjs：' + rel });
+    if (!fs.existsSync(path.join(ROOT, rel))) return Object.assign(configSnap(null), { ok: false, error: '脚本不在：' + rel });
+    const ad = readAdopted();
+    if (!ad.items.some((x) => x.script === rel)) {
+      const d = declaredOf(path.join(ROOT, rel));
+      ad.items.push({ script: rel, name: (d && !d.bad && d.name) ? String(d.name) : path.basename(rel, '.mjs'), at: Date.now() });
+      writeAdopted(ad);
+    }
+  }
+  if (typeof p.drop === 'string' && p.drop) {
+    const rel = String(p.drop).replace(/\//g, '\\');
+    const ad = readAdopted();
+    const next = ad.items.filter((x) => x.script !== rel);
+    if (next.length !== ad.items.length) writeAdopted({ items: next });
+  }
   const pol = p.policy ? policyApply(p.policy) : null;
-  if (pol && pol.error) return { ok: false, error: pol.error, cfg: readCfg(), policy: policy(), policyFile: POLICY_FILE };
+  if (pol && pol.error) return Object.assign(configSnap(null), { ok: false, error: pol.error });
   const cfg = readCfg();
   if (p.ui && typeof p.ui === 'object') {
     const ui = cfg.ui;
@@ -781,7 +1104,7 @@ function configSet(patch) {
   }
   writeCfg(cfg);
   if (pol && pol.ok) writePolicy(pol.next);
-  return { ok: true, cfg: cfg, file: CFG_FILE, policy: policy(), policyFile: POLICY_FILE };
+  return configSnap(cfg);
 }
 
 // 5a. 子进程用哪个 node（2026-11-18 修「功能台一直读取中」）：
@@ -837,6 +1160,7 @@ function saveLog(id, actionId, text) {
 }
 
 function run(id, actionId, rawInputs) {
+  reloadFeatures();
   const f = featureOf(id), a = actionOf(f, actionId);
   if (!f || !a) return Promise.resolve({ ok: false, error: '没有这个功能 / 动作：' + id + '.' + actionId });
   if (!available(f)) return Promise.resolve({ ok: false, error: '脚本不在了：' + f.script });
@@ -949,10 +1273,11 @@ function kill(id, actionId) {
   });
   return { ok: n > 0, killed: n, msg: n ? ('已发停止信号：' + n + ' 条') : '这条现在没在跑' };
 }
-// 6. 只读探针：三个插件开关的当下状态（--status / --check），60 秒内复用，别每展开一次都跑 dump-config
+// 6. 只读探针：五个插件开关的当下状态（--status / --check），60 秒内复用，别每展开一次都跑 dump-config
 let STATUS_CACHE = { at: 0, data: null };
 let STATUS_JOB = null;                               // 同一时刻多块面板一起开：只起一轮子进程，其余复用它
 function status() {
+  reloadFeatures();
   if (STATUS_CACHE.data && Date.now() - STATUS_CACHE.at < policy().statusCacheSec * 1000) return Promise.resolve(STATUS_CACHE.data);
   if (STATUS_JOB) return STATUS_JOB;
   const launch = nodeSpec();
@@ -1055,6 +1380,7 @@ function recentLogs(n) {
 }
 
 function list() {
+  reloadFeatures();
   const cfg = readCfg();
   const pol = policy();
   const cfgHits = cfg.hits || {};
@@ -1093,11 +1419,13 @@ function list() {
     policy: pol, policyDef: POLICY_DEF, policyFile: POLICY_FILE, configSources: configSources(), machine: machineCfg(), cfgStats: cfgStats,
     stats: { features: FEATURES.length, actions: actions, groups: GROUPS.length, daily: FEATURES.filter((f) => freqOf(f.id) === 'daily').length, rare: FEATURES.filter((f) => freqOf(f.id) === 'rare').length },
     scenes: scenarioList(), memScenes: memSceneList(),
+    unregistered: unregistered(), adopted: readAdopted().items, adoptFile: ADOPT_FILE,
   };
 }
 
 // 5d. 审计：90 天没人点过的卡（防「功能越加越多、界面越来越没人用」）
 function audit(days) {
+  reloadFeatures();
   const cfg = readCfg();
   const seen = cfg.seen || {};
   const d = Number(days) || 90;
@@ -1224,6 +1552,7 @@ function verifyOne(job) {
 
 // 9e. 全量体检：最多两条并行（再多人机都卡）；顺序按登记表，报告按功能归组
 function verify() {
+  reloadFeatures();
   const jobs = [];
   FEATURES.forEach((f) => (f.actions || []).forEach((a) => jobs.push({ f: f, a: a })));
   return new Promise((resolve) => {
@@ -1241,7 +1570,7 @@ function verify() {
   });
 }
 
-module.exports = { list, run, status, kill, audit, verify, configGet, configSet, CFG_FILE, POLICY_FILE };
+module.exports = { list, run, status, kill, audit, verify, configGet, configSet, unregistered, CFG_FILE, POLICY_FILE };
 
 // 命令行自测：node 12-源码照搬\外壳\功能台.js [--json] [--audit 90]
 if (require.main === module) {
