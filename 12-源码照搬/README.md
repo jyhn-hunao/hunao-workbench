@@ -110,7 +110,7 @@ node 外壳\scripts\sessions.mjs --check
 | `npm install` 卡住/报错 | 网络或 Node 版本太低 | 换国内镜像 `npm config set registry https://registry.npmmirror.com`；Node 升到 **24.9+** |
 | 场景标签点开是空的 | 还没给场景建会话 | `node 外壳\scripts\建会话.mjs "命令"`（其它场景同理），再点顶栏 ⟳ |
 | 右侧 AI 面板「未连接」 | 没配模型/账号 | 点右上角「登录」或填 API Key（保存在本地） |
-| 想换端口 | 默认 3083 / 31238 | 改 `外壳\main.js` 顶部 `DSH_PORT` / `SITE_PORT`，两个都改 |
+| 想换端口 | 默认 3083 / 31238 | 改 `引擎数据\.dsh\机器配置.json` 的 `ports`（或设 `DSH_PORT` / `SITE_PORT` 环境变量），改完重启整壳；外壳与脚本读同一份配置 |
 
 ## 打包带走
 
