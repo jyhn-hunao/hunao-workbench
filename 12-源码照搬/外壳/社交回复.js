@@ -23,6 +23,12 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
+// 关系与情绪是独立数据面；缺失时退回「没有这一层」，不阻断任何一条消息。
+let socialState = null;
+try { socialState = require('./社交状态'); } catch (e) {
+  if (process.env.DSH_DEBUG) console.warn('[social-reply] 社交状态模块不可用', e);
+}
+
 const ROOT = path.resolve(__dirname, '..');
 const DATA_DIR = path.join(__dirname, 'data');
 const POLICY_FILE = path.join(DATA_DIR, '社交回复.json');
@@ -287,6 +293,7 @@ function promptFragment(args) {
   const caps = a.capabilities || capabilitiesFor(channel);
   const categories = Array.isArray(a.categories) ? a.categories : [];
   const catText = categoriesText(categories);
+  const plan = a.moodPlan || moodPlanFor({ maxChars: Number(a.maxChars) || 0 });
   const lines = ['【社交回复规范】'];
   lines.push('- 语气：' + String(policy.tone || DEFAULT_POLICY.global.tone));
   lines.push('- 输出：只写要发出去的消息；不要解释系统、工具、标记或本规范。');
@@ -301,7 +308,7 @@ function promptFragment(args) {
   }
 
   const emoji = policy.global.emoji || {};
-  if (emoji.enabled && Number(emoji.chance) > 0) {
+  if (emoji.enabled && Number(emoji.chance) > 0 && plan.emojiFactor > 0) {
     const pct = Math.round(Number(emoji.chance) * 100);
     const max = Math.max(1, Number(emoji.maxPerReply) || 1);
     lines.push('- emoji/颜文字：约 ' + pct + '% 的回复可以带一个与情绪匹配的 emoji；最多 ' + max + ' 个，不要每句都叠。');
@@ -310,7 +317,7 @@ function promptFragment(args) {
   }
 
   const sticker = policy.global.sticker || {};
-  if (capOn(caps.sticker) && sticker.enabled !== false && sticker.chance > 0 && catText) {
+  if (capOn(caps.sticker) && sticker.enabled !== false && sticker.chance > 0 && catText && plan.stickerAllowed !== false) {
     const pct = Math.round(Number(sticker.chance) * 100);
     const max = Math.max(1, Number(sticker.maxPerReply) || 1);
     const builtin = ['开心', '傲娇', '炸毛'].filter((n) => categories.some((c) => normalizeStickerName(typeof c === 'string' ? c : c.name) === n));
@@ -328,10 +335,94 @@ function promptFragment(args) {
     lines.push('- 本通道不支持图片表情包：不要写 [[sticker:...]]，用文字/emoji 表达。');
   } else if (sticker.enabled === false) {
     lines.push('- 本轮不发表情包：不要写 [[sticker:...]]。');
+  } else if (plan.stickerAllowed === false) {
+    lines.push('- 本轮心情不适合发表情包：不要写 [[sticker:...]]。');
   } else {
     lines.push('- 本轮不发表情包：不要写 [[sticker:...]]。');
   }
-  return '\n' + lines.join('\n') + '\n';
+
+  let out = '\n' + lines.join('\n') + '\n';
+  // 关系与情绪卡：只在有数据时追加；读失败就当没有这一层，绝不阻断回复。
+  if (socialState && typeof socialState.relationFragment === 'function') {
+    try {
+      const rel = socialState.relationFragment({
+        channel: channel,
+        chatType: chatType,
+        chatId: String(a.chatId || ''),
+        senderId: String(a.senderId || ''),
+        senderName: String(a.senderName || ''),
+        text: String(a.text || ''),
+        maxChars: Number(a.maxChars) || 0,
+        dshHome: a.dshHome
+      });
+      if (rel) out += rel;
+    } catch (e) {
+      if (process.env.DSH_DEBUG) console.warn('[social-reply] 关系卡生成失败', e);
+    }
+  }
+  return out;
+}
+
+// 情绪联动：把「她现在什么心情」折算成通道能执行的参数。
+// 读不到就当没有这一层，返回中性 plan（系数 1 / 不限长），绝不阻断消息。
+function moodPlanFor(limits) {
+  const l = limits || {};
+  const neutral = {
+    label: '平静', visible: false, intensity: 0,
+    maxChars: Math.max(0, Number(l.maxChars) || 0),
+    maxSentences: Math.max(0, Number(l.maxSentences) || 0),
+    emojiFactor: 1, stickerFactor: 1, stickerAllowed: true,
+    voiceFactor: 1, voiceAllowed: true, groupFactor: 1, cause: ''
+  };
+  if (!socialState || typeof socialState.moodPlan !== 'function') return neutral;
+  try {
+    const rel = socialState.readRelations();
+    const mood = socialState.effectiveMood(socialState.readMood(), rel.config, Date.now());
+    const plan = socialState.moodPlan(mood, rel.config, l);
+    return Object.assign({}, neutral, plan);
+  } catch (e) {
+    if (process.env.DSH_DEBUG) console.warn('[social-reply] moodPlan 失败', e);
+    return neutral;
+  }
+}
+
+// 按 plan 收正文：先按句数截，再按字数截；贴在末尾的 [[sticker:...]] 标记不参与截断。
+function limitReplyText(text, plan, opts) {
+  const o = opts || {};
+  let out = String(text || '').trim();
+  const p = plan || {};
+  const maxChars = Math.max(0, Number(p.maxChars) || 0);
+  const maxSentences = Math.max(0, Number(p.maxSentences) || 0);
+  if ((!maxChars && !maxSentences) || !out) return out;
+
+  const tailMatch = out.match(/\n?\[\[sticker:[\s\S]{1,40}\]\]\s*$/i);
+  const tail = tailMatch ? tailMatch[0] : '';
+  let body = tail ? out.slice(0, out.length - tail.length).trim() : out;
+
+  if (maxSentences > 0) {
+    let seen = 0;
+    let end = -1;
+    for (let i = 0; i < body.length; i += 1) {
+      if ('。！？!?；;\n'.indexOf(body[i]) >= 0) {
+        seen += 1;
+        if (seen >= maxSentences) { end = i + 1; break; }
+      }
+    }
+    if (end > 0) body = body.slice(0, end).trim();
+  }
+  if (maxChars > 0 && body.length > maxChars) body = body.slice(0, maxChars).trim();
+
+  // 只留正文时不能把整条消息截没；至少保留第一个非空字符。
+  if (!body && !tail) body = String(text || '').trim().slice(0, Math.max(1, maxChars || 1));
+  return (body + (tail ? (body ? '\n' : '') + tail : '')).trim();
+}
+
+// 情绪低到 emojiFactor=0 时，把出站正文里的 emoji 真删掉，而不是只在提示词里说。
+function stripEmoji(text) {
+  return String(text || '')
+    .replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE00}-\u{FE0F}\u{200D}]/gu, '')
+    .replace(/[ \t]{2,}/g, ' ')
+    .trim();
 }
 
 // 按通道能力裁掉模型多写的标记。微信保留标记给鲸鲸 finalize；飞书等不支持的直接删。
@@ -348,7 +439,15 @@ function filterReply(text, args) {
   const pending = [];
   const max = Math.max(1, Number(policy.global.sticker && policy.global.sticker.maxPerReply) || 1);
   const stickerChance = Number(policy.global.sticker && policy.global.sticker.chance) || 0;
-  const stickerEnabled = capOn(caps.sticker) && policy.global.sticker.enabled !== false && stickerChance > 0;
+  const plan = a.moodPlan || moodPlanFor({});
+  let stickerEnabled = capOn(caps.sticker) && policy.global.sticker.enabled !== false && stickerChance > 0 && plan.stickerAllowed !== false;
+  let moodSuppress = plan.stickerAllowed === false ? plan.label : '';
+  let emojiSuppress = plan.emojiFactor <= 0 ? plan.label : '';
+  // 0 < 贴纸系数 < 1 时，这一条再随机丢弃；系数 1 不动原概率，>1 不额外加。
+  if (stickerEnabled && plan.stickerFactor > 0 && plan.stickerFactor < 1 && Math.random() >= plan.stickerFactor) {
+    stickerEnabled = false;
+    moodSuppress = plan.label + '概率';
+  }
 
   let out = String(text || '');
   out = out.replace(/\[\[\s*sticker\s*:\s*([^\]\n]{1,40})\s*\]\]/gi, function (whole, name) {
@@ -364,7 +463,9 @@ function filterReply(text, args) {
     return '[[' + 'sticker:' + n + ']]';
   });
   out = out.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
-  return { text: out, stickers: stickers, dropped: dropped, pending: pending };
+  if (plan.emojiFactor <= 0) out = stripEmoji(out);
+  if (a.applyMoodLimit !== false) out = limitReplyText(out, plan);
+  return { text: out, stickers: stickers, dropped: dropped, pending: pending, moodSuppress: moodSuppress, emojiSuppress: emojiSuppress, moodPlan: plan };
 }
 
 // 微信原生随机层跟通用策略对齐：显式 >0 会覆盖 persona.emojiLevel 的默认 30%；
@@ -614,7 +715,9 @@ function recordReply(args) {
     chars: String(a.text || '').length,
     stickers: Array.isArray(a.stickers) ? a.stickers.slice(0, 2) : [],
     pending: Array.isArray(a.pending) ? a.pending.slice(0, 2) : [],
-    dropped: Array.isArray(a.dropped) ? a.dropped.slice(0, 4) : []
+    dropped: Array.isArray(a.dropped) ? a.dropped.slice(0, 4) : [],
+    mood: String(a.mood || ''),
+    moodPlan: a.moodPlan && typeof a.moodPlan === 'object' ? a.moodPlan : null
   };
   try { writeJson(STATUS_FILE, st); } catch (e) {
     if (process.env.DSH_DEBUG) console.warn('[social-reply] write status failed', e);
@@ -636,7 +739,11 @@ function readDshStatus(dshHome) {
     chatType: String(j.chatType || ''),
     chatId: String(j.chatId || ''),
     title: String(j.title || ''),
-    chars: Number(j.chars || 0)
+    chars: Number(j.chars || 0),
+    relationChars: Number(j.relationChars || 0),
+    mood: String(j.mood || ''),
+    stage: String(j.stage || ''),
+    moodPlan: j.moodPlan && typeof j.moodPlan === 'object' ? j.moodPlan : null
   };
 }
 
@@ -663,6 +770,7 @@ function settingsGet(dshHome) {
       .slice(0, 8),
     status: readStatus(),
     dsh: readDshStatus(dshHome),
+    relation: socialState && typeof socialState.summary === 'function' ? socialState.summary() : null,
     paths: {
       policy: POLICY_FILE,
       policyMirror: policyMirrorFile(dshHome),
@@ -701,6 +809,15 @@ function settingsSave(input) {
   return { ok: true, saved: true, policy: saved };
 }
 
+function relationFragment(args) {
+  try {
+    return socialState && typeof socialState.relationFragment === 'function' ? socialState.relationFragment(args || {}) : '';
+  } catch (e) {
+    if (process.env.DSH_DEBUG) console.warn('[social-reply] relationFragment 失败', e);
+    return '';
+  }
+}
+
 module.exports = {
   DEFAULT_POLICY,
   POLICY_FILE,
@@ -714,6 +831,10 @@ module.exports = {
   capabilitiesFor,
   promptFragment,
   filterReply,
+  moodPlanFor,
+  limitReplyText,
+  stripEmoji,
+  relationFragment,
   stickerCatalog,
   applyWechatWhale,
   readSessions,

@@ -19,6 +19,9 @@ const os = require('os')
 const path = require('path')
 const crypto = require('crypto')
 const lib = require('./社交档案库')
+// 关系档案跟着聊天档案走：同步后按消息数/互动天数重算熟悉度；模块缺失时只跳过这一层。
+let socialState = null
+try { socialState = require('./社交状态') } catch (e) { /* 关系层没装，档案照旧 */ }
 
 const DEFAULT_SETTINGS = {
   version: 1,
@@ -51,6 +54,7 @@ function createService(opt) {
   let nameCache = { friends: new Map(), groups: new Map(), at: 0 }
   let listenCache = new Map()
   let running = false
+  let socialStatsAt = 0
   let status = {
     ok: true,
     enabled: true,
@@ -718,6 +722,23 @@ function createService(opt) {
     return db
   }
 
+  // 关系档案的熟悉度只由档案统计折算；这里做 10 分钟节流，避免每次同步都把全库扫一遍。
+  function refreshSocialStats() {
+    if (!socialState || typeof socialState.seedFromArchive !== 'function') return null
+    if (Date.now() - socialStatsAt < 10 * 60 * 1000) return null
+    socialStatsAt = Date.now()
+    try {
+      const r = socialState.seedFromArchive({})
+      log('[social-state] 档案同步 ' + (r.ok
+        ? (r.chats + ' 个聊天 / ' + r.people + ' 人（新增 ' + r.created + '）')
+        : ('跳过：' + r.error)))
+      return r
+    } catch (e) {
+      log('[social-state] 档案同步失败：' + String((e && e.message) || e))
+      return { ok: false, error: String((e && e.message) || e) }
+    }
+  }
+
   async function syncOnce(reason) {
     if (running) return { ok: false, skipped: '正在同步中', status: statusGet() }
     if (!settingsGet().enabled) {
@@ -764,6 +785,7 @@ function createService(opt) {
       status.insertedLast = inserted
       status.pulledLast = pulled
       status.lastNote = (reason || 'manual') + ' · ' + ((Date.now() - t0) / 1000).toFixed(1) + 's'
+      if (!status.lastError) refreshSocialStats()
       return { ok: status.lastError ? false : true, inserted, pulled, accounts, status: statusGet() }
     } catch (e) {
       status.lastError = '同步失败: ' + ((e && e.message) || e)

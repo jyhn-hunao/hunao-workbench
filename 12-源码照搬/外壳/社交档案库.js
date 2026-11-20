@@ -507,6 +507,31 @@ function dailyPage(db, opts) {
   }
 }
 
+// 按发送人聚合（只算「进来」的消息）：关系档案的熟悉度就靠它，避免从正文猜身份。
+// 只读查询，不改表结构；调用方负责把结果折算成熟悉度。
+function senderStats(db, chatKey) {
+  const key = String(chatKey || '')
+  if (!key) return []
+  return db.prepare(`
+    SELECT COALESCE(NULLIF(sender_id,''), sender_name) AS sk,
+      sender_id, sender_name, COUNT(*) AS n,
+      COUNT(DISTINCT day) AS days, MIN(ts) AS first_ts, MAX(ts) AS last_ts
+    FROM messages
+    WHERE chat_key=? AND direction='in'
+    GROUP BY sk
+    ORDER BY n DESC
+    LIMIT 500
+  `).all(key).map((r) => ({
+    senderKey: String(r.sk || ''),
+    senderId: String(r.sender_id || ''),
+    senderName: String(r.sender_name || ''),
+    messages: Number(r.n || 0),
+    days: Number(r.days || 0),
+    firstAt: Number(r.first_ts || 0),
+    lastAt: Number(r.last_ts || 0)
+  }))
+}
+
 function dailyStats(db, day, chatKey) {
   const rows = db.prepare(`
     SELECT chat_key, COUNT(*) AS n, MIN(ts) AS first_ts, MAX(ts) AS last_ts,
@@ -605,6 +630,7 @@ module.exports = {
   quoteLookup,
   dailyPage,
   dailyStats,
+  senderStats,
   listMemories,
   addMemory,
   getStatus,
