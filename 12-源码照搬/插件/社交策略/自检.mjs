@@ -5,6 +5,9 @@ import { _test } from './index.js'
 
 const {
   buildSocialCard,
+  buildSocialCardWithMeta,
+  noteToolDef,
+  registerNoteTool,
   autoEntryOf,
   normalizeChannel,
 } = _test
@@ -59,4 +62,36 @@ assert.equal(bind.account, 'bot-1')
 
 assert.equal(autoEntryOf({ channel: 'feishu', chatId: 'oc_x' }), null)
 
-console.log('✓ 社交策略自检通过：QQ 群聊卡 / 飞书卡 / dsh-im 自动登记字段')
+// 关系卡：没有档案时不能把整张卡弄没；有 social_note 工具定义，参数齐全。
+const emptyGroup = Object.assign({}, qq, { chatId: 'no-people-yet' })
+const built = buildSocialCardWithMeta(emptyGroup, '（现在，路人 说：在吗）')
+assert.match(built.text, /【社交回复规范】/)
+assert.equal(built.relation.people, 0)
+assert.equal(typeof built.relation.chars, 'number')
+const def = noteToolDef()
+assert.equal(def.name, 'social_note')
+assert.deepEqual(def.parameters.required, ['kind', 'reason'])
+assert.ok(def.parameters.properties.kind.enum.includes('好感+'))
+assert.ok(def.parameters.properties.kind.enum.includes('情绪'))
+assert.equal(typeof def.execute, 'function')
+
+// 情绪联动表：数据面能被插件只读调用；烦躁时字更短、贴纸/语音直接关。
+const st = _test.socialStateCore()
+assert.equal(typeof st.moodPlan, 'function')
+const plan = st.moodPlan({ visible: true, label: '烦躁', intensity: 50 }, st.DEFAULT_CONFIG, {})
+assert.equal(plan.maxChars, 18)
+assert.equal(plan.maxSentences, 1)
+assert.equal(plan.stickerAllowed, false)
+assert.equal(plan.voiceAllowed, false)
+assert.equal(plan.groupFactor, 0.6)
+
+// 注册链路：tools.register 收到定义，effect 能拿到 dispose；不启动引擎。
+let registered = null
+const fakeCtx = {
+  tools: { register: (d) => { registered = d; return () => { registered = null } } },
+  effect: () => {}
+}
+registerNoteTool(fakeCtx)
+assert.equal(registered && registered.name, 'social_note')
+
+console.log('✓ 社交策略自检通过：QQ 群聊卡 / 飞书卡 / dsh-im 自动登记字段 / 关系卡空数据降级 / social_note 参数与注册')

@@ -150,6 +150,28 @@ function core() {
   return coreCache
 }
 
+// 关系与情绪的数据面在外壳；插件只读它的只读接口，写操作走 social_note 工具。
+let stateCache
+function socialStateCore() {
+  if (stateCache !== undefined) return stateCache
+  try {
+    const req = createRequire(import.meta.url)
+    const file = path.join(shellRoot(), '社交状态.js')
+    stateCache = fs.existsSync(file) ? req(file) : null
+  } catch {
+    stateCache = null
+  }
+  return stateCache
+}
+
+function serviceOf(ctx, key) {
+  if (typeof ctx.get === 'function') {
+    const registered = ctx.get(key)
+    if (registered !== undefined && registered !== null) return registered
+  }
+  return ctx[key]
+}
+
 function readPolicy() {
   const now = Date.now()
   if (policyCache.data && now - policyCache.at < 5000) return policyCache.data
@@ -261,6 +283,46 @@ function buildSocialCard(entry) {
   }
 
   return '\n' + lines.join('\n') + '\n'
+}
+
+// 关系卡单独追加：只读数据面；读不到就当没有这一层，绝不把整张卡弄没。
+// text 用来让关系层按正文识别当前发言人（微信/QQ 会显式传 senderName，飞书多数只有正文）。
+function buildSocialCardWithMeta(entry, text) {
+  const base = buildSocialCard(entry)
+  const channel = normalizeChannel(entry && entry.channel)
+  const chatType = chatTypeOf(entry)
+  const chatId = String((entry && entry.chatId) || '')
+  const relation = { people: 0, mood: '', chars: 0, stage: '', error: '' }
+  let rel = ''
+  if (channel && chatId) {
+    try {
+      const st = socialStateCore()
+      if (st && typeof st.relationFragment === 'function') {
+        rel = st.relationFragment({
+          channel,
+          chatType,
+          chatId,
+          senderId: String((entry && entry.senderId) || ''),
+          senderName: String((entry && entry.senderName) || ''),
+          text: String(text || '')
+        })
+        if (rel) {
+          relation.chars = rel.length
+          const data = st.readRelations()
+          const chatKey = channel + ':' + (chatType === 'group' ? 'group' : 'private') + ':' + chatId
+          relation.people = Object.values(data.people || {}).filter((p) => p.chatKey === chatKey).length
+          const mood = st.effectiveMood(st.readMood(), data.config, Date.now())
+          relation.mood = mood.visible ? mood.label : ''
+          relation.moodPlan = typeof st.moodPlan === 'function' ? st.moodPlan(mood, data.config, {}) : null
+          const found = st.findPerson(data, chatKey, String((entry && entry.senderId) || (entry && entry.senderName) || ''))
+          relation.stage = found && found.ok ? st.stageOf(found.person, data.config, Date.now()).key : ''
+        }
+      }
+    } catch (e) {
+      relation.error = String((e && e.message) || e).slice(0, 120)
+    }
+  }
+  return { text: base + rel, relation }
 }
 
 // ---------- 社交会话总表 ----------
@@ -490,14 +552,19 @@ function writeStatus(kind, extra) {
     chatType: String(x.chatType || ''),
     chatId: String(x.chatId || ''),
     title: String(x.title || ''),
-    chars: Number(x.chars || 0)
+    chars: Number(x.chars || 0),
+    people: Number(x.people || 0),
+    mood: String(x.mood || ''),
+    relationChars: Number(x.relationChars || 0),
+    stage: String(x.stage || ''),
+    moodPlan: x.moodPlan && typeof x.moodPlan === 'object' ? x.moodPlan : null
   })
 }
 
 // 每轮留一条机器可读记录（2026-11-20）：原来只有 server.log / 最近一次 status，
 // 重启后 status 被 mount 覆盖，面板看不到「到底注入过几轮、哪一轮失败」。
 // 只记渠道 / 会话 / 字节，不记回复正文。
-function noteInject(kind, mode, entry, chars, err) {
+function noteInject(kind, mode, entry, chars, err, relation) {
   try {
     const dir = path.join(dshHome(), 'logs')
     fs.mkdirSync(dir, { recursive: true })
@@ -509,8 +576,14 @@ function noteInject(kind, mode, entry, chars, err) {
       channel: String((entry && entry.channel) || ''),
       chatType: String((entry && entry.chatType) || ''),
       chatId: String((entry && entry.chatId) || ''),
-      chars: Number(chars || 0)
+      chars: Number(chars || 0),
+      relationChars: Number((relation && relation.chars) || 0),
+      people: Number((relation && relation.people) || 0),
+      mood: String((relation && relation.mood) || ''),
+      stage: String((relation && relation.stage) || ''),
+      moodPlan: relation && relation.moodPlan ? relation.moodPlan : null
     }
+    if (relation && relation.error) rec.relationError = String(relation.error).slice(0, 120)
     if (err) rec.err = String((err && err.message) || err).slice(0, 120)
     fs.appendFileSync(path.join(dir, 'social-policy.jsonl'), JSON.stringify(rec) + '\n', 'utf8')
   } catch { /* 记录写不进不影响注入 */ }
@@ -527,12 +600,102 @@ function userText(messages) {
   return parts.join('\n')
 }
 
+// 模型事件工具：只收「确实发生」的关系/情绪事件，分数由外壳折算。
+// 名字对不上不新建幽灵档案；普通闲聊不写，避免把每轮对话都变成打分。
+function noteToolDef() {
+  return {
+    name: 'social_note',
+    description:
+      '记录一次确实发生的关系/情绪事件，只影响你自己的语气和主动度，不改变事实、边界与安全规则。'
+      + '\n只在有明确证据时调用：被夸、被认真感谢、被怼、被敷衍、踩雷、帮上忙、情绪明显变化。'
+      + '\n普通闲聊、玩笑、没有原话证据时不要调用；不要每轮都记。'
+      + '\n你只提事件，分数由外壳限量折算：好感单次 ±1~3、踩雷 -2、严重负向 -10；情绪 ±3~8。'
+      + '\nperson 在群聊必填（用对方名字）；私聊可省。reason 写一句人话，evidence 尽量贴原话。',
+    parameters: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        kind: {
+          type: 'string',
+          enum: ['好感+', '好感-', '踩雷', '严重-', '情绪', '标签', '备注'],
+          description: '事件类型。'
+        },
+        person: { type: 'string', description: '群聊必填：对方名字或 QQ 号；私聊可省。' },
+        delta: { type: 'number', description: '好感事件填 1~3（负向填负数）；情绪事件填 3~8。' },
+        reason: { type: 'string', description: '一句人话原因，例：他记得我上次说的口味。' },
+        evidence: { type: 'string', description: '可选，贴原话或关键片段，方便面板审计。' },
+        mood: {
+          type: 'string',
+          enum: Object.keys({ 平静: 1, 开心: 1, 兴奋: 1, 得意: 1, 低落: 1, 委屈: 1, 烦躁: 1, 疲惫: 1, 心虚: 1 }),
+          description: 'kind=情绪 时填。'
+        },
+        tag: { type: 'string', description: 'kind=标签 时填，例：爱开玩笑。' },
+        text: { type: 'string', description: 'kind=备注 时填。' },
+        noteKind: { type: 'string', description: '备注类型，例：雷点 / 喜好 / 背景。' }
+      },
+      required: ['kind', 'reason']
+    },
+    output: {
+      schema: { type: 'object', additionalProperties: true },
+      render: (_args, value) => [{
+        type: 'text',
+        text: value && value.ok
+          ? ('已记：' + String(value.person || '') + ' ' + String(value.kind || '') +
+            (value.delta ? ' ' + value.delta : '') +
+            (value.affinity !== undefined ? '；当前好感 ' + value.affinity : '') +
+            (value.stage && value.stage.label ? '，档位 ' + value.stage.label : ''))
+          : ('没记：' + String((value && value.error) || '未知错误'))
+      }]
+    },
+    execute: async (args, exec) => {
+      const a = args || {}
+      const st = socialStateCore()
+      if (!st || typeof st.applyNote !== 'function') return { ok: false, error: '社交状态模块不可用（外壳\\社交状态.js 没找到）' }
+      const sid = String((exec && exec.agent && exec.agent.session && exec.agent.session.id) || '')
+      const entry = readSessionMap()[sid]
+      if (!entry || !entry.channel || !entry.chatId) return { ok: false, error: '这个会话没登记成社交会话，先在外壳「社交」里登记' }
+      return st.applyNote({
+        channel: entry.channel,
+        chatType: entry.chatType === 'group' ? 'group' : 'private',
+        chatId: entry.chatId,
+        person: a.person || entry.senderName || '',
+        senderName: entry.senderName || '',
+        senderId: entry.senderId || '',
+        kind: a.kind,
+        delta: a.delta,
+        reason: a.reason,
+        evidence: a.evidence,
+        mood: a.mood,
+        tag: a.tag,
+        text: a.text,
+        noteKind: a.noteKind,
+        source: 'model'
+      })
+    }
+  }
+}
+
+function registerNoteTool(ctx) {
+  const tools = serviceOf(ctx, 'tools')
+  if (!tools || typeof tools.register !== 'function') throw new Error('tools service 不可用')
+  if (!socialStateCore()) throw new Error('社交状态模块不可用')
+  const def = noteToolDef()
+  const dispose = tools.register(def)
+  if (typeof dispose === 'function' && typeof ctx.effect === 'function') {
+    ctx.effect(() => dispose, 'social-policy: ' + def.name)
+  }
+}
+
 export function apply(ctx, config) {
   const mode = (config && config.mode) === 'shadow' ? 'shadow' : 'enforce'
   const turns = new Map()
 
   try { writeStatus('mount', { mode }) } catch { /* 状态写不进不影响注入 */ }
   try { ctx.logger.info('[social-policy] 已挂载 mode=' + mode + '；只对已登记社交会话注入') } catch { /* 引擎 logger 可能不可用 */ }
+  // 工具注册失败只记日志：关系注入仍然可用，只是模型不能主动记事件。
+  try { registerNoteTool(ctx) } catch (e) {
+    try { ctx.logger.warn('[social-policy] social_note 注册失败：' + String((e && e.message) || e)) } catch { /* logger 不可用 */ }
+  }
   try {
     const scan = scanFeishuBindings()
     if (scan.scanned > 0) {
@@ -589,8 +752,9 @@ export function apply(ctx, config) {
       if (!downstream || downstream.kind !== 'enter') return downstream
       const messages = payload && payload.messages
       if (!Array.isArray(messages) || !messages.length) return downstream
+      const incoming = userText(messages)
       // 微信通道已经在 _formatPrompt 里带卡；看到标记就说明这一轮已注入过。
-      if (userText(messages).includes('【社交回复规范】')) return downstream
+      if (incoming.includes('【社交回复规范】')) return downstream
       const sid = sessionIdOf(payload && payload.agent)
       if (!sid) return downstream
       const entry = readSessionMap()[sid]
@@ -600,7 +764,8 @@ export function apply(ctx, config) {
       const turnKey = turn === undefined || turn === null ? '' : sid + '#' + String(turn)
       if (turnKey && turns.has(turnKey)) return downstream
 
-      const text = buildSocialCard(entry)
+      const built = buildSocialCardWithMeta(entry, incoming)
+      const text = built.text
       if (!text) return downstream
       if (mode === 'shadow') {
         if (turnKey) {
@@ -614,9 +779,14 @@ export function apply(ctx, config) {
           chatType: entry.chatType,
           chatId: entry.chatId,
           title: entry.title,
-          chars: text.length
+          chars: text.length,
+          people: built.relation.people,
+          mood: built.relation.mood,
+          relationChars: built.relation.chars,
+          stage: built.relation.stage,
+          moodPlan: built.relation.moodPlan
         })
-        noteInject('shadow', mode, entry, text.length)
+        noteInject('shadow', mode, entry, text.length, null, built.relation)
         try { ctx.logger.info('[social-policy] shadow：本应注入 ' + entry.channel + ' ' + entry.chatType + ' ' + entry.chatId + ' ' + text.length + ' B') } catch { /* logger 不可用 */ }
         return downstream
       }
@@ -638,9 +808,13 @@ export function apply(ctx, config) {
         chatType: entry.chatType,
         chatId: entry.chatId,
         title: entry.title,
-        chars: text.length
+        chars: text.length,
+        people: built.relation.people,
+        mood: built.relation.mood,
+        relationChars: built.relation.chars,
+        stage: built.relation.stage
       })
-      noteInject('inject', mode, entry, text.length)
+      noteInject('inject', mode, entry, text.length, null, built.relation)
       try { ctx.logger.info('[social-policy] 注入 ' + entry.channel + ' ' + entry.chatType + ' ' + entry.chatId + '（' + text.length + ' B）') } catch { /* logger 不可用 */ }
       return { ...downstream, messages: [...downstream.messages, msg] }
     } catch (e) {
@@ -654,6 +828,10 @@ export function apply(ctx, config) {
 export const _test = {
   dshHome,
   buildSocialCard,
+  buildSocialCardWithMeta,
+  socialStateCore,
+  noteToolDef,
+  registerNoteTool,
   autoEntryOf,
   normalizeChannel,
   normalizeSessionMap,
