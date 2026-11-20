@@ -39,6 +39,9 @@ const QQ_CONFIG_FILE = path.join(os.homedir(), '.dsh', 'qq-bridge.config.json');
 const WECHAT_CONFIG_FILE = path.join(DATA_DIR, '微信通道.json');
 const BRIDGE_CONFIG_FILE = path.join(DATA_DIR, '桥接.json');
 const DSH_HOME = process.env.DSH_HOME || process.env.DSH_CUSTOMER_HOME || path.join(ROOT, '引擎数据', '.dsh');
+// 情绪联动：QQ 普通 @ / 私聊的正文也按当前心情收一次；缺失时完全不改原行为。
+let socialReply = null;
+try { socialReply = require('./社交回复'); } catch (e) { /* 没有回复策略层，闸门保持原样 */ }
 
 // ---------- 1. 默认配置与归一化 ----------
 
@@ -680,18 +683,36 @@ function createProxy(opt) {
       }
       let blocked = '';
       let changed = false;
+      let moodPlan = null;
+      try {
+        moodPlan = socialReply && typeof socialReply.moodPlanFor === 'function'
+          ? socialReply.moodPlanFor({})
+          : null;
+      } catch (e) { moodPlan = null; }
       c.texts.forEach(function (t) {
         if (blocked) return;
         const r = check(t, { channel: 'qq', chatType: c.chatType, chatId: c.chatId });
         if (r.verdict === 'block') { blocked = (r.rules && r.rules[0]) || 'TEXT'; return; }
         if (r.verdict === 'redact' && r.text !== t) changed = true;
       });
+      // 只在「纯文字、无附件」时按情绪收紧；多段转发不拆着砍，避免把文件路径/引用截坏。
+      if (moodPlan && c.texts.length === 1 && !c.attachments.length) {
+        const stripped = socialReply.stripEmoji(c.texts[0]);
+        if (stripped !== c.texts[0]) changed = true;
+        const trimmed = socialReply.limitReplyText(stripped, moodPlan);
+        if (trimmed !== c.texts[0]) changed = true;
+      }
       if (blocked) { fail(res, blocked); return; }
       if (!changed) { forward(req, res, raw, function () { afterSendFor(c); }); return; }
-      // 有打码：按段重写后再转发
+      // 有打码 / 情绪收字：按段重写后再转发
       const mapper = function (t) {
         const r = check(t, { channel: 'qq', chatType: c.chatType, chatId: c.chatId });
-        return r.verdict === 'redact' ? r.text : t;
+        let out = r.verdict === 'redact' ? r.text : t;
+        if (moodPlan && c.texts.length === 1 && !c.attachments.length) {
+          if (typeof socialReply.stripEmoji === 'function') out = socialReply.stripEmoji(out);
+          out = socialReply.limitReplyText(out, moodPlan);
+        }
+        return out;
       };
       let next = payload;
       if (payload.params && payload.params.message !== undefined) {

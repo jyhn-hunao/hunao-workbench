@@ -20,6 +20,9 @@ const path = require('path');
 const crypto = require('crypto');
 const https = require('https');
 const { spawn, spawnSync, execFile } = require('child_process');
+// 情绪联动：语音概率也按当前心情收；缺失时退回原概率，不阻断发送。
+let socialReply = null;
+try { socialReply = require('./社交回复'); } catch (e) { /* 没有回复策略层，语音保持原行为 */ }
 
 const SHELL = __dirname;
 const ROOT = path.dirname(SHELL);
@@ -739,19 +742,27 @@ function createService(options) {
   // ctx: { chatType: 'group'|'private', chatId, text, hasAt }
   function shouldVoiceDirect(ctx) {
     if (!config.voiceReply || !ctx || !String(ctx.text || '').trim()) return false;
+    let plan = null;
+    try {
+      plan = socialReply && typeof socialReply.moodPlanFor === 'function' ? socialReply.moodPlanFor({}) : null;
+    } catch (e) { plan = null; }
+    if (plan && plan.voiceAllowed === false) return false;
+    const factor = plan ? Math.max(0, Number(plan.voiceFactor) || 0) : 1;
     if (ctx.chatType === 'group') {
       if (!config.voiceReplyMentions || !ctx.hasAt) return false;
-      return Math.random() < config.voiceReplyMentionsChance;
+      return Math.random() < Math.min(1, config.voiceReplyMentionsChance * factor);
     }
     if (ctx.chatType === 'private') {
       if (!config.voiceReplyPrivate) return false;
-      return Math.random() < config.voiceReplyPrivateChance;
+      return Math.random() < Math.min(1, config.voiceReplyPrivateChance * factor);
     }
     return false;
   }
 
   function noteDirectVoice(ok, info) {
     const p = info && typeof info === 'object' ? info : {};
+    let plan = null;
+    try { plan = socialReply && typeof socialReply.moodPlanFor === 'function' ? socialReply.moodPlanFor({}) : null; } catch (e) { plan = null; }
     directVoiceLast = {
       at: Date.now(),
       ok: !!ok,
@@ -759,7 +770,9 @@ function createService(options) {
       chatId: String(p.chatId || ''),
       provider: String(p.provider || ''),
       bytes: Number(p.bytes) || 0,
-      error: String(p.error || '')
+      error: String(p.error || ''),
+      mood: plan && plan.visible ? plan.label : '',
+      voiceFactor: plan ? plan.voiceFactor : 1
     };
   }
 

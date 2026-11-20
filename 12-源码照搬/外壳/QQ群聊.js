@@ -17,6 +17,9 @@ const path = require('path');
 const crypto = require('crypto');
 const { pathToFileURL } = require('url');
 const socialReply = require('./社交回复');
+// 关系权重：只给「接不接」一个可解释的小系数；缺失时按 1（不改原概率）。
+let socialState = null;
+try { socialState = require('./社交状态'); } catch (e) { /* 关系层没装，群聊照旧 */ }
 
 const DATA_DIR = path.join(__dirname, 'data');
 const CONFIG_FILE = path.join(DATA_DIR, 'QQ群聊.json');
@@ -38,6 +41,8 @@ const DEFAULTS = {
   addressGuard: true,
   maxChars: 70,
   replyTimeoutMs: 90000,
+  // 关系权重：熟人发言更容易接，生人/反感更少接；系数在 社交关系.json 的 groupBias 里逐档可调。
+  relationBias: true,
   // 媒体能力由 QQ能力.js 管；这里只保留旁听链自己的开关，避免两套配置各说各话。
   voiceListen: true
 };
@@ -80,6 +85,7 @@ function normalizeConfig(raw) {
   x.addressGuard = x.addressGuard !== false;
   x.maxChars = clamp(Math.round(Number(x.maxChars) || 70), 20, 300);
   x.replyTimeoutMs = clamp(Math.round(Number(x.replyTimeoutMs) || 90000), 20000, 118000);
+  x.relationBias = x.relationBias !== false;
   x.voiceListen = x.voiceListen !== false;
   return x;
 }
@@ -368,14 +374,39 @@ function createService(options) {
     if (s.lastRandomAt && now - s.lastRandomAt > 60000) s.randomTimes = [];
     if (s.randomTimes.length >= config.maxRepliesPerMinute) return { ok: false, reason: 'rate（每分钟上限）' };
     if (s.cooldownUntil && now < s.cooldownUntil) return { ok: false, reason: 'cooldown' };
+    // 关系权重：把「这个人是谁」折成一个 0.5–1.5 的系数，原概率和上限仍由本配置控制。
+    let bias = 1;
+    let biasStage = '';
+    let moodFactor = 1;
+    let moodLabel = '';
+    try {
+      if (config.relationBias && socialState && typeof socialState.groupBiasInfo === 'function') {
+        const info = socialState.groupBiasInfo({
+          channel: 'qq',
+          chatType: 'group',
+          chatId: id,
+          senderId: rec.senderId || '',
+          senderName: rec.senderName || ''
+        });
+        bias = Number(info && info.bias) || 1;
+        biasStage = info && info.stage ? info.stage.key : 'stranger';
+      }
+    } catch (e) { bias = 1; }
+    // 情绪权重：她此刻不想说话/很兴奋，都会改变接话概率；仍夹在 0–1 内。
+    try {
+      const plan = socialReply.moodPlanFor({ maxChars: config.maxChars });
+      moodFactor = Number(plan && plan.groupFactor) || 1;
+      moodLabel = plan && plan.visible ? plan.label : '';
+    } catch (e) { moodFactor = 1; }
+    const chance = clamp(config.chance * bias * moodFactor, 0, 1);
     const roll = Math.random();
-    if (roll >= config.chance) return { ok: false, reason: 'chance', chance: config.chance, roll: roll };
-    return { ok: true, reason: 'hit', chance: config.chance, roll: roll };
+    if (roll >= chance) return { ok: false, reason: 'chance', chance: chance, bias: bias, stage: biasStage, mood: moodLabel, moodFactor: moodFactor, roll: roll };
+    return { ok: true, reason: 'hit', chance: chance, bias: bias, stage: biasStage, mood: moodLabel, moodFactor: moodFactor, roll: roll };
   }
 
   // 模型允许写 [[sticker:情绪]]：正文剥掉标记，标记单独交给发送层补图。
   // 旧的 cleanReply 继续保留为「只取正文」，测试和别处调用不会因为新增返回值而坏掉。
-  function parseReply(text, marker) {
+  function parseReply(text, marker, plan) {
     let t = String(text || '').replace(marker, '').trim();
     if (!t) return { text: '', sticker: '', pass: false };
     if (/^(?:\[?(?:不接|pass|跳过|沉默)\]?|pass)$/i.test(t)) return { text: '', sticker: '', pass: true };
@@ -391,7 +422,9 @@ function createService(options) {
     t = t.replace(/\[表情:[^\]]+\]/g, '').trim();
     if (/^[（(][^）)]{0,16}[）)]$/.test(t)) return { text: '', sticker: '', pass: true };
     t = t.replace(/\s+/g, ' ');
-    if (t.length > config.maxChars) t = t.slice(0, config.maxChars);
+    // 情绪联动在发送前按同一张表再收一次：emoji=0 先删，再按句数 / 字数截。
+    if (plan && plan.emojiFactor === 0) t = socialReply.stripEmoji(t);
+    t = socialReply.limitReplyText(t, plan || { maxChars: config.maxChars, maxSentences: 2 });
     return { text: t, sticker: sticker, pass: false };
   }
 
@@ -418,10 +451,25 @@ function createService(options) {
     }
   }
 
-  function buildPrompt(groupId, rec, currentId) {
+  function buildPrompt(groupId, rec, currentId, moodPlan) {
     const records = readListenRecords(groupId, 24).filter((r) => r && r.text && (r.msgId || '') !== currentId);
-    const recent = records.slice(-20).map((r) => (r.senderName || '群友') + '：' + String(r.text).slice(0, 240));
+    // 旁听记录和「现在谁说」都优先用关系档案里的称呼（例如「胡闹」），不再叫微信/QQ 原显示名。
+    function shownName(r) {
+      const raw = (r && r.senderName) || '群友';
+      try {
+        if (socialState && typeof socialState.displayNameFor === 'function') {
+          return socialState.displayNameFor({
+            channel: 'qq', chatType: 'group', chatId: groupId,
+            senderId: (r && r.senderId) || '', senderName: raw
+          }) || raw;
+        }
+      } catch (e) { /* 称呼层失败就退回原显示名 */ }
+      return raw;
+    }
+    const recent = records.slice(-20).map((r) => shownName(r) + '：' + String(r.text).slice(0, 240));
+    const speakerName = shownName(rec);
     const policy = socialReply.policyFor('qq', 'group', groupId);
+    const plan = moodPlan || socialReply.moodPlanFor({ maxChars: config.maxChars });
     const ms = mediaSettings();
     const cats = ms.categories || [];
     // 随机接话现在允许带表情包（有图库且开关打开时）；语音由发送层按概率自动合成，
@@ -440,18 +488,23 @@ function createService(options) {
       chatType: 'group',
       chatId: groupId,
       policy: effectivePolicy,
-      capabilities: { sticker: stickerOn, voice: false, image: false },
+      capabilities: { sticker: stickerOn && plan.stickerAllowed !== false, voice: plan.voiceAllowed !== false, image: false },
       categories: cats,
-      dynamicSticker: stickerOn && ms.config.stickerDynamic === true
+      dynamicSticker: stickerOn && ms.config.stickerDynamic === true,
+      moodPlan: plan,
+      maxChars: plan.maxChars || config.maxChars,
+      senderId: rec.senderId || '',
+      senderName: speakerName,
+      text: rec.text || ''
     });
-    const voiceOn = ms.config.voiceReply === true && ms.config.voiceReplyGroups === true && Number(ms.config.voiceReplyChance) > 0;
+    const voiceOn = ms.config.voiceReply === true && ms.config.voiceReplyGroups === true && Number(ms.config.voiceReplyChance) > 0 && plan.voiceAllowed !== false;
     const voiceLine = voiceOn
       ? '\n语音：这条有可能被程序合成为语音发出去；你只写正常正文，不要写 [[voice]] 或解释语音。'
       : '';
     return '（QQ群聊「' + groupName(groupId) + '」· 旁听）\n'
       + (recent.length ? '[最近群聊旁听记录]\n' + recent.join('\n') + '\n' : '')
-      + '（现在，' + (rec.senderName || '群友') + ' 说：' + String(rec.text).slice(0, 500) + '）\n\n'
-      + '[通道] 你在群里旁听。现在如果适合接一句，就只输出要发到群里的那一句话（' + config.maxChars + ' 字内）；'
+      + '（现在，' + speakerName + ' 说：' + String(rec.text).slice(0, 500) + '）\n\n'
+      + '[通道] 你在群里旁听。现在如果适合接一句，就只输出要发到群里的那一句话（' + (plan.maxChars || config.maxChars) + ' 字内）；'
       + '不要 @ 人，不要解释系统或工具，不要写小作文；如果不适合接，只输出「[不接]」。'
       + voiceLine
       + frag;
@@ -465,7 +518,7 @@ function createService(options) {
     return libCache;
   }
 
-  async function callGroupSession(groupId, rec, marker) {
+  async function callGroupSession(groupId, rec, marker, moodPlan) {
     const sid = sessionOf(groupId);
     if (!sid) throw new Error('群还没绑独立 DSH 会话（先在 QQ 路由里接入群号）');
     const token = String(getToken() || '');
@@ -473,7 +526,7 @@ function createService(options) {
     process.env.DSH_TOKEN = token;
     const lib = await dshLib();
     const cookie = await lib.getCookie();
-    await lib.promptSession(sid, buildPrompt(groupId, rec, rec.msgId), cookie);
+    await lib.promptSession(sid, buildPrompt(groupId, rec, rec.msgId, moodPlan), cookie);
     const deadline = Date.now() + config.replyTimeoutMs;
     let file = lib.transcriptOf(sid);
     let lastSize = -1;
@@ -503,9 +556,10 @@ function createService(options) {
     chain = chain.then(async function () {
       const started = Date.now();
       const marker = '〔QQG#' + crypto.randomBytes(4).toString('hex') + '〕';
+      const moodPlan = socialReply.moodPlanFor({ maxChars: config.maxChars, maxSentences: 2 });
       let generated = null;
       try {
-        generated = await callGroupSession(groupId, rec, marker);
+        generated = await callGroupSession(groupId, rec, marker, moodPlan);
       } catch (e) {
         status.counts.errors++;
         status.lastError = '生成失败：' + ((e && e.message) || e);
@@ -513,7 +567,7 @@ function createService(options) {
         appendLog(status.lastError);
         return;
       }
-      const parsed = parseReply(generated && generated.text, marker);
+      const parsed = parseReply(generated && generated.text, marker, moodPlan);
       if (!parsed.text && !parsed.sticker) {
         status.counts.skipped++;
         status.lastReply = { at: Date.now(), groupId: groupId, ok: false, reason: generated && generated.timeout ? 'timeout' : 'empty_or_pass' };
@@ -524,10 +578,11 @@ function createService(options) {
       const ms = mediaSettings();
       let imageFile = '';
       let stickerLabel = '';
-      // 模型可以提议表情，但最终频率仍由界面控制：超过本段概率就丢弃，
-      // 避免模型每次都写标记导致「设置 10% 实际 100%」。
-      if (parsed.sticker && Math.random() >= Number(ms.config.stickerChance)) parsed.sticker = '';
-      if (parsed.sticker && ms.config.stickers === true && Number(ms.config.stickerChance) > 0) {
+      const stickerChance = clamp(Number(ms.config.stickerChance) * Number(moodPlan.stickerFactor || 1), 0, 1);
+      // 模型可以提议表情，但最终频率仍由界面控制：情绪系数再乘一层；
+      // 心情沉重时 plan.stickerAllowed=false，模型写了也会被丢弃。
+      if (parsed.sticker && (moodPlan.stickerAllowed === false || Math.random() >= stickerChance)) parsed.sticker = '';
+      if (parsed.sticker && ms.config.stickers === true && stickerChance > 0) {
         try {
           const sticker = media && typeof media.ensureSticker === 'function'
             ? await media.ensureSticker(parsed.sticker, (rec.text || '').slice(0, 600))
@@ -544,9 +599,10 @@ function createService(options) {
       }
       let voiceFile = '';
       let voiceProvider = '';
-      if (ms.config.voiceReply === true && ms.config.voiceReplyGroups === true && Number(ms.config.voiceReplyChance) > 0) {
+      const voiceChance = clamp(Number(ms.config.voiceReplyChance) * Number(moodPlan.voiceFactor || 1), 0, 1);
+      if (ms.config.voiceReply === true && ms.config.voiceReplyGroups === true && moodPlan.voiceAllowed !== false && voiceChance > 0) {
         const roll = Math.random();
-        if (roll < Number(ms.config.voiceReplyChance)) {
+        if (roll < voiceChance) {
           try {
             const voice = media && typeof media.synthesizeVoice === 'function'
               ? await media.synthesizeVoice(parsed.text)
@@ -582,6 +638,11 @@ function createService(options) {
         status.lastReply = {
           at: s.lastRandomAt, groupId: groupId, ok: true, text: String(sent.text || parsed.text),
           sticker: stickerLabel || '', voice: !!voiceFile, voiceProvider: voiceProvider,
+          mood: moodPlan.visible ? moodPlan.label : '', moodPlan: {
+            maxChars: moodPlan.maxChars, maxSentences: moodPlan.maxSentences,
+            emojiFactor: moodPlan.emojiFactor, stickerFactor: moodPlan.stickerFactor,
+            voiceFactor: moodPlan.voiceFactor, groupFactor: moodPlan.groupFactor
+          },
           mediaError: String(sent.mediaError || ''),
           ms: Date.now() - started, messageId: String(sent.messageId || '')
         };
@@ -589,6 +650,10 @@ function createService(options) {
         appendLog('接话 group=' + groupId + ' len=' + parsed.text.length
           + ' sticker=' + (stickerLabel || '-') + ' voice=' + (voiceFile ? '1' : '0')
           + ' voiceProvider=' + (voiceProvider || '-')
+          + ' mood=' + (moodPlan.visible ? moodPlan.label : '-')
+          + ' maxChars=' + moodPlan.maxChars
+          + ' stickerChance=' + stickerChance.toFixed(2)
+          + ' voiceChance=' + voiceChance.toFixed(2)
           + ' ms=' + (Date.now() - started));
       } catch (e) {
         status.counts.errors++;
@@ -658,7 +723,9 @@ function createService(options) {
       at: now, groupId: groupId, sender: senderName, text: text.slice(0, 80),
       ok: decision.ok, reason: decision.reason,
       chancePct: Math.round((decision.chance || config.chance) * 1000) / 10,
-      roll: decision.roll === null || decision.roll === undefined ? null : Math.round(decision.roll * 1000) / 1000
+      roll: decision.roll === null || decision.roll === undefined ? null : Math.round(decision.roll * 1000) / 1000,
+      relationBias: decision.bias, relationStage: decision.stage,
+      mood: decision.mood || '', moodFactor: decision.moodFactor
     };
     writeStatus();
     if (!decision.ok) {

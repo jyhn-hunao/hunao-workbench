@@ -27,6 +27,9 @@ const crypto = require('crypto');
 const { spawn, spawnSync, execFileSync, execFile } = require('child_process');
 const { pathToFileURL } = require('url');
 const socialReply = require('./社交回复');
+// 称呼层：关系档案里可以给某个人单独设「称呼 / 身份」，通道提示词优先用它，避免把微信原显示名直接叫出口。
+let socialState = null;
+try { socialState = require('./社交状态'); } catch (e) { /* 关系层没装，通道照旧 */ }
 
 const SHELL = __dirname;
 const ROOT = path.dirname(SHELL);
@@ -2026,6 +2029,7 @@ class WechatService {
     view.native.voiceReplyPrivate = vp.exists ? vp.private : !!view.native.voiceReplyPrivate;
     view.native.voiceReplyGroups = vp.exists ? vp.groups : !!view.native.voiceReplyGroups;
     view.native.voiceReplyChance = vp.exists ? vp.probability : Number(view.native.voiceReplyChance) || 0;
+    view.native.voiceMood = this.lastVoiceMood || null;
     view.native.voiceSynth = readVoiceSynth(h.home);
 
     const port = this._kernelPort(cfg, h.home);
@@ -3302,13 +3306,70 @@ class WechatService {
     return { ok: true, label: label, started: true };
   }
 
-  _formatPrompt(p, cfg, max, marker) {
+  // 微信原生语音的主动概率在桥接的 data/voice-send.json 里；这里按当前情绪把 Probability
+  // 临时改成「原概率 × 语音权重」，30 秒后恢复。显式「发语音」仍由桥接优先，不受影响。
+  _applyVoiceMood(home, plan) {
+    const p = plan || {};
+    const factor = Math.max(0, Math.min(2, Number(p.voiceFactor) || 0));
+    try {
+      const vp = readVoicePolicy(home);
+      if (!vp.exists || !vp.enabled) {
+        this.lastVoiceMood = { at: Date.now(), skipped: 'voice-off', factor: factor, mood: p.label || '' };
+        return this.lastVoiceMood;
+      }
+      if (this._voiceBaseProb === undefined || this._voiceBaseProb === null) {
+        if (!vp.probability) {
+          this.lastVoiceMood = { at: Date.now(), skipped: 'voice-off', factor: factor, mood: p.label || '' };
+          return this.lastVoiceMood;
+        }
+        this._voiceBaseProb = Number(vp.probability) || 0;
+      }
+      const base = Number(this._voiceBaseProb);
+      const effective = Math.max(0, Math.min(100, base * factor));
+      if (effective !== Number(vp.probability)) {
+        writeVoicePolicy(home, Object.assign({}, vp, { probability: effective }));
+      }
+      if (this._voiceRestoreTimer) clearTimeout(this._voiceRestoreTimer);
+      this._voiceRestoreTimer = setTimeout(() => {
+        try {
+          const now = readVoicePolicy(home);
+          writeVoicePolicy(home, Object.assign({}, now, { probability: base }));
+        } catch (e) { /* 下次回复会重算 */ }
+        this._voiceBaseProb = null;
+        this._voiceRestoreTimer = null;
+      }, 30000);
+      this.lastVoiceMood = {
+        at: Date.now(), skipped: '', base: base, effective: effective,
+        factor: factor, mood: p.label || '', allowed: p.voiceAllowed !== false
+      };
+      return this.lastVoiceMood;
+    } catch (e) {
+      this.lastVoiceMood = { at: Date.now(), skipped: 'error', error: String((e && e.message) || e), factor: factor };
+      return this.lastVoiceMood;
+    }
+  }
+
+  _formatPrompt(p, cfg, max, marker, moodPlan) {
     const kind = p.chatType === 'group'
       ? '群聊「' + (p.chatTitle || '群聊') + '」'
       : '私聊';
-    const who = p.senderName || '对方';
+    const rawWho = p.senderName || '对方';
+    const who = (socialState && typeof socialState.displayNameFor === 'function'
+      ? socialState.displayNameFor({
+        channel: 'wechat', chatType: p.chatType, chatId: p.chatId,
+        senderId: p.senderId || '', senderName: rawWho
+      })
+      : '') || rawWho;
+    const plan = moodPlan || socialReply.moodPlanFor({ maxChars: max });
     const roster = p.chatType === 'group' && Array.isArray(p.groupMembers) && p.groupMembers.length
-      ? '\n群成员：' + p.groupMembers.slice(0, 30).join('、')
+      ? '\n群成员：' + p.groupMembers.slice(0, 30).map((n) => {
+        var raw = String(n || '');
+        try {
+          return (socialState && typeof socialState.displayNameFor === 'function'
+            ? socialState.displayNameFor({ channel: 'wechat', chatType: 'group', chatId: p.chatId, senderName: raw })
+            : '') || raw;
+        } catch (e) { return raw; }
+      }).join('、')
       : '';
     const nativeCfg = Object.assign({}, NATIVE_DEFAULTS, (cfg && cfg.native) || {});
     const context = [];
@@ -3324,7 +3385,13 @@ class WechatService {
       }).slice(-24);
       if (heard.length) {
         const recent = heard.map((r) => {
-          const who = r.senderName || '群友';
+          const rawWho = r.senderName || '群友';
+          const who = (socialState && typeof socialState.displayNameFor === 'function'
+            ? socialState.displayNameFor({
+              channel: 'wechat', chatType: p.chatType, chatId: p.chatId,
+              senderId: r.senderId || '', senderName: rawWho
+            })
+            : '') || rawWho;
           return who + '：' + String(r.text).slice(0, 300);
         });
         context.push('\n[群聊旁听记录 · 最近 ' + recent.length + ' 条]\n' + recent.join('\n'));
@@ -3354,11 +3421,16 @@ class WechatService {
       policy: socialPolicy,
       capabilities: { sticker: !!nativeCfg.stickers },
       categories: categories,
-      dynamicSticker: dynamicSticker
+      dynamicSticker: dynamicSticker,
+      moodPlan: plan,
+      maxChars: max,
+      senderId: p.senderId || '',
+      senderName: who,
+      text: p.text || ''
     });
     return '（微信' + kind + ' · ' + who + ' 说）\n' + p.text + roster + context.join('') +
       '\n\n[通道] 这是微信真实对话。直接回复对方，只输出要发出去的那条消息；' +
-      '不要解释系统/工具，不要 @ 任何人，控制在 ' + max + ' 字内。' + socialPrompt + '\n' + marker;
+      '不要解释系统/工具，不要 @ 任何人，控制在 ' + (plan.maxChars || max) + ' 字内。' + socialPrompt + '\n' + marker;
   }
 
   _workspaceId() {
@@ -3531,9 +3603,10 @@ class WechatService {
 
   async _reply(p, cfg) {
     const max = this._maxChars(cfg, p.chatType);
+    const moodPlan = socialReply.moodPlanFor({ maxChars: max, maxSentences: 2 });
     const nativeCfg = Object.assign({}, NATIVE_DEFAULTS, (cfg && cfg.native) || {});
     const marker = '〔WX#' + crypto.randomBytes(4).toString('hex') + '〕';
-    const prompt = this._formatPrompt(p, cfg, max, marker);
+    const prompt = this._formatPrompt(p, cfg, max, marker, moodPlan);
     const started = Date.now();
     const r = await this._callSession(cfg, p, prompt, marker, cfg.replyTimeoutMs);
     let text = this._clean(r.text, max);
@@ -3548,7 +3621,8 @@ class WechatService {
       chatId: p.chatId,
       capabilities: { sticker: !!nativeCfg.stickers },
       categories: this._stickerCategories(cfg),
-      dynamicSticker: dynamicSticker
+      dynamicSticker: dynamicSticker,
+      moodPlan: moodPlan
     });
     text = filtered.text;
     const pendingName = dynamicSticker && Array.isArray(filtered.pending) ? filtered.pending[0] : '';
@@ -3597,6 +3671,8 @@ class WechatService {
         }
       }
     }
+    // 闸门替换的固定话术 / 打码正文也要按同一张情绪表收一次，避免 block 后突然变长。
+    text = socialReply.limitReplyText(text, moodPlan);
     if (!text) {
       this.counts.skipped++;
       this._appendLog('reply empty chat=' + shortHash(p.chatId) + ' type=' + p.chatType +
@@ -3607,9 +3683,13 @@ class WechatService {
     this.counts.replied++;
     this.counts.lastAt = Date.now();
     this.counts.lastChat = shortHash(p.chatId);
+    const voiceMood = this._applyVoiceMood(this._home(cfg).home, moodPlan);
     this._touchChatSession(p, r.turn || 0, text.length);
     this._appendLog('reply chat=' + shortHash(p.chatId) + ' type=' + p.chatType +
       ' session=' + String(r.sessionId || '') + ' len=' + text.length +
+      ' mood=' + (moodPlan.visible ? moodPlan.label : '-') +
+      ' maxChars=' + moodPlan.maxChars +
+      ' voice=' + (voiceMood && voiceMood.skipped ? voiceMood.skipped : ((voiceMood ? voiceMood.effective : '?') + '/' + (voiceMood ? voiceMood.base : '?'))) +
       ' ms=' + (Date.now() - started) + ' turn=' + (r.turn || 0) +
       (gated ? ' gate=' + gated.verdict : ''));
     // 观察面：设置页读的是最近一次实际回复，不是「策略写了什么」。
@@ -3621,7 +3701,9 @@ class WechatService {
         text: text,
         stickers: gated && gated.verdict === 'block' ? [] : finalStickers,
         pending: gated && gated.verdict === 'block' ? [] : pending,
-        dropped: filtered.dropped
+        dropped: filtered.dropped,
+        mood: moodPlan.visible ? moodPlan.label : '',
+        moodPlan: moodPlan
       });
     } catch (e) {
       if (process.env.DSH_DEBUG) console.warn('[wechat] record social reply failed', e);
