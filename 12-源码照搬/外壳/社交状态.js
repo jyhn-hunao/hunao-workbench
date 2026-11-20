@@ -7,6 +7,7 @@
 //
 // 两条硬口径：
 //   1. 关系是慢变量（按人，熟悉度 + 好感），情绪是快变量（按她自己，带半衰期）；
+//      三条曲线的参数全在 config.curves：熟悉饱和上升 / 好感慢涨快跌 / 情绪快起慢落。
 //   2. 所有变化都要能追溯：事件带 source / reason / evidence，面板能看到，CLI 能查。
 //
 // 数据（唯一真源在 外壳\data\，镜像给 DSH 插件读）：
@@ -43,14 +44,13 @@ const DEFAULT_MOOD_EFFECTS = {
 
 // 所有默认值都进 config，面板 / CLI 能逐项改；代码里不再散落第二个数字。
 const DEFAULT_CONFIG = {
-  version: 2,
+  version: 3,
   enabled: true,
   inject: true,
   modelNotesEnabled: true,
   // 注入
   groupRosterLimit: 10,
   cardMaxChars: 600,
-  moodVisibleThreshold: 15,
   // 初始值：只给「新建档案」用作起点，之后仍按熟悉度公式 / 好感事件 / 衰减继续变。
   // 60 是用户指定的新人初始值；主人档案由 owner* 单独覆盖，不跟随这个初始值。
   privateAffinity: 60,
@@ -67,9 +67,6 @@ const DEFAULT_CONFIG = {
   // 熟悉度：由档案统计折算，公式完全可见
   familiarityMsgWeight: 0.5,
   familiarityDayWeight: 3,
-  familiarityDecayDays: 60,
-  familiarityDecayStep: 3,
-  familiarityFloor: 10,
   seedMinMessages: 2,
   // 档位阈值：熟悉度到多少算「认识 / 普通朋友 / 熟 / 自己人」；滞回点防止在边界来回跳
   stageKnown: 20,
@@ -79,18 +76,38 @@ const DEFAULT_CONFIG = {
   stageCloseAffinity: 10,
   stageInnerAffinity: 30,
   stageHysteresis: 5,
-  // 好感：只由事件改，带单次 / 单日上限与冷落回落
+  // 好感：只由事件改，带单次 / 单日上限；曲线负责非对称增益与自然回落
   affinityEventMax: 3,
   affinityDailyCap: 6,
   affinitySevereMax: 10,
-  affinityDecayDays: 30,
-  affinityDecayStep: 2,
-  // 情绪
-  moodHalfLife: 90,
-  moodPositiveMax: 60,
-  moodNegativeMax: 70,
-  moodEventMax: 8,
-  moodDailyCap: 20,
+  // 三条曲线：唯一参数块，函数只读这里
+  curves: {
+    familiarity: {
+      gainScale: 40,
+      dailyGainCap: 4,
+      graceDays: 21,
+      decayHalfLifeDays: 120,
+      floor: 20
+    },
+    affinity: {
+      positiveDiminish: 0.5,
+      negativeAmplify: 0.5,
+      graceDays: 14,
+      positiveHalfLifeDays: 180,
+      negativeHalfLifeDays: 240,
+      repairPenaltyHours: 72,
+      repairEfficiency: 0.5
+    },
+    mood: {
+      halfLifeMin: 90,
+      visible: 15,
+      switchMargin: 0.6,
+      positiveMax: 60,
+      negativeMax: 70,
+      eventMax: 8,
+      dailyCap: 20
+    }
+  },
   moodEffects: DEFAULT_MOOD_EFFECTS,
   // 群接话：只做小幅加权，界面能看到每个档位的系数
   groupBiasEnabled: true,
@@ -285,15 +302,48 @@ function nowIso() {
 
 // ---------- 配置 / 数据规范化 ----------
 
+function normalizeCurves(raw) {
+  const src = isObj(raw) ? raw : {}
+  const fam = isObj(src.familiarity) ? src.familiarity : {}
+  const aff = isObj(src.affinity) ? src.affinity : {}
+  const mood = isObj(src.mood) ? src.mood : {}
+  return {
+    familiarity: {
+      gainScale: clamp(fam.gainScale === undefined ? 40 : fam.gainScale, 1, 500),
+      dailyGainCap: clamp(fam.dailyGainCap === undefined ? 4 : fam.dailyGainCap, 0, 50),
+      graceDays: clampInt(fam.graceDays === undefined ? 21 : fam.graceDays, 0, 3650, 21),
+      decayHalfLifeDays: clampInt(fam.decayHalfLifeDays === undefined ? 120 : fam.decayHalfLifeDays, 1, 3650, 120),
+      floor: clamp(fam.floor === undefined ? 20 : fam.floor, 0, 100)
+    },
+    affinity: {
+      positiveDiminish: clamp(aff.positiveDiminish === undefined ? 0.5 : aff.positiveDiminish, 0, 1),
+      negativeAmplify: clamp(aff.negativeAmplify === undefined ? 0.5 : aff.negativeAmplify, 0, 2),
+      graceDays: clampInt(aff.graceDays === undefined ? 14 : aff.graceDays, 0, 3650, 14),
+      positiveHalfLifeDays: clampInt(aff.positiveHalfLifeDays === undefined ? 180 : aff.positiveHalfLifeDays, 1, 3650, 180),
+      negativeHalfLifeDays: clampInt(aff.negativeHalfLifeDays === undefined ? 240 : aff.negativeHalfLifeDays, 1, 3650, 240),
+      repairPenaltyHours: clampInt(aff.repairPenaltyHours === undefined ? 72 : aff.repairPenaltyHours, 0, 720, 72),
+      repairEfficiency: clamp(aff.repairEfficiency === undefined ? 0.5 : aff.repairEfficiency, 0, 1)
+    },
+    mood: {
+      halfLifeMin: clamp(mood.halfLifeMin === undefined ? 90 : mood.halfLifeMin, 5, 1440),
+      visible: clamp(mood.visible === undefined ? 15 : mood.visible, 0, 100),
+      switchMargin: clamp(mood.switchMargin === undefined ? 0.6 : mood.switchMargin, 0, 1),
+      positiveMax: clamp(mood.positiveMax === undefined ? 60 : mood.positiveMax, 0, 100),
+      negativeMax: clamp(mood.negativeMax === undefined ? 70 : mood.negativeMax, 0, 100),
+      eventMax: clamp(mood.eventMax === undefined ? 8 : mood.eventMax, 0, 30),
+      dailyCap: clamp(mood.dailyCap === undefined ? 20 : mood.dailyCap, 0, 200)
+    }
+  }
+}
+
 function normalizeConfig(raw) {
   const c = deepMerge(DEFAULT_CONFIG, raw || {})
-  c.version = 2
+  c.version = 3
   c.enabled = c.enabled !== false
   c.inject = c.inject !== false
   c.modelNotesEnabled = c.modelNotesEnabled !== false
   c.groupRosterLimit = clampInt(c.groupRosterLimit, 1, 30, 10)
   c.cardMaxChars = clampInt(c.cardMaxChars, 120, 1200, 600)
-  c.moodVisibleThreshold = clampInt(c.moodVisibleThreshold, 0, 100, 15)
   c.privateAffinity = clamp(c.privateAffinity, -100, 100)
   c.groupAffinity = clamp(c.groupAffinity, -100, 100)
   c.privateFamiliarity = clamp(c.privateFamiliarity, 0, 100)
@@ -310,9 +360,6 @@ function normalizeConfig(raw) {
   c.ownerAffinity = clamp(c.ownerAffinity, -100, 100)
   c.familiarityMsgWeight = clamp(c.familiarityMsgWeight, 0, 10)
   c.familiarityDayWeight = clamp(c.familiarityDayWeight, 0, 30)
-  c.familiarityDecayDays = clampInt(c.familiarityDecayDays, 1, 3650, 60)
-  c.familiarityDecayStep = clamp(c.familiarityDecayStep, 0, 50)
-  c.familiarityFloor = clamp(c.familiarityFloor, 0, 100)
   c.seedMinMessages = clampInt(c.seedMinMessages, 1, 200, 2)
   c.stageKnown = clampInt(c.stageKnown, 1, 99, 20)
   c.stageFriend = clampInt(c.stageFriend, c.stageKnown + 1, 99, Math.max(40, c.stageKnown + 1))
@@ -321,17 +368,11 @@ function normalizeConfig(raw) {
   c.stageCloseAffinity = clampInt(c.stageCloseAffinity, 0, 100, 10)
   c.stageInnerAffinity = clampInt(c.stageInnerAffinity, c.stageCloseAffinity, 100, Math.max(30, c.stageCloseAffinity))
   c.stageHysteresis = clampInt(c.stageHysteresis, 0, 20, 5)
-  c.familiarityFloor = Math.min(c.familiarityFloor, c.stageKnown)
+  c.curves = normalizeCurves(c.curves)
+  c.curves.familiarity.floor = Math.min(c.curves.familiarity.floor, c.stageKnown)
   c.affinityEventMax = clamp(c.affinityEventMax, 0, 20)
   c.affinityDailyCap = clamp(c.affinityDailyCap, 0, 100)
   c.affinitySevereMax = clamp(c.affinitySevereMax, 0, 100)
-  c.affinityDecayDays = clampInt(c.affinityDecayDays, 1, 3650, 30)
-  c.affinityDecayStep = clamp(c.affinityDecayStep, 0, 50)
-  c.moodHalfLife = clamp(c.moodHalfLife, 5, 1440)
-  c.moodPositiveMax = clamp(c.moodPositiveMax, 0, 100)
-  c.moodNegativeMax = clamp(c.moodNegativeMax, 0, 100)
-  c.moodEventMax = clamp(c.moodEventMax, 0, 30)
-  c.moodDailyCap = clamp(c.moodDailyCap, 0, 200)
   c.moodEffects = normalizeMoodEffects(c.moodEffects)
   c.groupBiasEnabled = c.groupBiasEnabled !== false
   c.groupBiasMin = clamp(c.groupBiasMin, 0, 5)
@@ -340,6 +381,18 @@ function normalizeConfig(raw) {
   for (const s of STAGES) {
     c.groupBias[s.key] = clamp(c.groupBias[s.key] === undefined ? 1 : c.groupBias[s.key], c.groupBiasMin, c.groupBiasMax)
   }
+  // 旧字段只做一次性迁移入口，不再参与计算；写回时清掉，避免两个真源。
+  delete c.familiarityDecayDays
+  delete c.familiarityDecayStep
+  delete c.familiarityFloor
+  delete c.affinityDecayDays
+  delete c.affinityDecayStep
+  delete c.moodHalfLife
+  delete c.moodVisibleThreshold
+  delete c.moodPositiveMax
+  delete c.moodNegativeMax
+  delete c.moodEventMax
+  delete c.moodDailyCap
   return c
 }
 
@@ -403,6 +456,9 @@ function normalizePerson(key, raw, config) {
   const baseAff = numOrNull(p.affinityBase)
   const group = parsed.chatType === 'group'
   const owner = isOwnerProfile(p.name || p.senderName || '', p.senderId || '', config)
+  const stats = normalizeStats(p.stats)
+  const famAt = Number(p.familiarityAt) || stats.lastAt || Number(p.updatedAt) || 0
+  const affAt = Number(p.affinityAt) || stats.lastAt || Number(p.updatedAt) || 0
   return {
     chatKey,
     channel: normalizeChannel(p.channel || parsed.channel),
@@ -421,10 +477,16 @@ function normalizePerson(key, raw, config) {
     },
     tags: Array.isArray(p.tags) ? p.tags.map((t) => cleanText(t, 16)).filter(Boolean).slice(0, 8) : [],
     notes: normalizeNotes(p.notes),
-    stats: normalizeStats(p.stats),
+    stats,
     events: normalizeEvents(p.events),
     lastStage: String(p.lastStage || ''),
     lockUntil: Number(p.lockUntil) || 0,
+    repairUntil: Number(p.repairUntil) || 0,
+    familiarityAt: famAt,
+    affinityAt: affAt,
+    familiarityGainDay: String(p.familiarityGainDay || ''),
+    familiarityGainToday: clamp(p.familiarityGainToday || 0, 0, 100),
+    familiaritySeeded: p.familiaritySeeded === true,
     createdAt: Number(p.createdAt) || Date.now(),
     updatedAt: Number(p.updatedAt) || Date.now()
   }
@@ -433,7 +495,7 @@ function normalizePerson(key, raw, config) {
 function normalizeRelations(raw) {
   const src = isObj(raw) ? raw : {}
   const config = normalizeConfig(src.config)
-  const out = { version: 2, updatedAt: Number(src.updatedAt) || 0, config, people: {}, chats: {} }
+  const out = { version: 3, updatedAt: Number(src.updatedAt) || 0, config, people: {}, chats: {} }
   for (const [key, item] of Object.entries(isObj(src.people) ? src.people : {})) {
     if (!key || !isObj(item)) continue
     out.people[String(key)] = normalizePerson(key, item, config)
@@ -470,7 +532,7 @@ function normalizeMood(raw) {
   const label = MOOD_LABELS[String(m.label || '')] ? String(m.label) : '平静'
   const conf = MOOD_LABELS[label]
   return {
-    version: 2,
+    version: 3,
     updatedAt: Number(src.updatedAt) || 0,
     mood: {
       label,
@@ -490,30 +552,65 @@ function normalizeMood(raw) {
 
 // ---------- 关系 / 情绪的有效值 ----------
 
+function curveOf(config, name) {
+  const c = (config && config.curves) || {}
+  const fallback = (DEFAULT_CONFIG.curves && DEFAULT_CONFIG.curves[name]) || {}
+  return Object.assign({}, fallback, isObj(c[name]) ? c[name] : {})
+}
+
+// 熟悉度曲线：先饱和上升，再 21 天宽限后指数回落，floor 只防掉成生人。
 function effectiveFamiliarity(p, config, now) {
   const manual = p && p.manual ? p.manual.familiarity : null
   if (manual !== null && manual !== undefined) return clamp(manual, 0, 100)
   const base = clamp(p && p.familiarityBase, 0, 100)
-  const last = Number((p && p.stats && p.stats.lastAt) || 0)
-  if (!last) return base
-  const days = (Number(now || Date.now()) - last) / 86400000
-  const periods = Math.floor(days / config.familiarityDecayDays)
-  if (periods <= 0) return base
-  return clamp(base - periods * config.familiarityDecayStep, config.familiarityFloor, 100)
+  const curve = curveOf(config, 'familiarity')
+  const floor = clamp(curve.floor, 0, 100)
+  const last = Number((p && p.familiarityAt) || (p && p.stats && p.stats.lastAt) || 0)
+  if (!last || base <= floor) return base
+  const days = Math.max(0, (Number(now || Date.now()) - last) / 86400000)
+  if (days <= curve.graceDays) return base
+  const remain = base - floor
+  const decayed = floor + remain * Math.pow(2, -(days - curve.graceDays) / Math.max(1, curve.decayHalfLifeDays))
+  return clamp(decayed, floor, 100)
 }
 
+// 好感曲线：自然回落只向 0 走，正负半衰期分开；不穿 0。
 function effectiveAffinity(p, config, now) {
   const manual = p && p.manual ? p.manual.affinity : null
   if (manual !== null && manual !== undefined) return clamp(manual, -100, 100)
   const base = clamp(p && p.affinityBase, -100, 100)
-  const last = Number((p && p.stats && p.stats.lastAt) || 0)
-  if (!last) return base
-  const days = (Number(now || Date.now()) - last) / 86400000
-  const periods = Math.floor(days / config.affinityDecayDays)
-  if (periods <= 0) return base
-  const move = periods * config.affinityDecayStep
-  const sign = base > 0 ? 1 : (base < 0 ? -1 : 0)
-  return clamp(base - sign * Math.min(Math.abs(base), move), -100, 100)
+  const curve = curveOf(config, 'affinity')
+  const last = Number((p && p.affinityAt) || (p && p.stats && p.stats.lastAt) || 0)
+  if (!last || base === 0) return base
+  const days = Math.max(0, (Number(now || Date.now()) - last) / 86400000)
+  if (days <= curve.graceDays) return base
+  const halfLife = base > 0 ? curve.positiveHalfLifeDays : curve.negativeHalfLifeDays
+  const decayed = base * Math.pow(2, -(days - curve.graceDays) / Math.max(1, halfLife))
+  return clamp(decayed, -100, 100)
+}
+
+// 熟悉度单次增量：d = 消息权重×新增消息 + 互动日权重×新增互动日；100 是天花板，越近越难涨。
+function familiarityGain(current, dose, config, room) {
+  const curve = curveOf(config, 'familiarity')
+  const d = Math.max(0, Number(dose) || 0)
+  if (d <= 0) return 0
+  const cap = clamp(curve.dailyGainCap, 0, 50)
+  const roomToday = Math.max(0, Math.min(100, Number(room === undefined ? cap : room)))
+  if (roomToday <= 0) return 0
+  const base = clamp(current, 0, 100)
+  const raw = (100 - base) * (1 - Math.exp(-d / Math.max(1, curve.gainScale)))
+  return clamp(Math.min(raw, roomToday, cap), 0, 100)
+}
+
+// 好感非对称增益：越高越难涨、越高越容易跌；严重负向固定从重。
+function affinityStep(current, delta, config, kind) {
+  const curve = curveOf(config, 'affinity')
+  const d = Number(delta) || 0
+  if (!d) return 0
+  const cur = clamp(current, -100, 100)
+  if (kind === 'severe') return d
+  if (d > 0) return d * (1 - curve.positiveDiminish * Math.max(cur, 0) / 100)
+  return d * (1 + curve.negativeAmplify * Math.max(cur, 0) / 100)
 }
 
 function famThreshold(i, config) {
@@ -566,22 +663,24 @@ function stageOf(p, config, now) {
 }
 
 function moodUntil(mood, config, now) {
+  const curve = curveOf(config, 'mood')
   const base = clamp(mood.baseIntensity, 0, 100)
-  const threshold = Math.max(1, Number(config.moodVisibleThreshold) || 15)
+  const threshold = Math.max(1, Number(curve.visible) || 15)
   if (base <= threshold) return 0
-  const half = clamp(mood.halfLife || config.moodHalfLife, 5, 1440)
+  const half = clamp(mood.halfLife || curve.halfLifeMin, 5, 1440)
   const minutes = half * Math.log2(base / threshold)
   return Number(now || Date.now()) + minutes * 60000
 }
 
 function effectiveMood(mood, config, now) {
+  const curve = curveOf(config, 'mood')
   const m = mood && mood.mood ? mood.mood : {}
-  const half = clamp(m.halfLife || config.moodHalfLife, 5, 1440)
+  const half = clamp(m.halfLife || curve.halfLifeMin, 5, 1440)
   const since = Number(m.since) || 0
   const elapsed = since ? Math.max(0, (Number(now || Date.now()) - since) / 60000) : 0
   const base = clamp(m.baseIntensity, 0, 100)
   const intensity = base > 0 ? base * Math.pow(0.5, elapsed / half) : 0
-  const visible = intensity >= Number(config.moodVisibleThreshold || 15)
+  const visible = intensity >= Number(curve.visible || 15)
   const label = visible && MOOD_LABELS[m.label] ? m.label : '平静'
   const meta = MOOD_LABELS[label] || MOOD_LABELS['平静']
   const until = moodUntil({ baseIntensity: intensity, halfLife: half, label }, config, now)
@@ -599,6 +698,34 @@ function effectiveMood(mood, config, now) {
     remainingMin: until ? Math.max(0, Math.round((until - Number(now || Date.now())) / 60000)) : 0,
     visible
   }
+}
+
+// 未来曲线：只按锚点 + 目标时间算，不跑后台 tick；面板和 CLI 都用同一套。
+function forecastCurves(p, config, now, days) {
+  const pts = Array.isArray(days) && days.length ? days : [0, 1, 7, 30, 90]
+  const at = Number(now || Date.now())
+  return pts.map((d) => {
+    const t = at + Number(d) * 86400000
+    const stage = stageOf(p, config, t)
+    return {
+      days: Number(d),
+      at: t,
+      familiarity: stage.familiarity,
+      affinity: stage.affinity,
+      stage: stage.key,
+      stageLabel: stage.label
+    }
+  })
+}
+
+function forecastMood(moodData, config, now, days) {
+  const pts = Array.isArray(days) && days.length ? days : [0, 1, 7, 30, 90]
+  const at = Number(now || Date.now())
+  return pts.map((d) => {
+    const t = at + Number(d) * 86400000
+    const eff = effectiveMood(moodData, config, t)
+    return { days: Number(d), at: t, label: eff.label, intensity: eff.intensity, visible: eff.visible }
+  })
 }
 
 // 把当前情绪折算成各通道能直接执行的表达参数。
@@ -805,6 +932,12 @@ function createStore(opts) {
         events: [],
         lastStage: '',
         lockUntil: 0,
+        repairUntil: 0,
+        familiarityAt: nowFn(),
+        affinityAt: nowFn(),
+        familiarityGainDay: localDay(nowFn()),
+        familiarityGainToday: 0,
+        familiaritySeeded: false,
         createdAt: nowFn(),
         updatedAt: nowFn()
       }
@@ -891,16 +1024,43 @@ function createStore(opts) {
           if (!p) continue
           if (Object.keys(data.people).length > before) created += 1
           people += 1
-          p.stats.messages = Math.max(Number(p.stats.messages) || 0, row.messages)
-          p.stats.days = Math.max(Number(p.stats.days) || 0, row.days)
+          const now = nowFn()
+          const prevMessages = Number(p.stats.messages) || 0
+          const prevDays = Number(p.stats.days) || 0
+          const newMessages = Math.max(0, Number(row.messages) - prevMessages)
+          const newDays = Math.max(0, Number(row.days) - prevDays)
+          p.stats.messages = Math.max(prevMessages, Number(row.messages) || 0)
+          p.stats.days = Math.max(prevDays, Number(row.days) || 0)
           p.stats.firstAt = row.firstAt || p.stats.firstAt
           p.stats.lastAt = Math.max(Number(p.stats.lastAt) || 0, row.lastAt)
           if (p.manual.familiarity === null) {
-            const formula = Math.min(100, Number(row.messages) * config.familiarityMsgWeight + Number(row.days) * config.familiarityDayWeight)
-            p.familiarityBase = a.hard === true ? formula : Math.max(Number(p.familiarityBase) || 0, formula)
+            // 首次接入档案：用总量快速定一个起点；之后只按「新增消息 / 新增互动日」的增量爬曲线。
+            if (!p.familiaritySeeded) {
+              const formula = Math.min(100, Number(row.messages) * config.familiarityMsgWeight + Number(row.days) * config.familiarityDayWeight)
+              p.familiarityBase = a.hard === true ? formula : Math.max(Number(p.familiarityBase) || 0, formula)
+              p.familiaritySeeded = true
+              p.familiarityAt = now
+            } else if (newMessages > 0 || newDays > 0) {
+              const day = localDay(now)
+              if (p.familiarityGainDay !== day) {
+                p.familiarityGainDay = day
+                p.familiarityGainToday = 0
+              }
+              const current = effectiveFamiliarity(p, config, now)
+              const dose = config.familiarityMsgWeight * newMessages + config.familiarityDayWeight * newDays
+              const room = Math.max(0, config.curves.familiarity.dailyGainCap - p.familiarityGainToday)
+              const gain = familiarityGain(current, dose, config, room)
+              if (gain > 0) {
+                p.familiarityBase = clamp(current + gain, 0, 100)
+                p.familiarityAt = now
+                p.familiarityGainToday = clamp(p.familiarityGainToday + gain, 0, 100)
+                p.events.push({ at: now, kind: '熟悉+', delta: Math.round(gain * 10) / 10, reason: '新增 ' + newMessages + ' 条消息 / ' + newDays + ' 个互动日', evidence: '', source: 'archive', applied: true })
+                p.events = p.events.slice(-30)
+              }
+            }
           }
-          p.lastStage = stageOf(p, config, nowFn()).key
-          p.updatedAt = nowFn()
+          p.lastStage = stageOf(p, config, now).key
+          p.updatedAt = now
         }
       }
     } finally {
@@ -997,17 +1157,36 @@ function createStore(opts) {
 
     if (applied) {
       const day = localDay(now)
-      let used = 0
+      let usedPos = 0
+      let usedNeg = 0
+      const affinityKinds = ['好感+', '好感-', '踩雷', '严重-']
       for (const e of p.events) {
-        if (e.source === 'model' && e.applied !== false && localDay(e.at) === day && e.kind !== '情绪') used += Number(e.delta) || 0
+        if (e.source !== 'model' || e.applied === false || localDay(e.at) !== day) continue
+        if (affinityKinds.indexOf(e.kind) < 0) continue
+        const d = Number(e.delta) || 0
+        if (d > 0) usedPos += d
+        else if (d < 0) usedNeg += -d
       }
+      let step = delta
       if (!severe) {
-        const roomPos = Math.max(0, config.affinityDailyCap - Math.max(0, used))
-        const roomNeg = Math.max(0, config.affinityDailyCap - Math.max(0, -used))
-        delta = delta > 0 ? Math.min(delta, roomPos) : Math.max(delta, -roomNeg)
+        const roomPos = Math.max(0, config.affinityDailyCap - usedPos)
+        const roomNeg = Math.max(0, config.affinityDailyCap - usedNeg)
+        step = step > 0 ? Math.min(step, roomPos) : Math.max(step, -roomNeg)
       }
-      if (delta !== 0) p.affinityBase = clamp(Number(p.affinityBase) + delta, -100, 100)
-      if (severe) p.lockUntil = now + 24 * 3600 * 1000
+      const current = effectiveAffinity(p, config, now)
+      if (step !== 0) {
+        let curveStep = affinityStep(current, step, config, severe ? 'severe' : '')
+        if (curveStep > 0 && p.repairUntil && now < p.repairUntil) curveStep *= config.curves.affinity.repairEfficiency
+        p.affinityBase = clamp(current + curveStep, -100, 100)
+        p.affinityAt = now
+        delta = Math.round(curveStep * 10) / 10
+      } else {
+        delta = 0
+      }
+      if (severe && delta !== 0) {
+        p.lockUntil = now + 24 * 3600 * 1000
+        p.repairUntil = now + config.curves.affinity.repairPenaltyHours * 3600 * 1000
+      }
       if (mine && p.tags.indexOf('雷点') < 0) p.tags.push('雷点')
     }
 
@@ -1040,10 +1219,11 @@ function createStore(opts) {
     }
   }
 
-  // 3. 情绪：先算当前有效强度，再加事件；换 label 有门槛，避免来回跳
+  // 3. 情绪：快起慢落 + 饱和 + 反向抵消；换 label 有门槛，避免来回跳
   function applyMood(args) {
     const a = args || {}
     const config = readRelations().config
+    const curve = curveOf(config, 'mood')
     const data = readMood()
     const now = nowFn()
     const cur = effectiveMood(data, config, now)
@@ -1051,22 +1231,54 @@ function createStore(opts) {
     if (labelWanted && !MOOD_LABELS[labelWanted]) return { ok: false, error: '情绪只认：' + Object.keys(MOOD_LABELS).join(' / ') }
     let delta = Number(a.delta)
     if (!Number.isFinite(delta)) delta = 4
-    delta = clamp(delta, -config.moodEventMax, config.moodEventMax)
+    delta = clamp(delta, -curve.eventMax, curve.eventMax)
 
     const day = localDay(now)
     let used = 0
     for (const e of data.events) {
-      if (e.kind === '情绪' && localDay(e.at) === day) used += Math.abs(Number(e.delta) || 0)
+      // 手动设置不算模型当天的情绪额度；否则面板一设 50，模型当天就再也加不动。
+      if (e.kind === '情绪' && e.source !== 'manual' && localDay(e.at) === day) used += Math.abs(Number(e.delta) || 0)
     }
-    const room = Math.max(0, config.moodDailyCap - used)
+    const room = a.force ? curve.eventMax + curve.dailyCap : Math.max(0, curve.dailyCap - used)
     delta = delta > 0 ? Math.min(delta, room) : Math.max(delta, -room)
-    if (delta === 0 && !a.force) return { ok: false, error: '今天的情绪变化到上限了（config.moodDailyCap）' }
+    if (delta === 0) return { ok: false, error: '今天的情绪变化到上限了（config.curves.mood.dailyCap）' }
 
-    let intensity = clamp(cur.intensity + delta, 0, labelWanted ? (MOOD_LABELS[labelWanted].valence >= 0 ? config.moodPositiveMax : config.moodNegativeMax) : 100)
+    const wantedMeta = labelWanted && labelWanted !== '平静' ? MOOD_LABELS[labelWanted] : null
+    const curValence = cur.label === '平静' ? 0 : Number((MOOD_LABELS[cur.label] || {}).valence || 0)
+    const curSigned = curValence >= 0 ? cur.intensity : -cur.intensity
+    const eventSign = wantedMeta ? (wantedMeta.valence >= 0 ? 1 : -1) : (delta >= 0 ? 1 : -1)
+    const eventMag = Math.abs(delta)
+    const ceiling = eventSign >= 0 ? curve.positiveMax : curve.negativeMax
+    const sameDirection = curSigned === 0 || Math.sign(curSigned) === eventSign
+    let nextSigned = curSigned
+    if (sameDirection) {
+      const roomToCeiling = Math.max(0, ceiling - Math.abs(curSigned))
+      const saturated = ceiling > 0 ? eventMag * (1 - Math.abs(curSigned) / ceiling) : eventMag
+      nextSigned = curSigned + eventSign * Math.min(saturated, roomToCeiling)
+    } else {
+      // 反向事件先抵消当前强度；抵消完再按新方向重起。
+      nextSigned = curSigned + eventSign * eventMag
+    }
+    nextSigned = clamp(nextSigned, -curve.negativeMax, curve.positiveMax)
+    let intensity = Math.abs(nextSigned)
     let label = cur.label
-    if (labelWanted === '平静') { intensity = 0; label = '平静' }
-    else if (labelWanted && (a.force || cur.intensity < 15 || intensity > cur.intensity)) label = labelWanted
+    if (labelWanted === '平静') {
+      intensity = 0
+      label = '平静'
+    } else if (wantedMeta) {
+      const switchByRatio = eventMag >= cur.intensity * curve.switchMargin
+      const flipped = curSigned !== 0 && Math.sign(nextSigned) !== Math.sign(curSigned)
+      if (a.force || cur.intensity < curve.visible || switchByRatio || flipped || cur.label === '平静') label = labelWanted
+    }
+    if (!wantedMeta && intensity < curve.visible) {
+      intensity = 0
+      label = '平静'
+    } else if (!labelWanted && label === '平静') {
+      // 模型只给强度、没给标签时，按方向给一个默认标签，避免出现「平静 30」。
+      label = delta >= 0 ? '开心' : '烦躁'
+    }
     const meta = MOOD_LABELS[label] || MOOD_LABELS['平静']
+    const applied = Math.round((intensity - cur.intensity) * 10) / 10
     data.mood = {
       label,
       baseIntensity: intensity,
@@ -1075,15 +1287,15 @@ function createStore(opts) {
       cause: cleanText(a.cause || a.reason || cur.cause, 160),
       source: String(a.source || 'model').slice(0, 12),
       since: now,
-      until: moodUntil({ baseIntensity: intensity, halfLife: config.moodHalfLife }, config, now),
-      halfLife: config.moodHalfLife
+      until: moodUntil({ baseIntensity: intensity, halfLife: curve.halfLifeMin }, config, now),
+      halfLife: curve.halfLifeMin
     }
-    data.events.push({ at: now, kind: '情绪', delta, reason: cleanText(a.cause || a.reason, 160), evidence: '', source: String(a.source || 'model').slice(0, 12), applied: true })
+    data.events.push({ at: now, kind: '情绪', delta: applied, reason: cleanText(a.cause || a.reason, 160), evidence: '', source: String(a.source || 'model').slice(0, 12), applied: true })
     data.events = data.events.slice(-30)
     writeMood(data)
     const eff = effectiveMood(data, config, now)
-    log('mood', { label: eff.label, intensity: eff.intensity, delta, cause: eff.cause, source: eff.source, chatKey: String(a.chatKey || '') })
-    return { ok: true, mood: eff, delta }
+    log('mood', { label: eff.label, intensity: eff.intensity, delta: applied, cause: eff.cause, source: eff.source, chatKey: String(a.chatKey || '') })
+    return { ok: true, mood: eff, delta: applied }
   }
 
   function setMood(args) {
@@ -1093,8 +1305,10 @@ function createStore(opts) {
     const now = nowFn()
     const label = String(a.label || a.mood || '')
     if (!MOOD_LABELS[label]) return { ok: false, error: '情绪只认：' + Object.keys(MOOD_LABELS).join(' / ') }
-    const intensity = label === '平静' ? 0 : clamp(a.intensity === undefined ? 40 : a.intensity, 0, 100)
+    const curve = curveOf(config, 'mood')
     const meta = MOOD_LABELS[label]
+    const cap = label === '平静' ? 0 : (meta.valence >= 0 ? curve.positiveMax : curve.negativeMax)
+    const intensity = label === '平静' ? 0 : clamp(a.intensity === undefined ? 40 : a.intensity, 0, cap)
     data.mood = {
       label,
       baseIntensity: intensity,
@@ -1103,8 +1317,8 @@ function createStore(opts) {
       cause: cleanText(a.cause || a.reason, 160),
       source: 'manual',
       since: now,
-      until: moodUntil({ baseIntensity: intensity, halfLife: config.moodHalfLife }, config, now),
-      halfLife: config.moodHalfLife
+      until: moodUntil({ baseIntensity: intensity, halfLife: curve.halfLifeMin }, config, now),
+      halfLife: curve.halfLifeMin
     }
     data.events.push({ at: now, kind: '情绪', delta: intensity, reason: '手动设置为 ' + label, evidence: '', source: 'manual', applied: true })
     data.events = data.events.slice(-30)
@@ -1115,13 +1329,15 @@ function createStore(opts) {
 
   function resetMood() {
     const data = readMood()
+    const config = readRelations().config
+    const curve = curveOf(config, 'mood')
     const now = nowFn()
-    data.mood = { label: '平静', baseIntensity: 0, valence: 0, energy: MOOD_LABELS['平静'].energy, cause: '', source: 'manual', since: now, until: 0, halfLife: data.mood.halfLife || 90 }
+    data.mood = { label: '平静', baseIntensity: 0, valence: 0, energy: MOOD_LABELS['平静'].energy, cause: '', source: 'manual', since: now, until: 0, halfLife: curve.halfLifeMin }
     data.events.push({ at: now, kind: '情绪', delta: 0, reason: '手动回平静', evidence: '', source: 'manual', applied: true })
     data.events = data.events.slice(-30)
     writeMood(data)
     log('mood', { label: '平静', intensity: 0, source: 'manual' })
-    return { ok: true, mood: effectiveMood(data, readRelations().config, now) }
+    return { ok: true, mood: effectiveMood(data, config, now) }
   }
 
   // 4. 群接话概率：只给一个可解释的系数，具体概率仍由 QQ群聊 的配置决定
@@ -1276,21 +1492,24 @@ function createStore(opts) {
     const a = args || {}
     const text = relationFragment(a)
     const rel = readRelations()
-    const moodEff = effectiveMood(readMood(), rel.config, nowFn())
+    const now = nowFn()
+    const moodData = readMood()
+    const moodEff = effectiveMood(moodData, rel.config, now)
     const plan = moodPlan(moodEff, rel.config, { maxChars: a.maxChars, maxSentences: a.maxSentences })
     const chatKey = chatKeyOf(a)
     const peopleCount = Object.values(rel.people).filter((p) => p.chatKey === chatKey).length
-    return { ok: true, text, chars: text.length, peopleCount, mood: moodEff, moodPlan: plan, config: rel.config }
+    return { ok: true, text, chars: text.length, peopleCount, mood: moodEff, moodPlan: plan, moodForecast: forecastMood(moodData, rel.config, now), curves: rel.config.curves, config: rel.config }
   }
 
   function inspect() {
     const rel = readRelations()
     const config = rel.config
     const moodData = readMood()
-    const moodEff = effectiveMood(moodData, config, nowFn())
+    const now = nowFn()
+    const moodEff = effectiveMood(moodData, config, now)
     const currentPlan = moodPlan(moodEff, config, {})
     const people = Object.entries(rel.people).map(([key, p]) => {
-      const stage = stageOf(p, config, nowFn())
+      const stage = stageOf(p, config, now)
       return {
         key,
         chatKey: p.chatKey,
@@ -1301,12 +1520,14 @@ function createStore(opts) {
         senderId: p.senderId,
         aliases: p.aliases,
         stage,
+        curves: forecastCurves(p, config, now),
         tags: p.tags,
         notes: p.notes,
         stats: p.stats,
         events: p.events.slice(-5),
         lastStage: p.lastStage,
         lockUntil: p.lockUntil,
+        repairUntil: p.repairUntil,
         manual: p.manual
       }
     }).sort((x, y) => (x.chatKey === y.chatKey ? (y.stage.familiarity - x.stage.familiarity) : x.chatLabel.localeCompare(y.chatLabel)))
@@ -1325,6 +1546,8 @@ function createStore(opts) {
       chats,
       mood: moodEff,
       moodPlan: currentPlan,
+      moodForecast: forecastMood(moodData, config, now),
+      curves: config.curves,
       moodBase: moodData.mood,
       moodEvents: moodData.events.slice(-20).reverse(),
       recentCards: logRows.filter((r) => r.kind === 'card').slice(-10).reverse().map((r) => Object.assign({}, r, {
@@ -1366,8 +1589,15 @@ function createStore(opts) {
     if (a.familiarity !== undefined) p.manual.familiarity = numOrNull(a.familiarity)
     if (a.affinity !== undefined) p.manual.affinity = numOrNull(a.affinity)
     // 初始值层：面板「解锁」只清手动锁；要把底值改成新的初始值，显式传 familiarityBase / affinityBase。
-    if (a.familiarityBase !== undefined) p.familiarityBase = clamp(a.familiarityBase, 0, 100)
-    if (a.affinityBase !== undefined) p.affinityBase = clamp(a.affinityBase, -100, 100)
+    if (a.familiarityBase !== undefined) {
+      p.familiarityBase = clamp(a.familiarityBase, 0, 100)
+      p.familiarityAt = nowFn()
+      p.familiaritySeeded = true
+    }
+    if (a.affinityBase !== undefined) {
+      p.affinityBase = clamp(a.affinityBase, -100, 100)
+      p.affinityAt = nowFn()
+    }
     if (a.tags !== undefined) p.tags = (Array.isArray(a.tags) ? a.tags : String(a.tags || '').split(/[|,，]/)).map((t) => cleanText(t, 16)).filter(Boolean).slice(0, 8)
     if (a.notes !== undefined) p.notes = normalizeNotes(a.notes)
     if (a.note !== undefined) {
@@ -1414,6 +1644,12 @@ function createStore(opts) {
       p.events = []
       p.lastStage = ''
       p.lockUntil = 0
+      p.repairUntil = 0
+      p.familiarityAt = nowFn()
+      p.affinityAt = nowFn()
+      p.familiarityGainDay = localDay(nowFn())
+      p.familiarityGainToday = 0
+      p.familiaritySeeded = true
       p.updatedAt = nowFn()
       log('person-reset', { key, hard: false })
     }
@@ -1496,6 +1732,8 @@ function createStore(opts) {
     moodPlan,
     effectiveFamiliarity,
     effectiveAffinity,
+    forecastCurves,
+    forecastMood,
     log
   }
 }
@@ -1526,6 +1764,11 @@ module.exports = Object.assign(api, {
     effectiveAffinity,
     effectiveMood,
     moodPlan,
+    forecastCurves,
+    forecastMood,
+    familiarityGain,
+    affinityStep,
+    curveOf,
     chatKeyOf,
     personKeyOf,
     FAM_BANDS
