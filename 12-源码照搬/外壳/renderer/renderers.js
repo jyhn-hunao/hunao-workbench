@@ -8041,6 +8041,9 @@ renderers.chan = function (body, meta, head) {
         + (last.text ? ' · ' + String(last.text).slice(0, 80) : '')
         + (last.sticker ? ' · 表情：' + String(last.sticker).slice(0, 24) : '')
         + (last.voice ? ' · 语音' + (last.voiceProvider ? '（' + String(last.voiceProvider).slice(0, 24) + '）' : '') : '')
+        + (last.mood ? ' · 心情：' + String(last.mood) : '')
+        + (last.moodPlan ? ' · 字≤' + Number(last.moodPlan.maxChars || 0) + ' 贴纸×' + Number(last.moodPlan.stickerFactor || 0) + ' 语音×' + Number(last.moodPlan.voiceFactor || 0) + ' 接话×' + Number(last.moodPlan.groupFactor || 0) : '')
+        + (!last.moodPlan && last.moodFactor && last.moodFactor !== 1 ? ' · 接话×' + Number(last.moodFactor) : '')
         + (last.mediaError ? ' · 媒体没发出去：' + String(last.mediaError).slice(0, 80) : '')
         + (last.reason ? ' · ' + String(last.reason).slice(0, 120) : '')
         + (last.at ? ' · ' + hhmm(last.at) : '');
@@ -8341,6 +8344,7 @@ renderers.chan = function (body, meta, head) {
         + (dvLast.chatType ? ' · ' + (dvLast.chatType === 'group' ? '群 ' : '私聊 ') + dvLast.chatId : '')
         + (dvLast.provider ? ' · ' + dvLast.provider : '')
         + (dvLast.bytes ? ' · ' + dvLast.bytes + 'B' : '')
+        + (dvLast.mood ? ' · 心情 ' + dvLast.mood + (dvLast.voiceFactor !== undefined ? ' ×' + Number(dvLast.voiceFactor) : '') : '')
         + (dvLast.error ? ' · ' + dvLast.error : '');
       box.appendChild(dvLine);
     }
@@ -8997,6 +9001,29 @@ renderers.channels = function (body, meta, head) {
       });
     });
     head.appendChild(replyBtn);
+
+    // 关系与情绪：和「回复风格」并列的常驻文字入口。
+    // 为什么必须常驻：好感/情绪是每轮注入的内部状态，藏进齿轮就等于没有；
+    // 打开后能看每个人的熟悉度/好感、她自己心情、规则参数和下一轮注入原文。
+    var relationBtn = document.createElement('button');
+    relationBtn.type = 'button';
+    relationBtn.className = 'ch-hub-toggle';
+    relationBtn.textContent = '关系与情绪';
+    relationBtn.title = '看/改对每个人的熟悉度与好感、她自己当前的情绪、规则参数，以及下一轮模型看到的关系卡';
+    relationBtn.addEventListener('click', function () {
+      if (typeof window.openSocialRelationSettings !== 'function') {
+        toast('关系与情绪还没接上：重启一次工作台（preload / renderer 是旧的）', true);
+        return;
+      }
+      relationBtn.disabled = true;
+      Promise.resolve(window.openSocialRelationSettings()).then(function () {
+        relationBtn.disabled = false;
+      }).catch(function (e) {
+        relationBtn.disabled = false;
+        toast('打开关系与情绪失败：' + String((e && e.message) || e), true);
+      });
+    });
+    head.appendChild(relationBtn);
 
     // 聊天档案库：和「回复风格」并列的常驻文字入口，不藏进 QQ 卡片的齿轮里。
     // 默认只读库概览，不预选聊天、不自动查询；会话分类看「全部消息」，这里看数据库长期保存效果。
