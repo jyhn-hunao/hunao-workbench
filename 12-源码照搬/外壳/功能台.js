@@ -623,7 +623,7 @@ const AUTO_DIRS = [path.join(ROOT, '工具'), path.join(SHELL, 'scripts')];
 const ADOPT_FILE = path.join(CFG_DIR, '功能台自动.json');
 // 内部模块 / 已有面板入口 / 后台定时活：不登记也不算漏，未登记清单里标出来，不催人收进
 const INTERNAL = [
-  '环境.mjs', '引擎token.mjs', '派发-公共.mjs', '_共用-场景记忆.mjs',
+  '环境.mjs', '引擎token.mjs', '派发-公共.mjs', '_共用-场景记忆.mjs', '交接闸门.mjs',
   '派发.mjs', '回执.mjs', '等回执.mjs', '看门狗.mjs', '交接并换会话.mjs',
   '同步桥接路由.mjs', '消息流.mjs', '自动记忆整理.mjs',
   // 壳维护 / 面板按钮 / 调试用：入口在顶栏或场景里，不重复占功能台

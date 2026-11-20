@@ -24,6 +24,8 @@ import { unzstdAll } from '../../工具/派发-公共.mjs';
 // 2026-11-13：端口真源收敛到 工具\环境.mjs（env > 机器配置 > 默认），本文件不再写字面量端口。
 import { port } from '../../工具/环境.mjs';
 import { engineTokens } from '../../工具/引擎token.mjs';
+// 2026-11-20：交接判定收敛到唯一实现（§〇 + 面板交接任一；收据优先，不再靠墙钟猜）
+import { RECEIPT_FLAG, evaluateHandoff } from '../../工具/交接闸门.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PROJECT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -413,6 +415,8 @@ if (rotating && !STRAY) {
   const deferArchive = argv.includes('--defer-archive');
   const valOf = (k) => { const i = argv.indexOf(k); return i > -1 ? String(argv[i + 1] || '') : ''; };
   const handoff = valOf('--handoff');
+  // 2026-11-20：上层（换会话.mjs）刚写完交接时带收据；有收据就按"本次刚写"判定，不看墙钟。
+  const handoffReceipt = argv.includes(RECEIPT_FLAG);
   const scenOverride = valOf('--scenario');
   const adopt = valOf('--adopt');   // 用"工作台自己建的"会话来顶替（绕过 GUI 用 RPC 建的会话会掉进「未分组」）
   const say = (...a) => console.log(...a);
@@ -455,15 +459,19 @@ if (rotating && !STRAY) {
     else if (!title) die('面板没写 sessionTitle —— 轮换靠标题认人，先把标题补上');
     else {
       // ② 交接闸门
+      // 2026-11-20：判定统一走 工具\交接闸门.mjs（唯一实现），不再在这里另写一份 §〇/面板交接的口径。
+      //   生产方（交接并换会话.mjs）刚写完会带 --handoff-fresh 收据；有收据就不看墙钟。
       say('\n交接闸门（硬规矩：交接没写完不许轮换）');
       if (handoff) {
-        const st = fs.existsSync(handoff) ? fs.statSync(handoff) : null;
-        const fresh = !!st && (Date.now() - st.mtimeMs) < 2 * 3600 * 1000;
-        say('  --handoff ' + handoff);
-        say('    ' + (!st ? '✗ 文件不存在'
-          : fresh ? '✓ 2 小时内更新过（' + new Date(st.mtimeMs).toLocaleString('zh-CN') + '）'
-                  : '✗ 最后更新 ' + new Date(st.mtimeMs).toLocaleString('zh-CN') + '，超过 2 小时'));
-        if (!fresh && !force) die('交接文件不新鲜 ⇒ 先把 §〇（进度 / 下一步 / 卡点）写好再轮换；确实要跳过加 --force');
+        const sceneNm = String((hit.sc && (hit.sc.name || hit.sc.id)) || '');
+        const ev = evaluateHandoff(handoff, { dshHome: DSH_HOME, sceneName: sceneNm, panelId: hit.p.id, receipt: handoffReceipt });
+        say('  --handoff ' + handoff + (ev.file && ev.file !== handoff ? '（或面板交接 ' + path.basename(ev.file) + '，任一有效即可）' : ''));
+        say('    ' + (!ev.exists ? '✗ ' + ev.why
+          : ev.ok ? '✓ ' + ev.why + '（' + path.basename(ev.file) + ' ' + new Date(ev.ms).toLocaleString('zh-CN') + '）'
+                  : '✗ ' + ev.why + '（' + path.basename(ev.file) + ' 最后更新 ' + new Date(ev.ms).toLocaleString('zh-CN') + '）'));
+        if (!ev.ok && !force) die(ev.exists
+          ? '交接不新鲜（§〇 与面板交接都超过 2 小时）⇒ 先在面板里点「换会话」让它重新写一份；确实要跳过加 --force'
+          : '交接文件不存在或为空（§〇 与面板交接都没有）⇒ 先在面板里点「换会话」让它自动写交接；确实要跳过加 --force');
       } else if (!force) die('没给 --handoff。交接没写完不许轮换；确认写好了可加 --force 跳过检查。');
       else say('  ⚠ 没给 --handoff 却带了 --force：跳过交接检查（不建议）');
 

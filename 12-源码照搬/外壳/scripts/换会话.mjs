@@ -5,7 +5,9 @@
 //   node "<工作台>\外壳\scripts\换会话.mjs"            列出全部 AI 面板 + 是否到线 + 交接是否够新鲜
 //   node "<工作台>\外壳\scripts\换会话.mjs" site-ai     空跑：打印计划，不动任何东西
 //   node "<工作台>\外壳\scripts\换会话.mjs" site-ai --go   真换（用户只要记到这一条）
-//   可加 --force：交接文件超过 2 小时也照换（会有警告，仍要求文件存在）
+//   可加 --force：交接超过 2 小时也照换（会有警告，仍要求文件存在）
+//   交接判定只有一份实现：工具\交接闸门.mjs。§〇 与 本面板交接（面板交接\<面板id>.md）任一有效即可；
+//   按钮流程写完交接会带 --handoff-fresh 收据，凭收据放行、不再看墙钟（2026-11-20）
 //   默认不写开场消息（2026-11-17）：交接由「记忆回响」插件每轮 pre-step 注入；--seed 恢复旧行为（看到轮次真的开始就取消，最多 3 秒）
 //   零散会话（--stray）例外：没有场景绑定 ⇒ 插件反查不到，默认仍写开场消息（--no-seed 可关）
 //
@@ -48,6 +50,8 @@ const SESSIONS = path.join(here, 'sessions.mjs');
 const ARCHIVE = path.join(here, '归档会话.mjs');
 // 端口真源：唯一实现在 工具\环境.mjs（env > 机器配置 > 默认），脚本里不再写字面量（2026-11-13）
 import { port } from '../../工具/环境.mjs';
+// 2026-11-20：交接判定收敛到唯一实现（§〇 + 面板交接任一；收据优先，不再靠墙钟猜）
+import { RECEIPT_FLAG, evaluateHandoff } from '../../工具/交接闸门.mjs';
 const BASE = process.env.DSH_GUI_BASE || process.env.DSH_WEB_URL || ('http://127.0.0.1:' + port('dsh'));
 
 // 面板 → 交接文件的**非标路径覆盖表**。标准路径由 handoffOf() 按场景名现算，新场景无需登记。
@@ -60,7 +64,7 @@ const HANDOFF = {
   'pc-ai': path.join(DSH_HOME, '场景记忆', '本地电脑', '场景私有记忆.md'),
   'sr-ai': path.join(DSH_HOME, '场景记忆', '自我复盘', '场景私有记忆.md'),
 };
-const FRESH_MS = 2 * 60 * 60 * 1000;      // 与 sessions.mjs 的硬闸门一致：2 小时内改过才算"写好了"
+// FRESH_MS 已移到 工具\交接闸门.mjs（唯一定义，别在这里另写一份）
 
 const argv = process.argv.slice(2);
 const flags = new Set(argv.filter((a) => a.startsWith('--')));
@@ -171,7 +175,6 @@ function pressures() {
   }
   return map;
 }
-function fresh(file) { try { return fs.statSync(file).mtimeMs } catch { return 0 } }
 function ago(ms) {
   if (!ms) return '（文件不存在）';
   const m = Math.round((Date.now() - ms) / 60000);
@@ -223,7 +226,7 @@ if (!args.length) {
   for (const { p, scene } of panels()) {
     const st = P[p.sessionId] || null;
     const pct = st ? (st.stale ? st.pct + '%(旧)' : st.pct + '%') : '?';
-    const h = handoffOf(scene, p.id) ? ago(fresh(handoffOf(scene, p.id))) : '（无交接文件）';
+    const h = handoffOf(scene, p.id) ? ago(evaluateHandoff(handoffOf(scene, p.id), { dshHome: DSH_HOME, panelId: p.id }).ms) : '（无交接文件）';
     say('  ' + String(p.id).padEnd(10) + String((p.sessionId || '').replace(/^session-/, '').slice(0, 8)).padEnd(11) +
       String(pct).padStart(11) + '        ' + h + (st && st.turns != null ? '   第' + st.turns + '轮' : ''));
   }
@@ -268,6 +271,9 @@ if (!hit) {
 const handoff = handoffOf(hit.scene, id);
 // 场景目录名（记忆联动要用：换完会话要重盖章、要自检 §〇 指针能否解析）
 const handoffSceneDir = (String(handoff).match(/场景记忆[\\/]([^\\/]+)[\\/]场景私有记忆\.md$/) || [])[1] || '';
+// 2026-11-20：生产方（交接并换会话.mjs）刚写完交接会带收据；有收据就按"本次刚写"判定，不看墙钟。
+const receipt = flags.has(RECEIPT_FLAG);
+const handoffEval = handoff ? evaluateHandoff(handoff, { dshHome: DSH_HOME, panelId: id, receipt }) : null;
 const P = pressures();
 const st = P[hit.p.sessionId] || null;
 
@@ -279,12 +285,19 @@ say('  体积参考：' + (st
     : st.pct + '% · 第' + st.turns + '轮')
   : '读不到'));
 say('  交接文件：' + (handoff || '（场景 json 没有 name，算不出交接路径）'));
-if (handoff) say('  改于    ：' + ago(fresh(handoff)));
+if (handoff && handoffEval) {
+  say('  改于    ：' + ago(handoffEval.ms)
+    + (handoffEval.file && handoffEval.file !== handoff ? '（较新的是面板交接 ' + path.basename(handoffEval.file) + '）' : '')
+    + (receipt ? ' · 本次流程刚写（收据）' : ''));
+}
 
 const problems = [];
 if (!handoff) problems.push('场景 json 没有 name ⇒ 算不出交接文件路径；给它补一个 name，或改用 --handoff 显式指定');
-else if (!fresh(handoff)) problems.push('交接文件不存在：' + handoff);
-else if (Date.now() - fresh(handoff) > FRESH_MS && !flags.has('--force')) problems.push('交接文件超过 2 小时没更新 ⇒ 先把 §〇 写好；确实不想写就加 --force');
+else if (handoffEval && !handoffEval.exists) {
+  problems.push('交接文件不存在或为空：' + handoff + '（面板交接也没有）⇒ 先在面板里点「换会话」让它自动写交接');
+} else if (handoffEval && !handoffEval.ok && !flags.has('--force')) {
+  problems.push('交接' + handoffEval.why + '（较新的那份：' + path.basename(handoffEval.file) + '）⇒ 先在面板里点「换会话」重新写一份；确实不想写就加 --force');
+}
 // 刻意**不**拿压力当闸门：用户明确说要换就是要换；projcache 数字对活跃会话是滞后的，拿它拦人是误拦。
 if (st && !st.stale && st.pct < 50) say('\n（提示：这条才 ' + st.pct + '%，换了会丢掉现在这段上下文 —— 你说了算）');
 
@@ -376,14 +389,14 @@ if (problems.length) {
   process.exit(3);
 }
 
-const cmd = ['"' + SESSIONS + '"', '--rotate', id, '--handoff', '"' + handoff + '"', '--defer-archive', ...(flags.has('--force') ? ['--force'] : []), ...(flags.has('--seed') ? ['--seed'] : [])];
+const cmd = ['"' + SESSIONS + '"', '--rotate', id, '--handoff', '"' + handoff + '"', '--defer-archive', ...(receipt ? [RECEIPT_FLAG] : []), ...(flags.has('--force') ? ['--force'] : []), ...(flags.has('--seed') ? ['--seed'] : [])];
 say('\n' + (flags.has('--go') ? '▶ 开始换会话（真执行）' : '▶ 空跑计划（去掉 --go 之外什么都没发生；真要换加 --go）') + '\n');
 say('  内部执行（--defer-archive：旧会话先不动，等 json/定位卡都写成功后才归档）：node ' + cmd.join(' ') + '\n');
 
 if (!flags.has('--go')) {
   // 空跑：把 sessions.mjs 的计划原样透出来
   try {
-    say(runNode(SESSIONS, ['--rotate', id, '--handoff', handoff, '--defer-archive', '--dry', ...(flags.has('--force') ? ['--force'] : []), ...(flags.has('--seed') ? ['--seed'] : [])]));
+    say(runNode(SESSIONS, ['--rotate', id, '--handoff', handoff, '--defer-archive', '--dry', ...(receipt ? [RECEIPT_FLAG] : []), ...(flags.has('--force') ? ['--force'] : []), ...(flags.has('--seed') ? ['--seed'] : [])]));
   } catch (e) {
     if (e.stdout) say(String(e.stdout));
     if (e.stderr) console.error(String(e.stderr));
@@ -403,7 +416,7 @@ if (!flags.has('--go')) {
   let out = '';
   try {
     out = runNode(SESSIONS, ['--rotate', id, '--handoff', handoff, '--defer-archive',
-      ...(flags.has('--force') ? ['--force'] : []), ...(flags.has('--seed') ? ['--seed'] : [])]);
+      ...(receipt ? [RECEIPT_FLAG] : []), ...(flags.has('--force') ? ['--force'] : []), ...(flags.has('--seed') ? ['--seed'] : [])]);
     say(out);
   } catch (e) {
     if (e.stdout) say(String(e.stdout));

@@ -12,10 +12,12 @@
 // 判定三档：✓ 通过 / ! 值得看一眼（不阻断）/ ✗ 违规（退出码 1）
 
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
+import { evaluateHandoff, RECEIPT_FLAG } from '../../工具/交接闸门.mjs';
 const req = createRequire(import.meta.url);
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -339,6 +341,65 @@ function checkFeatureDesk() {
   else add('未登记脚本', 'ok', '扫到的脚本都有归属：手写 / @功能台 声明 / 一键收进 / 内部入口（内部 ' + un.filter((x) => x.internal).length + ' 个）');
 }
 
+// ── 换会话交接闸门：唯一实现 + 生产/消费契约（2026-11-20）─────────────────────
+// 为什么单列：2026-11-20 的假失败（面板交接刚写、§〇 停在前一天 ⇒ 退出码 3）就是没有测试盯这个口径。
+//   这里锁死四件事：① 面板交接新鲜即可；② 收据放行不看墙钟；③ 收据不能掩盖缺文件/空文件；
+//   ④ 生产方（交接并换会话.mjs）与消费方（换会话.mjs / sessions.mjs）必须同源，不许再各写一套。
+function checkHandoffGate() {
+  const bad = [];
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'handoff-gate-'));
+  const dsh = path.join(tmp, 'dsh');
+  const scene = '测试场景';
+  const panel = 'p1';
+  const so = path.join(dsh, '场景记忆', scene, '场景私有记忆.md');
+  const pf = path.join(dsh, '场景记忆', scene, '面板交接', panel + '.md');
+  fs.mkdirSync(path.dirname(pf), { recursive: true });
+  fs.writeFileSync(so, '§〇 正文');
+  fs.writeFileSync(pf, '面板交接正文');
+  const now = Date.now();
+  const old = new Date(now - 3 * 3600 * 1000);
+  const freshT = new Date(now - 5 * 60 * 1000);
+  const setT = (p, t) => fs.utimesSync(p, t, t);
+  try {
+    // ① 两份都超 2 小时、无收据 ⇒ 必须拦（手工 CLI 的硬规矩）
+    setT(so, old); setT(pf, old);
+    const r1 = evaluateHandoff(so, { dshHome: dsh, panelId: panel, now });
+    if (r1.ok) bad.push('两份都超 2 小时却放行');
+    // ② 面板交接刚写、§〇 旧 ⇒ 放行（2026-11-20 的真实故障场景）
+    setT(pf, freshT);
+    const r2 = evaluateHandoff(so, { dshHome: dsh, panelId: panel, now });
+    if (!r2.ok || path.basename(r2.file) !== panel + '.md') bad.push('面板交接刚写却仍被拦（假失败回归）');
+    // ③ 收据 + 两份都旧 ⇒ 放行（按钮流程 1/3 刚写完并过了 check）
+    setT(so, old); setT(pf, old);
+    const r3 = evaluateHandoff(so, { dshHome: dsh, panelId: panel, receipt: true, now });
+    if (!r3.ok) bad.push('带收据却仍被墙钟拦');
+    // ④ 收据不能掩盖缺文件：两份都不存在 ⇒ 仍要拦
+    const r4 = evaluateHandoff(path.join(dsh, '场景记忆', '不存在', '场景私有记忆.md'), { dshHome: dsh, panelId: 'p2', receipt: true, now });
+    if (r4.ok) bad.push('收据掩盖了缺文件');
+    // ⑤ 空文件 = 没写：写失败留下 0 字节不能算
+    const emptySo = path.join(dsh, '场景记忆', '空场景', '场景私有记忆.md');
+    fs.mkdirSync(path.dirname(emptySo), { recursive: true });
+    fs.writeFileSync(emptySo, '');
+    const r5 = evaluateHandoff(emptySo, { dshHome: dsh, panelId: 'p3', now });
+    if (r5.ok) bad.push('空文件被当成写好');
+  } finally {
+    try { fs.rmSync(tmp, { recursive: true, force: true }); } catch (e) { /* 清理失败不影响结论 */ }
+  }
+  // 契约扫描：改脚本时若把收据/统一判定拆掉，这里必须报 ✗（别等用户点到才发现）
+  const producer = read(path.join(TOOLS, '交接并换会话.mjs'));
+  const consumers = [
+    ['换会话.mjs', read(path.join(SHELL, 'scripts', '换会话.mjs'))],
+    ['sessions.mjs', read(path.join(SHELL, 'scripts', 'sessions.mjs'))],
+  ];
+  if (!/args\.push\(RECEIPT_FLAG\)/.test(producer)) bad.push('交接并换会话.mjs 没把收据传给换会话.mjs');
+  for (const [name, src] of consumers) {
+    if (!/evaluateHandoff\(/.test(src)) bad.push(name + ' 没用 工具\\交接闸门.mjs 的统一判定');
+    if (!/RECEIPT_FLAG/.test(src)) bad.push(name + ' 不认收据 ' + RECEIPT_FLAG);
+  }
+  if (bad.length) add('换会话交接闸门', 'fail', '交接判定回归/契约漂移 ' + bad.length + ' 处', bad);
+  else add('换会话交接闸门', 'ok', '判定唯一实现 · 面板交接优先 · 收据放行 · 缺文件/空文件仍拦 · 生产消费同源');
+}
+
 // ── 跑 ───────────────────────────────────────────────────────────────────────────────
 const want = (k) => !ONLY || ONLY.includes(k);
 let types = new Set();
@@ -352,6 +413,7 @@ try {
   types = sc.types; count = sc.scenarioCount;
   if (want('renderers')) checkRenderers(types);
   if (want('icons')) checkIcons();
+  if (want('handoff')) checkHandoffGate();
   if (want('syntax')) checkSyntax();
   if (want('meta')) checkMeta(count);
   if (want('features')) checkFeatureDesk();

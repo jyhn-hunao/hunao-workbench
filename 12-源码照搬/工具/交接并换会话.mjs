@@ -28,6 +28,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { DSH_HOME, ROOT, SHELL, loadSessions, getCookie, promptSession, transcriptOf, readEvents, turnStats } from './派发-公共.mjs';
+// 2026-11-20：交接判定与收据常量收敛到 工具\交接闸门.mjs（生产方写完交接带收据，闸门凭收据放行）
+import { RECEIPT_FLAG } from './交接闸门.mjs';
 
 const argv = process.argv.slice(2);
 const val = (k, d) => { const i = argv.indexOf(k); return i >= 0 ? (argv[i + 1] || d) : d; };
@@ -434,13 +436,16 @@ async function waitPromptHandoff() {
 }
 
 // 7. 轮换：流式转发 换会话.mjs 的输出，抽新会话 id 与关键步骤
-function rotate(force) {
+function rotate(force, receipt) {
   step('2/3', '建会话', '开始轮换…');
   return new Promise((resolve) => {
     // 2026-11-17：默认不写开场消息——交接由「记忆回响」插件每轮 pre-step 注入；
     //   --seed 才走旧行为（轮询 transcript 看轮次真的开始就取消，最多 3 秒）。
     const args = [path.join(SHELL, 'scripts', '换会话.mjs'), PANEL, '--go'];
     if (force) args.push('--force');
+    // 2026-11-20：本流程（transcript / prompt）刚写完交接并过了 check ⇒ 带收据，
+    //   闸门不再拿"文件修改时间"猜，避免每次使用都假失败一次。
+    if (receipt) args.push(RECEIPT_FLAG);
     let child;
     try {
       child = spawn(NODE, args, { cwd: SHELL, env: Object.assign({}, process.env, { DSH_HOME }), windowsHide: true });
@@ -492,7 +497,8 @@ function rotate(force) {
 
   if (HANDOFF_ONLY) { console.log('（--handoff-only：交接已处理，按参数要求不轮换）'); process.exit(0); }
 
-  const r = await rotate(MODE === 'direct');
+  // transcript / prompt：1/3 刚写完交接并过了 check ⇒ 带收据（不再看墙钟）；direct：不写交接，走 --force
+  const r = await rotate(MODE === 'direct', MODE !== 'direct');
   const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
   // 9. 换完再确认 §〇 在（transcript 模式刚写过，这里只兜底）
   if (r.newId && fs.existsSync(HANDOFF)) {
