@@ -71,7 +71,7 @@ const DEFAULT_CONFIG = {
   // 档位阈值：熟悉度到多少算「认识 / 普通朋友 / 熟 / 自己人」；滞回点防止在边界来回跳
   stageKnown: 20,
   stageFriend: 40,
-  stageClose: 60,
+  stageClose: 70,
   stageInner: 80,
   stageCloseAffinity: 10,
   stageInnerAffinity: 30,

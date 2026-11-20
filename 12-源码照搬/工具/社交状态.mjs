@@ -302,18 +302,18 @@ function cmdSelfCheck() {
     return Math.abs(eff - 35.9) < 0.2 && Math.abs(floor - 20) < 0.1
   })
 
-  // 7. 滞回：58 仍算「熟」，54 才掉档
-  T('档位滞回：58 保留熟、54 掉档', () => {
+  // 7. 滞回：68 仍算「熟」，64 才掉档（stageClose=70，滞回 5）
+  T('档位滞回：68 保留熟、64 掉档', () => {
     const r = st.readRelations()
     const p = r.people[state.personKeyOf(chat, 'he', '何笙')]
-    p.familiarityBase = 58
+    p.familiarityBase = 68
     p.stats.lastAt = clock
     p.familiarityAt = clock
     p.affinityAt = clock
     p.lastStage = 'close'
     st.writeRelations(r)
     const a = st.stageOf(p, r.config, clock).key
-    p.familiarityBase = 54
+    p.familiarityBase = 64
     st.writeRelations(r)
     const b = st.stageOf(st.readRelations().people[state.personKeyOf(chat, 'he', '何笙')], r.config, clock).key
     return a === 'close' && b === 'friend'
@@ -430,10 +430,11 @@ function cmdSelfCheck() {
       plan.stickerAllowed === false && plan.voiceAllowed === false && plan.groupFactor === 0.6
   })
 
-  // 18. 用户口径：新人初始值 60/60，但 manual 仍为空，之后能继续自动变
-  T('新人初始值 60 / 60（不是永久锁定）', () => {
+  // 18. 用户口径：新人初始值 60/60，但 manual 仍为空，之后能继续自动变；且先停在「普通朋友」
+  T('新人初始值 60 / 60（普通朋友，不是永久锁定）', () => {
     const r = st.savePerson({ chatKey: 'qq:group:300', name: '新人甲' })
     return r.ok && r.stage.familiarity === 60 && r.stage.affinity === 60 &&
+      r.stage.label === '普通朋友' &&
       r.person.manual.familiarity === null && r.person.manual.affinity === null
   })
 
@@ -521,7 +522,7 @@ function cmdSelfCheck() {
   // 27. 曲线参数进 config，且 floor 不会超过「认识」门槛
   T('曲线参数进 config 并可读', () => {
     const cfg = st.readRelations().config
-    return cfg.curves.familiarity.floor === 20 && cfg.curves.familiarity.dailyGainCap === 4 &&
+    return cfg.stageClose === 70 && cfg.curves.familiarity.floor === 20 && cfg.curves.familiarity.dailyGainCap === 4 &&
       cfg.curves.affinity.positiveHalfLifeDays === 180 && cfg.curves.mood.halfLifeMin === 90
   })
 
