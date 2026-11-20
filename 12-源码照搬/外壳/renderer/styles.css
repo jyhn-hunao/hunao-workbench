@@ -3604,6 +3604,16 @@ html[data-theme="light"] .rd-flash { background: rgba(15,23,42,.03); }
 .tbs-btn:hover { background: var(--bg-panel-hover); }
 .tbs-btn.danger { color: #ffb3b5; border-color: rgba(229,72,77,.5); }
 .tbs-btn.danger:hover { background: rgba(229,72,77,.16); }
+/* 桌宠待办（dsh-pet /todos 收进顶栏，2026-11-20） */
+.tbs-todo-add { display: flex; gap: 6px; align-items: center; margin: 4px 0 6px; }
+.tbs-todo-input {
+  flex: 1; min-width: 0; height: 26px; padding: 0 8px; border-radius: 6px;
+  border: 1px solid var(--border); background: var(--bg-panel); color: var(--text);
+  font-family: inherit; font-size: 12px;
+}
+.tbs-todo-input:focus { outline: 1px solid var(--accent); outline-offset: -1px; }
+.tbs-todo-row { align-items: center; cursor: default; }
+.tbs-todo-check { flex: 0 0 auto; width: 14px; height: 14px; accent-color: var(--accent); cursor: pointer; }
 
 /* 环境适配（⋯ 更多 → 环境适配）：整台工作台的体检 / 自愈，不是某个场景的配置 */
 .tbs-env-row { display: flex; gap: 8px; align-items: flex-start; padding: 4px 8px; }

@@ -1,0 +1,30 @@
+{
+  "type": "layered",
+  "label": "大肥鱼 · 七层骨骼 v2",
+  "canvas": [1254, 1881],
+  "heightRatio": 0.92,
+  "fps": 30,
+  "layers": [
+    { "name": "tail",  "src": "正式/大肥鱼-半身/分层PNG-四肢-v2/01_tail.png",  "pivot": [860, 1180] },
+    { "name": "legL",  "src": "正式/大肥鱼-半身/分层PNG-四肢-v2/02_leg_L.png", "pivot": [430, 1565] },
+    { "name": "legR",  "src": "正式/大肥鱼-半身/分层PNG-四肢-v2/03_leg_R.png", "pivot": [580, 1565] },
+    { "name": "body",  "src": "正式/大肥鱼-半身/分层PNG-四肢-v2/04_body.png",  "pivot": [620, 1420] },
+    { "name": "armL",  "src": "正式/大肥鱼-半身/分层PNG-四肢-v2/05_arm_L.png", "pivot": [255, 1000] },
+    { "name": "armR",  "src": "正式/大肥鱼-半身/分层PNG-四肢-v2/06_arm_R.png", "pivot": [790, 1015] },
+    { "name": "head",  "src": "正式/大肥鱼-半身/分层PNG-四肢-v2/07_head.png",  "pivot": [620, 1000] }
+  ],
+  "motions": {
+    "idle": "",
+    "thinking": "",
+    "speaking": "",
+    "listening": ""
+  },
+  "expressions": {
+    "idle": "",
+    "thinking": "",
+    "speaking": "",
+    "listening": ""
+  },
+  "tapMotion": "",
+  "autoBlink": false
+}

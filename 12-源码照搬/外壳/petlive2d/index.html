@@ -3,9 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>大肥鱼 · 3D</title>
+<title>大肥鱼 · Live2D</title>
 <style>
-  /* 主题令牌：body[data-theme] 切换渲染风格（亮=调整后 / 暗=调整前） */
+  /* 主题令牌：body[data-theme] 切换背景与文字（亮=贴概念图 / 暗=深色面板） */
   :root {
     --text: #2a3340;
     --text-dim: #6a7688;
@@ -45,38 +45,70 @@
     color: var(--text); background: var(--panel-bg);
     border: 1px solid var(--panel-border);
     display: flex; align-items: center; gap: 7px;
-    pointer-events: none; transition: border-color .3s;
+    pointer-events: none;
   }
-  #badge .dot {
-    width: 8px; height: 8px; border-radius: 50%;
-    background: var(--text-dim);
-  }
+  #badge .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-dim); }
   #badge.st-idle .dot { background: #7ee787; }
   #badge.st-thinking .dot { background: #d2a8ff; }
   #badge.st-speaking .dot { background: #6ea8fe; }
   #badge.st-listening .dot { background: #f2cc60; }
 
-  /* 视角提示：左下角，首次渲染时出现 7 秒后淡出（拖动/滚轮是直接操作，不用常驻） */
-  #view-hint {
-    position: fixed; left: 12px; bottom: 12px;
+  /* 模型名：左上角，换模型后不用猜当前加载的是哪一份 */
+  #model-label {
+    position: fixed; left: 12px; top: 12px;
     padding: 5px 12px; border-radius: 999px;
     font-size: 12px; line-height: 1;
     color: var(--text-dim); background: var(--panel-bg);
     border: 1px solid var(--panel-border);
-    pointer-events: none; opacity: 0;
-    transition: opacity .35s;
+    pointer-events: none;
   }
-  #view-hint.on { opacity: 1; }
+  #model-label[hidden] { display: none; }
 
   /* 加载 / 失败提示：居中 */
   #hint {
     position: fixed; inset: 0; display: flex;
-    align-items: center; justify-content: center;
-    color: var(--text-dim); font-size: 13px;
-    pointer-events: none; text-align: center; padding: 24px;
+    flex-direction: column; align-items: center; justify-content: center;
+    gap: 10px; color: var(--text-dim); font-size: 13px;
+    pointer-events: none; text-align: center; padding: 28px;
   }
+  #hint[hidden] { display: none; }
+  #btn-retry {
+    pointer-events: auto; padding: 6px 16px; border-radius: 999px;
+    font-size: 12px; line-height: 1.4; color: var(--text);
+    background: var(--hover); border: 1px solid var(--panel-border);
+    cursor: pointer;
+  }
+  #btn-retry[hidden] { display: none; }
 
-  /* 关闭态：整页占位 + 一个显眼的「开启」入口（关掉后不画帧，不再占显卡） */
+  /* 兜底：模型没接入时显示立绘占位，不让整页空白 */
+  #fallback {
+    position: fixed; inset: 0; display: flex;
+    flex-direction: column; align-items: center; justify-content: flex-end;
+    padding-bottom: 18px; box-sizing: border-box;
+    pointer-events: none;
+  }
+  #fallback[hidden] { display: none; }
+  #fallback-img {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    object-fit: contain; object-position: center bottom;
+    animation: fb-breathe 4.2s ease-in-out infinite;
+    transform-origin: 50% 92%;
+  }
+  @keyframes fb-breathe {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.012); }
+  }
+  .fb-card {
+    position: relative; max-width: 248px; padding: 10px 12px;
+    border-radius: 10px; font-size: 12px; line-height: 1.55;
+    color: var(--text); background: var(--panel-bg);
+    border: 1px solid var(--panel-border);
+  }
+  .fb-card .fb-title { font-size: 13px; margin-bottom: 2px; }
+  .fb-card .fb-sub { color: var(--text-dim); }
+  .fb-card code { font-family: ui-monospace, Consolas, monospace; font-size: 11px; }
+
+  /* 关闭态：整页占位 + 常驻「开启」入口 */
   #off {
     position: fixed; inset: 0; display: none;
     flex-direction: column; align-items: center; justify-content: center;
@@ -94,7 +126,7 @@
   }
   #btn-render-on:hover { filter: brightness(1.06); }
 
-  /* 设置：右上角常驻文字入口 + 浮层（默认安全：只改展示，随时可还原） */
+  /* 设置：右上角常驻文字入口 + 浮层 */
   #btn-settings {
     position: fixed; top: 12px; right: 12px;
     padding: 5px 12px; border-radius: 999px;
@@ -106,7 +138,7 @@
   #btn-settings:hover { background: var(--hover); }
   #settings-panel {
     position: fixed; top: 44px; right: 12px;
-    min-width: 208px; padding: 12px;
+    min-width: 220px; padding: 12px;
     border-radius: 10px;
     background: var(--panel-bg);
     border: 1px solid var(--panel-border);
@@ -115,14 +147,10 @@
     font-size: 13px;
   }
   #settings-panel[hidden] { display: none; }
-  .set-row {
-    display: flex; align-items: center; justify-content: space-between;
-    gap: 10px;
-  }
+  .set-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
   .set-row .val { color: var(--text-dim); font-size: 12px; min-width: 28px; text-align: right; }
-  .set-note { margin-top: -4px; font-size: 12px; line-height: 1.5; color: var(--text-dim); }
+  .set-note { margin-top: -4px; font-size: 12px; line-height: 1.5; color: var(--text-dim); word-break: break-all; }
 
-  /* switch：checkbox + 轨道 */
   .switch { position: relative; display: inline-block; width: 34px; height: 18px; flex: none; }
   .switch input { opacity: 0; width: 0; height: 0; }
   .switch .track {
@@ -133,81 +161,82 @@
   .switch .knob {
     position: absolute; top: 2px; left: 2px;
     width: 14px; height: 14px; border-radius: 50%;
-    background: #fff;
-    transition: left .2s;
+    background: #fff; transition: left .2s;
   }
   .switch input:checked + .track { background: var(--accent); }
   .switch input:checked + .track .knob { left: 18px; }
 
-  #btn-close {
-    align-self: flex-end;
+  #btn-close, .mini-btn {
     padding: 4px 12px; border-radius: 999px;
     font-size: 12px; line-height: 1.4;
     color: var(--text); background: var(--hover);
     border: 1px solid var(--panel-border);
     cursor: pointer;
   }
-  .mini-btn {
-    padding: 3px 12px; border-radius: 999px;
-    font-size: 12px; line-height: 1.4;
-    color: var(--text); background: var(--hover);
-    border: 1px solid var(--panel-border);
-    cursor: pointer;
-  }
-  .mini-btn:hover { background: var(--panel-bg); }
+  #btn-close { align-self: flex-end; }
+  .mini-btn:hover, #btn-close:hover { background: var(--panel-bg); }
 </style>
 </head>
 <body data-theme="bright">
   <div id="stage"></div>
+  <div id="model-label" hidden></div>
   <div id="badge" class="st-idle"><span class="dot"></span><span id="badge-text">待机</span></div>
-  <div id="view-hint">拖动旋转 · 滚轮缩放</div>
-  <div id="hint">模型加载中…</div>
+  <div id="fallback" hidden>
+    <img id="fallback-img" alt="大肥鱼立绘">
+    <div class="fb-card">
+      <div class="fb-title">Live2D 模型未接入</div>
+      <div class="fb-sub" id="fb-sub">当前显示立绘占位。把 Cubism 导出的模型放进 <code>模型/正式/</code>，再把 <code>模型/当前.json</code> 的 model 指向 <code>*.model3.json</code>。</div>
+    </div>
+  </div>
+  <div id="hint"><span id="hint-text">模型加载中…</span><button id="btn-retry" hidden>重试</button></div>
   <div id="off">
-    <div class="off-title">3D 渲染已关闭</div>
-    <div class="off-sub">画面已暂停，不再占显卡；想看了再点下面开启。</div>
-    <button id="btn-render-on">开启 3D 渲染</button>
+    <div class="off-title">Live2D 渲染已暂停</div>
+    <div class="off-sub">画面已停帧，不再轮询状态；想看了再点下面开启。</div>
+    <button id="btn-render-on">开启 Live2D 渲染</button>
   </div>
 
   <button id="btn-settings" title="渲染设置">设置</button>
   <div id="settings-panel" hidden>
     <div class="set-row">
-      <span>3D 渲染</span>
+      <span>Live2D 渲染</span>
       <label class="switch"><input type="checkbox" id="set-render"><span class="track"><span class="knob"></span></span></label>
       <span class="val" id="set-render-val">开</span>
     </div>
-    <div class="set-note">关掉后不画帧、不刷状态，电脑不卡；选择会记住。</div>
+    <div class="set-note">关掉后停帧、停状态轮询；选择会记住。</div>
     <div class="set-row">
-      <span>亮色渲染</span>
+      <span>亮色背景</span>
       <label class="switch"><input type="checkbox" id="set-theme"><span class="track"><span class="knob"></span></span></label>
       <span class="val" id="set-theme-val">开</span>
     </div>
     <div class="set-row">
-      <span>描边</span>
-      <label class="switch"><input type="checkbox" id="set-outline"><span class="track"><span class="knob"></span></span></label>
-      <span class="val" id="set-outline-val">开</span>
+      <span>缩放</span>
+      <button id="btn-view-reset" class="mini-btn" title="回到默认大小与位置">复位</button>
     </div>
     <div class="set-row">
-      <span>视角</span>
-      <button id="btn-view-reset" class="mini-btn" title="回到正面视角">复位</button>
+      <span>模型</span>
+      <button id="btn-model-reload" class="mini-btn" title="重新读取 模型/当前.json">重新载入</button>
     </div>
+    <div class="set-note" id="model-note">模型：—</div>
     <button id="btn-close">完成</button>
   </div>
 
-  <script type="importmap">
-    { "imports": { "three": "./vendor/three.module.min.js" } }
-  </script>
   <script>
     // 模块链断了（404 / 网络）时把原因上屏，别停在静态初始文案上
     window.addEventListener('error', function (e) {
+      var t = document.getElementById('hint-text');
       var h = document.getElementById('hint');
-      if (h) h.textContent = '模块加载失败：' + (e.message || '未知错误');
+      if (t && h) { h.hidden = false; t.textContent = '加载失败：' + (e.message || '未知错误'); }
     });
     window.addEventListener('unhandledrejection', function (e) {
       var r = e && e.reason;
+      var t = document.getElementById('hint-text');
       var h = document.getElementById('hint');
-      if (h) h.textContent = '运行出错：' + String((r && r.message) || r || '未知错误');
+      if (t && h) { h.hidden = false; t.textContent = '运行出错：' + String((r && r.message) || r || '未知错误'); }
     });
   </script>
+  <script src="./vendor/live2dcubismcore.min.js"></script>
+  <script src="./vendor/pixi.min.js"></script>
+  <script src="./vendor/pixi-live2d-display.cubism4.min.js"></script>
   <script type="module" src="./app.js"></script>
 </body>
 </html>
