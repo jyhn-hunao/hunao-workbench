@@ -26,7 +26,19 @@ const outGateSvc = require('./外发闸门');       // 外发安全闸门：QQ �
 const petSvc = require('./桌宠设置');          // 桌宠层的机器可读设置 + 路由打分 + 派发日志（面板与 工具\桌宠.mjs 共用）
 const chatArchiveSvc = require('./社交档案');   // 聊天长期档案：SnowLuma messages.db → 本地 SQLite/FTS5（只读源库）
 
-const DSH_PORT = String(process.env.DSH_PORT || '3083');
+// ---- 端口真源（2026-11-20）：env > 机器配置.json 的 ports > 默认 ----
+// 为什么补这一层：控制台的「机器层」展示的是 机器配置.json 的 ports，但主进程原来只认 env / 写死默认；
+//   改机器配置后，脚本（工具\环境.mjs）按新端口连，外壳还在老端口听 ⇒ 两边错位。
+// ⛔ 默认值只留在这里与 工具\环境.mjs 的 DEFAULT_PORTS；别处不许再写端口字面量。
+const MACHINE_FILE_EARLY = process.env.DSH_MACHINE_FILE || path.join(__dirname, '..', '引擎数据', '.dsh', '机器配置.json');
+function machinePort(name, def) {
+  try {
+    const j = JSON.parse(fs.readFileSync(MACHINE_FILE_EARLY, 'utf8'));
+    const n = Number(j && j.ports && j.ports[name]);
+    return (Number.isFinite(n) && n > 0 && n < 65536) ? n : def;
+  } catch (e) { return def; }
+}
+const DSH_PORT = String(process.env.DSH_PORT || machinePort('dsh', 3083));
 const BASE = 'http://127.0.0.1:' + DSH_PORT;
 // 客户包：把外壳目录暴露给 preload / renderer（读 data\boot-animation.json 用）
 process.env.DSH_SHELL_DIR = __dirname;
@@ -85,42 +97,272 @@ const projectSwitchSvc = projectSwitch.createService({
 
 // ---- 保命入口服务（127.0.0.1:SITE_PORT）----
 // 2026-11-12：个人站场景（官网静态预览 / 社区站预览 / 本地文件浏览）已整块删除，
-//   这个端口只剩 `/chat`（用当前 token 跳引擎对话页）与桌宠 3D 的 `/pet3d/*`。
+//   这个端口只剩 `/chat`（用当前 token 跳引擎对话页）与桌宠 Live2D 的 `/petlive2d/*`。
 //   删面板前先确认过：6 个场景 json 无一引用 personal-site，`code-urls` 只用 app.site.open/probe（不在此服务内）。
 // 2026-11-12 跨机器移植：端口统一可 env 覆盖（与 外壳\scripts\自检.mjs、工具\环境.mjs 同源）
-const SITE_PORT = Number(process.env.SITE_PORT || 31238);
+const SITE_PORT = Number(process.env.SITE_PORT || machinePort('site', 31238));
 let siteServer = null;
 
-// ---- 桌宠 3D（2026-11-18）：pet3d 目录 = 页面 + 模型 + vendor 静态资源；状态端点走 /pet3d/state ----
-const PET3D_DIR = path.join(__dirname, 'pet3d');
-// 静态路由白名单（防目录穿越；只放行 pet3d 目录内的确定文件）
-const PET3D_FILES = {
-  '/': 'index.html',
-  '/index.html': 'index.html',
-  '/app.js': 'app.js',
-  '/vendor/three.module.min.js': 'vendor/three.module.min.js',
-  '/vendor/three.core.js': 'vendor/three.core.js',
-  '/vendor/GLTFLoader.js': 'vendor/GLTFLoader.js',
-  '/utils/BufferGeometryUtils.js': path.join('utils', 'BufferGeometryUtils.js'),
-  '/utils/SkeletonUtils.js': path.join('utils', 'SkeletonUtils.js'),
-  '/模型/body.glb': path.join('模型', 'body.glb'),
-};
-const PET3D_CT = {
+// ---- 桌宠形象（2026-11-20）：Live2D —— petlive2d 目录 = 页面 + 模型 + vendor；状态端点 /petlive2d/state ----
+// 3D（three.js + GLB）已于同日移除；概念图/表情包仍留在 pet3d，供 QQ/微信表情链路使用。
+const PETLIVE2D_DIR = path.join(__dirname, 'petlive2d');
+// 可服务的后缀（模型目录里可以放任意文件，但只放行这些类型；⛔ 不放 .exe/.bat/.ps1）
+const PETLIVE2D_CT = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
-  '.glb': 'model/gltf-binary',
+  '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.moc3': 'application/octet-stream',
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
+  '.wav': 'audio/wav',
+  '.mp3': 'audio/mpeg',
+  '.ogg': 'audio/ogg',
+  '.txt': 'text/plain; charset=utf-8',
+  '.md': 'text/plain; charset=utf-8',
 };
+const PETLIVE2D_EXT = Object.keys(PETLIVE2D_CT);
 // 四态判定（复用 社交.js 读人格会话 transcript）
-const pet3dState = require('./桌宠状态');
-function pet3dSessionId() {
+const petState = require('./桌宠状态');
+const petBody = require('./桌宠身体');   // 桌面身体（dsh-pet 0.4.9）薄客户端：只推状态/说一句，不借它的人格与账
+function petSessionId() {
   // 会话 id 只认场景 json（换会话.mjs 会同步改它），不硬编码
   try {
     const sc = JSON.parse(fs.readFileSync(path.join(SCENARIOS_DIR, 'pet.json'), 'utf8'));
     const ai = ((sc && sc.panels) || []).find((p) => p && p.type === 'harness' && p.sessionId);
     return ai ? String(ai.sessionId) : '';
   } catch (e) { return ''; }
+}
+
+// ---- 桌面身体桥（2026-11-20）----
+// 为什么：工作台自己的 Live2D 还在磨模型，先用 dsh-pet 0.4.9 当身体；它只负责渲染/动画/物理/气泡，
+//   人格、场景路由、待批准、记忆仍在我们这边。状态由本进程算好推过去，不走它的 chat/whisper/balance。
+// 插件没装 / 桌面 helper 还没起来时只记一次日志，2 秒后自动重试，不影响工作台启动。
+let petBodyClient = null;
+let petBodyTimer = null;
+let petBodyRunId = 0;            // 每次重连 +1：旧的菜单轮询/通知长轮询看到它变了就自己退场
+let petMenuMap = {};             // 菜单 label → 动作；dsh-pet 只回 label，动作表留在这边
+let petNotifyCounter = 0;        // 已转发过的 notify 帧序号，防同一帧重复弹顶栏
+// 关掉桥：清定时器 + 丢客户端；设置里停用身体后下一拍就不再推状态。
+function stopPetBodyBridge() {
+  petBodyRunId++;
+  if (petBodyTimer) {
+    try { clearInterval(petBodyTimer); } catch (e) { log('[pet-body] 清定时器失败: ' + ((e && e.message) || e)); }
+    petBodyTimer = null;
+  }
+  petBodyClient = null;
+}
+app.on('before-quit', function () { stopPetBodyBridge(); });
+function startPetBodyBridge() {
+  if (petBodyClient) return petBodyClient;
+  const s = petSvc.getSettings() || {};
+  const b = s.body || {};
+  if (b.enabled === false || String(b.kind || 'dsh-pet') !== 'dsh-pet') {
+    log('[pet-body] 已关闭（设置 body.enabled=false 或 kind≠dsh-pet）');
+    return null;
+  }
+  petBodyClient = petBody.createClient({
+    base: String(b.base || '').trim() || (BASE + '/dsh-pet-7340'),
+    pet: String(b.pet || 'main'),
+    token: harnessToken || '',
+  });
+  const bodyRunId = petBodyRunId;
+  const bodyClient = petBodyClient;
+  let busy = false;
+  let lastLine = '';
+  let warned = false;
+  async function tick() {
+    if (busy) return;
+    busy = true;
+    try {
+      // 1. 全会话算态：审批队列非空时强制 waiting（人的动作优先）
+      const st = petState.stateAll(DSH_HOME, { pendingApprovals: pendingApprovalCount() });
+      // 2. 推给桌面身体；相同 state+task 客户端内部会跳过
+      const r = await petBodyClient.push(st.state, st.task);
+      const line = st.state + ' | ' + (st.task || '') + ' | ' + (st.scene || '');
+      if (line !== lastLine) {
+        log('[pet-body] ' + line + (r && r.ok ? '' : '（未生效：' + ((r && (r.reason || r.error)) || 'unknown') + '）'));
+        lastLine = line;
+      }
+      if (!r || !r.ok) {
+        if (!warned) { warned = true; log('[pet-body] 桌面身体未就绪，稍后自动重试：' + ((r && (r.reason || r.error)) || 'unknown')); }
+      } else if (warned) {
+        warned = false;
+        log('[pet-body] 桌面身体已就绪');
+      }
+    } catch (e) {
+      warnOnce('pet-body', e);
+    } finally {
+      busy = false;
+    }
+  }
+  tick();
+  petBodyTimer = setInterval(tick, 2000);
+  if (petBodyTimer.unref) petBodyTimer.unref();
+  // 1. 注册右键菜单（工作台 / 人格会话 / 待办 + 全部场景）
+  syncPetMenu(bodyClient, bodyRunId).catch(function (e) { warnOnce('pet-menu-sync', e); });
+  // 2. 持续收菜单点击（长轮询；dsh-pet 重载后自动重注册）
+  pollPetMenu(bodyClient, bodyRunId).catch(function (e) { warnOnce('pet-menu-poll', e); });
+  // 3. 持续收通知并转顶栏；顺手把它的系统通知切到顶栏口径
+  watchPetNotify(bodyClient, bodyRunId).catch(function (e) { warnOnce('pet-notify-watch', e); });
+  ensurePetTopbarNotify(bodyClient, bodyRunId).catch(function (e) { warnOnce('pet-notify-switch', e); });
+  return petBodyClient;
+}
+function restartPetBodyBridge() {
+  stopPetBodyBridge();
+  return startPetBodyBridge();
+}
+
+// ---- 桌面身体右键菜单（2026-11-20）----
+// dsh-pet 只负责画菜单、回报 label；点下去做什么由工作台决定。
+// 菜单注册是进程内存态，dsh-pet 重载就清空，所以轮询发现 unknown-owner 会立刻重注册。
+function focusIfAlive(win) {
+  if (!win || win.isDestroyed || win.isDestroyed()) return false;
+  try {
+    if (win.isMinimized()) win.restore();
+    win.show();
+    win.focus();
+    return true;
+  } catch (e) { warnOnce('pet-menu-focus', e); return false; }
+}
+function openMainOrConsole() {
+  if (focusIfAlive(mainWindow)) return { ok: true, target: 'main' };
+  return openSceneWindow('console');
+}
+function openTopbarPending() {
+  let win = mainWindow;
+  if (!focusIfAlive(win)) {
+    const r = openSceneWindow('console');
+    win = findSceneWindow('console');
+    if (!win) return r;
+  }
+  const run = function () {
+    try {
+      win.webContents.executeJavaScript('window.__tbsOpenPending && window.__tbsOpenPending();').catch(function (e) {
+        log('[pet-menu] 打开待办失败: ' + ((e && e.message) || e));
+      });
+    } catch (e) { log('[pet-menu] 打开待办失败: ' + ((e && e.message) || e)); }
+  };
+  if (win.webContents.isLoading()) win.webContents.once('did-finish-load', run);
+  else run();
+  return { ok: true, target: 'pending' };
+}
+function buildPetMenu() {
+  const map = {};
+  map['工作台'] = openMainOrConsole;
+  map['人格会话'] = function () { return openSceneWindow('pet'); };
+  map['待办'] = openTopbarPending;
+  try {
+    for (const s of listScenarios()) {
+      if (!s || !s.name || !s.id) continue;
+      if (map[s.name]) continue;
+      map[s.name] = (function (id) {
+        return function () { return openSceneWindow(id); };
+      })(s.id);
+    }
+  } catch (e) { warnOnce('pet-menu-scenes', e); }
+  return map;
+}
+async function syncPetMenu(client, runId) {
+  if (runId !== petBodyRunId || client !== petBodyClient) return { ok: false, reason: 'stale' };
+  const map = buildPetMenu();
+  const labels = Object.keys(map);
+  petMenuMap = map;
+  const r = await client.setMenuItems(labels);
+  if (r && r.ok) log('[pet-menu] 已注册 ' + labels.length + ' 项：' + labels.join(' / '));
+  else log('[pet-menu] 注册失败：' + ((r && (r.reason || r.error)) || 'unknown'));
+  return r;
+}
+function delayMs(ms) {
+  return new Promise(function (resolve) { setTimeout(resolve, ms); });
+}
+async function pollPetMenu(client, runId) {
+  let warned = false;
+  while (runId === petBodyRunId && client === petBodyClient) {
+    let r;
+    try { r = await client.pollMenu(10000); } catch (e) { r = { ok: false, reason: String((e && e.message) || e) }; }
+    if (runId !== petBodyRunId || client !== petBodyClient) return;
+    if (!r || !r.ok) {
+      if (!warned) { warned = true; log('[pet-menu] 轮询未就绪：' + ((r && (r.reason || r.error)) || 'unknown')); }
+      // dsh-pet 重载会清空内存菜单；unknown-owner 立刻重注册，其它错误等一拍再试
+      if (r && /unknown-owner/.test(String(r.reason || ''))) await syncPetMenu(client, runId);
+      await delayMs(1500);
+      continue;
+    }
+    warned = false;
+    const events = r.events || {};
+    for (const label of Object.keys(events)) {
+      if (!events[label]) continue;
+      const fn = petMenuMap[label];
+      if (typeof fn !== 'function') { log('[pet-menu] 未识别的菜单项：' + label); continue; }
+      try {
+        const out = fn();
+        log('[pet-menu] 点击「' + label + '」 → ' + JSON.stringify(out || {}));
+      } catch (e) { warnOnce('pet-menu-click', e); }
+    }
+  }
+}
+
+// ---- 桌面身体通知 → 工作台顶栏（2026-11-20）----
+// dsh-pet 的 sections.notify 是单槽，长轮询能第一时间抓到；抓到就广播 topbar:toast。
+// 系统通知由 dsh-pet 自己发，这里不重复发；启动时把它的系统通知关掉，统一走顶栏。
+function notifyText(frame) {
+  const f = frame || {};
+  if (f.type === 'session/event' && f.event && f.event.type === 'turn/end') {
+    const d = f.event.data || {};
+    const kind = d.reason && d.reason.kind;
+    if (kind === 'completed') return '对话完成' + (d.text ? '：' + String(d.text).slice(0, 80) : '');
+    if (kind === 'error') return '生成失败' + (d.reason && d.reason.error && d.reason.error.message ? '：' + d.reason.error.message : '');
+    if (kind === 'max-tokens') return '输出被截断：已达到输出 token 上限';
+    return '对话结束';
+  }
+  if (f.type === 'approval/requested') {
+    return '需要你批准' + (f.toolName ? '：工具「' + f.toolName + '」' : '') + (f.reason ? '（' + f.reason + '）' : '');
+  }
+  if (f.type === 'question/requested') {
+    const q = Array.isArray(f.questions) && f.questions[0] && f.questions[0].question;
+    return '等你回答' + (q ? '：' + String(q).slice(0, 80) : '');
+  }
+  if (f.type === 'host/agent-error') return '生成失败：' + String(f.message || '未知错误').slice(0, 100);
+  return '';
+}
+async function watchPetNotify(client, runId) {
+  let since = 0;
+  while (runId === petBodyRunId && client === petBodyClient) {
+    let r;
+    try { r = await client.waitState(since, 10000); } catch (e) { r = { ok: false, reason: String((e && e.message) || e) }; }
+    if (runId !== petBodyRunId || client !== petBodyClient) return;
+    if (!r || !r.ok || !r.json) {
+      await delayMs(1500);
+      continue;
+    }
+    const n = r.json.sections && r.json.sections.notify;
+    if (n && Number(n.counter) && Number(n.counter) !== petNotifyCounter && n.data) {
+      petNotifyCounter = Number(n.counter);
+      const text = notifyText(n.data);
+      if (text) {
+        const bad = /失败|出错|错误|截断/.test(text);
+        try { broadcast('topbar:toast', { text: '桌宠 · ' + text, bad: bad, ms: bad ? 12000 : 6000 }); } catch (e) { warnOnce('pet-notify', e); }
+        log('[pet-notify] ' + text);
+      }
+    }
+    const prev = since;
+    since = Math.max(since, Number(r.json.counter) || since);
+    // counter 没变说明是超时返回，稍等再挂；变了就立刻从新 counter 继续等
+    if (Number(r.json.counter) === prev) await delayMs(200);
+  }
+}
+async function ensurePetTopbarNotify(client, runId) {
+  if (runId !== petBodyRunId || client !== petBodyClient) return;
+  try {
+    const v = await client.getVoice();
+    if (!v || !v.ok || !v.voice) return;
+    if (v.voice.notificationsEnabled === false) return;   // 已经是顶栏口径
+    const r = await client.setVoice({ notificationsEnabled: false });
+    log('[pet-notify] 已把 dsh-pet 系统通知切到顶栏口径：' + ((r && r.ok) ? 'ok' : ((r && r.reason) || 'failed')));
+  } catch (e) { warnOnce('pet-notify-switch', e); }
 }
 
 // ---- 数据盘隔离：所有 Electron 运行时数据（userData/session、webview partition、localStorage 等）
@@ -210,14 +452,15 @@ async function dirSizeAsync(root) {
 
 async function maybeHintCacheSize() {
   try {
+    const threshold = autoMaintConfig().cacheClean.thresholdMb;
     const mb = Math.round((await dirSizeAsync(path.join(__dirname, 'data'))) / (1024 * 1024));
-    if (mb < CACHE_HINT_MB) return;
+    if (mb < threshold) return;
     const last = readJsonSafe(CACHE_HINT_FILE, {}) || {};
     if (typeof last.at === 'number' && Date.now() - last.at < CACHE_HINT_DAYS * 24 * 3600 * 1000) return;
     writeJsonSafe(CACHE_HINT_FILE, { at: Date.now(), mb: mb });
-    log('[cache] 数据目录 ' + mb + ' MB（阈值 ' + CACHE_HINT_MB + ' MB）⇒ 建议退壳后跑 清理缓存.mjs --apply');
+    log('[cache] 数据目录 ' + mb + ' MB（阈值 ' + threshold + ' MB）⇒ 建议退壳后跑 清理缓存.mjs --apply');
     broadcast('topbar:toast', {
-      text: '数据目录已 ' + mb + ' MB（阈值 ' + CACHE_HINT_MB + ' MB）：退出工作台后跑 node 12-源码照搬\\外壳\\scripts\\清理缓存.mjs --apply 能回收大部分缓存',
+      text: '数据目录已 ' + mb + ' MB（阈值 ' + threshold + ' MB）：退出工作台后跑 node 12-源码照搬\\外壳\\scripts\\清理缓存.mjs --apply 能回收大部分缓存',
       bad: false,
       ms: 12000,
     });
@@ -230,7 +473,70 @@ async function maybeHintCacheSize() {
 //   巡检 = 工具\自动巡检.mjs；清缓存 = scripts\清理缓存.mjs --after-exit <pid>。
 const UPDATE_DIR_AUTO = path.join(path.dirname(__dirname), '引擎更新');   // 12-源码照搬\引擎更新
 const INSPECT_FILE = path.join(__dirname, 'data', '巡检.json');
-const INSPECT_EVERY_MS = 12 * 3600 * 1000;
+const STAGING_FILE = path.join(__dirname, 'data', 'staging-clean.json');
+
+// ---- 自动维护总开关（2026-11-20）----
+// 这张卡管五件后台活：记忆整理 / 巡检 / 退出清缓存 / 孤儿 staging / 崩溃回滚。
+// 真源：外壳\data\自动维护.json（不存在按默认建一份，全部开 = 原有行为）。
+// JSON 坏了就「全部关闭 + 一条 toast」——不让坏配置静默把自动任务重新打开。
+const AUTO_MAINT_FILE = path.join(__dirname, 'data', '自动维护.json');
+function autoMaintConfig() {
+  const def = {
+    tidy: { enabled: true, everyDays: 7 },
+    inspect: { enabled: true, everyHours: 12 },
+    cacheClean: { enabled: true, thresholdMb: CACHE_HINT_MB },
+    stagingClean: { enabled: true },
+    rollback: { enabled: true },
+  };
+  const off = {
+    tidy: { enabled: false, everyDays: def.tidy.everyDays },
+    inspect: { enabled: false, everyHours: def.inspect.everyHours },
+    cacheClean: { enabled: false, thresholdMb: def.cacheClean.thresholdMb },
+    stagingClean: { enabled: false },
+    rollback: { enabled: false },
+  };
+  const num = function (v, d, min, max) {
+    const n = Number(v);
+    return (Number.isFinite(n) && n >= min && n <= max) ? n : d;
+  };
+  const isOff = function (v) {
+    if (v === false || v === 0) return true;
+    if (typeof v !== 'string') return false;
+    const s = v.toLowerCase();
+    return s === 'false' || s === 'off' || s === '0' || s === 'no' || s === '关';
+  };
+  const enabled = function (v, d) {
+    if (isOff(v)) return false;
+    if (v && typeof v === 'object' && isOff(v.enabled)) return false;
+    return d;
+  };
+  let src;
+  try {
+    if (!fs.existsSync(AUTO_MAINT_FILE)) {
+      fs.mkdirSync(path.dirname(AUTO_MAINT_FILE), { recursive: true });
+      fs.writeFileSync(AUTO_MAINT_FILE, JSON.stringify(def, null, 2) + '\r\n', 'utf8');
+      return def;
+    }
+    src = JSON.parse(fs.readFileSync(AUTO_MAINT_FILE, 'utf8')) || {};
+  } catch (e) {
+    log('[auto] 自动维护.json 解析失败 ⇒ 本轮全部关闭：' + ((e && e.message) || e));
+    try {
+      broadcast('topbar:toast', {
+        text: '自动维护.json 解析失败 ⇒ 记忆整理 / 巡检 / 清缓存 / staging / 回滚本轮全部关闭；改好或删掉该文件再重启',
+        bad: true, ms: 20000,
+      });
+    } catch (e2) { warnOnce('auto-maint', e2); }
+    return off;
+  }
+  return {
+    tidy: { enabled: enabled(src.tidy, true), everyDays: num(src.tidy && src.tidy.everyDays, def.tidy.everyDays, 1, 30) },
+    inspect: { enabled: enabled(src.inspect, true), everyHours: num(src.inspect && src.inspect.everyHours, def.inspect.everyHours, 1, 168) },
+    cacheClean: { enabled: enabled(src.cacheClean, true), thresholdMb: num(src.cacheClean && src.cacheClean.thresholdMb, def.cacheClean.thresholdMb, 100, 10000) },
+    stagingClean: { enabled: enabled(src.stagingClean, true) },
+    rollback: { enabled: enabled(src.rollback, true) },
+  };
+}
+
 
 // 用 机器配置.json 的 nodeExe 跑（⛔ 不用 Electron 内置 Node：自检按 >=24.9 判，用错的 node 会假红）
 function spawnTool(nodeMode, script, args, opts) {
@@ -243,30 +549,46 @@ function spawnTool(nodeMode, script, args, opts) {
 }
 
 // ① 孤儿 staging：prepare 中途被杀、或换目标版本后残留的那份（可重新 prepare，不是备份，删了不丢东西）
+//    每次结果落 data\staging-clean.json，控制台「自动维护」卡读它显示上次清理。
 function cleanOrphanStaging() {
-  if (!fs.existsSync(UPDATE_DIR_AUTO)) return;
+  if (!autoMaintConfig().stagingClean.enabled) { log('[auto] 孤儿 staging 清理已关，跳过'); return; }
+  if (!fs.existsSync(UPDATE_DIR_AUTO)) {
+    writeJsonSafe(STAGING_FILE, { at: new Date().toISOString(), cleaned: 0, failed: 0, kept: '', skipped: '引擎更新目录不存在' });
+    return;
+  }
   const state = readJsonSafe(path.join(UPDATE_DIR_AUTO, 'state.json'), null);
   // state 读不出来就不动：宁可留着，也不要把"正要应用的那一份"误删
-  if (!state || typeof state !== 'object') { log('[auto] 引擎更新 state.json 读不出，跳过 staging 清理'); return; }
+  if (!state || typeof state !== 'object') {
+    writeJsonSafe(STAGING_FILE, { at: new Date().toISOString(), cleaned: 0, failed: 0, kept: '', skipped: 'state.json 读不出，未动' });
+    log('[auto] 引擎更新 state.json 读不出，跳过 staging 清理');
+    return;
+  }
   const keep = typeof state.staging === 'string' ? state.staging : '';
   let n = 0;
+  let failed = 0;
   for (const name of fs.readdirSync(UPDATE_DIR_AUTO)) {
     if (!name.startsWith('staging-') || name === keep) continue;
     try {
       fs.rmSync(path.join(UPDATE_DIR_AUTO, name), { recursive: true, force: true });
       n++;
       log('[auto] 清掉孤儿 staging：' + name + '（state 指向 ' + (keep || '无') + '）');
-    } catch (e) { warnOnce("auto-staging", e); }
+    } catch (e) { failed++; warnOnce("auto-staging", e); }
   }
+  writeJsonSafe(STAGING_FILE, { at: new Date().toISOString(), cleaned: n, failed: failed, kept: keep, skipped: '' });
   if (!n) log('[auto] staging 已干净（state 指向 ' + (keep || '无') + '）');
 }
 
 // ② 后台巡检：开机 60s 后跑一次（每天最多一次），只在有失败时弹通知，详细结果在 data\巡检.json
 function scheduleAutoInspection() {
+  const cfg = autoMaintConfig();
+  if (!cfg.inspect.enabled) { log('[auto] 后台巡检已关，跳过'); return; }
+  const everyMs = cfg.inspect.everyHours * 3600 * 1000;
   const last = readJsonSafe(INSPECT_FILE, null);
   const at = last && typeof last.at === 'string' ? Date.parse(last.at) : 0;
-  if (at && (Date.now() - at) < INSPECT_EVERY_MS) { log('[auto] 距上次巡检不足 12 小时，跳过'); return; }
+  if (at && (Date.now() - at) < everyMs) { log('[auto] 距上次巡检不足 ' + cfg.inspect.everyHours + ' 小时，跳过'); return; }
   setTimeout(function () {
+    // 定时器等待期间用户可能已经关掉：执行前再读一次，避免「关了还跑」
+    if (!autoMaintConfig().inspect.enabled) { log('[auto] 后台巡检已关，定时取消'); return; }
     const tool = path.join(__dirname, '..', '工具', '自动巡检.mjs');
     if (!fs.existsSync(tool)) { log('[auto] 自动巡检脚本不在，跳过：' + tool); return; }
     let child;
@@ -289,15 +611,17 @@ function scheduleAutoInspection() {
 // ③ 退出后清缓存：壳自己拉一个分离进程，它等本进程退出 + 端口空下来再删（删完写 data\自动维护.log）
 //    条件：开机巡检记下的体积 ≥ 阈值（cache-hint.json 的 mb）。没记录就不清 —— 不猜。
 function scheduleAutoCacheCleanup() {
+  const cfg = autoMaintConfig();
+  if (!cfg.cacheClean.enabled) { log('[auto] 退出后清缓存已关，跳过'); return; }
   const hint = readJsonSafe(CACHE_HINT_FILE, null) || {};
   const sizeMb = typeof hint.mb === 'number' ? hint.mb : 0;
-  if (sizeMb < CACHE_HINT_MB) return;
+  if (sizeMb < cfg.cacheClean.thresholdMb) return;
   const script = path.join(__dirname, 'scripts', '清理缓存.mjs');
   if (!fs.existsSync(script)) return;
   try {
     const child = spawnTool(null, script, ['--after-exit', String(process.pid), '--apply'], { detached: true });
     child.unref();
-    log('[auto] 已安排退出后清缓存（体积 ' + sizeMb + ' MB ≥ 阈值 ' + CACHE_HINT_MB + ' MB，等 pid ' + process.pid + ' 退出后执行）');
+    log('[auto] 已安排退出后清缓存（体积 ' + sizeMb + ' MB ≥ 阈值 ' + cfg.cacheClean.thresholdMb + ' MB，等 pid ' + process.pid + ' 退出后执行）');
   } catch (e) { warnOnce("auto-clean", e); }
 }
 
@@ -305,12 +629,16 @@ function scheduleAutoCacheCleanup() {
 //    整理本身就是"改历史文件"，所以顺序卡死：先 dry 看计划 → 有要搬的才 记忆打包 留快照 → 再搬。
 //    快照拿不到就整轮不搬（宁可这周不整理，也不要没有回退点）。
 const TIDY_FILE = path.join(__dirname, 'data', '记忆整理.json');
-const TIDY_EVERY_MS = 7 * 24 * 3600 * 1000;
 function scheduleAutoMemoryTidy() {
+  const cfg = autoMaintConfig();
+  if (!cfg.tidy.enabled) { log('[auto] 自动记忆整理已关，跳过'); return; }
+  const everyMs = cfg.tidy.everyDays * 24 * 3600 * 1000;
   const last = readJsonSafe(TIDY_FILE, null);
   const at = last && typeof last.at === 'string' ? Date.parse(last.at) : 0;
-  if (at && (Date.now() - at) < TIDY_EVERY_MS) { log('[auto] 距上次记忆整理不足 7 天，跳过'); return; }
+  if (at && (Date.now() - at) < everyMs) { log('[auto] 距上次记忆整理不足 ' + cfg.tidy.everyDays + ' 天，跳过'); return; }
   setTimeout(function () {
+    // 定时器等待期间用户可能已经关掉：执行前再读一次
+    if (!autoMaintConfig().tidy.enabled) { log('[auto] 自动记忆整理已关，定时取消'); return; }
     const tool = path.join(__dirname, '..', '工具', '自动记忆整理.mjs');
     if (!fs.existsSync(tool)) { log('[auto] 自动记忆整理脚本不在，跳过：' + tool); return; }
     let child;
@@ -846,7 +1174,7 @@ function applyOaScenario(sid) {
 }
 
 // ---- 本机配置：端口、工具路径等（机器配置.json 只读；⛔ 不写入）----
-const MACHINE_FILE = process.env.DSH_MACHINE_FILE || path.join(__dirname, '..', '引擎数据', '.dsh', '机器配置.json');
+const MACHINE_FILE = MACHINE_FILE_EARLY;
 function readMachineConfig() {
   try {
     const j = JSON.parse(fs.readFileSync(MACHINE_FILE, 'utf8'));
@@ -879,11 +1207,11 @@ function startSiteServer() {
       }
       return;
     }
-    // ---- 桌宠 3D：静态资源 + 状态（2026-11-18）----
-    // 页面 /pet3d/ 走 HTTP（不是 file://）：GLB fetch、贴图、vendor 模块全部同源，无 CORS/文件协议限制。
-    if (u === '/pet3d/state') {
-      const sid = pet3dSessionId();
-      const st = sid ? pet3dState.stateOf(DSH_HOME, sid) : { state: 'idle', why: 'no-session' };
+    // ---- 桌宠 Live2D：静态资源 + 状态（2026-11-20）----
+    // 页面 /petlive2d/ 走 HTTP（不是 file://）：模型、贴图、vendor 全部同源，无 CORS/文件协议限制。
+    if (u === '/petlive2d/state') {
+      const sid = petSessionId();
+      const st = sid ? petState.stateOf(DSH_HOME, sid) : { state: 'idle', why: 'no-session' };
       const body = JSON.stringify({
         state: st.state,
         sessionId: sid || '',
@@ -893,15 +1221,23 @@ function startSiteServer() {
       res.end(body);
       return;
     }
-    if (u === '/pet3d' || u === '/pet3d/' || u.indexOf('/pet3d/') === 0) {
-      const rel = (u === '/pet3d' || u === '/pet3d/') ? '/' : u.slice('/pet3d'.length);
-      const file = PET3D_FILES[rel];
-      if (!file) { res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }); res.end('not found'); return; }
-      const fp = path.join(PET3D_DIR, file);
+    if (u === '/petlive2d' || u === '/petlive2d/' || u.indexOf('/petlive2d/') === 0) {
+      const rel = (u === '/petlive2d' || u === '/petlive2d/') ? 'index.html' : u.slice('/petlive2d/'.length);
+      // 防目录穿越：解析后必须仍在 petlive2d 目录内，且后缀在白名单里
+      let fp = '';
+      try {
+        const resolved = path.resolve(PETLIVE2D_DIR, rel);
+        if (resolved.indexOf('\0') < 0 && (resolved === PETLIVE2D_DIR || resolved.startsWith(PETLIVE2D_DIR + path.sep))) fp = resolved;
+      } catch (e) { fp = ''; }
+      const ext = fp ? path.extname(fp).toLowerCase() : '';
+      if (!fp || PETLIVE2D_EXT.indexOf(ext) < 0) {
+        res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' });
+        res.end('not found');
+        return;
+      }
       fs.readFile(fp, function (err, data) {
         if (err) { res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }); res.end('not found'); return; }
-        const ext = path.extname(fp).toLowerCase();
-        res.writeHead(200, { 'Content-Type': PET3D_CT[ext] || 'application/octet-stream', 'Cache-Control': 'no-store' });
+        res.writeHead(200, { 'Content-Type': PETLIVE2D_CT[ext] || 'application/octet-stream', 'Cache-Control': 'no-store' });
         res.end(data);
       });
       return;
@@ -1232,20 +1568,28 @@ const HARNESS_WIDE_CSS = [
 // 自维持：宿主只投几次，页面重渲染后自己纠回来（window 级守卫，防止攒出一堆定时器）。
 const HARNESS_WIDE_PIN_JS = `(() => {
   var COL = ${JSON.stringify(HARNESS_WIDE_COL)}, CARD = ${JSON.stringify(HARNESS_WIDE_CARD)};
+  // 2026-11-20：同值不写（沿祖先链每轮都 setProperty 会不停制造 style mutation），间隔 2s → 5s
+  var setIf = function (el, prop, val) {
+    try {
+      if (el.style.getPropertyValue(prop) === val && el.style.getPropertyPriority(prop) === 'important') return;
+      el.style.setProperty(prop, val, 'important');
+    } catch (e) { window.__kunErr = e; }
+  };
   var pinOnce = function () {
+    if (window.__kunActive === false) return '0列 0/0px';
     var pin = function (el) {
       while (el && el.nodeType === 1) {
         try {
-          el.style.setProperty('--dsh-chat-content-width', COL, 'important');
-          el.style.setProperty('--dsh-composer-card-max-width', CARD, 'important');
+          setIf(el, '--dsh-chat-content-width', COL);
+          setIf(el, '--dsh-composer-card-max-width', CARD);
         } catch (e) { warnOnce("main", e) }
         el = el.parentElement;
       }
     };
     var cols = document.querySelectorAll('[data-chat-flow]');
-    for (var i = 0; i < cols.length; i++) { try { cols[i].style.setProperty('max-width', COL, 'important'); } catch (e) { warnOnce("main", e) } pin(cols[i]); }
+    for (var i = 0; i < cols.length; i++) { setIf(cols[i], 'max-width', COL); pin(cols[i]); }
     var cards = document.querySelectorAll('[data-composer-card]');
-    for (var j = 0; j < cards.length; j++) { try { cards[j].style.setProperty('max-width', CARD, 'important'); } catch (e) { warnOnce("main", e) } pin(cards[j]); }
+    for (var j = 0; j < cards.length; j++) { setIf(cards[j], 'max-width', CARD); pin(cards[j]); }
     var c0 = cols[0], w = 0, pw = 0;
     if (c0) {
       try {
@@ -1259,7 +1603,7 @@ const HARNESS_WIDE_PIN_JS = `(() => {
     return { cols: cols.length, cards: cards.length, w: Math.round(w), pw: Math.round(pw) };
   };
   var r = pinOnce();
-  try { if (!window.__kunWideTimer) window.__kunWideTimer = setInterval(pinOnce, 2000); } catch (e) { warnOnce("main", e) }
+  try { if (!window.__kunWideTimer) window.__kunWideTimer = setInterval(pinOnce, 5000); } catch (e) { warnOnce("main", e) }
   return r.cols + '列 ' + r.w + '/' + r.pw + 'px';
 })()`;
 const HARNESS_CHAT_CSS = [
@@ -1272,12 +1616,26 @@ const HARNESS_CHAT_CSS = [
   HARNESS_WIDE_CSS
 ].join('\n');
 const HARNESS_FIX_JS = `(() => {
+  // 2026-11-20 卡顿治理（与 renderer/renderers.js 同一份逻辑，改动要两边同步）：
+  //   ① 同值不写，打断「fix 写样式 → MutationObserver → 再 fix」的自激循环；
+  //   ② 框架元素缓存，不再每秒跑一次全文档 [style*=...] 选择器；
+  //   ③ observer 合并到 350ms 一次，定时器 1s → 4s 只作保险；后台/隐藏场景整轮跳过。
+  const setIf = (el, prop, val, imp) => {
+    try {
+      if (el.style.getPropertyValue(prop) === val && el.style.getPropertyPriority(prop) === (imp ? 'important' : '')) return;
+      el.style.setProperty(prop, val, imp ? 'important' : '');
+    } catch (e) { window.__kunErr = e; }
+  };
   const pick = () => {
-    // 页面唯一带内联 grid-template-columns 且含 minmax( 的元素就是应用框架（已实测 grids=1）。
+    const c = window.__kunFixFrame;
+    if (c && c.isConnected) {
+      const cv = c.style.gridTemplateColumns || '';
+      if (cv.indexOf('minmax(') >= 0) return c;
+    }
     const all = document.querySelectorAll('[style*="grid-template-columns"]');
     for (let i = 0; i < all.length; i++) {
       const v = all[i].style.gridTemplateColumns || '';
-      if (v.indexOf('minmax(') >= 0) return all[i];
+      if (v.indexOf('minmax(') >= 0) { window.__kunFixFrame = all[i]; return all[i]; }
     }
     return null;
   };
@@ -1285,10 +1643,10 @@ const HARNESS_FIX_JS = `(() => {
     const f = pick();
     if (!f) return false;
     // 会话列铺满（见上方 HARNESS_WIDE_CSS / HARNESS_WIDE_PIN_JS 的实测说明）：每次 fix 重算一次，
-    // React 重渲染把 max-width 顶回去也能在一秒内纠回来。
+    // React 重渲染把 max-width 顶回去也能在几秒内纠回来。
     try { window.__wideTxt = ${HARNESS_WIDE_PIN_JS}; } catch (e) { warnOnce("main", e) }
     // 单轨道：配合下方结构隐藏，仅剩的中心列占满整个框架
-    f.style.setProperty('grid-template-columns', 'minmax(0, 1fr)', 'important');
+    setIf(f, 'grid-template-columns', 'minmax(0, 1fr)', true);
     // 结构法：定位中心列（含聊天流/会话），隐藏框架其余非定位子元素（侧栏列/详情列）
     let center = null;
     const flow = f.querySelector('[data-chat-flow]') || f.querySelector('[data-phase]');
@@ -1306,11 +1664,11 @@ const HARNESS_FIX_JS = `(() => {
         let pos = 'static';
         try { pos = getComputedStyle(c).position; } catch (e) { warnOnce("main", e) }
         if (pos === 'absolute') continue;
-        c.style.setProperty('display', 'none', 'important');
+        setIf(c, 'display', 'none', true);
       }
     }
     f.querySelectorAll('[data-side="sidebar"], [data-side="details"], [data-width-handle]').forEach(function (h) {
-      h.style.setProperty('display', 'none', 'important');
+      setIf(h, 'display', 'none', true);
     });
     f.querySelectorAll('[data-phase]').forEach(function (r) {
       // ⚠ 老代码这里往 [data-phase] 上写 --dsh-chat-content-width；本版 [data-phase] 是连接状态小圆点，
@@ -1326,23 +1684,39 @@ const HARNESS_FIX_JS = `(() => {
       for (let j = 0; j < kids.length; j++) {
         const c = kids[j];
         if (c.querySelector('[data-chat-flow]')) continue;
-        c.style.setProperty('display', 'none', 'important');
+        setIf(c, 'display', 'none', true);
       }
     });
     if (flow) {
       const sc = flow.parentElement;
       if (sc && sc.firstElementChild && sc.firstElementChild !== flow) {
-        sc.firstElementChild.style.setProperty('display', 'none', 'important');
+        setIf(sc.firstElementChild, 'display', 'none', true);
       }
     }
     return true;
   };
   fix();
   // 幂等守卫：主进程也会 dom-ready/did-finish-load 各投一次，不守卫就会攒出多个 MutationObserver + 定时器。
+  if (window.__kunActive === undefined) window.__kunActive = true;
+  window.__kunSetActive = function (on) {
+    window.__kunActive = !!on;
+    if (on && window.__kunScheduleFix) { try { window.__kunScheduleFix(); } catch (e) { window.__kunErr = e; } }
+  };
   if (!window.__kunFixOn) {
     window.__kunFixOn = 1;
-    try { new MutationObserver(fix).observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['style'] }); } catch (e) { warnOnce("main", e) }
-    setInterval(fix, 1000);
+    let fixPending = false;
+    const scheduleFix = () => {
+      if (fixPending) return;
+      fixPending = true;
+      setTimeout(() => {
+        fixPending = false;
+        if (window.__kunActive === false) return;
+        try { fix(); } catch (e) { window.__kunErr = e; }
+      }, 350);
+    };
+    window.__kunScheduleFix = scheduleFix;
+    try { new MutationObserver(scheduleFix).observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['style'] }); } catch (e) { warnOnce("main", e) }
+    setInterval(() => { if (window.__kunActive === false) return; scheduleFix(); }, 4000);
   }
   const all = document.querySelectorAll('[style*="grid-template-columns"]');
   const f2 = pick();
@@ -1403,28 +1777,46 @@ const HARNESS_FIX_JS = `(() => {
 // 现在分工：main 只负责插入布局精简 CSS、执行布局修复 JS、截图与日志；
 // 选会话/绑定会话 id 全部由渲染层完成（只在会话列表区域内匹配 + 绑定 id + 按 id 精确点）。
 `;
+// 2026-11-20 卡顿治理：每次注入都截图 + 落盘 + insertCSS + 全量诊断日志，是启动与切场景时最重的一串 I/O。
+//   现在按 webContents 记状态：截图 20 秒最多一张（且窗口不可见不截）、CSS 每页只插一次
+//   （重复 insertCSS 会在页面里叠同样规则，越叠越慢）、诊断只在内容变化时写日志。
+const wvInjectState = new Map();   // webContentsId -> { capAt, cssAt, diag, hooked }
 ipcMain.handle('harness:wv:inject', (e, webContentsId, pinTarget) => {
   const wc = webContents.fromId(Number(webContentsId));
   if (!wc || wc.isDestroyed()) {
     log('[wv:inject] webContents 不存在: ' + webContentsId);
     return { ok: false, err: 'no-webcontents' };
   }
-  // 每次注入顺手截一张面板实况图（覆盖保存），便于排查"注入成功但界面没变"
+  const st = wvInjectState.get(Number(webContentsId)) || { capAt: 0, cssAt: 0, diag: '', hooked: false };
+  wvInjectState.set(Number(webContentsId), st);
+  if (!st.hooked) {
+    st.hooked = true;
+    try { wc.once('destroyed', function () { wvInjectState.delete(Number(webContentsId)); }); } catch (ex) { warnOnce("main", ex) }
+  }
+  // 顺手截一张面板实况图（覆盖保存），便于排查"注入成功但界面没变"；限流 + 不可见不截
   try {
-    wc.capturePage().then(function (img) {
-      if (img && !img.isEmpty()) {
-        try {
-          const dir = path.join(__dirname, 'captures');
-          fs.mkdirSync(dir, { recursive: true });
-          fs.writeFileSync(path.join(dir, 'panel-latest.png'), img.toPNG());
-          log('[wv:inject] 截图已保存 panel-latest.png');
-        } catch (ex) { warnOnce("main", ex) }
-      }
-    }, function () { /* ignore */ });
+    const win = BrowserWindow.fromWebContents(wc);
+    const now = Date.now();
+    if ((!win || win.isVisible()) && now - st.capAt > 20000) {
+      st.capAt = now;
+      wc.capturePage().then(function (img) {
+        if (img && !img.isEmpty()) {
+          try {
+            const dir = path.join(__dirname, 'captures');
+            fs.mkdirSync(dir, { recursive: true });
+            fs.writeFileSync(path.join(dir, 'panel-latest.png'), img.toPNG());
+            log('[wv:inject] 截图已保存 panel-latest.png');
+          } catch (ex) { warnOnce("main", ex) }
+        }
+      }, function () { /* ignore */ });
+    }
   } catch (ex) { warnOnce("main", ex) }
   try {
-    const p = wc.insertCSS(HARNESS_CHAT_CSS);
-    if (p && typeof p.catch === 'function') p.catch(function (err) { log('[wv:inject] insertCSS 拒绝: ' + (err && err.message || err)); });
+    if (!st.cssAt) {
+      st.cssAt = 1;   // 每页只插一次；页面重载由渲染层 dom-ready / did-finish-load 那条链路重新插
+      const p = wc.insertCSS(HARNESS_CHAT_CSS);
+      if (p && typeof p.catch === 'function') p.catch(function (err) { log('[wv:inject] insertCSS 拒绝: ' + (err && err.message || err)); });
+    }
   } catch (ex) { log('[wv:inject] insertCSS 失败: ' + (ex && ex.message || ex)); }
   try {
     // 钉住目标由调用方决定（OA 'oa系统运维' / 个人站 '个人站' / 分析助手 ['<机主>看盘助手','<机主>']）
@@ -1439,7 +1831,13 @@ ipcMain.handle('harness:wv:inject', (e, webContentsId, pinTarget) => {
         // 诊断信息挂在 window.__fixDiag（executeJavaScript 只返回最后表达式值，诊断用全局变量取回）
         try {
           wc.executeJavaScript('window.__fixDiag || null').then(
-            function (d) { if (d) log('[wv:inject] diag: ' + String(d).slice(0, 900)); },
+            function (d) {
+              if (!d) return;
+              const s = String(d).slice(0, 900);
+              if (s === st.diag) return;   // 内容没变就不写日志（同一个面板每 2 秒一行会把 server.log 灌爆）
+              st.diag = s;
+              log('[wv:inject] diag: ' + s);
+            },
             function () { /* ignore */ }
           );
         } catch (ex) { warnOnce("main", ex) }
@@ -2234,6 +2632,14 @@ const TIMER_FILE = path.join(__dirname, 'data', 'pet', '定时.json');
 const TIMER_STATE = path.join(__dirname, 'data', 'pet', '定时-已跑.json');
 const TIMER_DEFAULT = path.join(__dirname, 'pet', '定时.默认.json');
 
+// 待批准条数：桌面身体的气泡/状态用它；与 桌宠.mjs 读同一个文件，不另存一份账
+function pendingApprovalCount() {
+  try {
+    const list = readJsonSafe(APPROVAL_FILE, []);
+    return (Array.isArray(list) ? list : []).filter((x) => x && x.state === 'pending').length;
+  } catch (e) { return 0; }
+}
+
 function readJsonSafe(file, fallback) {
   try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch (ex) { return fallback; }   // 不存在/写坏都退回默认，别让面板炸
 }
@@ -2735,7 +3141,7 @@ ipcMain.handle('oa:open', (e, url) => {
 //   为什么包装页：外部浏览器 --app= 窗口没有"往窗口里加按钮"的通道，只能往页面内容里注入；
 //   包装页同时保留独立配置目录（--user-data-dir 不变，登录照样记住）。
 const PREVIEW_ROOT = '<资料库>';
-const PREVIEW_PORT = Number(process.env.PREVIEW_PORT || 31240);
+const PREVIEW_PORT = Number(process.env.PREVIEW_PORT || machinePort('preview', 31240));
 const PREVIEW_APPS = {
   parent: { name: '家长端', url: 'http://example.com:8082/', x: 70, y: 60 },
   teacher: { name: '教师端', url: 'http://example.com:8081/', x: 510, y: 60 },
@@ -4758,11 +5164,46 @@ ipcMain.handle('pet:settings-get', () => ({
   stats: petSvc.personaStats(),      // 人格卡现状：记了多少条、待办几件、开场注入多大
   scenes: petSvc.listScenes()      // 设置弹窗「派给谁」下拉用：真实存在的场景会话，别手写标题
 }));
-ipcMain.handle('pet:settings-set', (e, patch) => petSvc.setSettings(patch || {}));
+ipcMain.handle('pet:settings-set', (e, patch) => {
+  const r = petSvc.setSettings(patch || {});
+  // 形象开关保存后即时生效：停用就清定时器，换 base/pet 就重连；不用重启整壳
+  if (r && r.ok && patch && patch.body !== undefined) {
+    try { restartPetBodyBridge(); } catch (e2) { warnOnce('pet-body-restart', e2); }
+  }
+  return r;
+});
 ipcMain.handle('pet:log-tail', (e, n) => ({ file: petSvc.logPath(), rows: petSvc.tailLog(n) }));
+// 桌面身体（dsh-pet）的只读状态：设置弹窗里能看到「插件在不在 / 上一帧推了什么 / 为什么没生效」。
+ipcMain.handle('pet:body-status', () => ({
+  ...(petBodyClient ? petBodyClient.state() : { base: '', pet: '', available: null, lastState: '', lastTask: '', lastError: '' }),
+  timer: !!petBodyTimer,
+  settings: ((petSvc.getSettings() || {}).body) || {},
+}));
+// 手动说一句：只搬运文本，不生成；用于设置弹窗的「试一下」和以后审批提醒。
+ipcMain.handle('pet:body-say', (e, args) => {
+  if (!petBodyClient) return { ok: false, reason: '未启动（body.enabled=false 或引擎未就绪）' };
+  return petBodyClient.say(String((args && args.text) || ''), args || {});
+});
+// 语音：dsh-pet 自带 TTS 的开关与音色。BreezeBlue 的 key 在 QQ 能力里，暂不混进这里，
+// 避免工作台语音和 QQ 语音共用一份配置、互相覆盖。
+ipcMain.handle('pet:voice-get', async () => {
+  if (!petBodyClient) return { ok: false, reason: '桌面身体未启动', voice: null };
+  try { return await petBodyClient.getVoice(); } catch (e) { return { ok: false, reason: String((e && e.message) || e), voice: null }; }
+});
+ipcMain.handle('pet:voice-set', async (e, args) => {
+  if (!petBodyClient) return { ok: false, reason: '桌面身体未启动' };
+  try { return await petBodyClient.setVoice(args || {}); } catch (e2) { return { ok: false, reason: String((e2 && e2.message) || e2) }; }
+});
+// 语音试听：走 dsh-pet 的 broadcast + speak，让它用自己的 TTS 念一句（不改人格、不生成内容）。
+ipcMain.handle('pet:voice-test', async (e, args) => {
+  if (!petBodyClient) return { ok: false, reason: '桌面身体未启动' };
+  const text = String((args && args.text) || '我是大肥鱼，语音已经接上了。').slice(0, 100);
+  try { return await petBodyClient.say(text, { duration: 12000, anim: true, speak: true }); }
+  catch (e2) { return { ok: false, reason: String((e2 && e2.message) || e2) }; }
+});
 
-// ② 谁在等我：共用定位卡 §六 未办结行 + 各场景记忆 §〇 的「卡点」
-ipcMain.handle('topbar:pending', () => {
+// ② 谁在等我：共用定位卡 §六 未办结行 + 各场景记忆 §〇 的「卡点」+ 桌宠待办
+ipcMain.handle('topbar:pending', async () => {
   const items = [];
   try {
     const t = fs.readFileSync(TOPBAR_CARD, 'utf8');
@@ -4798,7 +5239,38 @@ ipcMain.handle('topbar:pending', () => {
       if (m) items.push({ kind: 'scene', date: '', from: d, status: '卡点', text: m[1].replace(/\*\*/g, '').trim(), file: f });
     }
   } catch (e) { warnOnce("main", e) }
+  // ③ 桌宠待办：dsh-pet 的 /todos 是唯一真源；只取未办结的，显示在顶栏「待办」弹层
+  if (petBodyClient) {
+    try {
+      const tr = await petBodyClient.todos();
+      if (tr && tr.ok && Array.isArray(tr.todos)) {
+        for (const t of tr.todos) {
+          if (!t || t.done) continue;
+          const text = String(t.text || '').replace(/\s+/g, ' ').slice(0, 220);
+          if (!text) continue;
+          items.push({
+            kind: 'pet-todo', id: String(t.id || ''), date: t.dueAt ? new Date(Number(t.dueAt)).toISOString().slice(0, 10) : '',
+            from: '桌宠', status: '未办', text, file: '', dueAt: t.dueAt || null
+          });
+        }
+      }
+    } catch (e) { warnOnce('pet-todos', e); }
+  }
   return { ok: true, at: Date.now(), items };
+});
+
+// ②.1 桌宠待办写操作：列表 / 新增 / 办结 / 删除；写操作成功后让顶栏自己刷新
+ipcMain.handle('topbar:pet-todo', async (e, args) => {
+  if (!petBodyClient) return { ok: false, error: '桌面身体未启动（设置里启用后才会接待办）' };
+  const a = args || {};
+  const op = String(a.op || '');
+  try {
+    if (op === 'add') return await petBodyClient.todoAdd(String(a.text || ''));
+    if (op === 'toggle') return await petBodyClient.todoToggle(String(a.id || ''), !!a.done);
+    if (op === 'remove') return await petBodyClient.todoRemove(String(a.id || ''));
+    if (op === 'list') return await petBodyClient.todos();
+    return { ok: false, error: 'unknown-op' };
+  } catch (e2) { return { ok: false, error: String((e2 && e2.message) || e2) }; }
 });
 
 // ③ 快照：列最近 12 份 / 立即打一份 / 回滚到指定那份（回滚前弹原生确认框）
@@ -5135,6 +5607,7 @@ async function guardCheckAfterBoot() {
   const prev = readGuard();
   writeGuard({ clean: false, at: Date.now(), pid: process.pid, appVersion: app.getVersion(), note: '开机登记' });
   if (!prev || prev.clean !== false) return;                 // 上次是正常退出
+  if (!autoMaintConfig().rollback.enabled) { log('[guard] 自动回滚已关，跳过'); return; }
   const good = engineLastGood();
   log('[guard] 上次没正常退出（' + (prev.at ? new Date(prev.at).toLocaleString() : '?') + '）⇒ 60 秒后查引擎');
   await sleep(60000);
@@ -5179,7 +5652,7 @@ ipcMain.handle('tools:catalog', () => {
 // ---- 功能台（2026-11-14）：把「只能命令行」的功能接出界面入口（场景「工作台控制台」）----
 // 登记表与执行都在 外壳\功能台.js（可脱离 Electron 自测：node 外壳\功能台.js）
 //   界面只传 id / action / 白名单输入项；主进程照登记表 spawn 脚本，参数逐项进 argv，不拼命令行。
-//   三个插件开关的当下状态不让界面猜：一律跑脚本 --status / --check（feature:status，60 秒内复用）。
+//   五个插件开关的当下状态不让界面猜：一律跑脚本 --status / --check（feature:status，60 秒内复用）。
 const featureDesk = require('./功能台');
 ipcMain.handle('feature:list', () => featureDesk.list());
 ipcMain.handle('feature:run', (e, id, actionId, inputs) => featureDesk.run(id, actionId, inputs));
@@ -5293,6 +5766,8 @@ function sessionStatOf(sid) {
 // ---- 到期自动换会话（2026-11-12 用户要求「完全自动化」）----
 // 默认开：压力 ≥88% + ≥20 轮 + 空闲 ≥10 分钟 + 同面板 30 分钟冷却 + 每个 tick 最多换一个。
 // 关掉：外壳\data\自动换会话.json 里把 enabled 改成 false（文件不存在时按默认建一份，方便你改）。
+// 坏 JSON 只提示一次，5 分钟一 tick 别刷屏
+let AUTO_ROTATE_BAD = false;
 function autoRotateConfig() {
   const f = path.join(__dirname, 'data', '自动换会话.json');
   const def = { enabled: true, threshold: 88, minTurns: 20, idleMin: 10, cooldownMin: 30 };
@@ -5302,8 +5777,28 @@ function autoRotateConfig() {
       fs.writeFileSync(f, JSON.stringify(def, null, 2) + '\r\n', 'utf8');
       return def;
     }
-    return Object.assign(def, JSON.parse(fs.readFileSync(f, 'utf8')) || {});
-  } catch (e) { return def; }
+    const c = Object.assign({}, def, JSON.parse(fs.readFileSync(f, 'utf8')) || {});
+    // 手改也可能写错：超出范围就回默认，避免「0 轮 / 200%」把自动换会话变成随机行为
+    c.threshold = (Number(c.threshold) >= 50 && Number(c.threshold) <= 100) ? Number(c.threshold) : def.threshold;
+    c.minTurns = (Number(c.minTurns) >= 1 && Number(c.minTurns) <= 200) ? Number(c.minTurns) : def.minTurns;
+    c.idleMin = (Number(c.idleMin) >= 1 && Number(c.idleMin) <= 1440) ? Number(c.idleMin) : def.idleMin;
+    c.cooldownMin = (Number(c.cooldownMin) >= 1 && Number(c.cooldownMin) <= 1440) ? Number(c.cooldownMin) : def.cooldownMin;
+    c.enabled = !/^(false|off|0|no|关)$/i.test(String(c.enabled).trim());
+    return c;
+  } catch (e) {
+    // 坏 JSON 不静默回到 enabled:true —— 那等于用户想关掉却继续自动换会话。
+    if (!AUTO_ROTATE_BAD) {
+      AUTO_ROTATE_BAD = true;
+      log('[auto] 自动换会话.json 解析失败 ⇒ 本轮停用自动换会话：' + ((e && e.message) || e));
+      try {
+        broadcast('topbar:toast', {
+          text: '自动换会话.json 解析失败 ⇒ 本轮已停用自动换会话；改好或删掉该文件再重启',
+          bad: true, ms: 20000,
+        });
+      } catch (e2) { warnOnce('auto-rotate', e2); }
+    }
+    return Object.assign({}, def, { enabled: false, error: String((e && e.message) || e) });
+  }
 }
 
 // ---- 换会话执行体（按钮 IPC 和「到期自动换」共用一套）----
@@ -5661,6 +6156,8 @@ if (!gotLock) {
       return;
     }
     log('[boot] 引擎就绪总耗时 ' + ((Date.now() - APP_T0) / 1000).toFixed(1) + 's');
+    // 引擎起来后再挂桌面身体桥：dsh-pet 路由依赖 DSH web 端口，早挂只会多几行未就绪日志
+    try { startPetBodyBridge(); } catch (e) { warnOnce('pet-body-start', e); }
     // 2026-11-14：后台巡检（60s 后跑，每天最多一次；只在有失败时弹通知）
     try { scheduleAutoInspection(); } catch (e) { warnOnce("auto-inspect", e); }
     // 2026-11-14：记忆整理（90s 后跑，每周最多一次；整理前后都留痕）
@@ -5725,7 +6222,7 @@ if (!gotLock) {
 // 为什么这么绕：会话（引擎侧）只会跑命令，进程外只有 HTTP 进得来；而网页版是**渲染层**的 <webview>
 //   （partition=persist:webai-<key>，登录态在那儿），主进程碰不到它的 DOM —— 所以必须借渲染层的手。
 // 安全：只监听 127.0.0.1，不对外；claim 机制保证多窗口时只有一个窗口干活（不会问两遍）。
-const WEB_AI_PORT = Number(process.env.WEB_AI_PORT || 31239);
+const WEB_AI_PORT = Number(process.env.WEB_AI_PORT || machinePort('webAi', 31239));
 const WEB_AI_KEYS = [
   { key: 'deepseek', name: 'DeepSeek', url: 'https://chat.deepseek.com/' },
   { key: 'doubao', name: '豆包', url: 'https://www.doubao.com/chat/' },
