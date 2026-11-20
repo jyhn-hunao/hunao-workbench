@@ -4,7 +4,7 @@
 // 反黑盒约定：
 //   · 入口常驻在社交通道标题行，文字按钮「关系与情绪」，不藏齿轮 / 右键 / 长弹层；
 //   · 每个人的熟悉度、好感、档位、事件、来源都能看见；滑块改的是手动值，可一键解锁回自动；
-//   · 所有规则参数（初始值、上限、衰减、情绪半衰期、群接话系数）都在「规则」页可改；
+//   · 所有规则参数（初始值、熟悉 / 好感 / 情绪三条曲线、群接话系数）都在「规则」页可改；
 //   · 「预览」页显示下一轮模型实际会看到的关系卡，字数和人数都写出来；
 //   · 不改人格底线：这里只调表达，不提供「骂人 / 无视正事 / 越过安全规则」的开关。
 
@@ -237,6 +237,26 @@
       return s;
     }
 
+    // 配置允许嵌套（curves.familiarity.*）；点号路径读写，避免面板只能改顶层 key。
+    function readPath(obj, key) {
+      var parts = String(key || '').split('.');
+      var cur = obj;
+      for (var i = 0; i < parts.length; i++) {
+        if (cur == null) return undefined;
+        cur = cur[parts[i]];
+      }
+      return cur;
+    }
+    function writePath(obj, key, value) {
+      var parts = String(key || '').split('.');
+      var cur = obj;
+      for (var i = 0; i < parts.length - 1; i++) {
+        if (!cur[parts[i]] || typeof cur[parts[i]] !== 'object') cur[parts[i]] = {};
+        cur = cur[parts[i]];
+      }
+      cur[parts[parts.length - 1]] = value;
+    }
+
     function numRow(label, hint, obj, key, lo, hi, step, unit) {
       var row = mk('div', 'wxs-row');
       var lw = mk('div', 'wxs-lab-wrap');
@@ -247,9 +267,11 @@
       var input = mk('input', 'wxs-num');
       input.type = 'number';
       input.min = String(lo); input.max = String(hi); input.step = String(step);
-      input.value = String(obj[key] === undefined ? '' : obj[key]);
+      var current = readPath(obj, key);
+      input.value = String(current === undefined ? '' : current);
       input.addEventListener('input', function () {
-        obj[key] = num(input.value, obj[key], lo, hi);
+        var old = readPath(obj, key);
+        writePath(obj, key, num(input.value, old, lo, hi));
         markDirty();
       });
       cw.appendChild(input);
@@ -465,6 +487,7 @@
         head.appendChild(mk('span', 'wxs-pill is-warn', '手动锁定'));
       }
       if (p.lockUntil && p.lockUntil > Date.now()) head.appendChild(mk('span', 'wxs-pill is-bad', '严重负向 24h 锁'));
+      if (p.repairUntil && p.repairUntil > Date.now()) head.appendChild(mk('span', 'wxs-pill is-warn', '修复惩罚期'));
       if (p.tags && p.tags.length) head.appendChild(mk('span', 'wxs-person-meta', p.tags.join('、')));
       var right = mk('span', 'wxs-person-meta', open ? '收起 ▲' : '展开 ▼');
       right.style.marginLeft = 'auto';
@@ -485,6 +508,10 @@
         (p.stage.decayed && (p.stage.decayed.familiarity || p.stage.decayed.affinity) ? '（冷落衰减 -' + fmtNum(p.stage.decayed.familiarity) + ' / -' + fmtNum(p.stage.decayed.affinity) + '）' : '') +
         ' · 来源 ' + (p.manual && (p.manual.familiarity !== null || p.manual.affinity !== null) ? '手动' : '自动统计 + 事件'));
       bodyEl.appendChild(meta);
+      var curveText = (p.curves || []).map(function (x) {
+        return x.days + 'd ' + fmtNum(x.familiarity) + '/' + fmtAff(x.affinity);
+      }).join(' · ');
+      if (curveText) bodyEl.appendChild(mk('div', 'wxs-note', '未来曲线：' + curveText));
 
       var draft = {
         familiarity: Math.round(Number(st.familiarity) || 0),
@@ -766,6 +793,11 @@
     function renderRules() {
       var d = state.data;
       var c = state.draft;
+      // 老数据迁到 v3 前可能没有 curves；先补空对象，numRow 仍按点号路径写。
+      if (!c.curves) c.curves = {};
+      ['familiarity', 'affinity', 'mood'].forEach(function (k) {
+        if (!c.curves[k]) c.curves[k] = {};
+      });
       var sec1 = section('总开关', '关掉注入：下一轮不再追加关系卡；已有数据不动，面板仍可看。');
       sec1.appendChild(switchRow('启用关系与情绪', '总开关；关掉后所有通道都不追加。', c, 'enabled'));
       sec1.appendChild(switchRow('注入到提示词', '关掉只保留数据，不注入；排查时可先关这里。', c, 'inject'));
@@ -775,7 +807,7 @@
       var sec2 = section('注入预算', '控制模型每轮多看到多少；群名单最多 10 人，当前说话人始终保留。');
       sec2.appendChild(numRow('群名单最多几人', '按熟悉度降序；当前说话人不在前列也会被替换进来。', c, 'groupRosterLimit', 1, 30, 1, '人'));
       sec2.appendChild(numRow('关系卡最多字符', '超预算先砍非当前说话人的名单行。', c, 'cardMaxChars', 120, 1200, 10, 'B'));
-      sec2.appendChild(numRow('情绪可见阈值', '强度低于这个值就不写进卡，避免每轮都「有点烦」。', c, 'moodVisibleThreshold', 0, 100, 1, ''));
+      sec2.appendChild(numRow('情绪可见阈值', '强度低于这个值就不写进卡，避免每轮都「有点烦」。', c, 'curves.mood.visible', 0, 100, 1, ''));
       body.appendChild(sec2);
 
       var sec3 = section('初始值', '只用于新建档案的起点，不是永远不变；已有关系不会被覆盖，之后仍按公式 / 事件 / 冷落衰减继续走。');
@@ -794,15 +826,20 @@
       ownerSec.appendChild(numRow('主人初始好感', '主人档案创建时直接到 +100；之后仍可手动解锁。', c, 'ownerAffinity', -100, 100, 1, ''));
       body.appendChild(ownerSec);
 
-      var sec4 = section('熟悉度公式', '只有这一条公式，面板能看到每个数字怎么来的；不靠模型猜。');
-      var formula = mk('div', 'wxs-note', '熟悉度 = 消息数 × ' + fmtNum(c.familiarityMsgWeight) + ' + 互动天数 × ' + fmtNum(c.familiarityDayWeight) + '（封顶 100）');
-      formula.style.marginBottom = '6px';
+      var sec4 = section('熟悉度曲线', '慢饱和上升：越接近 100 越难涨；冷落 21 天后按 120 天半衰期回落，但不会掉成生人。');
+      var formula = mk('div', 'wxs-note', '上升：F新 = 100 - (100 - F旧) × exp(-d / ' + fmtNum(c.curves.familiarity.gainScale) + ')，d = 每条消息 × ' + fmtNum(c.familiarityMsgWeight) + ' + 每个互动日 × ' + fmtNum(c.familiarityDayWeight) + '，单日最多 +' + fmtNum(c.curves.familiarity.dailyGainCap) + '。');
+      formula.style.marginBottom = '4px';
       sec4.appendChild(formula);
-      sec4.appendChild(numRow('每条消息权重', '同一人发得越多越熟；刷屏不会无限涨，封顶 100。', c, 'familiarityMsgWeight', 0, 10, 0.1, ''));
+      var formula2 = mk('div', 'wxs-note', '下降：冷落满 ' + fmtNum(c.curves.familiarity.graceDays) + ' 天后，F(t) = 下限 + (F0 - 下限) × 2^(-(t-' + fmtNum(c.curves.familiarity.graceDays) + ')/' + fmtNum(c.curves.familiarity.decayHalfLifeDays) + ')。');
+      formula2.style.marginBottom = '6px';
+      sec4.appendChild(formula2);
+      sec4.appendChild(numRow('每条消息权重', '只进熟悉度增量 d，不直接加分；刷屏不会无限涨。', c, 'familiarityMsgWeight', 0, 10, 0.1, ''));
       sec4.appendChild(numRow('每个互动日权重', '有聊过的那一天算一天，不看消息多少。', c, 'familiarityDayWeight', 0, 30, 0.1, ''));
-      sec4.appendChild(numRow('冷落多少天开始降', '', c, 'familiarityDecayDays', 1, 3650, 1, '天'));
-      sec4.appendChild(numRow('每段降多少', '每满一段降一次；降到下限为止。', c, 'familiarityDecayStep', 0, 50, 1, ''));
-      sec4.appendChild(numRow('熟悉度下限', '认识过的人不会完全变陌生人。', c, 'familiarityFloor', 0, 100, 1, ''));
+      sec4.appendChild(numRow('饱和尺度', 'd 到这个量时，离 100 的差距约掉 63%；越小涨得越快。', c, 'curves.familiarity.gainScale', 1, 500, 1, ''));
+      sec4.appendChild(numRow('单日最多涨', '同一个人一天最多加这么多，避免刷屏冲顶。', c, 'curves.familiarity.dailyGainCap', 0, 50, 1, '点'));
+      sec4.appendChild(numRow('冷落多少天开始降', '宽限期内不降；超过后按半衰期连续回落，不是每 60 天跳一格。', c, 'curves.familiarity.graceDays', 0, 3650, 1, '天'));
+      sec4.appendChild(numRow('回落半衰期', '每过这么多天，离下限的差距减半。', c, 'curves.familiarity.decayHalfLifeDays', 1, 3650, 1, '天'));
+      sec4.appendChild(numRow('熟悉度下限', '长期冷落也不低于这里；同时不允许高于「认识」门槛，避免 floor 把生人直接抬档。', c, 'curves.familiarity.floor', 0, 100, 1, ''));
       sec4.appendChild(numRow('建档最少消息', '少于这个数不自动建档，防止大群撑爆；手动建档不受限。', c, 'seedMinMessages', 1, 200, 1, '条'));
       sec4.appendChild(numRow('认识 阈值', '熟悉度到多少算「认识」。', c, 'stageKnown', 1, 99, 1, ''));
       sec4.appendChild(numRow('普通朋友 阈值', '', c, 'stageFriend', 2, 99, 1, ''));
@@ -813,20 +850,35 @@
       sec4.appendChild(numRow('档位滞回', '边界上下 5 点内不换档，防止一句话跨档；0 表示不滞回。', c, 'stageHysteresis', 0, 20, 1, '点'));
       body.appendChild(sec4);
 
-      var sec5 = section('好感变化规则', '模型只提事件，这里折算；单次、单日、严重负向都有限量，防止一句话翻天。');
+      var sec5 = section('好感曲线', '慢涨快跌：分越高越难涨、也越容易跌；长期不互动只向 0 回落，不穿 0。');
+      var affFormula = mk('div', 'wxs-note', '涨：A新 = A旧 + δ×(1 - ' + fmtNum(c.curves.affinity.positiveDiminish) + '×max(A旧,0)/100)；跌：A新 = A旧 + δ×(1 + ' + fmtNum(c.curves.affinity.negativeAmplify) + '×max(A旧,0)/100)。');
+      affFormula.style.marginBottom = '4px';
+      sec5.appendChild(affFormula);
+      var affFormula2 = mk('div', 'wxs-note', '回落：宽限 ' + fmtNum(c.curves.affinity.graceDays) + ' 天后，正向按 ' + fmtNum(c.curves.affinity.positiveHalfLifeDays) + ' 天半衰期、负向按 ' + fmtNum(c.curves.affinity.negativeHalfLifeDays) + ' 天半衰期向 0 走。');
+      affFormula2.style.marginBottom = '6px';
+      sec5.appendChild(affFormula2);
       sec5.appendChild(numRow('单次好感上限', '模型写 +10 会被夹到这个值。', c, 'affinityEventMax', 0, 20, 1, ''));
-      sec5.appendChild(numRow('单日净变化上限', '同一个人一天最多涨/跌这么多。', c, 'affinityDailyCap', 0, 100, 1, ''));
+      sec5.appendChild(numRow('单日净变化上限', '同一个人一天最多涨/跌这么多；只统计好感类事件。', c, 'affinityDailyCap', 0, 100, 1, ''));
       sec5.appendChild(numRow('严重负向上限', '辱骂 / 人身攻击一次最多扣多少；同时锁 24h 不接受正向抵消。', c, 'affinitySevereMax', 0, 100, 1, ''));
-      sec5.appendChild(numRow('冷落多少天开始回落', '', c, 'affinityDecayDays', 1, 3650, 1, '天'));
-      sec5.appendChild(numRow('每段向 0 回落多少', '正负都向中间收，不穿 0。', c, 'affinityDecayStep', 0, 50, 1, ''));
+      sec5.appendChild(numRow('高分涨势折扣', '0 表示线性；0.5 表示 100 分时同样的好事只加一半。', c, 'curves.affinity.positiveDiminish', 0, 1, 0.05, ''));
+      sec5.appendChild(numRow('高分跌势放大', '0 表示线性；0.5 表示 100 分时同样的坏事多跌 50%。', c, 'curves.affinity.negativeAmplify', 0, 2, 0.05, ''));
+      sec5.appendChild(numRow('冷落多少天开始回落', '宽限期内不回落。', c, 'curves.affinity.graceDays', 0, 3650, 1, '天'));
+      sec5.appendChild(numRow('正向回落半衰期', '没有新互动时，正好感每过这么多天减半。', c, 'curves.affinity.positiveHalfLifeDays', 1, 3650, 1, '天'));
+      sec5.appendChild(numRow('负向回落半衰期', '负好感也向 0 走，不永久记仇；但比正向慢。', c, 'curves.affinity.negativeHalfLifeDays', 1, 3650, 1, '天'));
+      sec5.appendChild(numRow('严重负向修复惩罚', '严重负向之后这段时间内，正向修复只按折扣算。', c, 'curves.affinity.repairPenaltyHours', 0, 720, 1, '小时'));
+      sec5.appendChild(numRow('修复效率', '惩罚期内的正向事件乘这个系数；0.5 = 只算一半。', c, 'curves.affinity.repairEfficiency', 0, 1, 0.05, ''));
       body.appendChild(sec5);
 
-      var sec6 = section('情绪规则', '只调表达旋钮；不做大起大落，不拿情绪当借口。');
-      sec6.appendChild(numRow('半衰期', '强度掉一半需要的分钟数；默认 90。', c, 'moodHalfLife', 5, 1440, 5, '分钟'));
-      sec6.appendChild(numRow('正向强度上限', '开心 / 兴奋最高到多少。', c, 'moodPositiveMax', 0, 100, 1, ''));
-      sec6.appendChild(numRow('负向强度上限', '烦躁 / 委屈最高到多少。', c, 'moodNegativeMax', 0, 100, 1, ''));
-      sec6.appendChild(numRow('单次情绪上限', '一次事件最多 ±多少。', c, 'moodEventMax', 0, 30, 1, ''));
-      sec6.appendChild(numRow('单日情绪上限', '一天累计最多变化多少。', c, 'moodDailyCap', 0, 200, 1, ''));
+      var sec6 = section('情绪曲线', '快起慢落：事件先抵消当前方向，再按上限饱和；低于阈值回平静。');
+      var moodFormula = mk('div', 'wxs-note', '上升：M新 = min(上限, M旧 + δ×(1 - M旧/上限))；下降：M(t) = M0 × 2^(-t/' + fmtNum(c.curves.mood.halfLifeMin) + '分钟)。');
+      moodFormula.style.marginBottom = '6px';
+      sec6.appendChild(moodFormula);
+      sec6.appendChild(numRow('半衰期', '强度掉一半需要的分钟数；默认 90。', c, 'curves.mood.halfLifeMin', 5, 1440, 5, '分钟'));
+      sec6.appendChild(numRow('正向强度上限', '开心 / 兴奋最高到多少。', c, 'curves.mood.positiveMax', 0, 100, 1, ''));
+      sec6.appendChild(numRow('负向强度上限', '烦躁 / 委屈最高到多少。', c, 'curves.mood.negativeMax', 0, 100, 1, ''));
+      sec6.appendChild(numRow('单次情绪上限', '一次事件最多 ±多少。', c, 'curves.mood.eventMax', 0, 30, 1, ''));
+      sec6.appendChild(numRow('单日情绪上限', '一天累计最多变化多少；手动设置不算模型额度。', c, 'curves.mood.dailyCap', 0, 200, 1, ''));
+      sec6.appendChild(numRow('换标签门槛', '新信号至少达到当前强度的这个比例才换标签；0.6 = 60%。', c, 'curves.mood.switchMargin', 0, 1, 0.05, '×'));
       body.appendChild(sec6);
       body.appendChild(moodEffectTable(c));
 
@@ -943,6 +995,20 @@
       sec.appendChild(meta);
       sec.appendChild(outBox);
       body.appendChild(sec);
+
+      var curveSec = section('未来曲线（不加新事件，只按时间走）', '现在 / 1 天 / 7 天 / 30 天 / 90 天；只用于解释趋势，不会自己加分或扣分。');
+      (d.people || []).forEach(function (p) {
+        var pts = (p.curves || []).map(function (x) {
+          return x.days + 'd ' + fmtNum(x.familiarity) + '/' + fmtAff(x.affinity);
+        }).join(' · ');
+        curveSec.appendChild(mk('div', 'wxs-note', (p.chatLabel ? '[' + p.chatLabel + '] ' : '') +
+          String(p.preferredName || p.name || p.senderId || '') + '：' + (pts || '无曲线数据')));
+      });
+      (d.moodForecast || []).forEach(function (x, i) {
+        if (i === 0) curveSec.appendChild(mk('div', 'wxs-note', '心情：'));
+        curveSec.appendChild(mk('div', 'wxs-note', '  ' + x.days + 'd · ' + x.label + ' ' + fmtNum(x.intensity) + '/100'));
+      });
+      body.appendChild(curveSec);
 
       var logSec = section('最近实际注入', '外壳与 DSH 插件都会记一条；能看见注入了几人、什么心情、关系卡多少字节。');
       var logBox = mk('div', 'wxs-events');
