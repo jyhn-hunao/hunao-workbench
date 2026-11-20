@@ -4,6 +4,7 @@
 //
 // 用法：
 //   node 12-源码照搬\工具\社交状态.mjs check
+//     （同时打印熟悉 / 好感 / 情绪三条曲线参数，以及现在 / 1 / 7 / 30 / 90 天预测）
 //   node 12-源码照搬\工具\社交状态.mjs 建档 --all
 //   node 12-源码照搬\工具\社交状态.mjs 巡检
 //   node 12-源码照搬\工具\社交状态.mjs 设 --聊天 qq:group:123 --人 何笙 --熟悉 63 --好感 14 --标签 "爱开玩笑|夜猫子"
@@ -79,11 +80,27 @@ function cmdCheck() {
   console.log('  心情：' + info.mood.label + '（强度 ' + info.mood.intensity + '/100' +
     (info.mood.remainingMin ? '，约 ' + info.mood.remainingMin + ' 分钟后回平静' : '') + '）' +
     (info.mood.cause ? '；原因：' + info.mood.cause : ''))
+  const curve = cfg.curves
+  console.log('  曲线参数：熟悉 gainScale ' + curve.familiarity.gainScale + ' / 日上限 ' + curve.familiarity.dailyGainCap +
+    ' / 宽限 ' + curve.familiarity.graceDays + ' 天 / 半衰期 ' + curve.familiarity.decayHalfLifeDays + ' 天 / floor ' + curve.familiarity.floor)
+  console.log('    好感 正半衰期 ' + curve.affinity.positiveHalfLifeDays + ' 天 / 负半衰期 ' + curve.affinity.negativeHalfLifeDays +
+    ' 天 / 宽限 ' + curve.affinity.graceDays + ' 天 / 涨 ' + curve.affinity.positiveDiminish + ' 折 / 跌 ' + curve.affinity.negativeAmplify + ' 倍')
+  console.log('    情绪 半衰期 ' + curve.mood.halfLifeMin + ' 分钟 / 可见 ' + curve.mood.visible +
+    ' / 正上限 ' + curve.mood.positiveMax + ' / 负上限 ' + curve.mood.negativeMax + ' / 单次 ' + curve.mood.eventMax + ' / 日上限 ' + curve.mood.dailyCap)
   console.log('  档位分布：')
   for (const s of info.stages) {
     const n = info.people.filter((p) => p.stage.key === s.key).length
     if (n) console.log('    ' + s.label + '：' + n)
   }
+  console.log('  未来曲线（现在 / 1 天 / 7 天 / 30 天 / 90 天）：')
+  for (const p of info.people) {
+    const name = p.preferredName || p.name || p.senderId
+    const where = p.chatLabel ? '[' + p.chatLabel + '] ' : ''
+    const pts = (p.curves || []).map((x) => x.days + 'd ' + x.familiarity + '/' + (x.affinity >= 0 ? '+' : '') + x.affinity).join(' · ')
+    console.log('    ' + where + name + '：' + (pts || '无'))
+  }
+  const mf = (info.moodForecast || []).map((x) => x.days + 'd ' + x.label + ' ' + x.intensity).join(' · ')
+  if (mf) console.log('    心情：' + mf)
   console.log('  聊天：')
   for (const c of info.chats) {
     console.log('    ' + c.label + ' · ' + c.count + ' 人 · 平均熟悉 ' + c.averageFamiliarity + ' / 好感 ' + c.averageAffinity)
@@ -228,23 +245,26 @@ function cmdSelfCheck() {
     p.stats.messages = 41
     p.stats.days = 6
     p.stats.lastAt = clock
+    p.familiarityAt = clock
+    p.affinityAt = clock
     p.familiarityBase = 41 * r.config.familiarityMsgWeight + 6 * r.config.familiarityDayWeight
     st.writeRelations(r)
     const s = st.stageOf(st.readRelations().people[state.personKeyOf(chat, 'he', '何笙')], r.config, clock)
     return Math.abs(s.familiarity - 38.5) < 0.1 && s.label === '认识'
   })
 
-  // 3. 单次 +5 被夹到 +3
-  T('单次好感 +5 夹到 +3', () => {
+  // 3. 单次 +5 先夹到 +3，再按「越高越难涨」打 0.7 折 → +2.1
+  T('单次好感 +5 经饱和后 +2.1', () => {
     const r = st.applyNote({ channel: 'qq', chatType: 'group', chatId: '100', person: '何笙', kind: '好感+', delta: 5, reason: '记得口味', source: 'model' })
-    return r.ok && r.delta === 3
+    return r.ok && Math.abs(r.delta - 2.1) < 0.05
   })
 
-  // 4. 单日 +10 夹到 +6（先把基础值归零，避免受上一条 +3 影响）
+  // 4. 单日 +10 被日上限 6 截住（基础值归零，避免受上一条影响）
   T('单日好感上限 +6', () => {
     const rel = st.readRelations()
     const p = rel.people[state.personKeyOf(chat, 'he', '何笙')]
     p.affinityBase = 0
+    p.affinityAt = clock
     p.manual.affinity = null
     p.events = []
     st.writeRelations(rel)
@@ -252,30 +272,34 @@ function cmdSelfCheck() {
     const before = st.findPerson(st.readRelations(), chat, '何笙').person.affinityBase
     const r = st.applyNote({ channel: 'qq', chatType: 'group', chatId: '100', person: '何笙', kind: '好感+', delta: 3, reason: '第三次', source: 'model' })
     const after = st.findPerson(st.readRelations(), chat, '何笙').person.affinityBase
-    return before === 3 && r.ok && r.delta === 3 && after === 6
+    return Math.abs(before - 3) < 0.05 && r.ok && Math.abs(after - 5.925) < 0.1
   })
 
-  // 5. 30 天无互动 → 好感向 0 移动 2
-  T('好感 30 天衰减 2', () => {
+  // 5. 30 天无互动 → 好感按 180 天半衰期向 0 回落（14 天宽限）
+  T('好感 30 天按半衰期回落', () => {
     const r = st.readRelations()
     const p = r.people[state.personKeyOf(chat, 'he', '何笙')]
     p.affinityBase = 10
     p.manual.affinity = null
-    p.stats.lastAt = clock - 31 * 86400000
+    p.affinityAt = clock - 30 * 86400000
     st.writeRelations(r)
-    return st.effectiveAffinity(st.readRelations().people[state.personKeyOf(chat, 'he', '何笙')], r.config, clock) === 8
+    const eff = st.effectiveAffinity(st.readRelations().people[state.personKeyOf(chat, 'he', '何笙')], r.config, clock)
+    return Math.abs(eff - 9.4) < 0.1
   })
 
-  // 6. 60 天无互动 → 熟悉度 -3，且不低于 floor
-  T('熟悉度 60 天衰减 3、守住 floor', () => {
+  // 6. 61 天无互动 → 熟悉度按 120 天半衰期回落；超长冷落守 floor 20
+  T('熟悉度按半衰期回落、守住 floor 20', () => {
     const r = st.readRelations()
     const p = r.people[state.personKeyOf(chat, 'he', '何笙')]
-    p.familiarityBase = 12
+    p.familiarityBase = 40
     p.manual.familiarity = null
-    p.stats.lastAt = clock - 61 * 86400000
+    p.familiarityAt = clock - 61 * 86400000
     st.writeRelations(r)
     const eff = st.effectiveFamiliarity(st.readRelations().people[state.personKeyOf(chat, 'he', '何笙')], r.config, clock)
-    return eff === 10
+    p.familiarityAt = clock - 1000 * 86400000
+    st.writeRelations(r)
+    const floor = st.effectiveFamiliarity(st.readRelations().people[state.personKeyOf(chat, 'he', '何笙')], r.config, clock)
+    return Math.abs(eff - 35.9) < 0.2 && Math.abs(floor - 20) < 0.1
   })
 
   // 7. 滞回：58 仍算「熟」，54 才掉档
@@ -284,6 +308,8 @@ function cmdSelfCheck() {
     const p = r.people[state.personKeyOf(chat, 'he', '何笙')]
     p.familiarityBase = 58
     p.stats.lastAt = clock
+    p.familiarityAt = clock
+    p.affinityAt = clock
     p.lastStage = 'close'
     st.writeRelations(r)
     const a = st.stageOf(p, r.config, clock).key
@@ -310,11 +336,15 @@ function cmdSelfCheck() {
       const p = st.ensurePerson(r, { chatKey: chat, channel: 'qq', chatType: 'group', chatId: '100', senderId: 'u' + i, senderName: '群友' + i })
       p.familiarityBase = 100
       p.stats.lastAt = clock
+      p.familiarityAt = clock
+      p.affinityAt = clock
     }
     const sp = r.people[state.personKeyOf(chat, 'u12', '说话人')]
     const p = st.ensurePerson(r, { chatKey: chat, channel: 'qq', chatType: 'group', chatId: '100', senderId: 'u12', senderName: '说话人' })
     p.familiarityBase = 0
     p.stats.lastAt = clock
+    p.familiarityAt = clock
+    p.affinityAt = clock
     r.config.groupRosterLimit = 10
     st.writeRelations(r)
     const txt = st.relationFragment({ channel: 'qq', chatType: 'group', chatId: '100', senderName: '说话人' })
@@ -371,6 +401,8 @@ function cmdSelfCheck() {
     p.manual.familiarity = null
     p.manual.affinity = null
     p.stats.lastAt = clock
+    p.familiarityAt = clock
+    p.affinityAt = clock
     st.writeRelations(r)
     const info = st.groupBiasInfo({ channel: 'qq', chatType: 'group', chatId: '100', person: '群友2' })
     return info.bias === 1.4
@@ -418,6 +450,90 @@ function cmdSelfCheck() {
       channel: 'qq', chatType: 'group', chatId: '300', senderId: '', senderName: '静音胡闹'
     })
     return txt.indexOf('胡闹（主人）') >= 0 && txt.indexOf('不要叫') >= 0
+  })
+
+  // 21. 熟悉度曲线：100 分天花板，越近越难涨；单日增量最多 4
+  T('熟悉度饱和 + 单日上限 4', () => {
+    const cfg = st.readRelations().config
+    const gain = state._test.familiarityGain(60, 100, cfg, 4)
+    const room = state._test.familiarityGain(60, 100, cfg, 2)
+    return Math.abs(gain - 4) < 0.05 && Math.abs(room - 2) < 0.05
+  })
+
+  // 22. 好感非对称：越高越难涨、越高越容易跌
+  T('好感慢涨快跌：60 分时 +3→+2.1，-3→-3.9', () => {
+    const cfg = st.readRelations().config
+    const up = state._test.affinityStep(60, 3, cfg, '')
+    const down = state._test.affinityStep(60, -3, cfg, '')
+    return Math.abs(up - 2.1) < 0.05 && Math.abs(down + 3.9) < 0.05
+  })
+
+  // 23. 情绪饱和：接近上限时同一事件只加一点点
+  T('情绪接近上限时饱和', () => {
+    st.resetMood()
+    st.setMood({ label: '开心', intensity: 50 })
+    const r = st.applyMood({ label: '开心', delta: 8, source: 'model' })
+    return r.ok && r.mood.label === '开心' && Math.abs(r.mood.intensity - 51.3) < 0.2
+  })
+
+  // 24. 情绪反向先抵消，不到切换门槛不换标签
+  T('情绪反向先抵消、不立刻换标签', () => {
+    st.resetMood()
+    st.setMood({ label: '开心', intensity: 50 })
+    const r = st.applyMood({ label: '烦躁', delta: -8, source: 'model' })
+    return r.ok && r.mood.label === '开心' && Math.abs(r.mood.intensity - 42) < 0.2
+  })
+
+  // 25. 严重负向锁 24h，之后 72h 内正向修复只按 0.5 效率
+  T('严重负向的 24h 锁与 72h 修复惩罚', () => {
+    st.resetMood()
+    const key = state.personKeyOf(chat, 'u4', '群友4')
+    const rel = st.readRelations()
+    const p = st.ensurePerson(rel, { chatKey: chat, channel: 'qq', chatType: 'group', chatId: '100', senderId: 'u4', senderName: '群友4' })
+    p.affinityBase = 50
+    p.affinityAt = clock
+    p.manual.affinity = null
+    st.writeRelations(rel)
+    const bad = st.applyNote({ channel: 'qq', chatType: 'group', chatId: '100', person: '群友4', kind: '严重-', delta: -10, reason: '越界', source: 'model' })
+    const saved = st.readRelations().people[key]
+    const lockOk = saved.lockUntil === clock + 24 * 3600000 && saved.repairUntil === clock + 72 * 3600000
+    clock += 25 * 3600000
+    const fix = st.applyNote({ channel: 'qq', chatType: 'group', chatId: '100', person: '群友4', kind: '好感+', delta: 3, reason: '道歉', source: 'model' })
+    return bad.ok && bad.delta === -10 && lockOk && fix.ok && Math.abs(fix.delta - 1.2) < 0.1
+  })
+
+  // 26. 未来曲线：现在 / 1 / 7 / 30 / 90 天都给点，不需要后台 tick
+  T('曲线预测给出 5 个时间点', () => {
+    const rel = st.readRelations()
+    const p = rel.people[state.personKeyOf(chat, 'he', '何笙')]
+    p.familiarityBase = 60
+    p.affinityBase = 60
+    p.familiarityAt = clock
+    p.affinityAt = clock
+    p.manual.familiarity = null
+    p.manual.affinity = null
+    st.writeRelations(rel)
+    const pts = st.forecastCurves(st.readRelations().people[state.personKeyOf(chat, 'he', '何笙')], rel.config, clock)
+    return pts.length === 5 && pts[0].days === 0 && pts[4].days === 90 &&
+      pts[0].familiarity === 60 && pts[4].familiarity < 60 && pts[4].affinity < 60
+  })
+
+  // 27. 曲线参数进 config，且 floor 不会超过「认识」门槛
+  T('曲线参数进 config 并可读', () => {
+    const cfg = st.readRelations().config
+    return cfg.curves.familiarity.floor === 20 && cfg.curves.familiarity.dailyGainCap === 4 &&
+      cfg.curves.affinity.positiveHalfLifeDays === 180 && cfg.curves.mood.halfLifeMin === 90
+  })
+
+  // 28. 面板 / CLI 保存嵌套曲线参数，不会把同组其他字段冲掉
+  T('嵌套曲线参数可保存且不丢兄弟字段', () => {
+    const before = st.readRelations().config
+    st.saveConfig({ curves: { familiarity: { dailyGainCap: 5 } } })
+    const after = st.readRelations().config
+    const ok = after.curves.familiarity.dailyGainCap === 5 && after.curves.familiarity.gainScale === before.curves.familiarity.gainScale &&
+      after.curves.mood.halfLifeMin === before.curves.mood.halfLifeMin
+    st.saveConfig({ curves: { familiarity: { dailyGainCap: 4 } } })
+    return ok
   })
 
   console.log('\n自检：' + pass + '/' + total + ' 通过')
