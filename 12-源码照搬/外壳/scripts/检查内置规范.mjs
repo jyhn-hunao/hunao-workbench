@@ -1,3 +1,4 @@
+// @功能台 {"name":"内置规范检查","group":"guard","freq":"weekly","plain":"核 引擎数据\\.dsh\\standards\\ 里的规范是否齐全、入口有没有外部依赖；缺文件退出码 1。","why":"规范随仓走，换机器 / 升级后没人记得核；缺一份文档不会自己报错。","label":"核一遍"}
 // 检查内置规范：工作台必须自带规范，不能引用桌面端 standards
 import fs from 'node:fs';
 import path from 'node:path';

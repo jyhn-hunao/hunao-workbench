@@ -106,16 +106,6 @@ function splitSections(sec, nl) {
   if (key) map.set(key, buf.join(nl).trimEnd());
   return map;
 }
-function sectionOf(map, no, nl) {
-  for (const [h, b] of map) if (new RegExp('^###\\s*' + no + '\\)').test(h)) return h + nl + b;
-  const d = {
-    2: ['### 2) 当前项目', '| 项目 | 记忆文件 | 状态 | 下一步 |', '|---|---|---|---|', '| （暂无） | — | — | — |'],
-    3: ['### 3) 私有记忆变更', '- '],
-    4: ['### 4) 下一步 / 卡点', '- '],
-    5: ['### 5) 全貌', '- 见身份卡 / 场景画像；项目记忆与归档见 _文件索引.md'],
-  }[no];
-  return d.join(nl);
-}
 // 按 turn/start → turn/end 分组，只留每轮最后的 user 文本与 assistant 文本
 function collectTurns(ev) {
   const out = [];
@@ -146,7 +136,8 @@ function runMem(cmd) {
 // 为什么：同一场景可能挂两块 AI 面板（程序开发 = AI·项目 + AI·工作区），它们原来抢同一段 §〇：
 //   换 A 就把 B 的上下文写进去，换 B 又覆盖 A；而且整段 §〇 有 4 KB 红线，实测已 3814 B ⇒ 再换必爆。
 // 现在：完整摘要写 `场景记忆\<场景>\面板交接\<面板id>.md`（容量宽松、各写各的），
-//   §〇 第 1 节只留"每个面板一行指针"。新会话靠指针就能找到自己的交接。
+//   人格场景 §〇 只保留「当前项目」表；其他场景保留原有 §〇 结构（含上次交接 / 下一步）。
+//   新会话靠面板交接文件 + 场景 §〇 各取所需。
 const META_TALK = /换会话|换一个会话|这个按钮|顶栏|toast|通知|重载|reload|日志|面板标题|这个功能|你刚才|上面说的|工作台这个/;
 
 function panelHandoverFile() {
@@ -191,54 +182,62 @@ function composePanelHandover(o) {
     lines.push('', '## 工具讨论（不进业务交接）');
     for (const t of meta) lines.push('- 第 ' + t.turn + ' 轮：' + (clipAtSentence(t.user, 160) || '（无文字）'));
   }
-  lines.push('', '## 下一步 / 卡点', '- 以 §〇 第 4 小节为准（脚本不改写人工结论，避免覆盖）');
+  const personaScene = String(sceneName || '') === '胡闹的大肥鱼';
+  lines.push('', '## 下一步 / 卡点', personaScene
+    ? '- 待办见 `_近期` 的「答应没办」；完整交接与未完成口径见本文件最近轮次。'
+    : '- 以 §〇 第 4 小节为准（脚本不改写人工结论，避免覆盖）');
   // 记忆联动清单（2026-11-12）：换会话不只是换一条会话，新会话要按这份顺序把记忆接上；
   //   路径一律绝对 —— 各面板 cwd 不同，相对路径在别处解析不到。
   const memDir = path.join(DSH_HOME, '场景记忆', sceneName || '');
   const memList = [
     ['身份卡（我是谁 / 在哪个面板 / 会话是哪条 / 能碰什么）', path.join(memDir, '身份卡.md')],
-    ['场景 §〇（当前交接 + 下一步 / 卡点）', path.join(memDir, '场景私有记忆.md')],
+    ['场景 §〇（' + (personaScene ? '当前项目' : '当前项目 / 交接') + '）', path.join(memDir, '场景私有记忆.md')],
   ];
   if (o.pinTarget) memList.push(['项目薄卡 `' + o.pinTarget + '`（项目口径 / 记忆根）', path.join(memDir, '项目记忆', o.pinTarget + '.md')]);
   memList.push(['共享项目注册表（项目路径 / 别名 / 归属）', path.join(DSH_HOME, '场景记忆', '_共享记忆', '项目.json')]);
   lines.push('', '## 记忆联动（新会话接上下文按这个顺序，别只看本文件）');
   for (const [label, f] of memList) lines.push('- ' + label + '：`' + f + '`' + (fs.existsSync(f) ? '' : '（本次不存在，跳过）'));
   lines.push('- 长期记忆（§五 坑与决策 / §八 项目索引 / 项目薄卡）**只追加**：本文件只是"这一段的摘要"，不覆盖长期结论。');
-  lines.push('- 旧会话没说完的事，写进 §〇 第 4 小节（卡点），不要塞回本文件的历史轮次。');
+  lines.push(personaScene
+    ? '- 旧会话没说完的事，写进 `_近期` 的「答应没办」或本文件的未完成/卡点，不要塞回 §〇。'
+    : '- 旧会话没说完的事，按本场景现有 §〇 结构写进「下一步/卡点」；完整摘要同时写进本文件。');
   lines.push('');
   return lines.join('\n');
 }
 
 /**
- * 把 §〇 第 1 节收敛成「每面板一行指针」，其余 4 节原样保留。
- * 旧正文不在这里留：`runMem('交接')` 已把整份旧版归档到 `归档\`，要查历史去那里。
- * 返回 { ok, bytes, why }；超 4 KB 不算成功（不写盘），由调用方决定报什么。
+ * 只对「胡闹的大肥鱼」把 §〇 收敛成「当前项目」表。
+ * 其他场景的 §〇 里还有各自的「上次交接 / 下一步·卡点」，一刀切会丢待办 ⇒ 原样保留。
+ * 人格场景上次交接的完整正文在 `面板交接\<面板id>.md` 与 `归档\`，不再往 §〇 里塞指针/正文。
+ * 返回 { ok, bytes, why, kept }；超 4 KB 不算成功（不写盘），由调用方决定报什么。
  */
-function rewriteSec0ToPointers(opts) {
+function rewriteSec0ToCurrentProject() {
   const body0 = fs.readFileSync(HANDOFF, 'utf8');
   const nl = nlOf(body0);
   const range = sec0Range(body0);
   if (!range) return { ok: false, why: '场景私有记忆里没有 §〇 段' };
+  // 非人格场景：保留原 §〇（含上次交接 / 变更 / 下一步），只让 交接 归档旧版，不做结构改写
+  if (String(sceneName || '') !== '胡闹的大肥鱼') {
+    return { ok: true, bytes: Buffer.byteLength(range.sec), kept: true };
+  }
   const map = splitSections(range.sec, nl);
-  const others = [2, 3, 4, 5].map((no) => sectionOf(map, no, nl));
-  // 指针必须**按会话 cwd 能解析**：各面板 cwd 不同（cd-ai = 项目根；cd-ai-home = 12-源码照搬\工作区），
-  //   相对 12-源码照搬 的路径两边都解析不到（2026-11-12 实测是死链，新会话照指针找不到交接）⇒ 直接写绝对路径。
-  const ptrAbs = panelHandoverFile();
-  const note = String((opts && opts.note) || '');
-  const ptrLine = '- 面板 `' + PANEL + '`「' + (panelTitle || PANEL) + '」：交接见 `' + ptrAbs + '`（' + note + '）';
-  const old1 = [...map].find(([k]) => /^###\s*1\)/.test(k));
-  const keepPtr = (old1 ? old1[1].split(/\r?\n/) : [])
-    .filter((l) => /^-\s*面板\s*`/.test(l.trim()))
-    .filter((l) => l.indexOf('`' + PANEL + '`') < 0);
+  let current = '';
+  for (const [h, b] of map) {
+    if (/^###[^\n]*当前项目/.test(h)) current = h + nl + b;
+  }
+  if (!current) {
+    current = '### 当前项目' + nl
+      + '| 项目 | 记忆文件 | 状态 | 下一步 |' + nl
+      + '|---|---|---|---|' + nl
+      + '| （暂无） | — | — | — |';
+  }
   const header = '## §〇 当前交接（≤4 KB，新会话先读这一节）';
-  const sec = header + nl + nl + '### 1) 上次交接' + nl
-    + '- 完整交接在面板级文件里（下面是本场景各面板的最新指向）：' + nl
-    + [ptrLine, ...keepPtr].join(nl) + nl + nl + others.join(nl + nl) + nl;
+  const sec = header + nl + nl + current.trim() + nl;
   const bytes = Buffer.byteLength(sec);
   if (bytes > 4000) return { ok: false, bytes: bytes, why: '§〇 仍超 4 KB（' + bytes + ' B）' };
   const tail = range.after < 0 ? '' : body0.slice(range.after + 1);
   fs.writeFileSync(HANDOFF, body0.slice(0, range.start) + sec.trimEnd() + nl + nl + tail, 'utf8');
-  return { ok: true, bytes: bytes };
+  return { ok: true, bytes: bytes, kept: false };
 }
 function fail(code, msg) { console.error('✗ ' + msg); process.exit(code); }
 function mtimeOf(file) { try { return fs.statSync(file).mtimeMs; } catch { return 0; } }
@@ -261,7 +260,7 @@ if (DRY) {
 function writeTranscriptHandoff() {
   step('1/3', '交接', '读取旧会话 transcript…');
   // 2026-11-16：先把 §〇 原文留一份。后面任何一环失败都要能真回滚 ——
-  //   旧代码回滚时引用的是 rewriteSec0ToPointers() 里的局部 body0，作用域外取不到，
+  //   旧代码回滚时引用的是 rewriteSec0ToCurrentProject() 里的局部 body0，作用域外取不到，
   //   一失败就抛 ReferenceError，把真正的失败原因（索引缺文件 / 校验不过）全盖掉。
   const handoffSaved = fs.readFileSync(HANDOFF, 'utf8');
   const rollback = () => { try { fs.writeFileSync(HANDOFF, handoffSaved, 'utf8'); } catch (e) { /* 回滚写不动就保住原错误，别再抛 */ } };
@@ -287,9 +286,10 @@ function writeTranscriptHandoff() {
       }).replace('（最近几轮没有业务文字，可能只有工具调用）', '（旧会话无新业务轮次 ⇒ 沿用上一次交接；上一版见 `' + PANEL + '-上一版.md` 或 归档\\）');
       fs.writeFileSync(panelFile0, txt0, 'utf8');
     } catch (e) { say('WARN: 面板交接占位没写成（' + ((e && e.message) || e) + '）—— §〇 指针会指空'); }
-    // 2026-11-12：即使没有新轮次，也把 §〇 第 1 节收敛成指针 ——
+    // 2026-11-12：即使没有新轮次，人格场景也把 §〇 收敛成当前项目表 ——
     //   否则第一次「空轮次换会话」之后，那段 3.8 KB 的旧正文还留在 §〇 里，下一次交接仍然撞 4 KB 红线。
-    const rw0 = rewriteSec0ToPointers({ note: nowStr + ' · 本次沿用（旧会话无新轮次）' });
+    //   其他场景保留原结构，这里只走 no-op（不删上次交接 / 下一步）。
+    const rw0 = rewriteSec0ToCurrentProject();
     if (!rw0.ok) say('WARN: §〇 未收敛（' + rw0.why + '），下次交接可能撞 4 KB 红线');
     // 2026-11-12：定位卡/场景 json 可能刚被换会话或项目切换改过 ⇒ 卡指纹必过期。
     //   换会话流程**无条件先 stamp 再校验**，别把「卡过期」当失败抛给用户。
@@ -335,11 +335,12 @@ function writeTranscriptHandoff() {
     }), 'utf8');
   } catch (e) { rollback(); fail(5, '写面板交接文件失败：' + ((e && e.message) || e) + ' ⇒ 未换会话（已回滚 §〇）'); }
 
-  // 5.3 §〇 第 1 节 = 每面板一行指针（旧完整交接已进 归档\ 与 面板交接\，不再往 §〇 塞正文）
-  //   这条同时解掉两个老毛病：① 两个 AI 面板抢同一段 §〇；② 整段 §〇 4 KB 红线一撞就”换不动”。
-  const rw = rewriteSec0ToPointers({ note: when + ' · 最近 ' + turns.length + ' 轮' });
-  if (!rw.ok) { rollback(); fail(5, rw.why + ' ⇒ 未换会话；先精简第 2–5 节（指针行本身只有几十字节）'); }
-  step('1/3', '交接', '已写面板交接（' + turns.length + ' 轮）→ §〇 只留指针（' + rw.bytes + ' B）');
+  // 5.3 人格场景 §〇 只保留「当前项目」表（完整交接已进 归档\ 与 面板交接\，不再往 §〇 塞正文/指针）
+  //   其他场景保留原有 §〇 结构，避免把各自的「下一步/卡点」删掉。
+  //   这条同时解掉人格场景的两个老毛病：① 两个 AI 面板抢同一段 §〇；② 整段 §〇 4 KB 红线一撞就”换不动”。
+  const rw = rewriteSec0ToCurrentProject();
+  if (!rw.ok) { rollback(); fail(5, rw.why + ' ⇒ 未换会话；先精简当前项目表（这张表本身只有几十字节）'); }
+  step('1/3', '交接', '已写面板交接（' + turns.length + ' 轮）→ ' + (rw.kept ? '§〇 保持原结构（非人格场景）' : '§〇 只留当前项目表') + '（' + rw.bytes + ' B）');
 
   // 5.4 无条件 stamp 再校验：定位卡可能刚被项目切换/上次换会话改过，卡指纹就会过期；
   //     这属于机械问题，不该把“卡过期”抛给用户。校验不过才回滚 §〇。
@@ -365,9 +366,15 @@ function writeTranscriptHandoff() {
 // 6. prompt 模式：老路径（让旧会话自己写），等这一轮结束；默认不用
 async function waitPromptHandoff() {
   step('1/3', '交接', '投递交接提示，等旧会话这一轮结束…');
-  const TIP = '【换会话前交接】请现在把本轮结论写进本场景的 `场景记忆\\<场景>\\场景私有记忆.md` 的 §〇，口径按 `工具\\场景记忆.mjs 交接` 的四小节：'
-    + '① 上次交接 ② 当前项目 ③ 私有记忆变更 ④ 下一步/卡点。只改这四小节，别新建文件、别动历史段落。'
-    + '写完只回一句「交接已更新」即可，不要做别的事。';
+  const personaScene = String(sceneName || '') === '胡闹的大肥鱼';
+  const TIP = personaScene
+    ? '【换会话前交接】请现在把本轮结论写进本场景的 `场景记忆\\<场景>\\场景私有记忆.md` 的 §〇 当前项目表：'
+      + '只更新 `### 当前项目` 这张表（项目 / 记忆文件 / 状态 / 下一步）。'
+      + '不要再写「上次交接 / 私有记忆变更 / 下一步·卡点 / 全貌」；完整交接写在 `面板交接\\<面板id>.md`。'
+      + '只改这张表，别新建文件、别动历史段落。写完只回一句「交接已更新」即可，不要做别的事。'
+    : '【换会话前交接】请现在把本轮结论写进本场景的 `场景记忆\\<场景>\\场景私有记忆.md` 的 §〇：'
+      + '按本场景现有结构更新「上次交接 / 当前项目 / 私有记忆变更 / 下一步·卡点」，保留已有的职责与历史段落。'
+      + '完整摘要同时写进 `面板交接\\<面板id>.md`。写完只回一句「交接已更新」即可，不要做别的事。';
   const ev0 = readEvents(transcript);
   if (!ev0) fail(5, '读不到旧会话 transcript ⇒ 未换会话');
   const turnsBefore = (turnStats(ev0) || { count: 0 }).count;

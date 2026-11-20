@@ -4,7 +4,7 @@
  *
  * 每个场景的记忆文件夹固定四类：
  *   <场景>\
- *     场景私有记忆.md   ← 人写（交接 §〇 四小节 / 职责 / 决策 / 项目索引）
+ *     场景私有记忆.md   ← 人写（§〇 只放当前项目表 / 职责 / 决策 / 项目索引）
  *     身份卡.md         ← 工具写（身份/权限/定位卡指纹）⛔ 手改即校验失败
  *     场景画像.md       ← 工具写（布局/面板/渲染器/依赖）
  *     项目记忆\ + 归档\ + _文件索引.md
@@ -13,7 +13,7 @@
  *   node 场景记忆.mjs list                       # 一览：三文档/归档/项目记忆 缺什么
  *   node 场景记忆.mjs init    --场景 刷抖音       # 建目录骨架 + 三文档（已存在不覆盖）
  *   node 场景记忆.mjs stamp   --场景 刷抖音       # 重生成 身份卡 + 场景画像
- *   node 场景记忆.mjs 交接    --场景 刷抖音       # 归档旧版 + 补 §〇 四小节 + stamp + 登记索引
+ *   node 场景记忆.mjs 交接    --场景 刷抖音       # 归档旧版 + 补 §〇 当前项目表 + stamp + 登记索引
  *   node 场景记忆.mjs 读      --场景 刷抖音 [--节 §〇]  # 只打印某一节（默认 §〇，约 2-4 KB，别整读 25 KB）
  *   node 场景记忆.mjs check   --场景 刷抖音       # 结构/指纹/§〇/项目/归档/分条 全检（--all 全场景）
  *   node 场景记忆.mjs 写      --场景 刷抖音 --类 决策|坑|通知 --标题 "…" [--正文 <md>|--要点 "a|b|c"] [--证据 "路径::片段"]
@@ -249,19 +249,10 @@ ${rows || '| — | — | — | — | — | — |'}
 
 const SEC0 = `## §〇 当前交接（≤4 KB，新会话先读这一节）
 
-### 1) 上次交接
-- （交接时由工具写入：旧版已归档 \`归档\\<文件名>\`）
-
-### 2) 当前项目
+### 当前项目
 | 项目 | 记忆文件 | 状态 | 下一步 |
 |---|---|---|---|
 | （暂无） | — | — | — |
-
-### 3) 私有记忆变更
-- （本轮改了什么，≤3 行）
-
-### 4) 下一步 / 卡点
-- （写给下一任）
 
 `
 
@@ -394,20 +385,12 @@ function cmdHandover(arg) {
   const file = `场景私有记忆-${stamp().replace(/[-: ]/g, '').slice(0, 12)}-${sid6}.md`
   fs.writeFileSync(path.join(arch, file), body, 'utf8')
   console.log(`✓ 旧版已归档：归档\\${file}（${Buffer.byteLength(body)} B）`)
-  // 补 §〇 四小节（缺哪个补哪个）
-  const has = (s) => body.includes(s)
+  // 补 §〇 当前项目表（只补这一节；人格场景的旧交接正文在归档/面板交接文件，不再往 §〇 里长）
+  // 其他场景已有的「上次交接 / 变更 / 下一步」原样保留，不删不改。
   const missing = []
-  if (!has('### 1) 上次交接')) missing.push('### 1) 上次交接\n- 旧版已归档 `归档\\' + file + '`\n')
-  if (!has('### 2) 当前项目')) missing.push('### 2) 当前项目\n| 项目 | 记忆文件 | 状态 | 下一步 |\n|---|---|---|---|\n| （暂无） | — | — | — |\n')
-  if (!has('### 3) 私有记忆变更')) missing.push('### 3) 私有记忆变更\n- \n')
-  const pmDir = path.join(main, '..', '项目记忆')
-  const archDir = path.join(main, '..', '归档')
-  const nProj = fs.existsSync(pmDir) ? fs.readdirSync(pmDir).filter((x) => x.endsWith('.md')).length : 0
-  const nArch = fs.existsSync(archDir) ? fs.readdirSync(archDir).filter((x) => x.endsWith('.md')).length : 0
-  if (!has('### 5) 全貌')) missing.push('### 5) 全貌（自动生成，别手改）\n- 项目记忆 ' + nProj + ' 个 · 归档 ' + nArch + ' 份 · 索引 _文件索引.md\n- 身份卡 / 场景画像 / 共享层 areas 已就位；全貌细节看 核职责 + §一 + §二\n- 卡点 / 等谁：见第 4 节\n')
-  if (!has('### 4) 下一步 / 卡点')) missing.push('### 4) 下一步 / 卡点\n- \n')
+  if (!/^###[^\n]*当前项目/m.test(body)) missing.push('### 当前项目\n| 项目 | 记忆文件 | 状态 | 下一步 |\n|---|---|---|---|\n| （暂无） | — | — | — |\n')
   if (missing.length) {
-    const h = body.indexOf('## §〇')
+    const h = body.search(/^## (?:§〇|〇、|§0)/m)
     if (h >= 0) {
       const lineEnd = body.indexOf('\n', h)
       const at = lineEnd >= 0 ? lineEnd + 1 : body.length
@@ -417,7 +400,7 @@ function cmdHandover(arg) {
     }
     fs.writeFileSync(main, body, 'utf8')
   }
-  console.log('✓ ' + name + '：§〇 四小节已补 ' + missing.length + ' 处 · 索引已登记')
+  console.log('✓ ' + name + '：§〇 当前项目表已补 ' + missing.length + ' 处 · 索引已登记')
   // 索引登记
   const fidx = path.join(dir, '_文件索引.md')
   if (fs.existsSync(fidx)) fs.appendFileSync(fidx, `| \`归档\\${file}\` | 交接前快照（只进不改） | 留档 | ${NOW().toISOString().slice(0, 10)} |\n`, 'utf8')
@@ -561,27 +544,17 @@ function cmdCheck(name) {
       else ok.push('核心职责 ' + n + ' 条')
     }
   }
-  // 2026-11-12（用户报「四小节都在却判不过」）：结构闸改为**按内容**认小节，不再要求固定编号/空格；
-  //   缺哪节就直说缺哪节、期望什么格式。四小节（上次交接 / 当前项目 / 私有记忆变更 / 下一步·卡点）必须，
-  //   「全貌」缺了只告警（工具会自动补）。
+  // 2026-11-20（人格场景确认 §〇 只留当前项目）：结构闸只要求「当前项目」一节；
+  //   上次交接 / 变更日志 / 下一步 / 全貌 都可选，缺了不补、不告警——完整交接在面板交接文件与归档里。
+  //   其他场景仍可保留旧结构，check 不强制删。
   const m0 = main.match(/^## (?:§〇|〇、|§0)[^\n]*$/m)
   const sec0Start = m0 ? m0.index : -1
   const sec0Stop = (() => { if (sec0Start < 0) return -1; const n = main.indexOf('\n## ', sec0Start + 4); return n < 0 ? main.length : n })()
   const sec0Text = sec0Start >= 0 ? main.slice(sec0Start, sec0Stop) : ''
-  if (sec0Text) {
-    const SEC_REQ = [
-      ['上次交接', /^###[^\n]*上次交接/m],
-      ['当前项目', /^###[^\n]*当前项目/m],
-      ['私有记忆变更', /^###[^\n]*私有记忆变更/m],
-      ['下一步 / 卡点', /^###[^\n]*(?:下一步|卡点)/m],
-    ]
-    for (const [label, re] of SEC_REQ) {
-      if (re.test(sec0Text)) continue
-      problems.push('§〇 缺「' + label + '」小节：期望 §〇 里有任意一行 `###` 标题含「' + label + '」（如 `### 1) ' + label + '`）')
-    }
-    if (!/^###[^\n]*全貌/m.test(sec0Text)) warns.push('§〇 没有「全貌」小节（工具会自动补，不阻断）')
+  if (sec0Text && !/^###[^\n]*当前项目/m.test(sec0Text)) {
+    problems.push('§〇 缺「当前项目」小节：期望 §〇 里有任意一行 `###` 标题含「当前项目」（如 `### 当前项目`）')
   }
-  // 内容告警：项目表不能空、下一步/卡点不能空（卡08 决定：只告警不阻断）
+  // 内容告警：项目表不能空（只告警不阻断）
   {
     const segBy = (re) => {
       const m = sec0Text.match(re)
@@ -593,9 +566,6 @@ function cmdCheck(name) {
     const seg2 = segBy(/^###[^\n]*当前项目/m)
     const rows = seg2.split(/\r?\n/).filter((l) => l.trim().startsWith('|') && !/^\|\s*-/.test(l.trim()))
     if (rows.length <= 1) warns.push('当前项目表是空的（没项目要写“无”）')
-    const seg4 = segBy(/^###[^\n]*(?:下一步|卡点)/m)
-    const body4 = seg4.split(/\r?\n/).filter((l) => /^-\s*\S/.test(l.trim()))
-    if (!body4.length) warns.push('第 4 节 下一步/卡点 为空')
   }
   // §〇 区段：从 '## §〇' 到下一个二级标题（不假设下一个一定叫 §一）
   const mNew = main.match(/^## §〇[^\n]*$/m)
@@ -618,7 +588,6 @@ function cmdCheck(name) {
     let pmCount = 0
     try { const pm = path.join(dir, '项目记忆'); pmCount = fs.existsSync(pm) ? fs.readdirSync(pm).filter((x) => x.endsWith('.md')).length : 0 } catch {}
     if (pmCount > 0 && /\|\s*（暂无）\s*\|/.test(seg0)) warns.push('当前项目表写“暂无”，但项目记忆有 ' + pmCount + ' 份（表需更新）')
-    if ((pmCount > 0 || hasOld) && /### 2\) 当前项目[\s\S]{0,120}?（暂无）/.test(seg0) && /### 3\)[\s\S]{0,40}?-\s*\n/.test(seg0)) warns.push('§〇 仍是空骨架（项目表暂无 + 变更/下一步为空）')
   }
   // 项目记忆隔离（2026-11-10）：一个项目一份，必须有业务区（领域 / 数据来源）；
   // 场景私有记忆只放跨项目规矩——里面出现项目名就等于业务知识串到了共享区（只告警，不阻断）

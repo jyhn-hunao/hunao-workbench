@@ -415,7 +415,7 @@ for (const s of ['scripts/sessions.mjs']) {
 //   10.6 引擎侧扩展点结构正确：技能必须有 SKILL.md；插件目录要有开发约定
 head('10. 目录契约（哪里放什么 · 防乱建）');
 
-const ALLOWED_DIRS = ['renderer', 'scenarios', 'scripts', 'data', 'captures', 'node_modules', '.git', 'GUI改造的项目信息', 'pet', 'pet3d', '.idea'];   // .idea = 本机 IDE 缓存（不入库）   // 2026-11-13：pet = 桌宠参数与运行时快照，pet3d = 3D 接口约定（未实现，留位）
+const ALLOWED_DIRS = ['renderer', 'scenarios', 'scripts', 'data', 'captures', 'node_modules', '.git', 'GUI改造的项目信息', 'pet', 'pet3d', 'petlive2d', '.idea'];   // .idea = 本机 IDE 缓存（不入库）   // 2026-11-13：pet = 桌宠参数与运行时快照，pet3d = 概念图/表情包资产（3D 渲染已移除），petlive2d = Live2D 面板与模型
 const ALLOWED_FILES = [
   'main.js', 'preload.js', 'stock-store.js', 'oa-store.js', 'oa-ssh.js', 'updater.js', 'crash.js',
   '项目切换.js',   // 2026-11-11：程序开发「项目下拉」的数据面（main.js require；单测见 scripts\项目切换自检.mjs）
@@ -427,6 +427,7 @@ const ALLOWED_FILES = [
   '微信通道.js',   // 2026-11-18：微信鲸鲸通道进程（main.js require）
   '外发闸门.js',   // 2026-11-18：出站内容安全闸门（微信通道 / 社交回复 require）
   'QQ自动注入.js', // 2026-11-19：QQ 按号注入 SnowLuma（桥接.js 调用）
+  'QQ会话.js', 'QQ群聊.js', 'QQ能力.js', '社交档案.js', '社交档案库.js',   // 2026-11-20：QQ 私聊/群聊/媒体/聊天档案数据面（main.js 或 社交档案 require）
   '功能台.js',     // 2026-11-18：功能台动作登记表（功能台面板读）
   '用量.js',       // 2026-11-13：用量统计数据面（main.js require）
   '工具清单.js',   // 2026-11-13：工具白名单元数据（渲染层取名字用）

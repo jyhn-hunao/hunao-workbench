@@ -6,6 +6,7 @@ export const FILES = [
   // 顶层源码
   'main.js', 'preload.js', 'crash.js',
   'QQ自动注入.js', '功能台.js', '外发闸门.js', '微信通道.js',
+  'QQ会话.js', 'QQ群聊.js', 'QQ能力.js', '社交档案.js', '社交档案库.js',
   '桌宠设置.js', '桌宠状态.js', '社交.js', '社交回复.js', '桥接.js',
   '项目切换.js', '用量.js', '工具清单.js',
   // 配置与入口
@@ -13,9 +14,11 @@ export const FILES = [
   'start.vbs', 'icon.ico', 'icon.png',
   // 说明
   '项目信息.md', '架构索引.md',
-  // pet3d 里属于源码的两份（模型/贴图/表情包是大体积资源，不进快照）
-  'pet3d/app.js', 'pet3d/index.html',
-  'pet3d/utils/BufferGeometryUtils.js', 'pet3d/utils/SkeletonUtils.js'
+  // petlive2d 里属于源码的两份（模型/贴图/vendor 是大体积第三方资源，不进快照）
+  'petlive2d/app.js', 'petlive2d/index.html',
+  'petlive2d/vendor/README.md',
+  // pet3d 只剩资产（概念图/表情包），快照只收说明，不搬大图
+  'pet3d/说明.md'
 ];
 
 export const DIRS = ['renderer', 'scenarios', 'scripts', 'pet'];

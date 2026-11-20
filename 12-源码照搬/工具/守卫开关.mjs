@@ -81,17 +81,38 @@ function modeOf() {
   } catch (e) { return ''; }
 }
 
+// 日志汇总（2026-11-20）：原来状态只报「有多少行」，看不出哪条规则命中最多、最近一次是什么。
+//   只聚合规则名 / 次数 / 最近时间，不读正文（正文里是命令与路径，界面只给统计）。
+function logSummary() {
+  let lines = 0, errors = 0, last = null
+  const rules = {}
+  try {
+    const rows = fs.readFileSync(LOG, 'utf8').trim().split(/\r?\n/).filter(Boolean)
+    lines = rows.length
+    for (const row of rows.slice(-1000)) {
+      try {
+        const j = JSON.parse(row)
+        if (j.error) errors++
+        const rule = String(j.rule || '(无规则)')
+        rules[rule] = (rules[rule] || 0) + 1
+        last = j
+      } catch { /* 单行坏不挡统计 */ }
+    }
+  } catch { /* 还没有日志 */ }
+  const top = Object.keys(rules).sort((a, b) => rules[b] - rules[a]).slice(0, 6).map((rule) => ({ rule: rule, n: rules[rule] }))
+  return { lines: lines, rules: rules, top: top, errors: errors, lastAt: (last && last.at) || null, lastRule: (last && last.rule) || null, lastMode: (last && last.mode) || null }
+}
+
 if (has('--status') || (!has('--on') && !has('--off') && !has('--dry'))) {
   const modeNow = modeOf();
-  let logLines = 0;
-  try { logLines = fs.readFileSync(LOG, 'utf8').trim().split('\n').filter(Boolean).length; } catch (e) { logLines = 0; }
+  const log = logSummary();
   // --json 是快查：不跑 dump-config（它要起一次引擎、可能超过界面的 25 秒探针超时）
   if (has('--json')) {
     console.log(JSON.stringify({
       at: Date.now(), installed: installed, inBundles: inBundles,
       mode: modeNow || null, source: PKG_FILE,
       bundlePatch: path.join(DEST, 'cordis.patch.yml'),
-      log: { path: LOG, lines: logLines },
+      log: Object.assign({ path: LOG }, log),
       engine: null,
     }, null, 0));
     process.exit(0);
@@ -103,8 +124,11 @@ if (has('--status') || (!has('--on') && !has('--off') && !has('--dry'))) {
   const d = dumpHasGuard();
   if (!d.ok) console.log('引擎视图：跑不动 dump-config —— ' + d.err);
   else console.log('引擎视图：' + (d.hit ? '✓ 组进树里了（token-guard 在配置里）' : '✗ 配置里没有 token-guard（重启也不会加载）'));
-  if (logLines) console.log('日志：' + LOG + '（' + logLines + ' 行）');
-  else console.log('日志：还没有（重启并跑一次任务后才会有）');
+  if (log.lines) {
+    console.log('日志：' + LOG + '（' + log.lines + ' 行' + (log.errors ? ' · 失败 ' + log.errors + ' 行' : '') + '）');
+    console.log('命中 Top：' + (log.top.length ? log.top.map((x) => x.rule + '×' + x.n).join(' / ') : '—'));
+    console.log('最近一次：' + (log.lastAt || '—') + ' · ' + (log.lastRule || '—') + ' · ' + (log.lastMode || '—'));
+  } else console.log('日志：还没有（重启并跑一次任务后才会有）');
   if (!inBundles) console.log('\n要装：node 工具\\守卫开关.mjs --on    然后重启工作台');
   process.exit(0);
 }

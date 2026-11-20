@@ -47,7 +47,7 @@ const cfg = (env, sourceType) => ({
 })
 
 // 1. 三组扫描：后端 .mjs（module / node）；外壳 .js（script / node+browser）；
-//    外壳 pet3d（浏览器 ES module：带 import/export，script 解析会报语法错，且 vendor 是第三方不查）
+//    外壳 petlive2d（浏览器 ES module：app.js 用 type=module 加载，vendor 是第三方不查）
 const GROUPS = [
   {
     name: '后端脚本（工具 / 外壳 scripts / 插件）',
@@ -61,14 +61,14 @@ const GROUPS = [
     config: path.join(TMP, 'web.json'),
     targets: [SHELL],
     ext: '.js',
-    ignore: ['**/node_modules/**', '**/data/**', '**/scenarios/**', '**/pet3d/**'],
+    ignore: ['**/node_modules/**', '**/data/**', '**/scenarios/**', '**/pet3d/**', '**/petlive2d/**'],
   },
   {
-    name: '外壳 pet3d（浏览器 ES module）',
-    config: path.join(TMP, 'pet3d.json'),
-    targets: [path.join(SHELL, 'pet3d')].filter((p) => fs.existsSync(p)),
+    name: '外壳 petlive2d（浏览器 ES module）',
+    config: path.join(TMP, 'petlive2d.json'),
+    targets: [path.join(SHELL, 'petlive2d')].filter((p) => fs.existsSync(p)),
     ext: '.js',
-    // vendor 是随壳分发的第三方 three.js，只做语法兜底，不查 no-undef
+    // vendor 是随壳分发的第三方 PixiJS / Live2D，只做语法兜底，不查 no-undef
     ignore: ['**/vendor/**'],
   },
 ]

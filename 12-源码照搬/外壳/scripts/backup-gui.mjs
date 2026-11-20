@@ -60,7 +60,7 @@ for (const f of FILES) {
   const src = path.join(ROOT, f);
   if (!fs.existsSync(src)) continue;
   const out = path.join(dst, f);
-  fs.mkdirSync(path.dirname(out), { recursive: true });   // pet3d/utils 这类嵌套文件要先建父目录
+  fs.mkdirSync(path.dirname(out), { recursive: true });   // petlive2d/vendor 这类嵌套文件要先建父目录
   fs.copyFileSync(src, out);
   n++;
 }
