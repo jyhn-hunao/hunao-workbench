@@ -25,6 +25,7 @@ const wechatSvc = require('./微信通道');       // 微信个人号通道（wh
 const outGateSvc = require('./外发闸门');       // 外发安全闸门：QQ 代理 + 正文判定 + 审计（唯一判据出处）
 const petSvc = require('./桌宠设置');          // 桌宠层的机器可读设置 + 路由打分 + 派发日志（面板与 工具\桌宠.mjs 共用）
 const chatArchiveSvc = require('./社交档案');   // 聊天长期档案：SnowLuma messages.db → 本地 SQLite/FTS5（只读源库）
+const socialStateSvc = require('./社交状态');    // 关系 + 情绪：外壳\data\社交关系.json / 社交情绪.json（可观测、可配置）
 
 // ---- 端口真源（2026-11-20）：env > 机器配置.json 的 ports > 默认 ----
 // 为什么补这一层：控制台的「机器层」展示的是 机器配置.json 的 ports，但主进程原来只认 env / 写死默认；
@@ -5022,6 +5023,26 @@ ipcMain.handle('archive:quote', (e, args) => chatArchiveService.quote(args || {}
 ipcMain.handle('archive:daily', (e, args) => chatArchiveService.daily(args || {}));
 ipcMain.handle('archive:memories', (e, args) => chatArchiveService.memories(args || {}));
 ipcMain.handle('archive:memory-add', (e, args) => chatArchiveService.memoryAdd(args || {}));
+
+// 关系与情绪：面板是唯一人工入口；所有写操作都落 外壳\data\，并同步镜像给 DSH 插件。
+// 出错返回 { ok:false, error }，不 throw；面板用顶栏 toast 报，不静默。
+function socialSafe(fn, args) {
+  try {
+    const out = fn(args || {});
+    return out && typeof out.then === 'function' ? out : Promise.resolve(out);
+  } catch (e) {
+    return Promise.resolve({ ok: false, error: String((e && e.message) || e) });
+  }
+}
+ipcMain.handle('social:relation-get', () => socialSafe(() => socialStateSvc.inspect()));
+ipcMain.handle('social:relation-save-person', (e, args) => socialSafe(() => socialStateSvc.savePerson(args || {}), args));
+ipcMain.handle('social:relation-reset-person', (e, args) => socialSafe(() => socialStateSvc.resetPerson(args || {}), args));
+ipcMain.handle('social:relation-config-save', (e, args) => socialSafe(() => socialStateSvc.saveConfig(args || {}), args));
+ipcMain.handle('social:relation-seed', (e, args) => socialSafe(() => socialStateSvc.seedFromArchive(args || {}), args));
+ipcMain.handle('social:relation-patrol', () => socialSafe(() => socialStateSvc.patrol()));
+ipcMain.handle('social:relation-preview', (e, args) => socialSafe(() => socialStateSvc.preview(args || {}), args));
+ipcMain.handle('social:mood-set', (e, args) => socialSafe(() => socialStateSvc.setMood(args || {}), args));
+ipcMain.handle('social:mood-reset', () => socialSafe(() => socialStateSvc.resetMood()));
 
 // ---- 社交消息流的视图偏好（2026-11-17）----
 // 只存两个值：时间范围（today/7/30/all）+ 归档游标（毫秒）。为什么放主进程 userData：

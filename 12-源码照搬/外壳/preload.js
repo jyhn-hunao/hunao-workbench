@@ -88,7 +88,17 @@ contextBridge.exposeInMainWorld('app', {
     viewSet: (patch) => ipcRenderer.invoke('social:view-set', patch),
     // 通用回复策略：微信 / QQ / 飞书共用；读不到就返回 null，渲染层显示「重启一次工作台」。
     replyPolicyGet: () => ipcRenderer.invoke('social:reply-policy-get'),
-    replyPolicySave: (patch) => ipcRenderer.invoke('social:reply-policy-save', patch || {})
+    replyPolicySave: (patch) => ipcRenderer.invoke('social:reply-policy-save', patch || {}),
+    // 关系与情绪：所有人可见、可改；面板写的是 外壳\data\社交关系.json / 社交情绪.json。
+    relationGet: () => ipcRenderer.invoke('social:relation-get'),
+    relationSavePerson: (patch) => ipcRenderer.invoke('social:relation-save-person', patch || {}),
+    relationResetPerson: (patch) => ipcRenderer.invoke('social:relation-reset-person', patch || {}),
+    relationConfigSave: (patch) => ipcRenderer.invoke('social:relation-config-save', patch || {}),
+    relationSeed: (args) => ipcRenderer.invoke('social:relation-seed', args || {}),
+    relationPatrol: () => ipcRenderer.invoke('social:relation-patrol'),
+    relationPreview: (args) => ipcRenderer.invoke('social:relation-preview', args || {}),
+    moodSet: (args) => ipcRenderer.invoke('social:mood-set', args || {}),
+    moodReset: () => ipcRenderer.invoke('social:mood-reset')
   },
   // ---- QQ 私聊 / 群聊独立会话（2026-11-19）----
   // 缺这个命名空间 = preload/主进程还是旧的 ⇒ QQ 卡片显示「重启一次工作台」，不假装能配。
