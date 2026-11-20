@@ -7,6 +7,8 @@
 //   node 12-源码照搬\工具\社交策略.mjs --mode shadow|enforce
 //   node 12-源码照搬\工具\社交策略.mjs --off
 // ⚠ 插件在引擎启动时加载：装完/改完必须重启整壳（启动.vbs），不要只重启引擎。
+// --check 读插件文件、patch 与 logs\social-policy.jsonl，显示模式 / 策略镜像 /
+// 已注入轮数（shadow / inject / 失败）与最近一条渠道，不另存影子状态。
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -19,6 +21,7 @@ const DEST = path.join(PROFILE, 'node_modules', 'dsh-social-policy')
 const PATCH = path.join(PROFILE, 'cordis.patch.yml')
 const POLICY = path.join(ROOT, '12-源码照搬', '外壳', 'data', '社交回复.json')
 const POLICY_MIRROR = path.join(ROOT, '12-源码照搬', '引擎数据', '.dsh', '场景记忆', '_共享记忆', '社交回复.json')
+const INJECT_LOG = path.join(ROOT, '12-源码照搬', '引擎数据', '.dsh', 'logs', 'social-policy.jsonl')
 const MARK = 'dsh-social-policy'
 const ID = 'social-policy'
 
@@ -28,6 +31,34 @@ const on = (f) => argv.includes(f)
 
 function patchText() {
   return fs.existsSync(PATCH) ? fs.readFileSync(PATCH, 'utf8') : ''
+}
+
+function injectSummary() {
+  let lines = 0, errors = 0, last = null
+  const kinds = {}
+  try {
+    const rows = fs.readFileSync(INJECT_LOG, 'utf8').trim().split(/\r?\n/).filter(Boolean)
+    lines = rows.length
+    for (const row of rows.slice(-500)) {
+      try {
+        const j = JSON.parse(row)
+        const k = String(j.kind || '')
+        kinds[k] = (kinds[k] || 0) + 1
+        if (j.err) errors++
+        last = j
+      } catch { /* 单行坏不影响整份统计 */ }
+    }
+  } catch { /* 还没有日志 = 还没注入过 */ }
+  return {
+    path: INJECT_LOG,
+    lines: lines,
+    errors: errors,
+    kinds: kinds,
+    last: last ? {
+      at: last.at, kind: last.kind, mode: last.mode, channel: last.channel,
+      chatType: last.chatType, chatId: last.chatId, chars: last.chars
+    } : null,
+  }
 }
 
 function statusInfo() {
@@ -42,7 +73,8 @@ function statusInfo() {
     mode: m || (registered ? 'enforce' : null),
     pluginPath: DEST,
     patch: PATCH,
-    policyMirror: fs.existsSync(POLICY_MIRROR)
+    policyMirror: fs.existsSync(POLICY_MIRROR),
+    inject: injectSummary(),
   }
 }
 
@@ -56,6 +88,12 @@ function status() {
   console.log('patch 登记：' + (s.registered ? '已登记' : '未登记'))
   console.log('注入模式：' + (s.mode || '—'))
   console.log('策略镜像：' + (s.policyMirror ? '已生成' : '未生成（打开/保存回复风格后生成）'))
+  const inj = s.inject || {}
+  if (inj.lines) {
+    console.log('注入记录：' + inj.lines + ' 轮（shadow ' + (inj.kinds.shadow || 0) + ' / inject ' + (inj.kinds.inject || 0) + (inj.errors ? ' / 失败 ' + inj.errors : '') + '） · 最近 ' + (inj.last ? (inj.last.at + ' · ' + (inj.last.channel || '—') + ' · ' + (inj.last.chars || 0) + ' B') : '—'))
+  } else {
+    console.log('注入记录：还没有（重启整壳后产生；每轮只记渠道/会话/字节）')
+  }
   console.log('profile：' + PROFILE)
   return s.installed && s.registered
 }

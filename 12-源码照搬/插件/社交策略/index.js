@@ -494,6 +494,28 @@ function writeStatus(kind, extra) {
   })
 }
 
+// 每轮留一条机器可读记录（2026-11-20）：原来只有 server.log / 最近一次 status，
+// 重启后 status 被 mount 覆盖，面板看不到「到底注入过几轮、哪一轮失败」。
+// 只记渠道 / 会话 / 字节，不记回复正文。
+function noteInject(kind, mode, entry, chars, err) {
+  try {
+    const dir = path.join(dshHome(), 'logs')
+    fs.mkdirSync(dir, { recursive: true })
+    const rec = {
+      at: new Date().toISOString(),
+      kind: String(kind || ''),
+      mode: String(mode || ''),
+      sessionId: String((entry && entry.sessionId) || ''),
+      channel: String((entry && entry.channel) || ''),
+      chatType: String((entry && entry.chatType) || ''),
+      chatId: String((entry && entry.chatId) || ''),
+      chars: Number(chars || 0)
+    }
+    if (err) rec.err = String((err && err.message) || err).slice(0, 120)
+    fs.appendFileSync(path.join(dir, 'social-policy.jsonl'), JSON.stringify(rec) + '\n', 'utf8')
+  } catch { /* 记录写不进不影响注入 */ }
+}
+
 function userText(messages) {
   const parts = []
   for (const m of messages || []) {
@@ -594,6 +616,7 @@ export function apply(ctx, config) {
           title: entry.title,
           chars: text.length
         })
+        noteInject('shadow', mode, entry, text.length)
         try { ctx.logger.info('[social-policy] shadow：本应注入 ' + entry.channel + ' ' + entry.chatType + ' ' + entry.chatId + ' ' + text.length + ' B') } catch { /* logger 不可用 */ }
         return downstream
       }
@@ -617,10 +640,12 @@ export function apply(ctx, config) {
         title: entry.title,
         chars: text.length
       })
+      noteInject('inject', mode, entry, text.length)
       try { ctx.logger.info('[social-policy] 注入 ' + entry.channel + ' ' + entry.chatType + ' ' + entry.chatId + '（' + text.length + ' B）') } catch { /* logger 不可用 */ }
       return { ...downstream, messages: [...downstream.messages, msg] }
     } catch (e) {
       try { ctx.logger.warn('[social-policy] 注入失败：' + String((e && e.message) || e)) } catch { /* logger 不可用 */ }
+      noteInject('error', mode, null, 0, e)
       return downstream
     }
   })
