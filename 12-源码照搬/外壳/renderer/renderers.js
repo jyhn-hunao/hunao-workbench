@@ -83,6 +83,19 @@ var oaPoll = (intervalMs, fn) => {
   return () => { stopped = true; stop(); document.removeEventListener('visibilitychange', onVis); };
 };
 
+// ---------- 面板是否"醒着"（2026-11-20）----------
+// 场景暂存会把切走的场景留在 DOM 里（opacity:0），旧面板的定时器却没停 ⇒ 后台仍在轮询。
+// 高频轮询（≤1s 级）先过这一道：窗口隐藏或所在 stage 不是活动场景就跳过这一轮。
+var panelAwake = (el) => {
+  try {
+    if (document.hidden) return false;
+    const host = el && el.closest ? el.closest('#scenario-view') : null;
+    if (host && !host.classList.contains('active')) return false;   // 切到引擎视图时整个场景视图被盖住
+    const st = el && el.closest ? el.closest('.scene-stage') : null;
+    return !st || st.classList.contains('active');
+  } catch (e) { return true; }
+};
+
 // ---------- 工具 ----------
 function mktColor(v) {
   if (v == null) return '';
@@ -984,6 +997,7 @@ renderers.shell = (body, meta, head) => {
   if (KA) {
     const pollAgent = () => {
       if (shellBusy) return;
+      if (!panelAwake(body)) return;   // 隐藏场景 / 窗口不可见时不打 IPC（400ms 一次最容易被后台场景白白烧掉）
       KA.dequeue().then(q => {
         if (!q || !q.cmd) return;
         execAndShow(q.cmd, true, (r) => {
@@ -9863,7 +9877,7 @@ renderers.embed = (body, meta, head) => {  body.classList.add('embed-panel');
 
   const start = () => {
     if (!url) { showMsg('这个面板没有配置 url。'); return; }
-    // @site: 前缀（2026-11-18）：场景 json 不写死端口，@site:/pet3d/ → http://127.0.0.1:<SITE_PORT>/pet3d/
+    // @site: 前缀（2026-11-18）：场景 json 不写死端口，@site:/petlive2d/ → http://127.0.0.1:<SITE_PORT>/petlive2d/
     if (url.indexOf('@site:') === 0) {
       if (urlResolving) return;
       if (!(window.app && typeof window.app.siteBase === 'function')) {
@@ -15338,21 +15352,30 @@ var HARNESS_WIDE_CSS = [
 // ⚠ 自维持定时器带 window 级守卫：宿主每 1.5 秒重注入一次（连续 30 秒），不守卫就会攒出几十个循环。
 var HARNESS_WIDE_PIN_JS = `(() => {
   var COL = ${JSON.stringify(HARNESS_WIDE_COL)}, CARD = ${JSON.stringify(HARNESS_WIDE_CARD)};
+  // 2026-11-20 卡顿治理：同值不写（沿祖先链每轮 setProperty 会不停制造 style mutation），间隔 2s → 5s，
+  //   隐藏场景（__kunActive=false）直接跳过。
+  var setIf = function (el, prop, val) {
+    try {
+      if (el.style.getPropertyValue(prop) === val && el.style.getPropertyPriority(prop) === 'important') return;
+      el.style.setProperty(prop, val, 'important');
+    } catch (e) { window.__kunErr = e; }
+  };
   var pinOnce = function () {
+    if (window.__kunActive === false) return '0列 0/0px';
     var layers = 0;
     var pin = function (el) {
       while (el && el.nodeType === 1) {
         try {
-          el.style.setProperty('--dsh-chat-content-width', COL, 'important');
-          el.style.setProperty('--dsh-composer-card-max-width', CARD, 'important');
+          setIf(el, '--dsh-chat-content-width', COL);
+          setIf(el, '--dsh-composer-card-max-width', CARD);
         } catch (e) { wbWarn(e) }
         layers++; el = el.parentElement;
       }
     };
     var cols = document.querySelectorAll('[data-chat-flow]');
-    for (var i = 0; i < cols.length; i++) { try { cols[i].style.setProperty('max-width', COL, 'important'); } catch (e) { wbWarn(e) } pin(cols[i]); }
+    for (var i = 0; i < cols.length; i++) { setIf(cols[i], 'max-width', COL); pin(cols[i]); }
     var cards = document.querySelectorAll('[data-composer-card]');
-    for (var j = 0; j < cards.length; j++) { try { cards[j].style.setProperty('max-width', CARD, 'important'); } catch (e) { wbWarn(e) } pin(cards[j]); }
+    for (var j = 0; j < cards.length; j++) { setIf(cards[j], 'max-width', CARD); pin(cards[j]); }
     var c0 = cols[0], pw = 0, w = 0;
     // ⚠ 分母必须是"可用宽"＝父层**内容盒**（clientWidth 去掉左右内边距），不能用父层 border box：
     //    max-width 里的 % 就是对这个内容盒算的。实测父层 border box 1656 / 内容盒 1592 / 列 1576 ⇒ 只差 16px。
@@ -15367,7 +15390,7 @@ var HARNESS_WIDE_PIN_JS = `(() => {
     return { cols: cols.length, cards: cards.length, layers: layers, w: Math.round(w), pw: Math.round(pw) };
   };
   var r = pinOnce();
-  try { if (!window.__kunWideTimer) window.__kunWideTimer = setInterval(pinOnce, 2000); } catch (e) { wbWarn(e) }
+  try { if (!window.__kunWideTimer) window.__kunWideTimer = setInterval(pinOnce, 5000); } catch (e) { wbWarn(e) }
   return r.cols + '列 ' + r.w + '/' + r.pw + 'px';
 })()`;
 // 场景 0 = index.html 里的 #harness-webview：**引擎原生界面，设计上不做任何精简注入**（不隐藏侧栏/顶栏），
@@ -16893,8 +16916,11 @@ renderers.harness = (body, meta, head) => {
 
   // 标题栏（标题行）加「重新加载」按钮 + 精简模式状态
   let wv = null;
-  let hostTimer = null;   // 加载后 30s 注入兜底窗口
-  let pinTimer = null;    // 常驻钉住重注入（5s）
+  let hostTimer = null;   // 加载后注入兜底窗口（12s）
+  let pinTimer = null;    // 常驻轻量 tick（6s：只调 __pinTick，不再整份重投）
+  let pinFullTimer = null; // 整份脚本兜底重投（60s：防 webview 内部重载后守卫失效）
+  let cssDone = false;    // 本页样式只插一次（换页 dom-ready 复位）
+  let fixDone = false;    // 本页 fix/pin 脚本只装一次（之后只取轻量状态，不再每轮重投 25KB）
   let disposed = false;   // 场景切换后停止一切注入
   let switchCleanup = null;   // 项目下拉的菜单挂在 body 上，场景重建时要摘掉
   let rail = null;            // 会话条（主 + 临时）
@@ -17404,7 +17430,45 @@ renderers.harness = (body, meta, head) => {
       } catch (e) { wbWarn(e) }
       return '读不到';
     };
+    // 目标清单（绑定标题 ＞ 指定标题 ＞ 候选名）—— 快路径与全扫描共用一份，避免各算一遍
+    const wantList = () => {
+      const bind = readBind();
+      const want = [];
+      if (bind && bind.title) want.push({ n: norm(bind.title), by: '绑定标题:' + bind.title, exactOnly: true });
+      if (SESSION_TITLE) want.push({ n: norm(SESSION_TITLE), by: '指定标题:' + SESSION_TITLE, exactOnly: true });
+      for (let ti = 0; ti < TARGETS.length; ti++) want.push({ n: norm(TARGETS[ti]), by: '候选名:' + TARGETS[ti], exactOnly: false });
+      return want;
+    };
     const findBest = (relaxed) => {
+      // ★2026-11-20 快路径★：会话行（[aria-selected]/[data-session-id]/treeitem）通常只有几十个，
+      //   先在行里精确找；命中就直接返回，不再扫全文档（以前每次都把 div/span 全捞一遍，聊天长了就卡）。
+      try {
+        const rows = document.querySelectorAll('[aria-selected],[data-session-id],[role="treeitem"]');
+        if (rows.length) {
+          const want = wantList();
+          for (let w = 0; w < want.length; w++) {
+            const W = want[w];
+            if (!W.n) continue;
+            let best = null, bestKey = Infinity;
+            for (let i = 0; i < rows.length; i++) {
+              const e = rows[i];
+              if (isGroupHead(e)) continue;               // 分组头只展开，不当作会话
+              const raw = rowTitle(e);
+              if (!raw || raw.length > 160) continue;
+              const n = norm(raw);
+              if (!n) continue;
+              const exact = (n === W.n);
+              if (!exact) {
+                if (W.exactOnly) continue;
+                if (n.indexOf(W.n) < 0 || n.length > 240) continue;
+              }
+              const key = (exact ? 0 : 1e5) + n.length;
+              if (key < bestKey) { bestKey = key; best = { el: e, by: (exact ? '完全相等 · ' : '包含 · ') + W.by }; }
+            }
+            if (best) return best;
+          }
+        }
+      } catch (e) { window.__pinErr = e; }
       // 全文档候选（排除聊天内容区；含"可点/可读"的常见节点）
       // relaxed=true 时不再排除聊天区：只在"严格找一遍没找到"时才用，保证绝不出现"一个都找不到"
       let all;
@@ -17428,11 +17492,7 @@ renderers.harness = (body, meta, head) => {
       }
       if (!cand.length) return null;
       // ① 绑定标题 → ② 场景指定标题 → ③ 候选名；同一目标里"会话行优先、完全相等优先、文本越短越像行"
-      const bind = readBind();
-      const want = [];
-      if (bind && bind.title) want.push({ n: norm(bind.title), by: '绑定标题:' + bind.title, exactOnly: true });
-      if (SESSION_TITLE) want.push({ n: norm(SESSION_TITLE), by: '指定标题:' + SESSION_TITLE, exactOnly: true });
-      for (let ti = 0; ti < TARGETS.length; ti++) want.push({ n: norm(TARGETS[ti]), by: '候选名:' + TARGETS[ti], exactOnly: false });
+      const want = wantList();
       for (let w = 0; w < want.length; w++) {
         const W = want[w];
         if (!W.n) continue;
@@ -17455,7 +17515,8 @@ renderers.harness = (body, meta, head) => {
     const listCands = () => {
       const seen = {}, out = [];
       try {
-        const els = document.querySelectorAll('[aria-selected],[data-session-id],[role="treeitem"],div,li,button');
+        // 只列会话行（诊断用）—— 以前把 div/li/button 也全捞一遍，纯展示信息不值这个扫描成本
+        const els = document.querySelectorAll('[aria-selected],[data-session-id],[role="treeitem"]');
         for (let i = 0; i < els.length && out.length < 12; i++) {
           const e = els[i];
           if (inChat(e)) continue;
@@ -17468,8 +17529,27 @@ renderers.harness = (body, meta, head) => {
       } catch (err) { wbWarn(err) }
       return out;
     };
-    const refreshDiag = (hit) => {
-      const h = hit || findBest(false) || findBest(true);   // 与实际点击同一套判据（严格→放宽）
+    // ★2026-11-20 诊断降耗★：这个函数以前每 4 秒跑一次，每次：全文档 findBest ×2 + innerText 两次
+    //   （innerText 会强制整页同步重排）+ listCands 全扫描。现在：
+    //   ① 已在目标会话上就不再 findBest；② 空会话/选工作区判断只在"没有聊天流"时用 textContent；
+    //   ③ 候选列表 20 秒最多算一次；④ 整体 2 秒最多刷新一次（force 例外）。
+    const refreshDiag = (hit, force) => {
+      if (!force && Date.now() - (window.__pinDiagAt || 0) < 2000) return;
+      window.__pinDiagAt = Date.now();
+      const tNow = norm(titleOf());
+      const bindNow = readBind();
+      const looksPinned = !!tNow && (
+        (bindNow && bindNow.title && tNow === norm(bindNow.title)) ||
+        (SESSION_TITLE && tNow === norm(SESSION_TITLE)) ||
+        (TARGETS || []).some(function (x) { const n = norm(x); return n && tNow.indexOf(n) >= 0; })
+      );
+      const h = hit || (looksPinned ? null : (findBest(false) || findBest(true)));
+      const hasFlowNow = (() => { try { return !!document.querySelector('[data-chat-flow],[data-phase]'); } catch (e) { return false; } })();
+      const heroText = hasFlowNow ? '' : String((document.body && document.body.textContent) || '');
+      if (!looksPinned && Date.now() - (window.__pinCandsAt || 0) > 20000) {
+        window.__pinCandsAt = Date.now();
+        window.__pinCands = listCands();
+      }
       window.__pinDiag = {
         targets: TARGETS,
         sessionTitle: SESSION_TITLE,
@@ -17478,8 +17558,8 @@ renderers.harness = (body, meta, head) => {
         // 2026-11-17：换会话后新会话是 0 轮空会话，引擎把它画成 hero 页；
         //   宿主据此把"已绑定的空会话"认成正常态，别误报「未切到」。
         //   两个旗标分开：hero=「探索未至之境」；locked=输入框被锁成「选择一个工作区开始」。
-        blankPage: (() => { try { const b = (document.body && document.body.innerText) || ''; return b.indexOf('探索未至之境') >= 0; } catch (e) { return false; } })(),
-        lockedPicker: (() => { try { const b = (document.body && document.body.innerText) || ''; return b.indexOf('选择一个工作区开始') >= 0; } catch (e) { return false; } })(),
+        blankPage: heroText.indexOf('探索未至之境') >= 0,
+        lockedPicker: heroText.indexOf('选择一个工作区开始') >= 0,
         // 2026-11-12：guest 写对了键但没法自己重载（侧栏隐藏、点不到行）⇒ 留信号让宿主重载
         needReloadAt: (window.__pinNeedHostReloadAt || 0),
         // 2026-11-12（P0）：引擎到底把「当前会话」存哪个键 —— 不一致时把这几个键名记进 server.log
@@ -17495,11 +17575,11 @@ renderers.harness = (body, meta, head) => {
         titleSrc: titleSrc(),
         matched: h ? brief(h.el) : '',
         by: h ? h.by : '',
-        bound: readBind(),
+        bound: bindNow,
         rows: (() => { try { return document.querySelectorAll('[aria-selected],[data-session-id],[role="treeitem"]').length; } catch (e) { return -1; } })(),
         clicked: !!window.__pinClickedAt,
         clickedAt: window.__pinClickedAt || 0,
-        cands: listCands()
+        cands: window.__pinCands || []
       };
     };
     refreshDiag(null);
@@ -17533,7 +17613,7 @@ renderers.harness = (body, meta, head) => {
       last = Date.now();
       window.__pinClickedAt = last;
       window.__pinLastHitTitle = rowTitle(c) || rowTitle(hit.el) || '';
-      refreshDiag({ el: c, by: hit.by });
+      refreshDiag({ el: c, by: hit.by }, true);
       hidden.forEach(function (h) { h.style.display = 'none'; });
     };
     // 兜底：会话列表若被折叠/隐藏，虚拟列表可能因容器 0 尺寸而不渲染任何列表项（DOM 里找不到）
@@ -17557,7 +17637,8 @@ renderers.harness = (body, meta, head) => {
     const hasFlow = () => { try { return !!document.querySelector('[data-chat-flow],[data-phase]'); } catch (e) { return false; } };
     const welcomeish = () => {
       try {
-        const b = (document.body && document.body.innerText) || '';
+        // innerText 会强制整页同步重排（聊天页上很贵）⇒ 改用 textContent；本函数只在没有聊天流时才会被调用
+        const b = (document.body && document.body.textContent) || '';
         return b.indexOf('探索未至之境') >= 0 || b.indexOf('选择一个工作区开始') >= 0;
       } catch (e) { return false; }
     };
@@ -17592,6 +17673,8 @@ renderers.harness = (body, meta, head) => {
     };
     let tries = 0;
     const clickItem = () => {
+      // 隐藏场景（缓存里没在看的 stage）不折腾：钉会话只对看得见的面板有意义
+      if (window.__kunActive === false) return;
       // 1. 用户正在本面板输入时不碰侧栏：下面的 doClick 是合成 pointerdown/mousedown/click
       //    （14486-14490），会把焦点从输入框挪走 —— 表现就是「打着字突然断」。2026-11-12 加。
       const ae = document.activeElement;
@@ -17665,7 +17748,7 @@ renderers.harness = (body, meta, head) => {
             //   "按标题点行"这条路根本走不通；写对键后必须让**壳**帮本 webview 重载一次。
             //   这里只留信号，重载由宿主做（guest 里不再加第二处 location.reload，避免触发 check-injected 判据）。
             try { window.__pinNeedHostReloadAt = Date.now(); } catch (e) { wbWarn(e) }
-            refreshDiag(null);
+            refreshDiag(null, true);   // 重载信号必须立刻可见（宿主下一轮读 __pinDiag 就要拿到）
             showPinNeedRefresh();
             return;
           }
@@ -17702,15 +17785,20 @@ renderers.harness = (body, meta, head) => {
     setTimeout(clickItem, 1000);
     // 切场景后先用 1.5s 快节奏重试 20 次（尽快到位），之后 4s 常驻守着
     const fastTimer = setInterval(() => {
+      if (window.__kunActive === false) return;
       clickItem();
       if (++tries >= 20) clearInterval(fastTimer);
     }, 1500);
-    setInterval(clickItem, 4000);
-    setInterval(() => refreshDiag(null), 4000);
-    // 幂等标记 + 轻量 tick：宿主每 5 秒的重注入只会调 __pinTick（点一次 + 刷一次诊断），
-    // 不再新装定时器 —— 见脚本开头的守卫。webview 内部重载后 window 重置，这里会重新执行。
+    setInterval(() => { if (window.__kunActive === false) return; clickItem(); }, 4000);
+    // 2026-11-20：原来的独立 4s refreshDiag 与上面的 clickItem（内部本来就会刷）重复，删掉；
+    //   诊断刷新现在由 refreshDiag 自身按 2 秒节流。
+    // 幂等标记 + 轻量 tick：宿主的常驻定时器只会调 __pinTick（点一次 + 刷一次诊断），
+    // 不再每次重投整份脚本 —— 见脚本开头的守卫。webview 内部重载后 window 重置，这里会重新执行。
     window.__pinGen = GEN;
-    window.__pinTick = () => { try { clickItem(); refreshDiag(null); } catch (e) { wbWarn(e) } };
+    window.__pinTick = () => {
+      if (window.__kunActive === false) return;
+      try { clickItem(); } catch (e) { wbWarn(e) }
+    };
 
     // ---- 聊天滚动锚定：面板展开/收起（webview 视口变大变小）时稳住聊天内容 ----
     // 目的：展开瞬间不要"内容乱跳"。规则：原本贴底 → 展开后仍贴底；否则保持原阅读位置。
@@ -17743,12 +17831,26 @@ renderers.harness = (body, meta, head) => {
     })();
   })();`;
   const HARNESS_FIX_JS = `(() => {
+    // 2026-11-20 卡顿治理：同值不写 —— 以前每次 fix 都无条件 setProperty，属性写入本身会再触发
+    //   MutationObserver（attributes+style），形成「写样式 → 监听器 → 再 fix」的自激循环。
+    const setIf = (el, prop, val, imp) => {
+      try {
+        if (el.style.getPropertyValue(prop) === val && el.style.getPropertyPriority(prop) === (imp ? 'important' : '')) return;
+        el.style.setProperty(prop, val, imp ? 'important' : '');
+      } catch (e) { window.__kunErr = e; }
+    };
+    // 框架元素缓存：以前每秒跑一次 [style*="grid-template-columns"] 这个全文档子串选择器（很贵）。
+    //   缓存后在「还是同一个节点且样式没被顶掉」时直接复用；React 换根节点或样式被重置才重新扫。
     const pick = () => {
-      // 页面唯一带内联 grid-template-columns 且含 minmax( 的元素就是应用框架（已实测 grids=1）。
+      const c = window.__kunFixFrame;
+      if (c && c.isConnected) {
+        const cv = c.style.gridTemplateColumns || '';
+        if (cv.indexOf('minmax(') >= 0) return c;
+      }
       const all = document.querySelectorAll('[style*="grid-template-columns"]');
       for (let i = 0; i < all.length; i++) {
         const v = all[i].style.gridTemplateColumns || '';
-        if (v.indexOf('minmax(') >= 0) return all[i];
+        if (v.indexOf('minmax(') >= 0) { window.__kunFixFrame = all[i]; return all[i]; }
       }
       return null;
     };
@@ -17760,7 +17862,7 @@ renderers.harness = (body, meta, head) => {
       // React 重渲染把 max-width 顶回去也能在一秒内纠回来；顺带把实测宽度留给下面的诊断。
       try { WIDE = ${HARNESS_WIDE_PIN_JS}; } catch (e) { wbWarn(e) }
       // 单轨道：配合下方结构隐藏，仅剩的中心列占满整个框架
-      f.style.setProperty('grid-template-columns', 'minmax(0, 1fr)', 'important');
+      setIf(f, 'grid-template-columns', 'minmax(0, 1fr)', true);
       // 结构法：定位中心列（含聊天流/会话），隐藏框架其余非定位子元素（侧栏列/详情列）
       let center = null;
       const flow = f.querySelector('[data-chat-flow]') || f.querySelector('[data-phase]');
@@ -17778,11 +17880,11 @@ renderers.harness = (body, meta, head) => {
           let pos = 'static';
           try { pos = getComputedStyle(c).position; } catch (e) { wbWarn(e) }
           if (pos === 'absolute') continue;
-          c.style.setProperty('display', 'none', 'important');
+          setIf(c, 'display', 'none', true);
         }
       }
       f.querySelectorAll('[data-side="sidebar"], [data-side="details"], [data-width-handle]').forEach(function (h) {
-        h.style.setProperty('display', 'none', 'important');
+        setIf(h, 'display', 'none', true);
       });
       f.querySelectorAll('[data-phase]').forEach(function (r) {
         // ⚠ 这里以前还有一行「r.style.setProperty('--dsh-chat-content-width','100%','important')」，
@@ -17800,13 +17902,13 @@ renderers.harness = (body, meta, head) => {
         for (let j = 0; j < kids.length; j++) {
           const c = kids[j];
           if (c.querySelector('[data-chat-flow]')) continue;
-          c.style.setProperty('display', 'none', 'important');
+          setIf(c, 'display', 'none', true);
         }
       });
       if (flow) {
         const sc = flow.parentElement;
         if (sc && sc.firstElementChild && sc.firstElementChild !== flow) {
-          sc.firstElementChild.style.setProperty('display', 'none', 'important');
+          setIf(sc.firstElementChild, 'display', 'none', true);
         }
       }
       return true;
@@ -17815,10 +17917,29 @@ renderers.harness = (body, meta, head) => {
     // ★幂等守卫（2026-09-20 第三波补）★：宿主会 dom-ready/did-finish-load 各投一次、之后连续 30 秒
     //   每 1.5 秒再投一次，不守卫就会攒出几十个 MutationObserver + 1 秒循环空转（pin_v3 那边踩过同一个坑，
     //   表现为面板小字周期乱跳 + 白扫 DOM）。现在：注入一次就 fix 一次（上面那行在守卫外），定时器只装一轮。
+    // ★2026-11-20 卡顿治理★：observer 改为 350ms 合并触发（聊天流式输出时 childList 每秒几十次，
+    //   以前每次都整轮 fix）；定时器 1s → 4s 只作保险；页面切到后台（隐藏场景）时整轮跳过。
+    if (window.__kunActive === undefined) window.__kunActive = true;
+    window.__kunSetActive = function (on) {
+      window.__kunActive = !!on;
+      // 唤醒时补一次：隐藏期间 React 可能已经重渲染过，回来先纠一次布局
+      if (on && window.__kunScheduleFix) { try { window.__kunScheduleFix(); } catch (e) { window.__kunErr = e; } }
+    };
     if (!window.__kunFixOn) {
       window.__kunFixOn = 1;
-      try { new MutationObserver(fix).observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['style'] }); } catch (e) { wbWarn(e) }
-      setInterval(fix, 1000);
+      let fixPending = false;
+      const scheduleFix = () => {
+        if (fixPending) return;
+        fixPending = true;
+        setTimeout(() => {
+          fixPending = false;
+          if (window.__kunActive === false) return;
+          try { fix(); } catch (e) { window.__kunErr = e; }
+        }, 350);
+      };
+      window.__kunScheduleFix = scheduleFix;
+      try { new MutationObserver(scheduleFix).observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['style'] }); } catch (e) { wbWarn(e) }
+      setInterval(() => { if (window.__kunActive === false) return; scheduleFix(); }, 4000);
     }
     // ---- 钉住「oa系统运维」会话：面板固定显示该会话，主窗口切换会话不跟随 ----
     // 2026-11-19 修：PIN_JS 必须在「返回 JSON 的 IIFE」里面执行。放在 IIFE 外面时，
@@ -17845,15 +17966,37 @@ renderers.harness = (body, meta, head) => {
   })();
   `;
 
+  const LIGHT_STATUS_JS = `(() => {
+    const c = window.__kunFixFrame;
+    return JSON.stringify({
+      found: !!(c && c.isConnected && String(c.style.gridTemplateColumns || '').indexOf('minmax(') >= 0),
+      grid: c ? c.style.gridTemplateColumns : '',
+      wide: window.__wideTxt || '',
+      hasChatFlow: (function () { try { return document.querySelectorAll('[data-chat-flow]').length; } catch (e) { return -1; } })(),
+      title: document.title,
+      url: location.href
+    });
+  })()`;
   const injectFix = async () => {
-    try { await wv.insertCSS(HARNESS_CHAT_CSS); } catch (e) { wbWarn(e) }
-    if (WANT_BUBBLE) { try { await wv.insertCSS(HARNESS_BUBBLE_CSS); } catch (e) { wbWarn(e) } }
-    // 拖文件进对话窗口（幂等脚本，装上监听后重复执行只返回）
-    try { await wv.executeJavaScript(HARNESS_DROP_JS); } catch (e) { wbWarn(e) }
+    // 2026-11-20：insertCSS 每次调用都会往页面里加一份同样规则（以前 30 秒内投 20 次 = 20 份），
+    //   样式表越叠越多、选择器匹配越来越慢。现在每个页面只插一次；dom-ready（新页面）时复位。
+    if (!cssDone) {
+      try { await wv.insertCSS(HARNESS_CHAT_CSS); cssDone = true; } catch (e) { wbWarn(e) }
+      if (WANT_BUBBLE) { try { await wv.insertCSS(HARNESS_BUBBLE_CSS); } catch (e) { wbWarn(e) } }
+    }
     let simplify = '';
     let wideTxt = '';
     try {
-      const r = await wv.executeJavaScript(HARNESS_FIX_JS);
+      let r;
+      if (!fixDone) {
+        // 拖文件进对话窗口（幂等脚本，装上监听后重复执行只返回）
+        try { await wv.executeJavaScript(HARNESS_DROP_JS); } catch (e) { wbWarn(e) }
+        r = await wv.executeJavaScript(HARNESS_FIX_JS);
+        fixDone = true;
+      } else {
+        // 已装过：只取轻量状态（约 1KB），不再每 2.5 秒重投一份含 PIN 的完整脚本
+        r = await wv.executeJavaScript(LIGHT_STATUS_JS);
+      }
       let info = null;
       try { info = JSON.parse(r); } catch (e) { wbWarn(e) }
       if (info && info.found) simplify = '精简 ✓';
@@ -18040,22 +18183,36 @@ renderers.harness = (body, meta, head) => {
       //   没带 sessionId 的面板仍然退回 soloHarnessPartition()（主窗口 = persist:harness，与主标签同分区）。
       wv.setAttribute('partition', panelPartition(meta));
       wv.setAttribute('allowpopups', '');
-      wv.addEventListener('dom-ready', injectFix);
+      wv.addEventListener('dom-ready', () => {
+        cssDone = false;
+        fixDone = false;
+        // guest 里 window 重置后默认是"运行中"：把宿主侧的暂停标记清掉，下一轮 park sync 会重新下发当前状态
+        wv.__kunRunState = undefined;
+        injectFix();
+      });
       wv.addEventListener('did-finish-load', injectFix);
-      // 主进程通道 + 宿主定时兜底：加载后前 30 秒每 1.5 秒重注入
+      // 主进程通道 + 宿主定时兜底：加载后前 10 秒每 2.5 秒重注入（dom-ready/did-finish-load 已各投一次）。
+      //   主进程那条只跟 webContents 走一次（截图/建 CSS 已在主进程按时间限流，没必要每轮都问）。
+      let mainInjectedId = -1;
       hostTimer = setInterval(() => {
         if (disposed) return;
         if (!wv || !wv.getWebContentsId) return;
-        if (wv.getWebContentsId() === -1) return;
-        mainInject();
+        const idNow = wv.getWebContentsId();
+        if (idNow === -1) return;
+        if (idNow !== mainInjectedId) { mainInjectedId = idNow; mainInject(); }
         injectFix();
-      }, 1500);
-      setTimeout(() => { if (hostTimer) clearInterval(hostTimer); }, 30000);
-      // 常驻钉住：每 5 秒轻量重注入一次（webview 内部重载后钉住仍生效；脚本自身幂等）
+      }, 2500);
+      setTimeout(() => { if (hostTimer) clearInterval(hostTimer); }, 10000);
+      // 常驻钉住（2026-11-20）：不再每 5 秒重投整份 ~20KB 脚本，改成 6 秒调一次页面里已装的 __pinTick；
+      //   整份重投降为 60 秒一次兜底（webview 内部真重载后 window 重置，需要它把脚本重新装回去）。
       pinTimer = setInterval(() => {
         if (disposed) return;
+        try { if (wv && wv.executeJavaScript) wv.executeJavaScript('window.__pinTick && window.__pinTick(), 0').catch(function () { }); } catch (e) { wbWarn(e) }
+      }, 6000);
+      pinFullTimer = setInterval(() => {
+        if (disposed) return;
         try { if (wv && wv.executeJavaScript) wv.executeJavaScript(HARNESS_PIN_JS + '\n' + HARNESS_DROP_JS).catch(function () { }); } catch (e) { wbWarn(e) }
-      }, 5000);
+      }, 60000);
       wv.setAttribute('src', url);
       body.appendChild(wv);
     } catch (e) {
@@ -18072,6 +18229,7 @@ renderers.harness = (body, meta, head) => {
     if (unhookReady) { try { unhookReady(); } catch (e) { wbWarn(e) } unhookReady = null; }
     if (hostTimer) clearInterval(hostTimer);
     if (pinTimer) clearInterval(pinTimer);
+    if (pinFullTimer) clearInterval(pinFullTimer);
     if (switchCleanup) { try { switchCleanup(); } catch (e) { wbWarn(e) } }
     if (railCleanup) { try { railCleanup(); } catch (e) { wbWarn(e) } }
     try { if (window.__railRefresh) delete window.__railRefresh[String(meta.id)]; } catch (e) { wbWarn(e) }
@@ -20047,6 +20205,12 @@ renderers['review-doc'] = function (body, meta, head) {
           w.__dshParked = { opacity: w.style.opacity, pe: w.style.pointerEvents };
         }
         w.style.opacity = '0';
+        // 2026-11-20 卡顿治理：透明度 0 的 guest 照样全速跑（fix/铺满/钉会话三套循环），
+        //   切走的缓存场景还会各留一份 ⇒ 通知 guest 把循环停掉；切回来再唤醒。
+        if (w.__kunRunState !== false) {
+          w.__kunRunState = false;
+          try { w.executeJavaScript('window.__kunSetActive && window.__kunSetActive(false)').catch(function () { }); } catch (e) { wbWarn(e) }
+        }
         // 2026-10-19 宿主「B站内容操作不了」：这里原来越权设了 pointer-events:none，
         //   一旦某次 sync 没跑（页面重建时序）就会把可见的 webview 钉成不可点。
         //   其实隐藏时父级不可见，本来就点不到 ⇒ 这行不需要。
@@ -20054,6 +20218,10 @@ renderers['review-doc'] = function (body, meta, head) {
         w.style.opacity = w.__dshParked.opacity || '';
         w.style.pointerEvents = '';   // 无条件清掉：宁可多点穿透，也不能让页面点不动
         delete w.__dshParked;
+        if (w.__kunRunState !== true) {
+          w.__kunRunState = true;
+          try { w.executeJavaScript('if(window.__kunSetActive)window.__kunSetActive(true); if(window.__pinTick)window.__pinTick();').catch(function () { }); } catch (e) { wbWarn(e) }
+        }
       }
     }
     // 2026-11-18 场景暂存：一个场景一个 .scene-stage，切走的 stage 只是叠在底下（opacity:0）。
@@ -22904,6 +23072,15 @@ renderers.git = function (body, meta) {
       heads[i].indeterminate = gn > 0 && gn < gs.length;
       heads[i].disabled = !gs.length;
     }
+    // 行内勾选框也要同步：全选 / 组头只改了 picked，不整块重绘时行上的框会停在旧样子
+    //（否则会出现「组头勾上了、下面一排还是空框」，提交时又把它们算进去）
+    var rowCks = paneChanges.querySelectorAll('.g-file .g-ck');
+    for (var j = 0; j < rowCks.length; j++) {
+      var host = rowCks[j].closest ? rowCks[j].closest('.g-file') : null;
+      var rp = host ? host.getAttribute('data-path') : null;
+      if (rp == null) continue;
+      rowCks[j].checked = picked[rp] === true && !isSkip(rp);
+    }
     var elN = paneChanges.querySelector('.g-cbox-n');
     if (elN) elN.textContent = '已勾选 ' + n + ' / ' + sel.length;
     var elG = paneChanges.querySelector('.g-cbox-g');
@@ -22917,6 +23094,7 @@ renderers.git = function (body, meta) {
     var skip = skipRule(c.path);
     var isTest = isTestPath(c.path);
     var row = el('div', 'g-file is-in-group ' + codeCls(c.code) + (isTest ? ' is-test' : '') + (skip ? ' is-skip' : ''));
+    row.setAttribute('data-path', c.path);          // 行内勾选框按路径回填状态用（updateChecks）
     var ck = mkCk(!skip && picked[c.path] === true, !!skip);   // 命中「不参与提交」：能看 diff，但不能勾
     ck.addEventListener('click', function (e) { e.stopPropagation(); });
     ck.addEventListener('change', function () { picked[c.path] = ck.checked; updateChecks(); });
@@ -24876,9 +25054,11 @@ window.openPetSettings = function () {
   function mk(tag, cls, text) { var n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; }
   function toast(msg, bad) { try { if (typeof window.__tbsToast === 'function') window.__tbsToast(msg, !!bad, bad ? 8000 : 3000); } catch (e) { wbWarn(e) } }
 
-  return Promise.all([Promise.resolve(api.settingsGet()), Promise.resolve(api.logTail(8)).catch(function () { return { rows: [] }; })]).then(function (a) {
+  return Promise.all([Promise.resolve(api.settingsGet()), Promise.resolve(api.logTail(8)).catch(function () { return { rows: [] }; }), Promise.resolve(api.voiceGet ? api.voiceGet() : null).catch(function () { return null; })]).then(function (a) {
     var r = a[0] || {};
     var s = r.settings || {};
+    var v0 = a[2] || {};
+    var voice0 = v0.voice || {};
     var scenes = Array.isArray(r.scenes) ? r.scenes : [];
     var persona = s.persona || {};
     var selfName = String(persona.selfName || '饭团');
@@ -25153,6 +25333,116 @@ window.openPetSettings = function () {
     if (!logs.length) logC.appendChild(mk('div', 'psed-empty', '（还没有派过）'));
     else logs.slice(-5).forEach(function (x) { logC.appendChild(mk('div', 'psed-log', String(x).replace(/^-\s*/, ''))); });
 
+    // 10.5 ⑨ 形象：桌面身体（dsh-pet 0.4.9）——2026-11-20
+    // 只借身体：渲染/动画/物理/气泡由它做；人格、路由、待批准、记忆仍归本场景。
+    // 用户明确不要多宠物同屏，所以这里只配一只，且工作台内不再挂第二只（pet-live2d 已改 reserved）。
+    var bodyC = section('body', 9, '形象：桌面身体（dsh-pet 0.4.9）',
+      '只借它的渲染/动画/物理/气泡；人格、场景路由、待批准、记忆仍归我们。桌面只开一只，工作台内不再挂第二只。形象素材 CC BY-NC-SA 4.0，署名见 说明\\第三方素材署名.md');
+    navBtn('body', '形象');
+    var bCfg = s.body || {};
+    var bOn = chk(bodyC, 'b-enable', '启用桌面身体（关掉 = 回到无形象状态，不影响人格与派发）', bCfg.enabled !== false);
+    var bPetWrap = mk('div', 'psed-field');
+    bPetWrap.appendChild(mk('div', 'psed-fl', '宠物 id（dsh-pet 配置里的 id，默认 main）'));
+    var bPet = document.createElement('input');
+    bPet.className = 'psed-input';
+    bPet.value = String(bCfg.pet || 'main');
+    bPet.maxLength = 40;
+    bPet.placeholder = 'main';
+    bPetWrap.appendChild(bPet);
+    bodyC.appendChild(bPetWrap);
+
+    var bBaseWrap = mk('div', 'psed-field');
+    bBaseWrap.appendChild(mk('div', 'psed-fl', '接口基址（留空 = 自动用 DSH 端口 + /dsh-pet-7340）'));
+    var bBase = document.createElement('input');
+    bBase.className = 'psed-input';
+    bBase.value = String(bCfg.base || '');
+    bBase.placeholder = 'http://127.0.0.1:＜DSH端口＞/dsh-pet-7340';
+    bBaseWrap.appendChild(bBase);
+    bodyC.appendChild(bBaseWrap);
+
+    var bStat = mk('div', 'psed-note', '桌面身体状态：读取中…');
+    var bProbe = mk('button', 'psed-add', '探一下');
+    bProbe.title = '只读 GET /state，检查插件与桌面 helper 在不在';
+    bProbe.addEventListener('click', function () {
+      if (!api.bodyStatus) { toast('主进程/preload 还是旧的，重启一次工作台', true); return; }
+      bStat.textContent = '桌面身体状态：探测中…';
+      Promise.resolve(api.bodyStatus()).then(function (st) {
+        st = st || {};
+        var ok = st.available === true;
+        bStat.textContent = '桌面身体状态：' + (ok ? '已就绪' : (st.available === false ? '未就绪（插件没加载 / 桌面 helper 没起来）' : '还没探过'))
+          + ' · 上一帧 ' + (st.lastState || '—') + (st.lastTask ? '（' + st.lastTask + '）' : '')
+          + (st.lastError ? ' · ' + st.lastError : '');
+      }).catch(function (e) { bStat.textContent = '桌面身体状态：探测失败 ' + String((e && e.message) || e); });
+    });
+
+    var bSay = mk('button', 'psed-add', '让她说一句');
+    bSay.title = '只搬运文本，不生成；用于验证气泡与锁';
+    bSay.addEventListener('click', function () {
+      if (!api.bodySay) { toast('主进程/preload 还是旧的，重启一次工作台', true); return; }
+      Promise.resolve(api.bodySay({ text: '我是大肥鱼，先借这套身体用一下。', duration: 10000, anim: true, speak: false }))
+        .then(function (r) { if (!r || r.ok === false) toast('没说出来：' + ((r && r.reason) || '未知原因'), true); })
+        .catch(function (e) { toast('没说出来：' + String((e && e.message) || e), true); });
+    });
+    var bBtns = mk('div', 'psed-row');
+    bBtns.appendChild(bProbe); bBtns.appendChild(bSay);
+    bodyC.appendChild(bBtns);
+
+    // 10.6 语音：dsh-pet 自带 TTS（BreezeBlue 先不混进来，避免和 QQ 语音共用一份 key）
+    var voiceCtl = null;
+    if (typeof api.voiceGet === 'function') {
+      bodyC.appendChild(mk('div', 'psed-fl', '语音播报（dsh-pet 自带 TTS）'));
+      var vOn = chk(bodyC, 'v-enable', '启用语音（关掉 = 只显示气泡，不念）', voice0.enabled === true);
+      var vNameWrap = mk('div', 'psed-field');
+      vNameWrap.appendChild(mk('div', 'psed-fl', '音色 id（edge/zh-CN-XiaoyiNeural 等，见 dsh-pet 的设置页）'));
+      var vName = document.createElement('input');
+      vName.className = 'psed-input';
+      vName.value = String(voice0.name || 'edge/zh-CN-XiaoyiNeural');
+      vName.maxLength = 80;
+      vName.placeholder = 'edge/zh-CN-XiaoyiNeural';
+      vNameWrap.appendChild(vName);
+      bodyC.appendChild(vNameWrap);
+      var vVolWrap = mk('div', 'psed-field');
+      vVolWrap.appendChild(mk('div', 'psed-fl', '音量（0–1）'));
+      var vVol = document.createElement('input');
+      vVol.className = 'psed-input';
+      vVol.type = 'number';
+      vVol.min = '0'; vVol.max = '1'; vVol.step = '0.1';
+      vVol.value = String(Number.isFinite(Number(voice0.volume)) ? Number(voice0.volume) : 1);
+      vVolWrap.appendChild(vVol);
+      bodyC.appendChild(vVolWrap);
+      var vNotify = chk(bodyC, 'v-notify', '任务完成 / 出错 / 等你确认时念一句', voice0.notify === true);
+      var vTodo = chk(bodyC, 'v-todo', '待办提醒时念一句', voice0.todo === true);
+      var vBtns = mk('div', 'psed-row');
+      var vTest = mk('button', 'psed-add', '试听一句');
+      vTest.title = '让桌面身体用当前 TTS 念一句；只验证语音链路，不生成内容';
+      vTest.addEventListener('click', function () {
+        if (!api.voiceTest) { toast('主进程/preload 还是旧的，重启一次工作台', true); return; }
+        vTest.disabled = true;
+        Promise.resolve(api.voiceTest({ text: '我是大肥鱼，语音已经接上了。' })).then(function (r) {
+          vTest.disabled = false;
+          if (!r || r.ok === false) toast('试听失败：' + ((r && (r.reason || r.error)) || '未知原因'), true);
+          else toast('已发给她，听一下桌面气泡');
+        }).catch(function (e) { vTest.disabled = false; toast('试听失败：' + String((e && e.message) || e), true); });
+      });
+      vBtns.appendChild(vTest);
+      bodyC.appendChild(vBtns);
+      bodyC.appendChild(mk('div', 'psed-note', '语音配置写回 dsh-pet 的 main-config.jsonc；系统通知已统一到工作台顶栏。'));
+      voiceCtl = { on: vOn, name: vName, vol: vVol, notify: vNotify, todo: vTodo };
+    } else {
+      bodyC.appendChild(mk('div', 'psed-note', '语音开关没接上：主进程/preload 还是旧的，重启一次工作台。'));
+    }
+
+    bodyC.appendChild(bStat);
+    if (api.bodyStatus) {
+      Promise.resolve(api.bodyStatus()).then(function (st) {
+        st = st || {};
+        bStat.textContent = '桌面身体状态：' + (st.available === true ? '已就绪' : (st.available === false ? '未就绪（插件没加载 / 桌面 helper 没起来）' : '还没探过'))
+          + ' · 上一帧 ' + (st.lastState || '—') + (st.lastTask ? '（' + st.lastTask + '）' : '')
+          + (st.lastError ? ' · ' + st.lastError : '');
+      }).catch(function () { bStat.textContent = '桌面身体状态：读取失败（不影响保存）'; });
+    }
+
+
     // 11. 底部：保存 / 取消 / 恢复默认（恢复默认不动路由表，避免冲掉人自建的规则）
     var foot = mk('div', 'psed-foot');
     var hint = mk('div', 'psed-fh', '参数存在本机，不进仓库；保存后下一轮对话即生效');
@@ -25181,6 +25471,7 @@ window.openPetSettings = function () {
         tools: { allow: allow, deny: deny },
         approval: { read: apSel.read.value, write_mem: apSel.write_mem.value, write_code: apSel.write_code.value, outbound: apSel.outbound.value },
         quiet: { from: (qFrom.value || '23:30'), to: (qTo.value || '08:00'), proactiveMaxPerHour: Math.max(0, Number(qMax.value) || 0) },
+        body: { enabled: !!bOn.checked, kind: 'dsh-pet', pet: (bPet.value || 'main').trim(), base: (bBase.value || '').trim() },
         memory: { writeLongTerm: mLong.checked, writeDialog: mDlg.checked, confirmBeforeWrite: mCfm.checked },
         routes: rows.filter(function (x) { return x.keywords.length && x.to; }).map(function (x) { return { keywords: x.keywords, to: x.to, level: x.level }; })
       };
@@ -25217,10 +25508,22 @@ window.openPetSettings = function () {
       var patch = collect();
       if (!patch.routes.length) toast('路由表是空的：她以后听不出该找谁（可以先留一条再保存）', true, 6000);
       save.disabled = true;
-      Promise.resolve(api.settingsSet(patch)).then(function (rr) {
+      var vSave = (voiceCtl && typeof api.voiceSet === 'function')
+        ? Promise.resolve(api.voiceSet({
+            enabled: !!voiceCtl.on.checked,
+            name: (voiceCtl.name.value || '').trim(),
+            volume: Number(voiceCtl.vol.value) || 0,
+            notify: !!voiceCtl.notify.checked,
+            todo: !!voiceCtl.todo.checked,
+            notificationsEnabled: false
+          })).catch(function (e) { return { ok: false, reason: String((e && e.message) || e) }; })
+        : Promise.resolve({ ok: true, skipped: true });
+      Promise.all([Promise.resolve(api.settingsSet(patch)), vSave]).then(function (rs) {
         save.disabled = false;
+        var rr = rs[0], vr = rs[1];
         if (!rr || rr.ok === false) { toast('保存失败：' + ((rr && rr.error) || '未知原因'), true); return; }
-        toast('已保存：' + patch.routes.length + ' 条路由 / 允许 ' + patch.tools.allow.length + ' 项工具', false);
+        if (vr && vr.ok === false) toast('基础参数已保存；语音没写进 dsh-pet：' + ((vr.reason || vr.error) || '未知原因'), true, 8000);
+        else toast('已保存：' + patch.routes.length + ' 条路由 / 允许 ' + patch.tools.allow.length + ' 项工具' + (vr && vr.ok && !vr.skipped ? ' / 语音已同步' : ''), false);
         close();
       }).catch(function (e) { save.disabled = false; toast('保存失败：' + String((e && e.message) || e), true); });
     });
@@ -25388,7 +25691,9 @@ renderers['feature-board'] = (body, meta, head) => {
       fs.forEach((f) => { listBox.appendChild(itemOf(f, g)); n += 1; });
     });
     if (!n) listBox.appendChild(el('div', 'ft-empty', q ? '没有匹配的功能（换个词，或点「全部」）' : '这一组没有功能'));
+    const un = ((desk && desk.unregistered) || []).filter((x) => !x.internal).length;
     if (note && desk) note.textContent = (q ? '筛出 ' + n + ' 项' : ((desk.stats || {}).features || n) + ' 项 / ' + ((desk.stats || {}).actions || 0) + ' 个动作')
+      + (un ? ' · 另有 ' + un + ' 个未登记（管理总览可收进）' : '')
       + (statusAt ? ' · 开关状态查于 ' + agoStr(statusAt) : ' · 开关状态读取中…');
   }
 
@@ -25433,9 +25738,8 @@ renderers['feature-board'] = (body, meta, head) => {
   function cfgActive(id, j) {
     if (!j) return false;
     if (id === 'token-guard') return !!j.inBundles;
-    if (id === 'mem-recall') return !!j.registered;
     if (id === 'token-switch') return !!j.on;
-    return false;
+    return !!j.registered;   // 其余插件：patch 里登记过就算启用（记忆回响 / 聊天档案 / 社交策略）
   }
   function srcRow(c, extra) {
     const row = el('div', 'fb-cfg-src');
@@ -25480,7 +25784,8 @@ renderers['feature-board'] = (body, meta, head) => {
         if (j.lines && j.lines.length === 2) box.appendChild(el('div', 'fb-cfg-src', '写在第 ' + j.lines[0] + '–' + j.lines[1] + ' 行'));
         if (j.yaml && j.yaml.ok === false) box.appendChild(el('div', 'fb-cfg-err', '配置解析失败：' + (j.yaml.error || 'YAML 读不了')));
       }
-      const actId = (f.id === 'mem-recall' && !cfgActive('mem-recall', st && st.json)) ? 'apply' : c.action;
+      const actId = (!cfgActive(f.id, st && st.json) && (f.actions || []).some((a) => a.id === 'apply'))
+        ? 'apply' : c.action;
       const act = (f.actions || []).filter((a) => a.id === actId)[0];
       let go = null;
       if (act) {
@@ -26030,9 +26335,8 @@ renderers['feature-config'] = (body, meta, head) => {
   function pluginActive(id, j) {
     if (!j) return false;
     if (id === 'token-guard') return !!j.inBundles;
-    if (id === 'mem-recall') return !!j.registered;
     if (id === 'token-switch') return !!j.on;
-    return false;
+    return !!j.registered;   // 其余插件：patch 里登记过就算启用（记忆回响 / 聊天档案 / 社交策略）
   }
   function pluginValue(f, j, fd) {
     if (!j) return null;
@@ -26047,8 +26351,9 @@ renderers['feature-config'] = (body, meta, head) => {
     return pre;
   }
   function cfgActionOf(f, j) {
-    if (f.id === 'mem-recall' && !pluginActive('mem-recall', j)) return 'apply';
-    return (f.cfg || {}).action;
+    const act = (f.cfg || {}).action;
+    if (!pluginActive(f.id, j) && (f.actions || []).some((a) => a.id === 'apply')) return 'apply';
+    return act;
   }
   function goChange(f, j) {
     const actId = cfgActionOf(f, j);
@@ -26066,8 +26371,8 @@ renderers['feature-config'] = (body, meta, head) => {
     let stateTxt = '状态读取中…';
     if (j) {
       if (f.id === 'token-guard') stateTxt = (act ? '已启用' : '未启用') + ' · ' + (j.mode || '模式未写');
-      else if (f.id === 'mem-recall') stateTxt = (act ? '已登记' : '未登记') + ' · ' + (j.mode || '模式未写');
-      else stateTxt = act ? '已打开' : '未打开（出厂状态）';
+      else if (f.id === 'token-switch') stateTxt = act ? '已打开' : '未打开（出厂状态）';
+      else stateTxt = (act ? '已登记' : '未登记') + ' · ' + (j.mode || '模式未写');
     }
     card.appendChild(el('div', 'fc-plug-s', stateTxt));
     // 只在启用时显示值：未启用时残留的 mode / 阈值会误导成「生效中」
@@ -26203,6 +26508,64 @@ renderers['feature-config'] = (body, meta, head) => {
       pageBox.appendChild(row);
     });
   }
+  // 未登记脚本（2026-11-19）：新脚本头部写一行 `// @功能台 {...}` 就自动进目录；
+  // 没写的先在这儿，可一键收进 外壳\data\功能台自动.json（本机、不入库；移出只删登记，不删脚本）。
+  function unregisteredSection() {
+    const un = (desk && desk.unregistered) || [];
+    const adopted = (desk && desk.adopted) || [];
+    if (!un.length && !adopted.length) return;
+    if (un.length) {
+      const open = un.filter((x) => !x.internal).length;
+      pageBox.appendChild(el('div', 'fc-grp-h', '未登记脚本 ' + un.length + (open ? '（' + open + ' 个可收进）' : '（都是内部 / 已有入口）')));
+      pageBox.appendChild(el('div', 'fc-grp-p', '新脚本头部写一行 `// @功能台 {...}` 就自动进目录；没写的先在这儿。收进 = 记到本机 功能台自动.json，默认只有只读「跑一遍」，要按钮 / 参数仍照 功能台.js 手写。'));
+      un.forEach((x) => {
+        const row = el('div', 'fc-row');
+        const mid = el('div', 'fc-row-mid');
+        mid.appendChild(el('div', 'fc-row-t', x.name + (x.internal ? '（内部 / 已有入口）' : '')));
+        mid.appendChild(el('div', 'fc-row-s', x.script + ' · ' + x.reason));
+        row.appendChild(mid);
+        if (!x.internal) {
+          const add = el('button', 'fc-btn', '收进');
+          add.type = 'button';
+          add.title = '登记到 外壳\\data\\功能台自动.json：只读一条「跑一遍」，脚本本身不改';
+          add.addEventListener('click', () => {
+            Promise.resolve(A.configSet({ adopt: x.script })).then((r) => {
+              if (!r || !r.ok) throw new Error((r && r.error) || '收进没成');
+              say('已收进：' + x.name + ' —— 刷新后出现在「自检与发布」组（低频）', false, 6000);
+              window.dispatchEvent(new Event('feature:cfg-changed'));
+              load();
+            }).catch((e) => { wbWarn(e, 'feature.adopt'); say('收进没成：' + ((e && e.message) || e), true, 8000); });
+          });
+          row.appendChild(add);
+        }
+        pageBox.appendChild(row);
+      });
+    }
+    if (adopted.length) {
+      pageBox.appendChild(el('div', 'fc-grp-h', '已一键收进 ' + adopted.length + ' 项'));
+      adopted.forEach((it) => {
+        const row = el('div', 'fc-row');
+        const mid = el('div', 'fc-row-mid');
+        mid.appendChild(el('div', 'fc-row-t', String(it.name || it.script)));
+        mid.appendChild(el('div', 'fc-row-s', '只读「跑一遍」· ' + it.script));
+        row.appendChild(mid);
+        const del = el('button', 'fc-btn g', '移出');
+        del.type = 'button';
+        del.title = '只删 功能台自动.json 里的这条登记，脚本文件不删';
+        del.addEventListener('click', () => {
+          Promise.resolve(A.configSet({ drop: it.script })).then((r) => {
+            if (!r || !r.ok) throw new Error((r && r.error) || '移出没成');
+            say('已移出：' + String(it.name || it.script) + '（脚本没删）', false, 6000);
+            window.dispatchEvent(new Event('feature:cfg-changed'));
+            load();
+          }).catch((e) => { wbWarn(e, 'feature.drop'); say('移出没成：' + ((e && e.message) || e), true, 8000); });
+        });
+        row.appendChild(del);
+        pageBox.appendChild(row);
+      });
+    }
+  }
+
   function noCfgSection() {
     const none = featuresOf().filter((f) => cfgKind(f) === 'none');
     if (!none.length) return;
@@ -26230,6 +26593,7 @@ renderers['feature-config'] = (body, meta, head) => {
     if (featuresOf().some((f) => cfgKind(f) === 'machine')) machineSection();
     externalSection();
     cfgSourceRows();
+    unregisteredSection();
     policySection();
     pageBox.appendChild(el('div', 'fc-grp-h', '界面偏好'));
     pageBox.appendChild(el('div', 'fc-grp-p', '只存本机（外壳\\data\\功能台.json），不进 git。'));

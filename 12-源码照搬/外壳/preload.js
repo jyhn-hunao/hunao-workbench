@@ -184,7 +184,12 @@ contextBridge.exposeInMainWorld('app', {
   pet: {
     settingsGet: () => ipcRenderer.invoke('pet:settings-get'),
     settingsSet: (patch) => ipcRenderer.invoke('pet:settings-set', patch),
-    logTail: (n) => ipcRenderer.invoke('pet:log-tail', n)
+    logTail: (n) => ipcRenderer.invoke('pet:log-tail', n),
+    bodyStatus: () => ipcRenderer.invoke('pet:body-status'),
+    bodySay: (args) => ipcRenderer.invoke('pet:body-say', args || {}),
+    voiceGet: () => ipcRenderer.invoke('pet:voice-get'),
+    voiceSet: (args) => ipcRenderer.invoke('pet:voice-set', args || {}),
+    voiceTest: (args) => ipcRenderer.invoke('pet:voice-test', args || {})
   },
   // ---- 设置：读取 / 打开 Harness 配置文件 ----
   settings: {
@@ -486,6 +491,7 @@ contextBridge.exposeInMainWorld('app', {
     // 会话用量（2026-11-11）：只读，口径见 外壳\用量.js；渲染层是 renderer\用量面板.js
     usage: () => ipcRenderer.invoke('usage:list'),
     pending: () => ipcRenderer.invoke('topbar:pending'),
+    petTodo: (args) => ipcRenderer.invoke('topbar:pet-todo', args || {}),
     snapshots: () => ipcRenderer.invoke('topbar:snapshots'),
     snapshot: () => ipcRenderer.invoke('topbar:snapshot'),
     restore: (name) => ipcRenderer.invoke('topbar:restore', name),

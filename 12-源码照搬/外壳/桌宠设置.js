@@ -40,7 +40,7 @@ function merge(a, b) {
 }
 
 // 2. 写：只接受认识的结构，原子落盘（先写 .tmp 再改名，避免写一半被面板读到半截 JSON）
-const ALLOWED = ['persona', 'tools', 'routes', 'approval', 'channels', 'memory', 'quiet', 'log'];
+const ALLOWED = ['persona', 'body', 'tools', 'routes', 'approval', 'channels', 'memory', 'quiet', 'log'];
 function setSettings(patch) {
   const cur = getSettings();
   const clean = {};

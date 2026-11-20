@@ -352,6 +352,7 @@
   var bBadge = el('span', 'tbs-badge', '0');
   bBadge.style.display = 'none';
   function needYou(x) {
+    if (x && x.kind === 'pet-todo') return false;          // 桌宠自己的待办，不算要人拍板
     var s = String((x && x.status) || '');
     var t = String((x && x.text) || '');
     if (/拍板/.test(s)) return true;                        // 显式标注（推荐各家在 §六 状态格里这么写）
@@ -379,6 +380,7 @@
       PEN.error = (r && r.error) || null;
       paintPending();
       repaint('more', buildMore);
+      repaint('pending', buildPending);
     }).catch(function (e) { PEN.error = String((e && e.message) || e); paintPending(); });
   }
   // 2026-10-16：用户要"只要显示哪个场景的会话有就行" ⇒ 把「谁提的」翻成场景名。
@@ -399,13 +401,14 @@
     return '场景：' + (hit ? hit.title : (f || '?'));
   }
   function buildPending(box) {
+    buildPetTodos(box);
     var mineN = PEN.items.filter(needYou).length;
-    box.appendChild(el('div', 'tbs-pop-h', '待办 · 共 ' + PEN.items.length + ' 件'
+    box.appendChild(el('div', 'tbs-pop-h', '待办 · 共 ' + PEN.items.filter(function (x) { return x.kind !== 'pet-todo'; }).length + ' 件'
       + (mineN ? ('，其中 ' + mineN + ' 件要你拍板') : '（没有要你拍板的）')));
     box.appendChild(el('div', 'tbs-pop-sub', '来源：共用定位卡 §六 还没办结的行 + 各场景记忆 §〇 的「卡点」。'
       + '分类依据：牵涉到"要不要做 / 花不花你的时间"的算「要你拍板」（红点）；其余是各会话之间的技术商量（黄点），你知悉即可。'));
     var list = el('div', 'tbs-pop-list');
-    var arr = penSorted();
+    var arr = penSorted().filter(function (x) { return x.kind !== 'pet-todo'; });
     if (!arr.length) list.appendChild(el('div', 'tbs-pop-hint', PEN.error ? ('读不到：' + PEN.error) : '没有待办 ✓'));
     arr.forEach(function (x) {
       var i = PEN.items.indexOf(x);
@@ -478,6 +481,19 @@
     box.appendChild(head);
   }
   function buildMore(box) {
+    // 2026-11-20：待办入口常驻在 ⋯ 菜单第一行 —— 不再只有角标、没有文字入口。
+    (function () {
+      var mineN2 = PEN.items.filter(needYou).length;
+      var r = el('div', 'tbs-row');
+      var mid = el('div', 'tbs-row-mid');
+      mid.appendChild(el('div', 'tbs-row-t', '待办 / 谁在等我'));
+      mid.appendChild(el('div', 'tbs-row-s', '共 ' + PEN.items.filter(function (x) { return x.kind !== 'pet-todo'; }).length + ' 件'
+        + (mineN2 ? ('　·　⚠ ' + mineN2 + ' 件要你拍板') : '　·　没有要你拍板的')));
+      r.appendChild(el('span', 'tbs-row-ico', '🔔'));
+      r.appendChild(mid);
+      r.addEventListener('click', function () { closePop(); if (window.__tbsOpenPending) window.__tbsOpenPending(); });
+      box.appendChild(r);
+    })();
     // 2026-10-19 宿主：从顶栏搬进 ⋯ 的两项（快照 / 助手）—— 放菜单最上面，展开即用，builder 直接复用。
     // 2026-10-22（宿主）：启动动画预览**从 ⋯ 菜单撤掉**，统一收到「设置 → 启动动画」那个插件页里
     //   （插件点「预览」→ 写 外壳\data\boot-preview.json → renderers.js 的 bootPreviewWatch 捞到就播）。
@@ -1046,6 +1062,7 @@
   var bBadge = el('span', 'tbs-badge', '0');
   bBadge.style.display = 'none';
   function needYou(x) {
+    if (x && x.kind === 'pet-todo') return false;          // 桌宠自己的待办，不算要人拍板
     var s = String((x && x.status) || '');
     var t = String((x && x.text) || '');
     if (/拍板/.test(s)) return true;                        // 显式标注（推荐各家在 §六 状态格里这么写）
@@ -1073,6 +1090,7 @@
       PEN.error = (r && r.error) || null;
       paintPending();
       repaint('more', buildMore);
+      repaint('pending', buildPending);
     }).catch(function (e) { PEN.error = String((e && e.message) || e); paintPending(); });
   }
   // 2026-10-16：用户要"只要显示哪个场景的会话有就行" ⇒ 把「谁提的」翻成场景名。
@@ -1093,13 +1111,14 @@
     return '场景：' + (hit ? hit.title : (f || '?'));
   }
   function buildPending(box) {
+    buildPetTodos(box);
     var mineN = PEN.items.filter(needYou).length;
-    box.appendChild(el('div', 'tbs-pop-h', '待办 · 共 ' + PEN.items.length + ' 件'
+    box.appendChild(el('div', 'tbs-pop-h', '待办 · 共 ' + PEN.items.filter(function (x) { return x.kind !== 'pet-todo'; }).length + ' 件'
       + (mineN ? ('，其中 ' + mineN + ' 件要你拍板') : '（没有要你拍板的）')));
     box.appendChild(el('div', 'tbs-pop-sub', '来源：共用定位卡 §六 还没办结的行 + 各场景记忆 §〇 的「卡点」。'
       + '分类依据：牵涉到"要不要做 / 花不花你的时间"的算「要你拍板」（红点）；其余是各会话之间的技术商量（黄点），你知悉即可。'));
     var list = el('div', 'tbs-pop-list');
-    var arr = penSorted();
+    var arr = penSorted().filter(function (x) { return x.kind !== 'pet-todo'; });
     if (!arr.length) list.appendChild(el('div', 'tbs-pop-hint', PEN.error ? ('读不到：' + PEN.error) : '没有待办 ✓'));
     arr.forEach(function (x) {
       var i = PEN.items.indexOf(x);
@@ -1563,6 +1582,19 @@
     box.appendChild(head);
   }
   function buildMore(box) {
+    // 2026-11-20：待办入口常驻在 ⋯ 菜单第一行 —— 不再只有角标、没有文字入口。
+    (function () {
+      var mineN2 = PEN.items.filter(needYou).length;
+      var r = el('div', 'tbs-row');
+      var mid = el('div', 'tbs-row-mid');
+      mid.appendChild(el('div', 'tbs-row-t', '待办 / 谁在等我'));
+      mid.appendChild(el('div', 'tbs-row-s', '共 ' + PEN.items.filter(function (x) { return x.kind !== 'pet-todo'; }).length + ' 件'
+        + (mineN2 ? ('　·　⚠ ' + mineN2 + ' 件要你拍板') : '　·　没有要你拍板的')));
+      r.appendChild(el('span', 'tbs-row-ico', '🔔'));
+      r.appendChild(mid);
+      r.addEventListener('click', function () { closePop(); if (window.__tbsOpenPending) window.__tbsOpenPending(); });
+      box.appendChild(r);
+    })();
     // 2026-10-19 宿主：从顶栏搬进 ⋯ 的两项（快照 / 助手）—— 放菜单最上面，展开即用，builder 直接复用。
     // 2026-10-22：启动动画预览已从 ⋯ 菜单撤掉（改到「设置 → 启动动画」插件页，见 buildMore 处的说明）
     // 2026-10-24：序号 / 外观 / 远程控制 三项从顶栏搬进来（点一行 = 点一下那个隐藏的原按钮）
@@ -2153,6 +2185,89 @@
   wrap.appendChild(memPill);
     // 2026-10-19 宿主：助手移进 ⋯ 菜单（同上，代码留着）
   // wrap.appendChild(hPill);
+  // 2026-11-20：桌宠待办（dsh-pet /todos）单独一块 —— 可加、可勾、可删；不参与「要你拍板」红点。
+  function buildPetTodos(box) {
+    var can = !!(TB && typeof TB.petTodo === 'function');
+    var arr = PEN.items.filter(function (x) { return x.kind === 'pet-todo'; });
+    if (!can && !arr.length) return;
+    box.appendChild(el('div', 'tbs-pop-h', '桌宠待办 · 共 ' + arr.length + ' 件'));
+    box.appendChild(el('div', 'tbs-pop-sub', '来源：dsh-pet 的 /todos（与桌面右键菜单同一份）。勾一下 = 办结，删 = 从 todos.json 移除。'));
+    if (can) {
+      var addRow = el('div', 'tbs-todo-add');
+      var inp = el('input', 'tbs-todo-input');
+      inp.type = 'text';
+      inp.maxLength = 200;
+      inp.placeholder = '加一条待办，回车或点＋';
+      var addBtn = el('button', 'tbs-btn', '＋ 加');
+      addBtn.type = 'button';
+      function addTodo() {
+        var text = String(inp.value || '').trim();
+        if (!text) { inp.focus(); return; }
+        addBtn.disabled = true;
+        Promise.resolve(TB.petTodo({ op: 'add', text: text })).then(function (r) {
+          addBtn.disabled = false;
+          if (!r || r.ok === false) { toast('加待办失败：' + ((r && (r.error || r.reason)) || '未知原因'), true); return; }
+          inp.value = '';
+          toast('已加：' + text);
+          refreshPending();
+        }).catch(function (e) { addBtn.disabled = false; toast('加待办失败：' + String((e && e.message) || e), true); });
+      }
+      addBtn.addEventListener('click', addTodo);
+      inp.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); addTodo(); } });
+      addRow.appendChild(inp); addRow.appendChild(addBtn);
+      box.appendChild(addRow);
+    }
+    var plist = el('div', 'tbs-pop-list');
+    if (!arr.length) plist.appendChild(el('div', 'tbs-pop-hint', '桌宠没有未办结的待办 ✓'));
+    arr.forEach(function (x) {
+      var rr = el('div', 'tbs-row tbs-todo-row');
+      var cb = el('input', 'tbs-todo-check');
+      cb.type = 'checkbox';
+      cb.title = '勾上 = 办结';
+      cb.addEventListener('click', function (e) {
+        e.stopPropagation();
+        if (!can) return;
+        cb.disabled = true;
+        Promise.resolve(TB.petTodo({ op: 'toggle', id: x.id, done: true })).then(function (r) {
+          cb.disabled = false;
+          if (!r || r.ok === false) { cb.checked = false; toast('办结失败：' + ((r && (r.error || r.reason)) || '未知原因'), true); return; }
+          toast('已办结：' + brief(x.text));
+          refreshPending();
+        }).catch(function (e2) { cb.disabled = false; cb.checked = false; toast('办结失败：' + String((e2 && e2.message) || e2), true); });
+      });
+      var mid = el('div', 'tbs-row-mid');
+      mid.appendChild(el('div', 'tbs-row-t', brief(x.text) || '(无内容)'));
+      mid.appendChild(el('div', 'tbs-row-s', '桌宠待办' + (x.date ? '　·　截止 ' + x.date : '') + (x.status ? '　·　' + x.status : '')));
+      var del = el('button', 'tbs-btn danger', '删');
+      del.type = 'button';
+      del.title = '从 dsh-pet 的 todos.json 删除';
+      del.addEventListener('click', function (e) {
+        e.stopPropagation();
+        if (!can) return;
+        del.disabled = true;
+        Promise.resolve(TB.petTodo({ op: 'remove', id: x.id })).then(function (r) {
+          del.disabled = false;
+          if (!r || r.ok === false) { toast('删除失败：' + ((r && (r.error || r.reason)) || '未知原因'), true); return; }
+          toast('已删除：' + brief(x.text));
+          refreshPending();
+        }).catch(function (e2) { del.disabled = false; toast('删除失败：' + String((e2 && e2.message) || e2), true); });
+      });
+      rr.appendChild(cb); rr.appendChild(mid); rr.appendChild(del);
+      plist.appendChild(rr);
+    });
+    box.appendChild(plist);
+  }
+
+  // 右键菜单「待办」的落点：主窗口顶栏直接弹这个弹层；旧版 renderer 没这个钩子时 no-op。
+  window.__tbsOpenPending = function () {
+    try {
+      if (pop && pop.dataset.kind === 'pending') { repaint('pending', buildPending); }
+      else { openPop(mPill, 'pending', buildPending); }
+      refreshPending();
+      return true;
+    } catch (e) { return false; }
+  };
+
   wrap.appendChild(mPill);
   mountLoad();   // 2026-10-19：负载胶囊 ⇒ 插到「手机远程」左边
   // ⚠ 铃铛胶囊（原 bPill）已按用户要求收进 ⋯ 菜单 ⇒ 不再挂到顶栏；它的**角标改挂到 mPill 上**（见 paintPending）。
