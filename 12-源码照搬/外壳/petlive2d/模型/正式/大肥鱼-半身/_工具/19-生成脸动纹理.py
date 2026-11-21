@@ -93,7 +93,7 @@ def draw_closed_eye(im, hair):
 def fill_left_eye_skin(im):
     """左小眼被刘海半遮，蓝虹膜会被“最大蓝块=头发”误保护；这里用小椭圆直接补肤色。"""
     mask = Image.new('L', im.size, 0)
-    ImageDraw.Draw(mask).ellipse((150, 270, 202, 312), fill=255)
+    ImageDraw.Draw(mask).ellipse((148, 266, 204, 318), fill=255)
     mask = mask.filter(ImageFilter.GaussianBlur(2))
     arr = np.zeros((im.size[1], im.size[0], 4), np.uint8)
     arr[..., 0] = 250
@@ -106,7 +106,7 @@ def fill_left_eye_skin(im):
 def draw_left_closed_eye(im):
     layer = Image.new('RGBA', im.size, (0, 0, 0, 0))
     d = ImageDraw.Draw(layer)
-    pts = [(155, 293), (166, 289), (178, 288), (190, 289), (200, 293)]
+    pts = [(158, 296), (168, 292), (178, 291), (190, 292), (200, 295)]
     d.line(pts, fill=(47, 31, 38, 255), width=3, joint='curve')
     shadow = Image.new('RGBA', im.size, (0, 0, 0, 0))
     sd = ImageDraw.Draw(shadow)
@@ -116,7 +116,20 @@ def draw_left_closed_eye(im):
     im.alpha_composite(layer)
 
 
-def blink(im):
+def restore_left_hair(im, base):
+    """把左眼补肤色时盖掉的深蓝刘海贴回去；浅蓝虹膜不恢复，保持闭眼。"""
+    a = np.array(base)
+    r, g, b = a[..., 0].astype(int), a[..., 1].astype(int), a[..., 2].astype(int)
+    dark = (b > 60) & (b < 155) & (b > r + 20) & (r < 105) & (a[..., 3] > 0)
+    # 只恢复左眼这一小块，避免把大眼原来的虹膜/睫毛也贴回来
+    region = np.zeros(dark.shape, dtype=bool)
+    region[265:322, 138:208] = True
+    dark = dark & region
+    dark = Image.fromarray((dark * 255).astype(np.uint8), 'L').filter(ImageFilter.GaussianBlur(2))
+    im.paste(base, (0, 0), dark)
+
+
+def blink(im, base):
     src = im.copy()
     hair = largest_blue_mask(src, 5)
     mask = eye_mask(src.size)
@@ -125,9 +138,10 @@ def blink(im):
     mask = Image.fromarray(ma, 'L')
     fill_eye_skin(im, mask)
     draw_closed_eye(im, hair)
-    # 左小眼也要闭，否则会像“单眼 wink”
+    # 左小眼也要闭，否则会像“单眼 wink”；补完肤色后把刘海盖回去，避免脸被挖掉一块
     fill_left_eye_skin(im)
     draw_left_closed_eye(im)
+    restore_left_hair(im, base)
     return im
 
 
@@ -192,7 +206,7 @@ def main():
         if scale:
             im = mouth(im, scale)
         if do_blink:
-            im = blink(im)
+            im = blink(im, base)
         im.save(OUT / name, optimize=True)
         print('✓', OUT / name)
     print('完成：4 张 2048 脸动纹理')
