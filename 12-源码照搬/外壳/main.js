@@ -32,7 +32,38 @@ const socialStateSvc = require('./社交状态');    // 关系 + 情绪：外壳
 // 为什么补这一层：控制台的「机器层」展示的是 机器配置.json 的 ports，但主进程原来只认 env / 写死默认；
 //   改机器配置后，脚本（工具\环境.mjs）按新端口连，外壳还在老端口听 ⇒ 两边错位。
 // ⛔ 默认值只留在这里与 工具\环境.mjs 的 DEFAULT_PORTS；别处不许再写端口字面量。
-const MACHINE_FILE_EARLY = process.env.DSH_MACHINE_FILE || path.join(__dirname, '..', '引擎数据', '.dsh', '机器配置.json');
+// ---- 安装版数据落地（2026-11-21）：数据与引擎分家 ----
+// 引擎升级整目录替换；数据若留在 `resources\引擎\.dsh` 会跟着被换掉，所以安装版改到安装目录之外。
+const PACKAGED = !!app.isPackaged;
+const DATA_HOME = process.env.DSH_DATA_HOME || (PACKAGED
+  ? path.join(process.env.LOCALAPPDATA || app.getPath('appData'), '胡闹的工作台')
+  : path.join(__dirname, 'data'));
+// 引擎目录：**优先按"与本工作台同级"推导**（换电脑 / 换盘符都不用改这行），推不出来才退回写死值。
+const HARNESS_DIR = (function () {
+  const sibling = path.join(path.dirname(__dirname), '引擎');
+  try { if (fs.existsSync(path.join(sibling, 'apps', 'cli'))) return sibling; } catch (e) { warnOnce("main", e) }
+  return path.join(path.dirname(__dirname), '引擎');
+})();
+const DSH_HOME = process.env.DSH_CUSTOMER_HOME || (PACKAGED
+  ? path.join(DATA_HOME, 'engine-data', '.dsh')
+  : path.join(HARNESS_DIR, '.dsh'));
+// 各子模块（社交档案 / 桌宠设置 / 桥接 / 功能台…）都按 env 找 home；这里统一写回，
+// 否则安装版会各自退回 `resources\引擎数据`，同一个进程里出现两份数据目录。
+process.env.DSH_CUSTOMER_HOME = process.env.DSH_CUSTOMER_HOME || DSH_HOME;
+process.env.DSH_HOME = DSH_HOME;
+const MACHINE_FILE_EARLY = process.env.DSH_MACHINE_FILE || (PACKAGED
+  ? path.join(DSH_HOME, '机器配置.json')
+  : path.join(__dirname, '..', '引擎数据', '.dsh', '机器配置.json'));
+
+// 安装版首启：建数据目录 + 不覆盖地写机器配置 + 种入 skills / standards
+const firstRunData = require('./首启数据');
+let firstRunInfo = null;
+if (PACKAGED) {
+  firstRunInfo = firstRunData.prepare({
+    dataHome: DATA_HOME, shellDir: __dirname, engineDir: HARNESS_DIR,
+    seedDir: path.join(process.resourcesPath, '种子数据', '.dsh'),
+  });
+}
 function machinePort(name, def) {
   try {
     const j = JSON.parse(fs.readFileSync(MACHINE_FILE_EARLY, 'utf8'));
@@ -52,17 +83,11 @@ process.env.DSH_SHELL_DIR = __dirname;
 app.setAppUserModelId('deepseek.harness.gui.v2');   // 2026-10-13 换新身份：旧的 deepseek.harness.gui 已被 Windows 按身份缓存成原子图标，绕开它
 // 引擎目录：**优先按"与本工作台同级"推导**（换电脑 / 换盘符都不用改这行），推不出来才退回写死值。
 // 2026-10-10 为「换电脑一比一复制」加（见 项目信息.md §39）：只要引擎与工作台仍是同级目录，任何盘符都能跑。
-const HARNESS_DIR = (function () {
-  const sibling = path.join(path.dirname(__dirname), '引擎');
-  try { if (fs.existsSync(path.join(sibling, 'apps', 'cli'))) return sibling; } catch (e) { warnOnce("main", e) }
-  return path.join(path.dirname(__dirname), '引擎');
-})();
 const NPM_BIN = path.join(os.homedir(), 'AppData', 'Roaming', 'npm');
 const PNPM_CMD = path.join(NPM_BIN, 'pnpm.cmd');
-// 引擎 home（会话 / 存储 / 场景记忆都在这里）：启动.vbs 用 DSH_CUSTOMER_HOME 指到「引擎数据\.dsh」，
-// 没设时退回「引擎\.dsh」。项目下拉要读 项目.json / workspace.json / 会话索引，必须和引擎同一份。
-const DSH_HOME = process.env.DSH_CUSTOMER_HOME || path.join(HARNESS_DIR, '.dsh');
-const LOG_FILE = path.join(__dirname, 'server.log');
+// 引擎 home（会话 / 存储 / 场景记忆都在这里）：安装版已在上方算成安装目录之外；
+// 源码版由 启动.vbs 用 DSH_CUSTOMER_HOME 指到「引擎数据\.dsh」，没设时退回「引擎\.dsh」。
+const LOG_FILE = PACKAGED ? path.join(DATA_HOME, 'server.log') : path.join(__dirname, 'server.log');
 const LOG_PREV = path.join(__dirname, 'server.log.prev');
 const LOG_MAX_BYTES = 4 * 1024 * 1024;   // 超过 4MB 就轮转，只留上一份（见 rotateLog）
 
@@ -77,10 +102,9 @@ function rotateLog() {
     fs.renameSync(LOG_FILE, LOG_PREV);
   } catch (e) { warnOnce("main", e) }
 }
-rotateLog();
+// rotateLog() 挪到 warnOnce 定义之后再调：首次启动日志文件还不存在时，
+// catch 里会走 warnOnce，而 warnOnce 依赖的 WARN_SEEN / WARN_IN 还没初始化（TDZ 崩溃）。
 const SCENARIOS_DIR = path.join(__dirname, 'scenarios');
-
-// ---- 程序开发 · 项目下拉（2026-11-11）----
 // 数据面在 项目切换.js（列项目 / 定点改场景 json / 同步定位卡与索引），这里只接 fs 与 IPC。
 // 口径：一条会话 = 一个项目（会话 cwd = 项目根），所以「切项目」就是改面板钉的那条会话。
 const projectSwitchSvc = projectSwitch.createService({
@@ -369,7 +393,7 @@ async function ensurePetTopbarNotify(client, runId) {
 
 // ---- 数据盘隔离：所有 Electron 运行时数据（userData/session、webview partition、localStorage 等）
 // 强制写到 D 盘项目目录，绝不落到 C 盘。必须在任何 app API 之前设置。----
-const PROFILE_DIR = path.join(__dirname, 'data', 'electron-profile');
+const PROFILE_DIR = PACKAGED ? path.join(DATA_HOME, 'electron-profile') : path.join(__dirname, 'data', 'electron-profile');
 try { fs.mkdirSync(PROFILE_DIR, { recursive: true }); } catch (e) { warnOnce("main", e) }
 try { app.setPath('userData', PROFILE_DIR); } catch (e) { warnOnce("main", e) }
 try { app.setPath('sessionData', path.join(PROFILE_DIR, 'sessions')); } catch (e) { warnOnce("main", e) }
@@ -377,7 +401,7 @@ try { app.setPath('sessionData', path.join(PROFILE_DIR, 'sessions')); } catch (e
 // ---- 默认工作区：新会话的 cwd（`<本夹>\工作区`）----
 // 为什么要在启动时建：根 .gitignore 挡着 `工作区/`，克隆下来是空的、甚至不存在；
 // cwd 不存在会让建会话/换会话收到一个坏路径。空目录本身是设计状态（见 `说明\默认工作区.md`）。
-const WORKSPACE_DIR = path.join(__dirname, '..', '工作区');
+const WORKSPACE_DIR = PACKAGED ? path.join(DATA_HOME, '工作区') : path.join(__dirname, '..', '工作区');
 try { fs.mkdirSync(WORKSPACE_DIR, { recursive: true }); } catch (e) { warnOnce("main", e) }
 
 // 启动计时基准：日志里会打印「窗口可见耗时」与「引擎就绪总耗时」，便于日后评估启动速度
@@ -393,7 +417,12 @@ let harnessToken = null;
 //   「换不到 cookie」。token 本体只留在内存，所以改由壳在 spawn 时注入 DSH_TOKEN，
 //   脚本侧统一走 工具\引擎token.mjs（env 优先、日志兜底）。
 function scriptEnv(extra) {
-  return Object.assign({}, process.env, harnessToken ? { DSH_TOKEN: harnessToken } : {}, extra || {});
+  return Object.assign({}, process.env, harnessToken ? { DSH_TOKEN: harnessToken } : {}, {
+    DSH_MACHINE_FILE: process.env.DSH_MACHINE_FILE || MACHINE_FILE_EARLY,
+    DSH_HARNESS_DIR: process.env.DSH_HARNESS_DIR || HARNESS_DIR,
+    DSH_LOG: process.env.DSH_LOG || LOG_FILE,
+    DSH_WORKSPACE: process.env.DSH_WORKSPACE || WORKSPACE_DIR,
+  }, extra || {});
 }
 
 function log(line) {
@@ -421,6 +450,7 @@ function warnOnce(tag, e) {
   try { log("[warn] (" + tag + ") " + msg + (at ? " @ " + at : "")); } catch (x) { warnOnce("main", x) }
   WARN_IN = false;
 }
+rotateLog();
 
 // ---- 2026-11-14 · 缓存体积巡检（只提示，不自动删）----
 // 与 自检.mjs 的阈值同源：外壳\data 超过 800 MB 就该清；清理必须退壳后跑 `清理缓存.mjs --apply`
@@ -543,11 +573,39 @@ function autoMaintConfig() {
 // 用 机器配置.json 的 nodeExe 跑（⛔ 不用 Electron 内置 Node：自检按 >=24.9 判，用错的 node 会假红）
 function spawnTool(nodeMode, script, args, opts) {
   const node = resolveNodeExe();
-  if (!node) throw new Error('找不到 node（机器配置.json 的 nodeExe 与 PATH 都没有）');
-  return spawn(node, [script].concat(args || []), Object.assign({
-    cwd: __dirname, windowsHide: true, env: serverSpawnEnv(),
+  const env = serverSpawnEnv();
+  let cmd;
+  if (node) cmd = node;
+  else {
+    // 干净 Windows 没有 Node：用 Electron 自带的 Node 24.18 跑 .mjs（安装版已核过版本）
+    env.ELECTRON_RUN_AS_NODE = '1';
+    cmd = process.execPath;
+  }
+  return spawn(cmd, [script].concat(args || []), Object.assign({
+    cwd: __dirname, windowsHide: true, env: env,
     stdio: 'ignore',
   }, opts || {}));
+}
+
+// 面板会话自愈（2026-11-21）：安装版首启 / 升级后，场景 json 里的 sessionId 在本地会话库里不存在
+//   ⇒ 面板打开是空白的。这里让 工具\首启绑定.mjs 扫一遍，缺的自动建并写回（一个进程一次搞定）。
+// 每次启动最多跑一次；失败只写日志，不影响启动（下次再试）。
+let HEAL_TRIED = false;
+function healSessionBindings() {
+  if (HEAL_TRIED) return;
+  HEAL_TRIED = true;
+  const script = path.join(__dirname, '..', '工具', '首启绑定.mjs');
+  if (!fs.existsSync(script)) { log('[boot] 跳过会话自愈：没有 工具\\首启绑定.mjs'); return; }
+  try {
+    const proc = spawnTool(null, script, ['--go'], { stdio: ['ignore', 'pipe', 'pipe'] });
+    let out = '';
+    proc.stdout.on('data', function (d) { out += String(d); });
+    proc.stderr.on('data', function (d) { out += String(d); });
+    proc.on('exit', function (code) {
+      const tail = out.trim().split(/\r?\n/).slice(-2).join(' / ');
+      log('[boot] 会话自愈 exit=' + code + (tail ? '：' + tail : ''));
+    });
+  } catch (e) { log('[boot] 会话自愈没跑起来：' + ((e && e.message) || e)); }
 }
 
 // ① 孤儿 staging：prepare 中途被杀、或换目标版本后残留的那份（可重新 prepare，不是备份，删了不丢东西）
@@ -892,6 +950,8 @@ function serverSpawnEnv() {
   // DSH_HOME 显式指向 D 盘项目目录（数据盘隔离：会话/存储/缓存绝不落 C 盘）。
   // 不设置的话 dsh 默认用 <用户目录>\<user>\.dsh，导致历史会话在界面里"消失"。
   env.DSH_HOME = DSH_HOME;
+  env.DSH_MACHINE_FILE = process.env.DSH_MACHINE_FILE || MACHINE_FILE_EARLY;
+  env.DSH_WORKSPACE = process.env.DSH_WORKSPACE || WORKSPACE_DIR;
   return env;
 }
 
@@ -928,6 +988,12 @@ function resolveNodeExe() {
     const cfg = JSON.parse(fs.readFileSync(cfgFile, 'utf8'));
     if (cfg && cfg.nodeExe && fs.statSync(cfg.nodeExe).isFile()) { cachedNodeExe = cfg.nodeExe; return cachedNodeExe; }
   } catch (e) { warnOnce("main", e) }
+  // 安装版：PATH 里的 Node 版本不可控（旧装 / 别的工具自带 22.x），而 Electron 自带 24.18 已满足
+  //   `engines.node >=24.9`。所以不进 PATH，直接返回空串 ⇒ 调用方用 ELECTRON_RUN_AS_NODE 跑。
+  if (PACKAGED) {
+    log('[boot] 安装版使用 Electron 内置 Node（24.18），不扫 PATH');
+    return cachedNodeExe;
+  }
   const dirs = String(process.env.Path || process.env.PATH || '').split(path.delimiter).filter(Boolean);
   for (const d of dirs) {
     const p = path.join(d, 'node.exe');
@@ -1040,9 +1106,14 @@ async function startServer() {
   // 2026-11-14 实测（同条件：真 DSH_HOME + 3099 端口，各两次）：pnpm 脚本 14.1s / 12.9s，内置入口 20.6s / 20.3s。
   //   结论：本机 pnpm 反而更快 —— 内置入口要先过 @deepseek-ai/dsh-app-boot 的整棵扫描才起服务。
   //   ⛔ 别再凭"跳过三层转译就一定更快"把顺序调回去；要改先按上面方式各测两次。
-  plans.push({ label: 'pnpm 脚本', detail: 'pnpm dsh web（tsx 转译）', spawn: spawnServerPnpm, budget: 90 });
-  if (fs.existsSync(CLI_BUILT)) {
-    plans.push({ label: '内置入口', detail: 'CLI 构建产物（pnpm 不可用时兜底）', spawn: spawnServerDirect, budget: 45 });
+  // 2026-11-21 安装版：机器上没有 pnpm，走 pnpm 计划只会白等 90 秒 ⇒ 直接走内置入口。
+  if (PACKAGED && fs.existsSync(CLI_BUILT)) {
+    plans.push({ label: '内置入口', detail: 'CLI 构建产物（安装版首选）', spawn: spawnServerDirect, budget: 60 });
+  } else {
+    plans.push({ label: 'pnpm 脚本', detail: 'pnpm dsh web（tsx 转译）', spawn: spawnServerPnpm, budget: 90 });
+    if (fs.existsSync(CLI_BUILT)) {
+      plans.push({ label: '内置入口', detail: 'CLI 构建产物（pnpm 不可用时兜底）', spawn: spawnServerDirect, budget: 45 });
+    }
   }
 
   for (let i = 0; i < plans.length; i++) {
@@ -1064,6 +1135,8 @@ async function startServer() {
           CACHE_HINT_SCHEDULED = true;
           setTimeout(function () { maybeHintCacheSize(); }, 8000);
         }
+        // 面板会话自愈：等引擎把会话存储落盘后 2s 再扫，避免刚建就判定不存在
+        setTimeout(function () { healSessionBindings(); }, 2000);
         return true;
       }
       if (proc.exitCode !== null) {
@@ -2582,7 +2655,7 @@ ipcMain.handle('appwin:release', async () => {
 // ---- 派发巡检面板（总入口「胡闹的大肥鱼」· type=dispatch-board）----
 // 判据只有一份：调用 工具\看门狗.mjs，壳只负责起进程 + 把 JSON 摊给面板（不在这里复制一套判定，免得两处漂移）。
 // ⛔ 巡检只读；「补投回执」必须人点按钮（走 等回执.mjs --once），不自动补、不改任何派发单。
-const DISPATCH_DIR = path.join(__dirname, '..', '引擎数据', '.dsh', '派发');
+const DISPATCH_DIR = path.join(DSH_HOME, '派发');
 const DOG_TOOL = path.join(__dirname, '..', '工具', '看门狗.mjs');
 const DOG_WAIT_TOOL = path.join(__dirname, '..', '工具', '等回执.mjs');
 const DISPATCH_STUCK_MIN = Math.max(3, Number(MACHINE.dispatchStuckMin) || 15);
