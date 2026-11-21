@@ -17,5 +17,11 @@
     "listening": ""
   },
   "tapMotion": "",
-  "autoBlink": true
+  "autoBlink": true,
+  "faceTextures": {
+    "blink": "正式/大肥鱼-半身/大肥鱼-半身.face/blink.png",
+    "talk": "正式/大肥鱼-半身/大肥鱼-半身.face/talk.png",
+    "talk2": "正式/大肥鱼-半身/大肥鱼-半身.face/talk2.png",
+    "blinkTalk": "正式/大肥鱼-半身/大肥鱼-半身.face/blink_talk.png"
+  }
 }

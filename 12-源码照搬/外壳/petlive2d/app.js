@@ -30,12 +30,6 @@ const BTN_MODEL_RELOAD = document.getElementById('btn-model-reload');
 
 const CONFIG_URL = './模型/当前.json';
 const STATE_LABEL = { idle: '待机', thinking: '思考中', speaking: '说话中', listening: '听着呢' };
-const PARAMS = [
-  'ParamAngleX', 'ParamAngleY', 'ParamAngleZ',
-  'ParamBodyAngleX', 'ParamBodyAngleZ',
-  'ParamEyeLOpen', 'ParamEyeROpen',
-  'ParamMouthOpenY', 'ParamMouthForm', 'ParamBreath',
-];
 
 let cfgRender = true;
 let cfgBright = true;
@@ -50,7 +44,9 @@ let pollTimer = 0;
 let zoom = 1;
 let panX = 0;
 let panY = 0;
-let paramOk = {};
+let faceTextures = null;
+let faceNormal = null;
+let faceKey = '';
 let nextBlink = 0;
 let blinkStart = -1;
 let app = null;
@@ -148,68 +144,77 @@ function hideFallback() {
   MODEL_LABEL.hidden = true;
 }
 
-// ---------- 模型索引 / 四态 ----------
-function buildParamOk(m) {
+// ---------- 脸部贴图变体 / 四态 ----------
+// 2026-11-21 实检：导出 moc3 里 27 个参数全是 0 keyform（7 张全画布静态 quad），
+// ParamEye/Mouth/Breath 改了也不会产生形变。眨眼与口型改为切换同一图集的贴图变体：
+// 只改 head 那一格的像素，其他格原样复制；模型整体呼吸/摇摆由 Pixi 容器补。
+async function loadFaceTextures(c, base) {
+  const specs = c && c.faceTextures;
+  if (!specs) return null;
+  const pairs = [['blink', 'blink'], ['talk', 'talk'], ['talk2', 'talk2'], ['blinkTalk', 'blinkTalk']]
+    .filter(function (p) { return !!specs[p[1]]; });
+  const loaded = await Promise.all(pairs.map(function (p) {
+    const url = new URL(String(specs[p[1]]), base).href;
+    return PIXI.Texture.fromURL(url).then(function (tex) { return [p[0], tex]; })
+      .catch(function (e) {
+        console.warn('[petlive2d] 脸部贴图没加载上：' + specs[p[1]], e);
+        return null;
+      });
+  }));
   const out = {};
-  let core = null;
-  try { core = m.internalModel.coreModel; } catch (e) { core = null; }
-  PARAMS.forEach(function (id) {
-    let ok = false;
-    try { ok = !!(core && typeof core.getParameterIndex === 'function' && core.getParameterIndex(id) >= 0); }
-    catch (e) { ok = false; }
-    out[id] = ok;
-  });
-  return out;
+  loaded.forEach(function (x) { if (x) out[x[0]] = x[1]; });
+  return Object.keys(out).length ? out : null;
 }
 
-// 在动作算完之后、网格更新之前叠加状态参数（additive，不覆盖模型自带动作）
-function applyStateParams() {
-  if (!model || !loaded) return;
-  const core = model.internalModel.coreModel;
-  const t = performance.now() / 1000;
-  function add(id, v) {
-    if (!paramOk[id]) return;
-    try { core.addParameterValueById(id, v, 1); } catch (e) { /* 模型没有这个参数：跳过 */ }
-  }
+function updateFace(t) {
+  if (!model || !loaded || !faceTextures || !faceNormal) return;
 
-  // 1. 自动眨眼：模型自带 EyeBlink / idle 动作已眨眼时保持关闭（示例 Hiyori 即自带）
+  // 1. 眨眼：和旧实现同样的节奏，只是从改参数换成换整张图集
   if (cfg && cfg.autoBlink === true) {
     if (!nextBlink) nextBlink = t + 2 + Math.random() * 2;
     if (blinkStart < 0 && t >= nextBlink) {
       blinkStart = t;
       nextBlink = t + 2.5 + Math.random() * 3;
     }
-    if (blinkStart >= 0) {
-      const p = (t - blinkStart) / 0.18;
-      if (p >= 1) blinkStart = -1;
-      else {
-        const k = p < 0.5 ? p * 2 : (1 - p) * 2;
-        add('ParamEyeLOpen', -0.92 * k);
-        add('ParamEyeROpen', -0.92 * k);
-      }
-    }
+    if (blinkStart >= 0 && (t - blinkStart) / 0.18 >= 1) blinkStart = -1;
   }
+  const blinking = blinkStart >= 0;
 
-  // 2. 待机呼吸 / 轻微摇摆：模型没有 idle 动作时也不至于像一张静态图
-  add('ParamBreath', 0.5 + 0.5 * Math.sin(t * 1.2));
-  add('ParamAngleX', 2.6 * Math.sin(t * 0.55));
-  add('ParamAngleZ', 1.1 * Math.sin(t * 0.85));
-  add('ParamBodyAngleX', 1.8 * Math.sin(t * 0.7));
-
-  // 3. 四态叠加（Cubism 标准参数里角度是「度」，不是 0~1；给太小会看不出来）
+  // 2. 说话：嘴的开合用正弦推，超过阈值换张嘴图；分两档让口型不是只开一次
+  let talk = false;
+  let wide = false;
   if (curState === 'speaking') {
-    add('ParamMouthOpenY', 0.22 + 0.34 * (0.5 + 0.5 * Math.sin(t * 9)));
-    add('ParamAngleZ', 2.2 * Math.sin(t * 1.6));
-  } else if (curState === 'thinking') {
-    add('ParamAngleZ', 8);
-    add('ParamAngleY', 3);
-    add('ParamEyeLOpen', -0.18);
-    add('ParamEyeROpen', -0.18);
-  } else if (curState === 'listening') {
-    add('ParamAngleY', -6);
-    add('ParamBodyAngleX', 4);
-    add('ParamMouthForm', 0.12);
+    const mouth = 0.5 + 0.5 * Math.sin(t * 9.5);
+    talk = mouth > 0.32;
+    wide = mouth > 0.78;
   }
+
+  let key = 'normal';
+  if (blinking) key = talk ? 'blinkTalk' : 'blink';
+  else if (talk) key = wide ? 'talk2' : 'talk';
+  if (key === faceKey) return;
+  const tex = key === 'normal' ? faceNormal : (faceTextures[key] || faceTextures.talk);
+  if (!tex) return;
+  model.textures[0] = tex;
+  faceKey = key;
+}
+
+function animateModelBody(t) {
+  if (!model || !loaded) return;
+  const base = Number(model.__baseScale) || Number(model.scale && model.scale.x) || 1;
+  // 3. 待机呼吸 / 四态摆幅：绕底部支点转一点，高度轻微呼吸
+  const tilt = curState === 'thinking' ? 0.030 : curState === 'listening' ? -0.012 : 0;
+  const nod = curState === 'speaking' ? 0.010 * Math.sin(t * 6.2) : 0;
+  model.rotation = tilt + nod + 0.016 * Math.sin(t * 0.58);
+  model.scale.y = base * (1 + 0.007 * Math.sin(t * 1.25));
+}
+
+// 在动作算完之后、网格更新之前换脸部贴图并补整体呼吸
+function applyStateParams() {
+  if (!model || !loaded) return;
+  const t = performance.now() / 1000;
+  updateFace(t);
+  animateModelBody(t);
 }
 
 function applyState(state, force) {
@@ -323,12 +328,21 @@ function destroyModel() {
     puppetTextures = [];
   }
   loaded = false;
-  if (!model) return;
-  try { model.internalModel.off('beforeModelUpdate', applyStateParams); } catch (e) { /* 忽略 */ }
-  try { modelRoot.removeChild(model); } catch (e) { /* 忽略 */ }
-  try { model.destroy({ children: true, texture: true, baseTexture: true }); } catch (e) { /* 忽略 */ }
-  model = null;
-  paramOk = {};
+  if (model) {
+    try { model.internalModel.off('beforeModelUpdate', applyStateParams); } catch (e) { /* 忽略 */ }
+    try { if (faceNormal && model.textures) model.textures[0] = faceNormal; } catch (e) { /* 忽略 */ }
+    try { modelRoot.removeChild(model); } catch (e) { /* 忽略 */ }
+    try { model.destroy({ children: true, texture: true, baseTexture: true }); } catch (e) { /* 忽略 */ }
+    model = null;
+  }
+  if (faceTextures) {
+    Object.keys(faceTextures).forEach(function (k) {
+      try { faceTextures[k].destroy(true); } catch (e) { /* 忽略 */ }
+    });
+  }
+  faceTextures = null;
+  faceNormal = null;
+  faceKey = '';
   loaded = false;
 }
 
@@ -355,15 +369,30 @@ async function loadModel() {
     }
 
     const url = new URL(String(c.model), base).href;
-    window.__petlive2d = { config: c, url: url };
+    window.__petlive2d = {
+      config: c,
+      url: url,
+      setState: function (s) { applyState(s, true); },
+      get state() { return curState; },
+      get faceKey() { return faceKey; },
+      get loaded() { return loaded; },
+      get faceTextures() { return faceTextures ? Object.keys(faceTextures) : []; },
+      get textureSize() {
+        try { return model && model.textures && model.textures[0] ? [model.textures[0].width, model.textures[0].height] : null; }
+        catch (e) { return null; }
+      },
+      stopPoll: function () { stopPoll(); },
+      blinkNow: function () { blinkStart = performance.now() / 1000; nextBlink = 0; },
+    };
 
     // 2. 加载 Cubism 模型（贴图/动作/物理都在 model3.json 里相对引用）
     const m = await LIVE2D.Live2DModel.from(url, { autoInteract: false, autoUpdate: true });
     model = m;
     model.anchor.set(0.5, 1);
     modelRoot.addChild(model);
-    paramOk = buildParamOk(model);
+    faceNormal = (m.textures && m.textures[0]) ? m.textures[0] : null;
     model.internalModel.on('beforeModelUpdate', applyStateParams);
+    faceTextures = await loadFaceTextures(c, base);
     loaded = true;
 
     // 3. 展示与首帧
@@ -406,7 +435,8 @@ function layoutModel() {
     (h * ratio) / Math.max(1, mh),
     (w * 0.98) / Math.max(1, mw)
   );
-  model.scale.set(base * zoom);
+  model.__baseScale = base * zoom;
+  model.scale.set(model.__baseScale);
   model.x = w / 2 + panX;
   model.y = h + panY;
 }
