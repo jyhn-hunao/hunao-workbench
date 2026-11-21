@@ -154,8 +154,9 @@ async function loadFaceTextures(c, base) {
   const pairs = [['blink', 'blink'], ['talk', 'talk'], ['talk2', 'talk2'], ['blinkTalk', 'blinkTalk']]
     .filter(function (p) { return !!specs[p[1]]; });
   const loaded = await Promise.all(pairs.map(function (p) {
-    const url = new URL(String(specs[p[1]]), base).href;
-    return PIXI.Texture.fromURL(url).then(function (tex) { return [p[0], tex]; })
+    const url = new URL(String(specs[p[1]]), base);
+    url.searchParams.set('t', String(Date.now()));   // 换图集后避免浏览器缓存旧 1024 贴图
+    return PIXI.Texture.fromURL(url.href).then(function (tex) { return [p[0], tex]; })
       .catch(function (e) {
         console.warn('[petlive2d] 脸部贴图没加载上：' + specs[p[1]], e);
         return null;
