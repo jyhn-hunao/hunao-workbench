@@ -257,6 +257,8 @@ async function loadPuppet(c, base) {
     const py = Number(l.pivot && l.pivot[1]) || ch;
     sp.anchor.set(px / cw, py / ch);
     sp.position.set(px, py);
+    // 演出层默认隐藏，避免首帧闪一下
+    if (l.name === 'faceClosed' || l.name === 'mouthClosed') sp.alpha = 0;
     container.addChild(sp);
     parts[l.name] = sp;
   });
@@ -272,7 +274,14 @@ async function loadPuppet(c, base) {
   MODEL_LABEL.hidden = false;
   MODEL_LABEL.textContent = c.label || '分层骨骼';
   MODEL_NOTE.textContent = '模型：' + (c.label || '分层骨骼');
-  window.__petlive2d = { config: c, mode: 'layered' };
+  window.__petlive2d = {
+    config: c,
+    mode: 'layered',
+    setState: function (s) { applyState(s, true); },
+    get state() { return curState; },
+    get parts() { return puppet ? Object.keys(puppet.parts) : []; },
+    blinkNow: function () { blinkStart = performance.now() / 1000; nextBlink = 0; },
+  };
   layoutModel();
   applyState(curState, true);
 }
@@ -295,6 +304,26 @@ function animatePuppet() {
       + (s === 'listening' ? 4 : 0)
       + (gesture ? 2.5 : 0));
   }
+  // 5. 演出层跟随头部旋转：眨眼整脸层 / 闭嘴层与头同轴，避免转头时错位
+  if (p.faceClosed && p.head) p.faceClosed.rotation = p.head.rotation;
+  if (p.mouthClosed && p.head) p.mouthClosed.rotation = p.head.rotation;
+  // 6. 眨眼：自动节奏只切“闭眼整脸层”透明度，原画默认层始终不变
+  if (cfg && cfg.autoBlink === true) {
+    if (!nextBlink) nextBlink = t + 2 + Math.random() * 2;
+    if (blinkStart < 0 && t >= nextBlink) {
+      blinkStart = t;
+      nextBlink = t + 2.5 + Math.random() * 3;
+    }
+    if (blinkStart >= 0 && (t - blinkStart) / 0.18 >= 1) blinkStart = -1;
+  }
+  if (p.faceClosed) p.faceClosed.alpha = blinkStart >= 0 ? 1 : 0;
+  // 7. 说话：默认张嘴，说话时用“闭嘴层”做开合，不动眼睛和头
+  let mouthClosed = 0;
+  if (s === 'speaking') {
+    const mouth = 0.5 + 0.5 * Math.sin(t * 9.5);
+    mouthClosed = mouth > 0.55 ? 1 : 0;
+  }
+  if (p.mouthClosed) p.mouthClosed.alpha = mouthClosed;
   if (p.body) {
     p.body.rotation = deg(0.8 * Math.sin(t * 1.05) + (s === 'speaking' ? 0.8 : 0));
     p.body.y = (p.body.__baseY || (p.body.__baseY = p.body.y)) - breathe;
@@ -344,6 +373,8 @@ function destroyModel() {
   faceTextures = null;
   faceNormal = null;
   faceKey = '';
+  blinkStart = -1;
+  nextBlink = 0;
   loaded = false;
 }
 
