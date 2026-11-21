@@ -110,6 +110,10 @@ const r = spawnSync('tar', [
   '-czf', TGZ, '-C', staging,
   '--exclude=engine/.dsh', '--exclude=engine/node_modules/.cache',
   '--exclude=engine/*.log', '--exclude=engine/*.log.prev',
+  // 装机包只留运行必需：类型声明 / 源码映射 / 调试符号 / 文档 / arm64 预编译都不是 x64 运行时依赖。
+  // 实测 31.5k 文件 → 16k 左右，首启解包时间至少减半（Windows Defender 逐文件扫描是瓶颈）。
+  '--exclude=*.d.ts', '--exclude=*.map', '--exclude=*.pdb',
+  '--exclude=*.md', '--exclude=*/win32-arm64/*',
   'engine'
 ], { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
 // 4.1 无论成败都收掉暂存（junction 只删链接，不碰引擎本体）

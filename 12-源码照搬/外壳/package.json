@@ -85,6 +85,7 @@
       "installerIcon": "icon.ico",
       "uninstallerIcon": "icon.ico",
       "installerHeaderIcon": "icon.ico",
+      "include": "installer.nsh",
       "deleteAppDataOnUninstall": false
     }
   },

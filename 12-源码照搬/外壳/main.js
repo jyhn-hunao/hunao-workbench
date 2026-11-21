@@ -964,10 +964,12 @@ const CLI_CANDS = [
   path.join(HARNESS_DIR, 'apps', 'cli', 'lib', 'bin.js'),   // 源码版
   path.join(HARNESS_DIR, 'lib', 'bin.js')                    // 打包版
 ];
-const CLI_BUILT = (function () {
+// ⚠ 这个函数必须每次现算：安装版首启是「先缺引擎 → 运行中装好 → 再启动」，
+//   模块加载时算成常量会把路径钉在 apps/cli/lib/bin.js（打包版永远命中不到）⇒ 装好也走 pnpm。
+function cliBuiltNow() {
   for (const p of CLI_CANDS) { try { if (fs.existsSync(p)) return p; } catch (e) { warnOnce('main', e) } }
   return CLI_CANDS[0];
-})();
+}
 
 function serverSpawnEnv() {
   const env = Object.assign({}, process.env);
@@ -1035,12 +1037,12 @@ function spawnServerDirect() {
   let cmd, args;
   if (nodeExe) {
     cmd = nodeExe;
-    args = [CLI_BUILT, 'web', '--no-open', '--port', DSH_PORT];
+    args = [cliBuiltNow(), 'web', '--no-open', '--port', DSH_PORT];
   } else {
     // Electron 二进制以纯 Node 运行（内置 Node 24.18，满足 engines 要求）
     env.ELECTRON_RUN_AS_NODE = '1';
     cmd = process.execPath;
-    args = [CLI_BUILT, 'web', '--no-open', '--port', DSH_PORT];
+    args = [cliBuiltNow(), 'web', '--no-open', '--port', DSH_PORT];
   }
   log('[boot] direct: ' + cmd + ' ' + args.join(' '));
   return wireServerProc(spawn(cmd, args, {
@@ -1066,6 +1068,11 @@ function spawnServerPnpm() {
 //   引擎在外部重启后旧 token 立刻失效（实测白屏 `dsh web authentication required`）。
 //   所以复用外部引擎时，主界面改走本机保命入口 `http://127.0.0.1:<SITE_PORT>/chat`（实时用当前 token 跳转）。
 let engineIsForeign = false
+let engineAutoLocalTried = false
+const LOCAL_ENGINE_DIRS = [
+  path.join(path.dirname(process.execPath), '引擎包'),
+  path.join(DATA_HOME, '引擎包')
+]
 const BOOT_FAIL_FILE = path.join(SHELL_DATA_DIR, 'engine-boot-fail.json')
 
 function bumpBootFail() {
@@ -1120,10 +1127,49 @@ async function startServer() {
   const eng = engineBoot.detect(HARNESS_DIR);
   if (!eng.ok) {
     log('[engine] 未就位：' + eng.text + '（' + HARNESS_DIR + '）');
+    // 1. 安装器会把安装器同目录的 引擎-*.tar.gz 拷到 安装目录\引擎包\；
+    //    数据根也允许预置一份（%LOCALAPPDATA%\胡闹的工作台\引擎包）。找到就直接装，不再让用户手点选包。
+    const localPkg = engineBoot.findLocalPackage(LOCAL_ENGINE_DIRS);
+    if (localPkg && !engineAutoLocalTried) {
+      engineAutoLocalTried = true;
+      engineDownloading = true;
+      log('[engine] 发现本地引擎包：' + localPkg.file + '（' + (localPkg.bytes / 1048576).toFixed(1) + ' MB）');
+      sendBoot({
+        stage: 'engine-install', pct: 0,
+        text: '发现本地引擎包，正在校验…',
+        detail: localPkg.name
+      });
+      (async function () {
+        try {
+          const sha = await engineBoot.sha256File(localPkg.file, function (p) {
+            sendBoot({
+              stage: 'engine-install', pct: Math.round((p.pct || 0) * 0.8),
+              text: '校验本地引擎包…',
+              detail: localPkg.name + ' · ' + (p.bytes / 1048576).toFixed(1) + ' MB'
+            });
+          });
+          log('[engine] 本地包校验完成（sha256 ' + sha.slice(0, 12) + '…），开始解包安装');
+          const r = await installEngineThenStart({ ok: true, url: localPkg.file, sha256: sha, version: '', origin: ['local-auto'] }, true);
+          if (r && r.ok) {
+            log('[engine] 本地引擎包装好：v' + (r.version || '?') + '，清理安装包副本');
+            try { fs.unlinkSync(localPkg.file); } catch (e) { log('[engine] 安装包副本删不掉（不挡运行）：' + e.message); }
+            try { fs.rmdirSync(path.dirname(localPkg.file)); } catch (e) { log('[engine] 引擎包目录还有别的文件，保留：' + e.message); }
+          } else {
+            log('[engine] 本地引擎包安装失败：' + String((r && r.err) || '未知'));
+          }
+        } catch (e) {
+          log('[engine] 本地引擎包安装异常：' + ((e && e.message) || String(e)));
+          sendBoot({ stage: 'engine-missing', pct: 0, text: '本地引擎包安装失败', detail: (e && e.message) || String(e) });
+        } finally {
+          engineDownloading = false;
+        }
+      })();
+      return false;
+    }
     sendBoot({
       stage: 'engine-missing', pct: 0,
       text: '未检测到 DSH 引擎',
-      detail: eng.text + ' · 首次启动需要下载引擎包（约 500 MB）'
+      detail: eng.text + ' · 首次启动需要引擎包（安装器同目录的 引擎-*.tar.gz 会自动装载）'
     });
     return false;
   }
@@ -1132,11 +1178,11 @@ async function startServer() {
   //   结论：本机 pnpm 反而更快 —— 内置入口要先过 @deepseek-ai/dsh-app-boot 的整棵扫描才起服务。
   //   ⛔ 别再凭"跳过三层转译就一定更快"把顺序调回去；要改先按上面方式各测两次。
   // 2026-11-21 安装版：机器上没有 pnpm，走 pnpm 计划只会白等 90 秒 ⇒ 直接走内置入口。
-  if (PACKAGED && fs.existsSync(CLI_BUILT)) {
+  if (PACKAGED && fs.existsSync(cliBuiltNow())) {
     plans.push({ label: '内置入口', detail: 'CLI 构建产物（安装版首选）', spawn: spawnServerDirect, budget: 60 });
   } else {
     plans.push({ label: 'pnpm 脚本', detail: 'pnpm dsh web（tsx 转译）', spawn: spawnServerPnpm, budget: 90 });
-    if (fs.existsSync(CLI_BUILT)) {
+    if (fs.existsSync(cliBuiltNow())) {
       plans.push({ label: '内置入口', detail: 'CLI 构建产物（pnpm 不可用时兜底）', spawn: spawnServerDirect, budget: 45 });
     }
   }
@@ -6225,6 +6271,9 @@ let engineDownloading = false;
 
 // 进度映射：下载 0–80%，校验 84 / 解包 88 / 安装 92
 function engineBootProgress(p) {
+  if (p.phase !== 'download') {
+    log('[engine] 首启引擎：' + p.phase + ' ' + (p.pct || 0) + '% ' + (p.text || ''));
+  }
   if (p.phase === 'download') {
     sendBoot({
       stage: 'engine-download', pct: Math.round((p.pct || 0) * 0.8),

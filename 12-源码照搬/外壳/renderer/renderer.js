@@ -981,12 +981,12 @@ function initBoot() {
     refresh.style.display = (missing || installing) ? 'none' : '';
     if (download) {
       download.style.display = missing ? '' : 'none';
-      download.textContent = /失败/.test(v.text || '') ? '⬇ 重新下载引擎' : '⬇ 下载引擎（约 500 MB）';
+      download.textContent = /失败/.test(v.text || '') ? '⬇ 重新下载引擎' : '⬇ 下载引擎（约 136 MB）';
     }
     if (pick) pick.style.display = missing ? '' : 'none';
     if (hint) {
       hint.textContent = (missing || installing)
-        ? '安装包不带引擎：可点「下载引擎」自动补齐，没有下载源时可选本地 .tar.gz 引擎包'
+        ? '安装器同目录的 引擎-*.tar.gz 会随安装拷入并在首启自动装载；没有的话可下载引擎，或选本地引擎包'
         : '首次启动较慢；点「立即进入」可直接进入界面（等同切场景再切回来）';
     }
   };

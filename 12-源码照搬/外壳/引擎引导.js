@@ -391,11 +391,39 @@ async function ensureInner(o) {
   }
 }
 
+// 8. 找随包 / 预置的本地引擎包：安装器把 引擎-*.tar.gz 拷到 安装目录\引擎包\
+//    这里只做浅层扫描（目录 + 一层子目录），不递归全盘；同名多个取最新修改的。
+function findLocalPackage(dirs) {
+  const found = [];
+  const want = /^(引擎|engine)[-_ ].*\.(tar\.gz|tgz)$/i;
+  const scan = (dir, depth) => {
+    if (!dir || depth > 1) return;
+    let entries = [];
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (e) { return; }
+    for (const e of entries) {
+      const p = path.join(dir, e.name);
+      if (e.isFile() && want.test(e.name)) {
+        let st = null;
+        try { st = fs.statSync(p); } catch (x) { continue; }
+        // 小于 10 MB 的“引擎包”必是坏包 / 占位文件，不浪费一次解包
+        if (st.size < 10 * 1024 * 1024) continue;
+        found.push({ file: p, name: e.name, bytes: st.size, mtime: st.mtimeMs });
+      } else if (e.isDirectory() && depth < 1 && /^(引擎包|engine-packages?)$/i.test(e.name)) {
+        scan(p, depth + 1);
+      }
+    }
+  };
+  for (const d of (dirs || [])) scan(d, 0);
+  found.sort(function (a, b) { return b.mtime - a.mtime; });
+  return found[0] || null;
+}
+
 module.exports = {
   LAYOUTS: LAYOUTS,
   detect: detect,
   readVersion: readVersion,
   readSource: readSource,
+  findLocalPackage: findLocalPackage,
   sha256File: sha256File,
   download: download,
   extract: extract,

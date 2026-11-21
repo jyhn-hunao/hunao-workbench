@@ -2,9 +2,9 @@
   "engine": {
     "source": {
       "url": "",
-      "sha256": "3b3dcca30044f61bb28730cbcfc6a4e2e90e58132fda9c71c6441718dcfd0ae8",
+      "sha256": "1bcd3aa6373f578c1180cae8b1ce8a008471346e11378afada354c161ebc3a9f",
       "version": "0.2.1-rc.3",
-      "bytes": 142740060,
+      "bytes": 123235317,
       "note": "首启下载的自包含引擎包（tar.gz，hoisted 布局、无符号链接，整棵目录含 node_modules）。发布前把 url 填上（包见 发布\\引擎包\\，sha256 已核）；机器配置.json 的 engine.source 可覆盖本文件。"
     }
   }
