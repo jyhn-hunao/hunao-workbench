@@ -190,7 +190,13 @@ function applyStateParams() {
     }
   }
 
-  // 2. 四态叠加（Cubism 标准参数里角度是「度」，不是 0~1；给太小会看不出来）
+  // 2. 待机呼吸 / 轻微摇摆：模型没有 idle 动作时也不至于像一张静态图
+  add('ParamBreath', 0.5 + 0.5 * Math.sin(t * 1.2));
+  add('ParamAngleX', 2.6 * Math.sin(t * 0.55));
+  add('ParamAngleZ', 1.1 * Math.sin(t * 0.85));
+  add('ParamBodyAngleX', 1.8 * Math.sin(t * 0.7));
+
+  // 3. 四态叠加（Cubism 标准参数里角度是「度」，不是 0~1；给太小会看不出来）
   if (curState === 'speaking') {
     add('ParamMouthOpenY', 0.22 + 0.34 * (0.5 + 0.5 * Math.sin(t * 9)));
     add('ParamAngleZ', 2.2 * Math.sin(t * 1.6));
@@ -380,7 +386,10 @@ function layoutModel() {
     const w = app.screen.width;
     const h = app.screen.height;
     const ratio = Number(cfg && cfg.heightRatio) || 0.92;
-    const base = (h * ratio) / Math.max(1, puppet.canvasH);
+    const base = Math.min(
+      (h * ratio) / Math.max(1, puppet.canvasH),
+      (w * 0.98) / Math.max(1, puppet.canvasW)
+    );
     puppet.scale.set(base * zoom);
     puppet.x = w / 2 - puppet.canvasW * base * zoom / 2 + panX;
     puppet.y = h - puppet.canvasH * base * zoom + panY;
@@ -392,7 +401,11 @@ function layoutModel() {
   const ratio = Number(cfg && cfg.heightRatio) || 0.92;
   // 用内部画布原始高度算缩放：model.height 会带当前 scale，拖一次缩一次会越缩越小
   const mh = Number(model.internalModel && model.internalModel.originalHeight) || model.height || 1;
-  const base = (h * ratio) / Math.max(1, mh);
+  const mw = Number(model.internalModel && model.internalModel.originalWidth) || model.width || 1;
+  const base = Math.min(
+    (h * ratio) / Math.max(1, mh),
+    (w * 0.98) / Math.max(1, mw)
+  );
   model.scale.set(base * zoom);
   model.x = w / 2 + panX;
   model.y = h + panY;

@@ -1,0 +1,10 @@
+{
+	"Version": 3,
+	"FileReferences": {
+		"Moc": "大肥鱼-半身.moc3",
+		"Textures": [
+			"大肥鱼-半身.2048/texture_00.png"
+		],
+		"DisplayInfo": "大肥鱼-半身.cdi3.json"
+	}
+}
