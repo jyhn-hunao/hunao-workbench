@@ -2,11 +2,60 @@
   "name": "dsh-workbench",
   "version": "0.2.1-rc.3",
   "private": true,
-  "description": "胡闹的工作台 · 公开模板（8 场景：命令 / B站 / 自我复盘 / 本地电脑 / 程序开发 / 胡闹的大肥鱼 / 社交 / 工作台控制台）",
+  "description": "胡闹的工作台 · 可安装的 AI 多场景工作台（8 场景：命令 / B站 / 自我复盘 / 本地电脑 / 程序开发 / 胡闹的大肥鱼 / 社交 / 工作台控制台）",
+  "author": "胡闹的工作台",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "test": "node scripts/测试.mjs"
+    "test": "node scripts/测试.mjs",
+    "build:dir": "electron-builder --dir --win --x64",
+    "build:installer": "electron-builder --win nsis --x64 --publish never"
+  },
+  "build": {
+    "appId": "studio.ydcy.hunao.workbench",
+    "productName": "胡闹的工作台",
+    "copyright": "Copyright © 2026 胡闹的工作台",
+    "directories": {
+      "output": "../发布/安装包",
+      "buildResources": "."
+    },
+    "files": [
+      "**/*",
+      "!captures/**",
+      "!data/**",
+      "!.engine-staging-*/**",
+      "!server.log*",
+      "!**/*.log",
+      "!petlive2d/模型/示例/**",
+      "!petlive2d/模型/正式/**/*.psd",
+      "!petlive2d/模型/正式/**/*.cmo3"
+    ],
+    "asar": false,
+    "win": {
+      "icon": "icon.ico",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "胡闹的工作台-${version}-安装包.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowElevation": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "胡闹的工作台",
+      "installerIcon": "icon.ico",
+      "uninstallerIcon": "icon.ico",
+      "installerHeaderIcon": "icon.ico",
+      "deleteAppDataOnUninstall": false
+    }
   },
   "devDependencies": {
     "electron": "43.4.0",
