@@ -4228,7 +4228,11 @@ print(json.dumps({'ok': True, 'type': '${o.type}', 'list': rows, 'ts': __import_
 }));
 
 // ---- 插件 / 模型 面板（只读；数据全部来自项目文件夹，核心原则：不落 C 盘） ----
-const PLUGINS_DIR = path.join(HARNESS_DIR, '插件');
+// 插件源：源码版在 <工作台>\插件（与 引擎 同级、不在引擎里）；安装版由 extraResources 放到 resources\插件。
+// 引擎升级只替换 引擎 目录，插件留在原地，所以这里不再写死 HARNESS_DIR\插件。
+const PLUGINS_DIR = fs.existsSync(path.join(HARNESS_DIR, '插件'))
+  ? path.join(HARNESS_DIR, '插件')
+  : path.join(__dirname, '..', '插件');
 const DSH_DATA_DIR = path.join(HARNESS_DIR, '.dsh');
 const SETTINGS_PATH = path.join(DSH_DATA_DIR, 'settings.yaml');
 
@@ -4567,7 +4571,7 @@ ipcMain.handle('remoteAccess:qr', async () => {
 // 引导第一步用的静态图：手机 WireGuard 配置二维码
 ipcMain.handle('remoteAccess:guideImage', async () => {
   try {
-    const p = path.join(HARNESS_DIR, '插件', '手机远程访问', 'runtime', '手机导入.png');
+    const p = path.join(PLUGINS_DIR, '手机远程访问', 'runtime', '手机导入.png');
     if (fs.existsSync(p)) return 'data:image/png;base64,' + fs.readFileSync(p).toString('base64');
   } catch (e) { warnOnce("main", e) }
   return '';

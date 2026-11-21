@@ -54,10 +54,10 @@ function prepare(o) {
     try { fs.mkdirSync(d, { recursive: true }); } catch (e) { /* 权限问题交给引擎报 */ }
   }
 
-  // 种子只补缺：skills / standards / AGENTS.md（记忆与会话绝不随包）
+  // 种子只补缺：skills / standards / AGENTS.md / profiles（记忆与会话绝不随包）
   const copied = { files: 0, skipped: 0 };
   if (o.seedDir) {
-    for (const name of ['skills', 'standards', 'AGENTS.md']) {
+    for (const name of ['skills', 'standards', 'AGENTS.md', 'profiles']) {
       copySeed(path.join(o.seedDir, name), path.join(dshHome, name), copied);
     }
   }

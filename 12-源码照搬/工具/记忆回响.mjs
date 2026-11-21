@@ -12,13 +12,14 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const __HERE = path.dirname(fileURLToPath(import.meta.url))
-const ROOT = path.resolve(__HERE, '..', '..')                    // 工作台根
+// 安装版：工具在 resources\工具，引擎 home 由壳的 DSH_HOME 指定；源码版仍按 12-源码照搬 推导
+const DSH_HOME = process.env.DSH_HOME || process.env.DSH_CUSTOMER_HOME || path.join(__HERE, '..', '引擎数据', '.dsh')
 const SRC = path.join(__HERE, '..', '插件', '记忆回响')
-const PROFILE = path.join(ROOT, '12-源码照搬', '引擎数据', '.dsh', 'profiles', 'web')
+const PROFILE = path.join(DSH_HOME, 'profiles', 'web')
 const DEST = path.join(PROFILE, 'node_modules', 'dsh-memory-recall')
 const PATCH = path.join(PROFILE, 'cordis.patch.yml')
 const MARK = 'dsh-memory-recall'
-const INJECT_LOG = path.join(ROOT, '12-源码照搬', '引擎数据', '.dsh', 'logs', 'memory-recall.jsonl')
+const INJECT_LOG = path.join(DSH_HOME, 'logs', 'memory-recall.jsonl')
 
 const argv = process.argv.slice(2)
 const mode = (argv.includes('--mode') ? argv[argv.indexOf('--mode') + 1] : '') || ''

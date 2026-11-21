@@ -1,0 +1,19 @@
+# 产品种子：安装版首启的 web profile patch（只登记随包插件）
+# ⛔ 不要把开发机整份 cordis.patch.yml 拷进来：这里只留通用插件，用户模型等偏好由引擎默认值决定。
+- insert:
+    - id: memory-recall
+      name: "dsh-memory-recall"
+      config:
+        mode: enforce
+
+- insert:
+    - id: social-policy
+      name: "dsh-social-policy"
+      config:
+        mode: enforce
+
+- insert:
+    - id: chat-archive
+      name: "dsh-chat-archive"
+      config:
+        mode: enforce

@@ -14,14 +14,17 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const __HERE = path.dirname(fileURLToPath(import.meta.url))
-const ROOT = path.resolve(__HERE, '..', '..')
-const SRC = path.join(ROOT, '12-源码照搬', '插件', '社交策略')
-const PROFILE = path.join(ROOT, '12-源码照搬', '引擎数据', '.dsh', 'profiles', 'web')
+// 安装版：工具在 resources\工具，插件源 / 引擎 home / 壳数据都要按安装布局推导（源码版行为不变）
+const DSH_HOME = process.env.DSH_HOME || process.env.DSH_CUSTOMER_HOME || path.join(__HERE, '..', '引擎数据', '.dsh')
+const SRC = path.join(__HERE, '..', '插件', '社交策略')
+const PROFILE = path.join(DSH_HOME, 'profiles', 'web')
 const DEST = path.join(PROFILE, 'node_modules', 'dsh-social-policy')
 const PATCH = path.join(PROFILE, 'cordis.patch.yml')
-const POLICY = path.join(ROOT, '12-源码照搬', '外壳', 'data', '社交回复.json')
-const POLICY_MIRROR = path.join(ROOT, '12-源码照搬', '引擎数据', '.dsh', '场景记忆', '_共享记忆', '社交回复.json')
-const INJECT_LOG = path.join(ROOT, '12-源码照搬', '引擎数据', '.dsh', 'logs', 'social-policy.jsonl')
+const POLICY = process.env.DSH_SHELL_DATA
+  ? path.join(process.env.DSH_SHELL_DATA, '社交回复.json')
+  : (fs.existsSync(path.join(__HERE, '..', '外壳')) ? path.join(__HERE, '..', '外壳', 'data', '社交回复.json') : path.join(__HERE, '..', 'app', 'data', '社交回复.json'))
+const POLICY_MIRROR = path.join(DSH_HOME, '场景记忆', '_共享记忆', '社交回复.json')
+const INJECT_LOG = path.join(DSH_HOME, 'logs', 'social-policy.jsonl')
 const MARK = 'dsh-social-policy'
 const ID = 'social-policy'
 

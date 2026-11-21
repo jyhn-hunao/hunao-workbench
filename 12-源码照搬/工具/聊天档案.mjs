@@ -12,14 +12,17 @@ import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 
 const __HERE = path.dirname(fileURLToPath(import.meta.url))
-const ROOT = path.resolve(__HERE, '..', '..')
-const SRC = path.join(ROOT, '12-源码照搬', '插件', '聊天档案')
-const PROFILE = path.join(ROOT, '12-源码照搬', '引擎数据', '.dsh', 'profiles', 'web')
+// 安装版：工具在 resources\工具，引擎 home 由 DSH_HOME 指定
+const DSH_HOME = process.env.DSH_HOME || process.env.DSH_CUSTOMER_HOME || path.join(__HERE, '..', '引擎数据', '.dsh')
+const SRC = path.join(__HERE, '..', '插件', '聊天档案')
+const PROFILE = path.join(DSH_HOME, 'profiles', 'web')
 const DEST = path.join(PROFILE, 'node_modules', 'dsh-chat-archive')
 const PATCH = path.join(PROFILE, 'cordis.patch.yml')
 const MARK = 'dsh-chat-archive'
 const ID = 'chat-archive'
-const DB = path.join(ROOT, '12-源码照搬', '引擎数据', '.dsh', '社交档案', 'chat-archive.db')
+const DB = path.join(DSH_HOME, '社交档案', 'chat-archive.db')
+const SHELL = process.env.DSH_SHELL_DIR
+  || (fs.existsSync(path.join(__HERE, '..', '外壳')) ? path.join(__HERE, '..', '外壳') : path.join(__HERE, '..', 'app'))
 
 const argv = process.argv.slice(2)
 const modeArg = argv.includes('--mode') ? argv[argv.indexOf('--mode') + 1] : ''
@@ -33,7 +36,7 @@ function dbInfo() {
   try {
     const stat = fs.statSync(DB)
     const req = createRequire(import.meta.url)
-    const lib = req(path.join(ROOT, '12-源码照搬', '外壳', '社交档案库.js'))
+    const lib = req(path.join(SHELL, '社交档案库.js'))
     const db = lib.openDb(DB, { readOnly: true })
     const s = lib.getStatus(db, DB)
     lib.closeDb(db)

@@ -38,8 +38,28 @@
         "to": "工具"
       },
       {
+        "from": "../插件",
+        "to": "插件"
+      },
+      {
         "from": "../引擎数据/.dsh/skills",
         "to": "种子数据/.dsh/skills"
+      },
+      {
+        "from": "../种子数据/profile-web-cordis.patch.yml",
+        "to": "种子数据/.dsh/profiles/web/cordis.patch.yml"
+      },
+      {
+        "from": "../插件/记忆回响",
+        "to": "种子数据/.dsh/profiles/web/node_modules/dsh-memory-recall"
+      },
+      {
+        "from": "../插件/社交策略",
+        "to": "种子数据/.dsh/profiles/web/node_modules/dsh-social-policy"
+      },
+      {
+        "from": "../插件/聊天档案",
+        "to": "种子数据/.dsh/profiles/web/node_modules/dsh-chat-archive"
       }
     ],
     "win": {

@@ -26,7 +26,11 @@ const path = require('path')
 const REL_FILE = path.join(__dirname, 'data', '社交关系.json')
 const MOOD_FILE = path.join(__dirname, 'data', '社交情绪.json')
 const SESSIONS_FILE = path.join(__dirname, 'data', '社交会话.json')
-const DEFAULT_DSH_HOME = process.env.DSH_HOME || process.env.DSH_CUSTOMER_HOME || path.join(__dirname, '..', '引擎数据', '.dsh')
+// 取 home 必须等到真正调用时再读 env：main.js 顶部的 require 早于它写回 DSH_HOME，
+// 在模块加载时算成常量，安装版就会退回 resources\引擎数据（另一份数据目录）。
+function defaultDshHome() {
+  return process.env.DSH_HOME || process.env.DSH_CUSTOMER_HOME || path.join(__dirname, '..', '引擎数据', '.dsh')
+}
 
 // 情绪联动表：每个标签对回复表达的影响，全部可观测、可配置。
 // maxChars / maxSentences 为 0 表示不额外限制；系数 1 表示不改变原通道概率。
@@ -785,7 +789,7 @@ function stageGuide(stageKey, moodEff, plan) {
 function createStore(opts) {
   const o = opts || {}
   const dataDir = path.resolve(o.dataDir || path.join(__dirname, 'data'))
-  const dshHome = path.resolve(o.dshHome || DEFAULT_DSH_HOME)
+  const dshHome = path.resolve(o.dshHome || defaultDshHome())
   const relFile = path.join(dataDir, '社交关系.json')
   const moodFile = path.join(dataDir, '社交情绪.json')
   const sessionsFile = path.join(dataDir, '社交会话.json')
@@ -1743,7 +1747,8 @@ const api = Object.assign({}, defaultStore)
 
 module.exports = Object.assign(api, {
   DEFAULT_CONFIG,
-  DEFAULT_DSH_HOME,
+  defaultDshHome,
+  DEFAULT_DSH_HOME: defaultDshHome(),
   STAGES,
   MOOD_LABELS,
   createStore,
