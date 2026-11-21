@@ -1,0 +1,11 @@
+{
+  "engine": {
+    "source": {
+      "url": "",
+      "sha256": "",
+      "version": "0.2.1-rc.3",
+      "bytes": 0,
+      "note": "首启下载的自包含引擎包（tar.gz，整棵引擎目录含 node_modules）。发布前把 url 与 sha256 填上；机器配置.json 的 engine.source 可覆盖本文件。"
+    }
+  }
+}
