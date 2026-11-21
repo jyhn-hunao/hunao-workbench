@@ -82,7 +82,7 @@
 
 | 项 | 项目值 | 证据 |
 | --- | --- | --- |
-| 运行时 | Electron 43.4.0；Node `>=24.9 <25` | `12-源码照搬/外壳/package.json:11`、`:19` |
+| 运行时 | 开发机 Electron 43.4.0；**安装包固定 43.0.0**（`build.electronVersion`，引擎指纹白名单只认 43.0.0 / 44.0.0 / 44.7.0 / 45.0.0-alpha.6）；Node `>=24.9 <25` | `12-源码照搬/外壳/package.json:11`、`:19` |
 | 模块制式 | 外壳主进程用 CJS（`require`）；`scripts/`、`工具/` 用 ESM（`.mjs` + `import`） | `12-源码照搬/外壳/main.js:50`、`12-源码照搬/外壳/scripts/建会话.mjs:18` |
 | 场景配置 | JSON：`id`/`name`/`panels`，AI 面板带 `sessionId` + `sessionTitle` | `12-源码照搬/外壳/scenarios/_场景身份索引.md:5` |
 | 文本编码 | UTF-8，无 BOM；换行统一 CRLF | 本仓全部文本文件的现状 |
@@ -155,6 +155,8 @@
 - **记忆回响插件升级适配（2026-11-17 补）**：插件只装在 profile 的 `node_modules\dsh-memory-recall`，引擎整目录替换不覆盖；但引擎若改 `agent/pre-step` 契约，插件会静默退回 `next()`（对话不断、记忆不注入）。升级后先搜 `server.log` 的 `[memory-recall] 已挂载`，再在绑定面板发一条消息验证；重装用 `node 12-源码照搬\工具\记忆回响.mjs --apply` + 重启整壳。换会话/建会话默认不写开场消息（`--seed` 回退），交接全靠这个插件。
 - **引擎生命周期归壳所有**：引擎必须由壳拉起（`启动.vbs` → `main.js` 的 spawn 计划），token 由壳从引擎 stdout 捕获（`main.js:401-403`）。⛔ 不得在壳外 `Stop-Process`/`Start-Process` 自行重启引擎——外部重启后旧 token 立刻失效，界面报 `dsh web authentication required`（白屏）。要重载插件或换引擎版本，重启整壳，不要只重启引擎。
 - **QQ 通道重启后自动注入，且双开只接指定号（2026-11-19）**：SnowLuma 的 `hookAutoLoad` 默认 `false` 且是「发现即全注入」；`外壳\桥接.js` 固定设 `SNOWLUMA_HOOK_AUTOLOAD=0`，改由 `外壳\QQ自动注入.js` 登录 5099 按 `autoLoadUin` 挑进程：命令行带号直接认，认不出按最早启动逐个试注入、非目标立即卸载，目标在线上后只留它。配置在 `外壳\data\桥接.json`（`autoLoadMode` uin/all/off、`autoLoadUin`、`autoLoadProbe`、改过控制台密码要填 `webuiPassword`）；面板入口在社交 → 通道 → QQ 卡片「默认接入 QQ 号」。换号时同步改 `~/.dsh/qq-bridge.config.json` 的 `selfUin`（否则插件会把新号的消息当别人）；双开不要把主号填成 `autoLoadUin`；试注入会短暂挂上非目标号（2–15 秒）后卸载。
+- **安装版数据在 `%LOCALAPPDATA%\胡闹的工作台`**：引擎与数据分家（`engine-data\.dsh` / `electron-profile` / `工作区` / `server.log`），⛔ 数据不能放回 `resources\引擎\.dsh`——引擎升级会整目录替换。首启由 `外壳\首启数据.js` 建目录 + 不覆盖地写 `机器配置.json` + 种 `skills`；面板会话由 `工具\首启绑定.mjs` 在引擎就绪 2s 后自愈（缺失才建，共用 `sessionTitle` 的归一组）。
+- **引擎的 Electron 指纹是白名单**：`node-addon-native-custom-loader` 只认 43.0.0 / 44.0.0 / 44.7.0 / 45.0.0-alpha.6，43.4.0 实测报 `unsupported Electron runtime fingerprint`。⛔ 升 Electron 前先核对引擎白名单；安装包用 `build.electronVersion` 固定，不要只改 devDependency。
 - **引擎 token 只在壳内存里（2026-11-17 补）**：2026-11-14 起 `server.log` 里的 `?token=` 被打成 `token=***`（防日志外发泄露）。脚本一律走 `12-源码照搬/工具/引擎token.mjs`：壳 spawn 子进程时注入 `DSH_TOKEN`（env 优先），日志只作兜底。⛔ 新脚本别自己正则翻 `server.log` 取 token —— 必然「换不到 cookie」。手工跑 CLI 时没有 `DSH_TOKEN`，只能在壳里点按钮或先设该环境变量。
 - **自检认两套引擎布局**（2026-11-12 已修，勿再按旧记忆判断）：`自检.mjs` 同时探 `引擎/lib/bin.js`（打包版，当前本机）与 `引擎/apps/cli/lib/bin.js`（源码版）；两者都不在、且端口上也没有引擎在跑时才会报「缺引擎」，别当自己改坏。
 - **sessionId 是本机数据**：换机器后场景面板必然空白，先跑 `sessions.mjs --check` 再怀疑代码。
