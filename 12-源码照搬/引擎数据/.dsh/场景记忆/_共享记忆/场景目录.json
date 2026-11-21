@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-11-20T10:08:29.131Z",
+  "generatedAt": "2026-11-21T05:16:07.935Z",
   "scenes": [
     {
       "name": "本地电脑",
@@ -15,7 +15,7 @@
       "entries": 4,
       "hasPrivate": true,
       "hasIdentity": true,
-      "updatedAt": "2026-11-18T09:22:02.923Z"
+      "updatedAt": "2026-11-21T05:16:07.497Z"
     },
     {
       "name": "程序开发",
@@ -30,20 +30,21 @@
       "entries": 75,
       "hasPrivate": true,
       "hasIdentity": true,
-      "updatedAt": "2026-11-20T10:08:29.130Z"
+      "updatedAt": "2026-11-21T05:16:07.772Z"
     },
     {
       "name": "胡闹的大肥鱼",
       "id": "pet",
       "panels": [
         "pet-ai",
+        "pet-msg",
         "pet-dog",
-        "pet-3d"
+        "pet-live2d"
       ],
       "entries": 14,
       "hasPrivate": true,
       "hasIdentity": true,
-      "updatedAt": "2026-11-18T09:22:03.284Z"
+      "updatedAt": "2026-11-21T05:16:07.843Z"
     },
     {
       "name": "记忆",
@@ -55,7 +56,7 @@
       "entries": 12,
       "hasPrivate": true,
       "hasIdentity": true,
-      "updatedAt": "2026-11-18T09:22:03.375Z"
+      "updatedAt": "2026-11-21T05:16:07.924Z"
     },
     {
       "name": "社交",
@@ -68,7 +69,7 @@
       "entries": 2,
       "hasPrivate": true,
       "hasIdentity": true,
-      "updatedAt": "2026-11-18T09:22:02.938Z"
+      "updatedAt": "2026-11-21T05:16:07.510Z"
     },
     {
       "name": "自我复盘",
@@ -82,7 +83,7 @@
       "entries": 26,
       "hasPrivate": true,
       "hasIdentity": true,
-      "updatedAt": "2026-11-18T09:22:03.340Z"
+      "updatedAt": "2026-11-21T05:16:07.894Z"
     },
     {
       "name": "B站",
@@ -94,7 +95,7 @@
       "entries": 0,
       "hasPrivate": true,
       "hasIdentity": true,
-      "updatedAt": "2026-11-18T09:22:02.885Z"
+      "updatedAt": "2026-11-21T05:16:07.462Z"
     }
   ]
 }
