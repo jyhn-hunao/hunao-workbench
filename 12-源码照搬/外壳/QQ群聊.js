@@ -21,7 +21,7 @@ const socialReply = require('./社交回复');
 let socialState = null;
 try { socialState = require('./社交状态'); } catch (e) { /* 关系层没装，群聊照旧 */ }
 
-const DATA_DIR = path.join(__dirname, 'data');
+const DATA_DIR = process.env.DSH_SHELL_DATA || path.join(__dirname, 'data');
 const CONFIG_FILE = path.join(DATA_DIR, 'QQ群聊.json');
 const WORK_DIR = path.join(DATA_DIR, 'QQ群聊');
 const LISTEN_DIR = path.join(WORK_DIR, '旁听');

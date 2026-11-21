@@ -18,7 +18,7 @@ const path = require('path');
 const SHELL = __dirname;
 const ROOT = path.resolve(SHELL, '..');
 const DEFAULT_FILE = path.join(SHELL, 'pet', '设置.默认.json');
-const DATA_FILE = path.join(SHELL, 'data', 'pet', '设置.json');
+const DATA_FILE = path.join(process.env.DSH_SHELL_DATA || path.join(SHELL, 'data'), 'pet', '设置.json');
 const DSH_HOME = process.env.DSH_CUSTOMER_HOME || path.join(ROOT, '引擎数据', '.dsh');
 
 function readJson(file) {
@@ -239,7 +239,7 @@ function dispatchPolicy(text, rv, settings) {
 
 // 7. 主动闸门：档位 + 免打扰 + 每小时上限（计数落盘，跨进程有效）
 //    为什么不在插件里改：主动钟在第三方插件内，改它等于改引擎依赖；这里给「能不能开口」的硬判据 + 次数账。
-const PROACTIVE_STATE = path.join(SHELL, 'data', 'pet', '主动记录.json');
+const PROACTIVE_STATE = path.join(process.env.DSH_SHELL_DATA || path.join(SHELL, 'data'), 'pet', '主动记录.json');
 function proactiveGate(settings, opts) {
   const s = settings || getSettings();
   const o = opts || {};

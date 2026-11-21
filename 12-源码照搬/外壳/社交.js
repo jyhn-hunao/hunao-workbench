@@ -24,6 +24,7 @@ const path = require('path');
 const zlib = require('zlib');
 const net = require('net');
 const socialReply = require('./社交回复');
+const DATA_DIR = process.env.DSH_SHELL_DATA || path.join(__dirname, 'data');
 
 const ZSTD_MAGIC = Buffer.from([0x28, 0xb5, 0x2f, 0xfd]);
 const NOISE = ['<system-reminder', '<permission', '<environment', '<agent', '<tool', '<workspace',
@@ -218,7 +219,7 @@ function bridgeConfigPath(home) {
 
 // 7. 通道状态：QQ 桥接（OneBot 端口 + 配置）· 飞书（插件是否装）· 微信（壳里的微信通道状态文件）
 //    state 只有三种：ok = 真在听/真能用；warn = 装了但没通；off = 没有/没听
-const WX_STATUS_FILE = path.join(__dirname, 'data', '微信通道', '状态.json');
+const WX_STATUS_FILE = path.join(DATA_DIR, '微信通道', '状态.json');
 
 function wechatChannelState() {
   const st = readJson(WX_STATUS_FILE);
@@ -272,8 +273,8 @@ async function channelStates(dshHome) {
   const cfg = readJson(bridgeConfigPath(home));
   // 外发闸门状态（2026-11-18）：QQ 插件可能被指到闸门端口，这时「3000 在听」不代表协议端在听。
   // 判据：桥接配置里的 onebotHttp 指向闸门端口 ⇒ 用闸门状态里的上游结论，别把闸门画成协议端。
-  const gateSt = readJson(path.join(__dirname, 'data', '安全闸门', '状态.json'));
-  const gateCfg = readJson(path.join(__dirname, 'data', '安全闸门.json')) || {};
+  const gateSt = readJson(path.join(DATA_DIR, '安全闸门', '状态.json'));
+  const gateCfg = readJson(path.join(DATA_DIR, '安全闸门.json')) || {};
   const gatePort = Number((gateCfg.qq && gateCfg.qq.listenPort) || 3100) || 3100;
   const gateFresh = !!(gateSt && gateSt.at && Date.now() - Number(gateSt.at) < 30000);
   const cfgHttpRaw = String((cfg && cfg.onebotHttp) || '');

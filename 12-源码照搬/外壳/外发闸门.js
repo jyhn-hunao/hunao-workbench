@@ -27,7 +27,7 @@ const { pathToFileURL } = require('url');
 
 const SHELL_DIR = __dirname;
 const ROOT = path.dirname(SHELL_DIR);                 // 12-源码照搬
-const DATA_DIR = path.join(SHELL_DIR, 'data');
+const DATA_DIR = process.env.DSH_SHELL_DATA || path.join(SHELL_DIR, 'data');
 const CONFIG_FILE = path.join(DATA_DIR, '安全闸门.json');
 const RUNTIME_DIR = path.join(DATA_DIR, '安全闸门');
 const ASSET_FILE = path.join(DATA_DIR, '安全资产.json');
@@ -1239,7 +1239,7 @@ function createService(opts) {
     try { full = fs.realpathSync(p); } catch (e) { return ''; }
     const roots = kind === 'image'
       ? [path.join(__dirname, 'pet3d', '表情包')]
-      : [path.join(__dirname, 'data', 'QQ能力', 'voice')];
+      : [path.join(DATA_DIR, 'QQ能力', 'voice')];
     for (const root of roots) {
       let real = '';
       try { real = fs.realpathSync(root); } catch (e) { continue; }

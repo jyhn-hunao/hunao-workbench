@@ -24,7 +24,7 @@ const { probePort } = require('./社交');   // 端口探测复用同一份（�
 const qqAuto = require('./QQ自动注入');    // 按 QQ 号挑进程注入：双开只接 autoLoadUin 那个
 
 const ROOT = path.resolve(__dirname, '..');                       // 12-源码照搬
-const DATA_DIR = path.join(__dirname, 'data');
+const DATA_DIR = process.env.DSH_SHELL_DATA || path.join(__dirname, 'data');
 const WORK_DIR = path.join(DATA_DIR, '桥接');
 const LOG_FILE = path.join(WORK_DIR, 'snowluma.log');
 const PID_FILE = path.join(WORK_DIR, 'snowluma.pid');

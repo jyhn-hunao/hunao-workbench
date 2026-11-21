@@ -26,7 +26,7 @@ try { socialReply = require('./社交回复'); } catch (e) { /* 没有回复策�
 
 const SHELL = __dirname;
 const ROOT = path.dirname(SHELL);
-const DATA_DIR = path.join(SHELL, 'data');
+const DATA_DIR = process.env.DSH_SHELL_DATA || path.join(SHELL, 'data');
 const CONFIG_FILE = path.join(DATA_DIR, 'QQ能力.json');
 const WORK_DIR = path.join(DATA_DIR, 'QQ能力');
 const VOICE_DIR = path.join(WORK_DIR, 'voice');

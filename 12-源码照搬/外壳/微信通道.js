@@ -33,7 +33,7 @@ try { socialState = require('./社交状态'); } catch (e) { /* 关系层没装�
 
 const SHELL = __dirname;
 const ROOT = path.dirname(SHELL);
-const DATA_DIR = path.join(SHELL, 'data');
+const DATA_DIR = process.env.DSH_SHELL_DATA || path.join(SHELL, 'data');
 const WORK_DIR = path.join(DATA_DIR, '微信通道');
 const CONFIG_FILE = path.join(DATA_DIR, '微信通道.json');
 const STATUS_FILE = path.join(WORK_DIR, '状态.json');
@@ -461,7 +461,7 @@ function qwenImageFile(home) {
 // 鲸鲸自带的 persona 只负责它原生日记/朋友圈/兜底模型，启动时同步成同一份，避免第二套性格。
 function readDesktopPersona() {
   const def = readJson(path.join(SHELL, 'pet', '设置.默认.json')) || {};
-  const cur = readJson(path.join(SHELL, 'data', 'pet', '设置.json')) || {};
+  const cur = readJson(path.join(DATA_DIR, 'pet', '设置.json')) || {};
   const a = def.persona || {}, b = cur.persona || {};
   return {
     scene: String(b.name || a.name || '胡闹的大肥鱼'),
