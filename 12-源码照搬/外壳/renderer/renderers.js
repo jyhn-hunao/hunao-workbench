@@ -25360,14 +25360,14 @@ window.openPetSettings = function () {
     if (!logs.length) logC.appendChild(mk('div', 'psed-empty', '（还没有派过）'));
     else logs.slice(-5).forEach(function (x) { logC.appendChild(mk('div', 'psed-log', String(x).replace(/^-\s*/, ''))); });
 
-    // 10.5 ⑨ 形象：桌面身体（dsh-pet 0.4.9）——2026-11-20
+    // 10.5 ⑨ 形象：桌面身体（dsh-pet 0.4.9，备用）——2026-11-20
     // 只借身体：渲染/动画/物理/气泡由它做；人格、路由、待批准、记忆仍归本场景。
-    // 用户明确不要多宠物同屏，所以这里只配一只，且工作台内不再挂第二只（pet-live2d 已改 reserved）。
-    var bodyC = section('body', 9, '形象：桌面身体（dsh-pet 0.4.9）',
-      '只借它的渲染/动画/物理/气泡；人格、场景路由、待批准、记忆仍归我们。桌面只开一只，工作台内不再挂第二只。形象素材 CC BY-NC-SA 4.0，署名见 说明\\第三方素材署名.md');
+    // 2026-11-21 起工作台形象改用 Cubism（pet-live2d 已改 embed），这里默认关闭，只在需要桌面常驻时打开。
+    var bodyC = section('body', 9, '备用：桌面身体（dsh-pet 0.4.9）',
+      '工作台里的形象已由 Cubism 面板「大肥鱼 · 形象」渲染；这里只在需要桌面常驻一只时打开，避免多宠物同屏。形象素材 CC BY-NC-SA 4.0，署名见 说明\\第三方素材署名.md');
     navBtn('body', '形象');
     var bCfg = s.body || {};
-    var bOn = chk(bodyC, 'b-enable', '启用桌面身体（关掉 = 回到无形象状态，不影响人格与派发）', bCfg.enabled !== false);
+    var bOn = chk(bodyC, 'b-enable', '启用桌面身体（备用，桌面常驻；不影响工作台 Cubism 形象与人格派发）', bCfg.enabled !== false);
     var bPetWrap = mk('div', 'psed-field');
     bPetWrap.appendChild(mk('div', 'psed-fl', '宠物 id（dsh-pet 配置里的 id，默认 main）'));
     var bPet = document.createElement('input');

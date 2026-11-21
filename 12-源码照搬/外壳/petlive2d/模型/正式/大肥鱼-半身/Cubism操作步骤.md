@@ -1,8 +1,10 @@
 # 大肥鱼·半身 Cubism 5.3 操作步骤（零基础版）
 
+> 2026-11-21 已按本文完成：七层工程已导出 `大肥鱼-半身.moc3 / .model3.json / .2048 纹理`，`模型\当前.json` 已切到 Cubism。本文保留作以后改模型的复用手册。
+
 > 你不需要懂绑定，照编号点就行。每一步都写「点哪里 / 看到什么 / 不一样怎么办」。
 > 配套文件：
-> - PSD：`D:\codeData\myself\luanyujia-workbench\12-源码照搬\外壳\petlive2d\模型\正式\大肥鱼-半身\大肥鱼-半身-四层.psd`
+> - PSD：`12-源码照搬\外壳\petlive2d\模型\正式\大肥鱼-半身\大肥鱼-半身-四层.psd`
 > - 绑定表：同目录 `绑定表.md`
 > - Cubism：`D:\MyApp\Live2D Cubism 5.3\CubismEditor5.exe`
 
@@ -30,7 +32,7 @@
 1. 点 `文件 → 打开文件`（快捷键 `Ctrl+O`）。
 2. 选这个文件：
    ```
-   D:\codeData\myself\luanyujia-workbench\12-源码照搬\外壳\petlive2d\模型\正式\大肥鱼-半身\大肥鱼-半身-四层.psd
+   12-源码照搬\外壳\petlive2d\模型\正式\大肥鱼-半身\大肥鱼-半身-四层.psd
    ```
    也可以直接把 PSD 拖进 Cubism 中间的「视图」区域。
 3. 弹出 **「模型设置」** 对话框，选第二个：
@@ -227,7 +229,7 @@
 1. `文件 → 另存`（`Ctrl+Shift+S`）。
 2. 存到：
    ```
-   D:\codeData\myself\luanyujia-workbench\12-源码照搬\外壳\petlive2d\模型\正式\大肥鱼-半身\Cubism\大肥鱼-半身.cmo3
+   12-源码照搬\外壳\petlive2d\模型\正式\大肥鱼-半身\Cubism\大肥鱼-半身.cmo3
    ```
    `Cubism` 文件夹不存在就先新建。
 3. 保存后，Cubism 工程文件 `.cmo3` 留在这里；以后要改都改它。
@@ -249,7 +251,7 @@
    - 其它 `motionsync3` / `userdata3` / `cdi3` 能取消就取消
 4. 点 `OK`，保存到：
    ```
-   D:\codeData\myself\luanyujia-workbench\12-源码照搬\外壳\petlive2d\模型\正式\大肥鱼-半身\
+   12-源码照搬\外壳\petlive2d\模型\正式\大肥鱼-半身\
    ```
 5. 导出后这个文件夹里应该有：
    ```
@@ -266,7 +268,7 @@
 
 1. 用记事本打开：
    ```
-   D:\codeData\myself\luanyujia-workbench\12-源码照搬\外壳\petlive2d\模型\当前.json
+   12-源码照搬\外壳\petlive2d\模型\当前.json
    ```
 2. 改成：
    ```json

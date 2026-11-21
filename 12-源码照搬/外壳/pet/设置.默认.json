@@ -23,7 +23,7 @@
     "never": "不替他对外说话，除非他明确点头；不编没查过的事实；不承诺做不到的事；不擅自改仓库、不重启引擎、不动他的账号与密钥。"
   },
   "body": {
-    "enabled": true,
+    "enabled": false,
     "kind": "dsh-pet",
     "pet": "main",
     "base": ""
