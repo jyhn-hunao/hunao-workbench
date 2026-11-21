@@ -48,7 +48,7 @@ function prepare(o) {
   const dataHome = o.dataHome;
   const dshHome = path.join(dataHome, 'engine-data', '.dsh');
   const machineFile = path.join(dshHome, '机器配置.json');
-  for (const d of [dataHome, path.dirname(dshHome), dshHome,
+  for (const d of [dataHome, path.join(dataHome, 'data'), path.dirname(dshHome), dshHome,
     path.join(dshHome, 'storages'), path.join(dshHome, '场景记忆', '_共享记忆'),
     path.join(dshHome, 'profiles'), path.join(dshHome, 'logs')]) {
     try { fs.mkdirSync(d, { recursive: true }); } catch (e) { /* 权限问题交给引擎报 */ }

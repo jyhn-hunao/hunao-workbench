@@ -14,7 +14,7 @@
 const fs = require('fs')
 const path = require('path')
 
-const DATA_DIR = path.join(__dirname, 'data')
+const DATA_DIR = process.env.DSH_SHELL_DATA || path.join(__dirname, 'data')
 const LOG_FILE = path.join(DATA_DIR, 'crash-log.jsonl')
 const STATE_FILE = path.join(DATA_DIR, 'crash-state.json')
 const POLICY_FILE = path.join(DATA_DIR, 'version-policy.json')

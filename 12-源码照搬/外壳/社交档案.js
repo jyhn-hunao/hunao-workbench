@@ -40,9 +40,10 @@ function createService(opt) {
   const o = opt || {}
   const dshHome = String(o.dshHome || '')
   const shellRoot = path.resolve(dshHome, '..', '..', '外壳')
+  const shellData = process.env.DSH_SHELL_DATA || path.join(shellRoot, 'data')
   const log = typeof o.log === 'function' ? o.log : function () {}
-  const settingsFile = path.join(shellRoot, 'data', '社交档案.json')
-  const sessionsFile = path.join(shellRoot, 'data', '社交会话.json')
+  const settingsFile = path.join(shellData, '社交档案.json')
+  const sessionsFile = path.join(shellData, '社交会话.json')
   const qqConfigFile = path.join(os.homedir(), '.dsh', 'qq-bridge.config.json')
   const dbPath = lib.dbFile(dshHome)
 
@@ -399,7 +400,7 @@ function createService(opt) {
   // 微信群聊旁听 JSONL（微信通道自己落的最近上下文）→ 档案库。
   // 只在文件大小/mtime 变了才重读，避免每 8 秒重扫 600 行。
   function importWechatListen() {
-    const dir = path.join(shellRoot, 'data', '微信通道', '旁听')
+    const dir = path.join(shellData, '微信通道', '旁听')
     let inserted = 0
     let files = 0
     try {

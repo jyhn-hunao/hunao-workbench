@@ -30,7 +30,7 @@ try { socialState = require('./社交状态'); } catch (e) {
 }
 
 const ROOT = path.resolve(__dirname, '..');
-const DATA_DIR = path.join(__dirname, 'data');
+const DATA_DIR = process.env.DSH_SHELL_DATA || path.join(__dirname, 'data');
 const POLICY_FILE = path.join(DATA_DIR, '社交回复.json');
 const SESSIONS_FILE = path.join(DATA_DIR, '社交会话.json');
 const STATUS_FILE = path.join(DATA_DIR, '社交回复-状态.json');

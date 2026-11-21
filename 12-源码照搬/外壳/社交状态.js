@@ -23,9 +23,10 @@
 const fs = require('fs')
 const path = require('path')
 
-const REL_FILE = path.join(__dirname, 'data', '社交关系.json')
-const MOOD_FILE = path.join(__dirname, 'data', '社交情绪.json')
-const SESSIONS_FILE = path.join(__dirname, 'data', '社交会话.json')
+const DATA_DIR = process.env.DSH_SHELL_DATA || path.join(__dirname, 'data')
+const REL_FILE = path.join(DATA_DIR, '社交关系.json')
+const MOOD_FILE = path.join(DATA_DIR, '社交情绪.json')
+const SESSIONS_FILE = path.join(DATA_DIR, '社交会话.json')
 // 取 home 必须等到真正调用时再读 env：main.js 顶部的 require 早于它写回 DSH_HOME，
 // 在模块加载时算成常量，安装版就会退回 resources\引擎数据（另一份数据目录）。
 function defaultDshHome() {
@@ -788,7 +789,7 @@ function stageGuide(stageKey, moodEff, plan) {
 
 function createStore(opts) {
   const o = opts || {}
-  const dataDir = path.resolve(o.dataDir || path.join(__dirname, 'data'))
+  const dataDir = path.resolve(o.dataDir || DATA_DIR)
   const dshHome = path.resolve(o.dshHome || defaultDshHome())
   const relFile = path.join(dataDir, '社交关系.json')
   const moodFile = path.join(dataDir, '社交情绪.json')

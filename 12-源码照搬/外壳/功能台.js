@@ -15,7 +15,7 @@ const { spawn } = require('child_process');
 
 const SHELL = __dirname;                              // 外壳
 const ROOT = path.resolve(SHELL, '..');               // 12-源码照搬
-const CFG_DIR = path.join(SHELL, 'data');
+const CFG_DIR = process.env.DSH_SHELL_DATA || path.join(SHELL, 'data');
 const CFG_FILE = path.join(CFG_DIR, '功能台.json');
 const SCEN_DIR = path.join(SHELL, 'scenarios');
 const DSH = process.env.DSH_CUSTOMER_HOME || process.env.DSH_HOME || path.join(ROOT, '引擎数据', '.dsh');
@@ -814,7 +814,7 @@ const CFG = {
   'auto-maint': {
     kind: 'external',
     source: '外壳\\data\\自动换会话.json + 外壳\\data\\自动维护.json',
-    sourceAbs: path.join(SHELL, 'data', '自动维护.json'),
+    sourceAbs: path.join(CFG_DIR, '自动维护.json'),
     note: '真源是这两个本机 JSON；本卡直接改它们，外壳下一次 5 分钟 tick / 下一次定时检查生效（staging 与回滚下次启动生效）。',
   },
   'sync-persona': {
@@ -826,13 +826,13 @@ const CFG = {
   'pet-runtime': {
     kind: 'external',
     source: '外壳\\data\\pet\\设置.json + 引擎数据\\.dsh\\qq-bridge.config.json',
-    sourceAbs: path.join(SHELL, 'data', 'pet', '设置.json'),
+    sourceAbs: path.join(CFG_DIR, 'pet', '设置.json'),
     note: '路由 / 主动闸门 / 桥接的设置，在「胡闹的大肥鱼」场景的 ⚙ 里改。',
   },
   'outbound-selftest': {
     kind: 'external',
     source: '外壳\\data\\安全闸门.json（模式 / 渠道开关 / 规则动作 / 回话）+ 外壳\\data\\安全资产.json（本机资产指纹）',
-    sourceAbs: path.join(SHELL, 'data', '安全闸门.json'),
+    sourceAbs: path.join(CFG_DIR, '安全闸门.json'),
     note: '启用 / 关闭与每类规则的动作在「社交」场景的「外发设置」面板里改；这里只跑用例、看状态。',
   },
   'recent-mem': { kind: 'none', noWhy: '按场景一次性生成，没有跨次策略可配' },

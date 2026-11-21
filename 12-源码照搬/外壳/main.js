@@ -15,6 +15,38 @@ const path = require('path');
 const os = require('os');
 const fs = require('fs');
 const crypto = require('crypto');
+
+// ---- 数据根（2026-11-21）：必须在加载本地模块之前定下来 ----
+// 为什么提前：社交状态 / 桥接 / 微信 / 功能台等模块在 require 时就会算数据路径；
+//   如果等模块加载完再写 env，它们已经按 `resources\app\data` 算死，安装版会写进安装目录。
+// 安装版：数据与安装目录分家；源码版：仍是 `外壳\data`（行为不变）。
+const PACKAGED = !!app.isPackaged;
+const DATA_HOME = process.env.DSH_DATA_HOME || (PACKAGED
+  ? path.join(process.env.LOCALAPPDATA || app.getPath('appData'), '胡闹的工作台')
+  : path.join(__dirname, 'data'));
+// 引擎目录：**优先按"与本工作台同级"推导**（换电脑 / 换盘符都不用改这行），推不出来才退回写死值。
+const HARNESS_DIR = (function () {
+  const sibling = path.join(path.dirname(__dirname), '引擎');
+  try { if (fs.existsSync(path.join(sibling, 'apps', 'cli'))) return sibling; } catch (e) { process.stderr.write('[main] 引擎目录探测失败：' + String((e && e.message) || e) + '\n'); }
+  return path.join(path.dirname(__dirname), '引擎');
+})();
+const DSH_HOME = process.env.DSH_CUSTOMER_HOME || (PACKAGED
+  ? path.join(DATA_HOME, 'engine-data', '.dsh')
+  : path.join(HARNESS_DIR, '.dsh'));
+const SHELL_DATA_DIR = process.env.DSH_SHELL_DATA || (PACKAGED
+  ? path.join(DATA_HOME, 'data')
+  : path.join(__dirname, 'data'));
+process.env.DSH_DATA_HOME = DATA_HOME;
+process.env.DSH_SHELL_DIR = __dirname;
+process.env.DSH_SHELL_DATA = SHELL_DATA_DIR;
+// 各子模块（社交档案 / 桌宠设置 / 桥接 / 功能台…）都按 env 找 home；这里统一写回，
+// 否则安装版会各自退回 `resources\引擎数据`，同一个进程里出现两份数据目录。
+process.env.DSH_CUSTOMER_HOME = process.env.DSH_CUSTOMER_HOME || DSH_HOME;
+process.env.DSH_HOME = DSH_HOME;
+const MACHINE_FILE_EARLY = process.env.DSH_MACHINE_FILE || (PACKAGED
+  ? path.join(DSH_HOME, '机器配置.json')
+  : path.join(__dirname, '..', '引擎数据', '.dsh', '机器配置.json'));
+
 const projectSwitch = require('./项目切换');   // 程序开发场景「项目下拉」的数据面（可单测：scripts\项目切换自检.mjs）
 const engineBoot = require('./引擎引导');       // 首启下载引擎：检测 / 下载 / sha256 / 解包 / 整目录替换（可单测：工具\引擎引导.mjs）
 const socialSvc = require('./社交');           // 社交场景「消息流」的数据面（只读 transcript + 探 OneBot 端口；可单测：工具\消息流.mjs）
@@ -26,34 +58,12 @@ const wechatSvc = require('./微信通道');       // 微信个人号通道（wh
 const outGateSvc = require('./外发闸门');       // 外发安全闸门：QQ 代理 + 正文判定 + 审计（唯一判据出处）
 const petSvc = require('./桌宠设置');          // 桌宠层的机器可读设置 + 路由打分 + 派发日志（面板与 工具\桌宠.mjs 共用）
 const chatArchiveSvc = require('./社交档案');   // 聊天长期档案：SnowLuma messages.db → 本地 SQLite/FTS5（只读源库）
-const socialStateSvc = require('./社交状态');    // 关系 + 情绪：外壳\data\社交关系.json / 社交情绪.json（可观测、可配置）
+const socialStateSvc = require('./社交状态');    // 关系 + 情绪：数据根下的 社交关系.json / 社交情绪.json（可观测、可配置）
 
 // ---- 端口真源（2026-11-20）：env > 机器配置.json 的 ports > 默认 ----
 // 为什么补这一层：控制台的「机器层」展示的是 机器配置.json 的 ports，但主进程原来只认 env / 写死默认；
 //   改机器配置后，脚本（工具\环境.mjs）按新端口连，外壳还在老端口听 ⇒ 两边错位。
 // ⛔ 默认值只留在这里与 工具\环境.mjs 的 DEFAULT_PORTS；别处不许再写端口字面量。
-// ---- 安装版数据落地（2026-11-21）：数据与引擎分家 ----
-// 引擎升级整目录替换；数据若留在 `resources\引擎\.dsh` 会跟着被换掉，所以安装版改到安装目录之外。
-const PACKAGED = !!app.isPackaged;
-const DATA_HOME = process.env.DSH_DATA_HOME || (PACKAGED
-  ? path.join(process.env.LOCALAPPDATA || app.getPath('appData'), '胡闹的工作台')
-  : path.join(__dirname, 'data'));
-// 引擎目录：**优先按"与本工作台同级"推导**（换电脑 / 换盘符都不用改这行），推不出来才退回写死值。
-const HARNESS_DIR = (function () {
-  const sibling = path.join(path.dirname(__dirname), '引擎');
-  try { if (fs.existsSync(path.join(sibling, 'apps', 'cli'))) return sibling; } catch (e) { warnOnce("main", e) }
-  return path.join(path.dirname(__dirname), '引擎');
-})();
-const DSH_HOME = process.env.DSH_CUSTOMER_HOME || (PACKAGED
-  ? path.join(DATA_HOME, 'engine-data', '.dsh')
-  : path.join(HARNESS_DIR, '.dsh'));
-// 各子模块（社交档案 / 桌宠设置 / 桥接 / 功能台…）都按 env 找 home；这里统一写回，
-// 否则安装版会各自退回 `resources\引擎数据`，同一个进程里出现两份数据目录。
-process.env.DSH_CUSTOMER_HOME = process.env.DSH_CUSTOMER_HOME || DSH_HOME;
-process.env.DSH_HOME = DSH_HOME;
-const MACHINE_FILE_EARLY = process.env.DSH_MACHINE_FILE || (PACKAGED
-  ? path.join(DSH_HOME, '机器配置.json')
-  : path.join(__dirname, '..', '引擎数据', '.dsh', '机器配置.json'));
 
 // 安装版首启：建数据目录 + 不覆盖地写机器配置 + 种入 skills / standards
 const firstRunData = require('./首启数据');
@@ -393,7 +403,7 @@ async function ensurePetTopbarNotify(client, runId) {
 
 // ---- 数据盘隔离：所有 Electron 运行时数据（userData/session、webview partition、localStorage 等）
 // 强制写到 D 盘项目目录，绝不落到 C 盘。必须在任何 app API 之前设置。----
-const PROFILE_DIR = PACKAGED ? path.join(DATA_HOME, 'electron-profile') : path.join(__dirname, 'data', 'electron-profile');
+const PROFILE_DIR = PACKAGED ? path.join(DATA_HOME, 'electron-profile') : path.join(SHELL_DATA_DIR, 'electron-profile');
 try { fs.mkdirSync(PROFILE_DIR, { recursive: true }); } catch (e) { warnOnce("main", e) }
 try { app.setPath('userData', PROFILE_DIR); } catch (e) { warnOnce("main", e) }
 try { app.setPath('sessionData', path.join(PROFILE_DIR, 'sessions')); } catch (e) { warnOnce("main", e) }
@@ -458,7 +468,7 @@ rotateLog();
 // 7 天内只提示一次（data\cache-hint.json 记时间戳）——刚清过就别反复弹，也避免每次开机都刷一条。
 const CACHE_HINT_MB = 800;
 const CACHE_HINT_DAYS = 7;
-const CACHE_HINT_FILE = path.join(__dirname, 'data', 'cache-hint.json');
+const CACHE_HINT_FILE = path.join(SHELL_DATA_DIR, 'cache-hint.json');
 let CACHE_HINT_SCHEDULED = false;
 
 // 异步走目录（10k 文件也别用同步 API 把主进程事件循环卡住）
@@ -485,7 +495,7 @@ async function dirSizeAsync(root) {
 async function maybeHintCacheSize() {
   try {
     const threshold = autoMaintConfig().cacheClean.thresholdMb;
-    const mb = Math.round((await dirSizeAsync(path.join(__dirname, 'data'))) / (1024 * 1024));
+    const mb = Math.round((await dirSizeAsync(SHELL_DATA_DIR)) / (1024 * 1024));
     if (mb < threshold) return;
     const last = readJsonSafe(CACHE_HINT_FILE, {}) || {};
     if (typeof last.at === 'number' && Date.now() - last.at < CACHE_HINT_DAYS * 24 * 3600 * 1000) return;
@@ -504,14 +514,14 @@ async function maybeHintCacheSize() {
 // 判据与手动命令完全一样（不复制第二套规则）：孤儿 = 引擎更新\ 下的 staging-* 里 state.json 没指向的那些；
 //   巡检 = 工具\自动巡检.mjs；清缓存 = scripts\清理缓存.mjs --after-exit <pid>。
 const UPDATE_DIR_AUTO = path.join(path.dirname(__dirname), '引擎更新');   // 12-源码照搬\引擎更新
-const INSPECT_FILE = path.join(__dirname, 'data', '巡检.json');
-const STAGING_FILE = path.join(__dirname, 'data', 'staging-clean.json');
+const INSPECT_FILE = path.join(SHELL_DATA_DIR, '巡检.json');
+const STAGING_FILE = path.join(SHELL_DATA_DIR, 'staging-clean.json');
 
 // ---- 自动维护总开关（2026-11-20）----
 // 这张卡管五件后台活：记忆整理 / 巡检 / 退出清缓存 / 孤儿 staging / 崩溃回滚。
 // 真源：外壳\data\自动维护.json（不存在按默认建一份，全部开 = 原有行为）。
 // JSON 坏了就「全部关闭 + 一条 toast」——不让坏配置静默把自动任务重新打开。
-const AUTO_MAINT_FILE = path.join(__dirname, 'data', '自动维护.json');
+const AUTO_MAINT_FILE = path.join(SHELL_DATA_DIR, '自动维护.json');
 function autoMaintConfig() {
   const def = {
     tidy: { enabled: true, everyDays: 7 },
@@ -688,7 +698,7 @@ function scheduleAutoCacheCleanup() {
 // ④ 自动记忆整理：每周一次（把超 180 天的条目搬 归档\、刷索引与近期记忆、复核 check --all）
 //    整理本身就是"改历史文件"，所以顺序卡死：先 dry 看计划 → 有要搬的才 记忆打包 留快照 → 再搬。
 //    快照拿不到就整轮不搬（宁可这周不整理，也不要没有回退点）。
-const TIDY_FILE = path.join(__dirname, 'data', '记忆整理.json');
+const TIDY_FILE = path.join(SHELL_DATA_DIR, '记忆整理.json');
 function scheduleAutoMemoryTidy() {
   const cfg = autoMaintConfig();
   if (!cfg.tidy.enabled) { log('[auto] 自动记忆整理已关，跳过'); return; }
@@ -719,7 +729,7 @@ function scheduleAutoMemoryTidy() {
 // ---- 焦点探针（2026-11-12 用户同意；只记必要几行，不刷屏）----
 // 用途：复现「一个面板跑任务时，另一个面板输入框打不进字」时，看是谁把 webview 焦点抢走。
 // 开关：data\focus-probe.on 存在才写日志；删掉文件即时关闭（每次事件都查一次，不常驻开启）。
-const FOCUS_PROBE_FILE = path.join(__dirname, 'data', 'focus-probe.on');
+const FOCUS_PROBE_FILE = path.join(SHELL_DATA_DIR, 'focus-probe.on');
 try {
   app.on('web-contents-created', (_ev, wc) => {
     try {
@@ -741,11 +751,11 @@ ipcMain.on('diag:log', (_e, m) => {
 //   ① 窗口控制类 IPC 一律按 e.sender 找窗口 —— 否则分离窗口上的最小化/关闭会去动主窗口；
 //   ② 广播类事件（余额 / 启动进度 / 引擎就绪）发给全部窗口 —— 从前只发 mainWindow。
 const detachWindows = [];                        // 主窗口之外的场景窗口
-const WIN_LAYOUT_FILE = path.join(__dirname, 'data', 'windows.json');
+const WIN_LAYOUT_FILE = path.join(SHELL_DATA_DIR, 'windows.json');
 // 场景标签顺序（拖拽换位的结果）：**主进程是唯一权威**。
 // 为什么不让渲染层自己 localStorage：① 顺序要跨窗口一致（主窗口 / 独立场景窗口 / 将来任何消费方）；
 // ② file:// 下的 localStorage 可能被清掉或与分区绑定。渲染层只负责"拖完把新顺序报上来"，读一律读这里。
-const SCENE_ORDER_FILE = path.join(__dirname, 'data', 'scene-tab-order.json');
+const SCENE_ORDER_FILE = path.join(SHELL_DATA_DIR, 'scene-tab-order.json');
 const layoutCache = { main: null, detached: {} }; // sceneId -> 几何（关窗后仍记得，供下次启动恢复）
 let quitRequested = false;                       // 主窗口关闭 = 整个应用退出（分离窗口一起关，但布局要留下）
 
@@ -1041,7 +1051,7 @@ function spawnServerPnpm() {
 //   引擎在外部重启后旧 token 立刻失效（实测白屏 `dsh web authentication required`）。
 //   所以复用外部引擎时，主界面改走本机保命入口 `http://127.0.0.1:<SITE_PORT>/chat`（实时用当前 token 跳转）。
 let engineIsForeign = false
-const BOOT_FAIL_FILE = path.join(__dirname, 'data', 'engine-boot-fail.json')
+const BOOT_FAIL_FILE = path.join(SHELL_DATA_DIR, 'engine-boot-fail.json')
 
 function bumpBootFail() {
   let n = 0
@@ -2555,8 +2565,8 @@ function toScreenPhysicalRect(r, win) {
 // 与 app-embed-agent.ps1 的 owner-overlay 同一套思路（头部注释：⛔ 不用 SetParent）。
 // 差异：目标进程名由渲染器传进来（Proc），一次只服务一个进程（换进程就重启 agent）。
 const APPW_AGENT = path.join(__dirname, 'scripts', 'app-embed-agent.ps1');
-const APPW_CMD = path.join(__dirname, 'data', 'appwin.cmd.json');
-const APPW_RES = path.join(__dirname, 'data', 'appwin.res.json');
+const APPW_CMD = path.join(SHELL_DATA_DIR, 'appwin.cmd.json');
+const APPW_RES = path.join(SHELL_DATA_DIR, 'appwin.res.json');
 let appwProc = null, appwSeq = 0, appwProcName = '';
 let appwCssRect = null, appwOwner = null, appwFollowTimer = null;
 
@@ -2715,9 +2725,9 @@ ipcMain.handle('dispatch:dogOpen', async (e, id) => {
 // confirm 级不再靠「聊天里点头」：派发工具把未确认的派发落进 待批准.json，面板点【批准】当场派出。
 // 触发（Trigger）：定时.json 里到点的任务自动走 桌宠.mjs 派；confirm 级会自然落进待批准，仍由人一键放行。
 const PET_TOOL = path.join(__dirname, '..', '工具', '桌宠.mjs');
-const APPROVAL_FILE = path.join(__dirname, 'data', 'pet', '待批准.json');
-const TIMER_FILE = path.join(__dirname, 'data', 'pet', '定时.json');
-const TIMER_STATE = path.join(__dirname, 'data', 'pet', '定时-已跑.json');
+const APPROVAL_FILE = path.join(SHELL_DATA_DIR, 'pet', '待批准.json');
+const TIMER_FILE = path.join(SHELL_DATA_DIR, 'pet', '定时.json');
+const TIMER_STATE = path.join(SHELL_DATA_DIR, 'pet', '定时-已跑.json');
 const TIMER_DEFAULT = path.join(__dirname, 'pet', '定时.默认.json');
 
 // 待批准条数：桌面身体的气泡/状态用它；与 桌宠.mjs 读同一个文件，不另存一份账
@@ -3474,7 +3484,7 @@ ipcMain.handle('oa:ai:perms:set', (e, p) => saveAiPermissions(p || {}));
 
 // ---- AI 代码修改（安全边界：仅 backend/ 与 web/ 源码；禁止 .env；写入前自动备份到 D 盘 data/oa-code-backups） ----
 const OA_CODE_ROOTS = ['backend', 'web'];
-const OA_CODE_BACKUP_DIR = path.join(__dirname, 'data', 'oa-code-backups');
+const OA_CODE_BACKUP_DIR = path.join(SHELL_DATA_DIR, 'oa-code-backups');
 function resolveOaCodePath(rel) {
   const root = oaStore.getConfig('oa.path.local') || '<资料库>';
   const r = String(rel || '').replace(/^[\\/]+/, '').replace(/\\/g, '/');
@@ -3527,8 +3537,8 @@ ipcMain.handle('oa:action:run', (e, id) => runOaAction(id));
 ipcMain.handle('oa:shell:exec', (e, cmd) => runOaShell(cmd));
 ipcMain.handle('oa:shell:history', (e, limit) => oaStore.getShellHistory(limit));
 // ---- 助手→SSH 终端可见通道：助手把命令写入 inbox，SSH 面板拾取后走与手动输入相同的执行路径，结果回写 outbox ----
-const AGENT_INBOX = path.join(__dirname, 'data', 'agent-shell-inbox.jsonl');
-const AGENT_OUTBOX = path.join(__dirname, 'data', 'agent-shell-outbox.jsonl');
+const AGENT_INBOX = path.join(SHELL_DATA_DIR, 'agent-shell-inbox.jsonl');
+const AGENT_OUTBOX = path.join(SHELL_DATA_DIR, 'agent-shell-outbox.jsonl');
 const agentReadLines = (f) => {
   try {
     if (!fs.existsSync(f)) return [];
@@ -4717,7 +4727,7 @@ ipcMain.handle('models:list', () => {
 const TOPBAR_CTX = path.join(HARNESS_DIR, '.dsh', 'skills', 'context-overflow', 'ctx.mjs');
 const TOPBAR_MEM = path.join(HARNESS_DIR, '场景项目信息');
 const TOPBAR_CARD = path.join(__dirname, 'scenarios', 'dsh-gui-context.md');
-const TOPBAR_BK = path.join(__dirname, 'data', 'backups');
+const TOPBAR_BK = path.join(SHELL_DATA_DIR, 'backups');
 const TOPBAR_ROOT = path.dirname(__dirname);   // <工作台>
 
 // 跑 node 脚本：本体是 Electron，没有独立 node ⇒ 先试 ELECTRON_RUN_AS_NODE，失败再退回 PATH 上的 node
@@ -4959,7 +4969,7 @@ ipcMain.handle('topbar:pressure', async () => {
   const helperIds = new Set();
   const helperMeta = new Map();
   try {
-    const hf = path.join(__dirname, 'data', '助手会话.json');
+    const hf = path.join(SHELL_DATA_DIR, '助手会话.json');
     if (fs.existsSync(hf)) {
       const hj = JSON.parse(fs.readFileSync(hf, 'utf8'));
       const scenes = Array.isArray(hj && hj.scenes) ? hj.scenes : null;
@@ -5212,7 +5222,7 @@ ipcMain.handle('outbound:test', (e, args) => {
   return { ok: true, result: r };
 });
 ipcMain.handle('outbound:open-dir', function () {
-  const dir = path.join(__dirname, 'data', '安全闸门');
+  const dir = path.join(SHELL_DATA_DIR, '安全闸门');
   try { fs.mkdirSync(dir, { recursive: true }); } catch (e) { warnOnce('outbound', e); }
   try { shell.openPath(dir); } catch (e) { warnOnce('outbound', e); }
   return { ok: true, dir: dir };
@@ -5424,7 +5434,7 @@ ipcMain.handle('topbar:restore', (e, name) => {
 });
 ipcMain.handle('topbar:engine-status', () => {
   try {
-    const meta = JSON.parse(fs.readFileSync(path.join(__dirname, 'data', 'engine-good', 'meta.json'), 'utf8'));
+    const meta = JSON.parse(fs.readFileSync(path.join(SHELL_DATA_DIR, 'engine-good', 'meta.json'), 'utf8'));
     return { ok: true, meta };
   } catch (e) { return { ok: false, error: '还没有“正常点”（先打一份）', meta: null }; }
 });
@@ -5706,12 +5716,12 @@ setInterval(() => { updateAutoCheck(false).catch(() => {}); }, 6 * 3600 * 1000);
 //   · 引擎起来了  → 什么都不做；
 //   · 引擎没起来 且 有"正常点" → 自动 引擎快照.mjs --restore --yes，并给界面推一条 toast。
 // ⛔ 只回「启动配置」，不碰源码/构建产物（源码坏了要走 git，这个工具做不到，也不该自动做）。
-const GUARD_FILE = path.join(__dirname, 'data', 'start-guard.json');
+const GUARD_FILE = path.join(SHELL_DATA_DIR, 'start-guard.json');
 function readGuard() { try { return JSON.parse(fs.readFileSync(GUARD_FILE, 'utf8')); } catch (e) { return null; } }
 function writeGuard(obj) { try { fs.writeFileSync(GUARD_FILE, JSON.stringify(obj, null, 2) + '\n', 'utf8'); } catch (e) { warnOnce("main", e) } }
 function engineLastGood() {
   try {
-    const m = JSON.parse(fs.readFileSync(path.join(__dirname, 'data', 'engine-good', 'meta.json'), 'utf8'));
+    const m = JSON.parse(fs.readFileSync(path.join(SHELL_DATA_DIR, 'engine-good', 'meta.json'), 'utf8'));
     return (m && m.savedAt) ? m : null;
   } catch (e) { return null; }
 }
@@ -5752,7 +5762,7 @@ async function guardCheckAfterBoot() {
 ipcMain.handle('tools:catalog', () => {
   // 1. 有手写清单就用它（需要人工「大白话补充」的场合；路径不变）
   // 2. 没有就实时扫描 —— 不再报 ENOENT，也不用人补 json（2026-11-12 用户质疑「为什么要维护」）
-  const p = path.join(__dirname, 'data', '工具清单.json');
+  const p = path.join(SHELL_DATA_DIR, '工具清单.json');
   if (fs.existsSync(p)) {
     try { return JSON.parse(fs.readFileSync(p, 'utf8')); }
     catch (e) { return { updated: null, groups: [], error: String((e && e.message) || e) }; }
@@ -5805,7 +5815,7 @@ function rotateLogStamp() {
 //   现在能按 panel / stage / code 过滤；超过 1 MB 只留上一份，不再无限长。
 function rotateJournal(ev) {
   try {
-    const f = path.join(__dirname, 'data', '换会话日志.jsonl');
+    const f = path.join(SHELL_DATA_DIR, '换会话日志.jsonl');
     fs.mkdirSync(path.dirname(f), { recursive: true });
     try {
       if (fs.statSync(f).size > 1024 * 1024) {
@@ -5881,7 +5891,7 @@ function sessionStatOf(sid) {
 // 坏 JSON 只提示一次，5 分钟一 tick 别刷屏
 let AUTO_ROTATE_BAD = false;
 function autoRotateConfig() {
-  const f = path.join(__dirname, 'data', '自动换会话.json');
+  const f = path.join(SHELL_DATA_DIR, '自动换会话.json');
   const def = { enabled: true, threshold: 88, minTurns: 20, idleMin: 10, cooldownMin: 30 };
   try {
     if (!fs.existsSync(f)) {
@@ -6639,7 +6649,7 @@ try {
 // 背景：工作台是「零构建 + 单文件渲染器 + ⟳ 热更」，而 ⟳ 以前只能人手点 ⇒ 每次改完 renderer 都要用户动手。
 // 现在：任何进程写 data/reload-panels.cmd（内容 all 或场景 id）⇒ 本进程 500ms 内重载匹配的 webview 面板。
 // 会话用法：node scripts\刷新面板.mjs all
-const RELOAD_CMD = path.join(__dirname, 'data', 'reload-panels.cmd');
+const RELOAD_CMD = path.join(SHELL_DATA_DIR, 'reload-panels.cmd');
 // 2026-10-16：顶栏状态区文件的"版本哨"——启动时先记一份 mtime，之后只要它变了就把主窗口整页重载一次
 // （不这样记，第一条刷新命令只会"记录"、第二条才重载，白等一轮）。
 try { global.__dshTopbarMtime = fs.statSync(path.join(__dirname, 'renderer', 'topbar-status.js')).mtimeMs; }
@@ -7332,7 +7342,7 @@ ipcMain.handle('kun:git:log', async (_e, repo, rev) => {
 // ---- git 面板的本机配置：变更单（自定义命名的文件分组）+ 不参与提交的路径规则 ----
 //   2026-11-17 宿主：「idea 里的 new changelist」+「指定某个区域的文件不参与提交」。
 //   落 外壳\data\git-变更单.json（本机运行数据，不入库，.gitignore 已挡 data/）；按仓库绝对路径分桶，切项目不串。
-const GIT_CFG_FILE = path.join(__dirname, 'data', 'git-变更单.json');
+const GIT_CFG_FILE = path.join(SHELL_DATA_DIR, 'git-变更单.json');
 async function readGitCfg() {
   try {
     const o = JSON.parse(await fs.promises.readFile(GIT_CFG_FILE, 'utf8'));

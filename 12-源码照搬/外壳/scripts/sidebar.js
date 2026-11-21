@@ -20,7 +20,7 @@
 const fs = require('fs')
 const path = require('path')
 
-const DATA_DIR = path.join(__dirname, '..', 'data')
+const DATA_DIR = process.env.DSH_SHELL_DATA || path.join(__dirname, '..', 'data')
 const CMD_FILE = path.join(DATA_DIR, 'sidebar-command.cmd')
 const STATE_FILE = path.join(DATA_DIR, 'sidebar-state.json')
 const PARTITION = 'persist:dsh-browser-sidebar'
