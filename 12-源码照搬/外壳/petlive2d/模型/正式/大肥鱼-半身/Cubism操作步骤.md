@@ -290,9 +290,16 @@
        "listening": ""
      },
      "tapMotion": "",
-     "autoBlink": false
+     "autoBlink": true,
+     "faceTextures": {
+       "blink": "正式/大肥鱼-半身/大肥鱼-半身.face/blink.png",
+       "talk": "正式/大肥鱼-半身/大肥鱼-半身.face/talk.png",
+       "talk2": "正式/大肥鱼-半身/大肥鱼-半身.face/talk2.png",
+       "blinkTalk": "正式/大肥鱼-半身/大肥鱼-半身.face/blink_talk.png"
+     }
    }
    ```
+   > 2026-11-21 实检：这版导出的 moc3 里 27 个参数 keyform 全为 0，改 `ParamEyeLOpen` / `ParamMouthOpenY` 不会让网格动。所以 `autoBlink` 改由 `faceTextures` 四张脸部变体图集实现；图集由 `_工具/19-生成脸动纹理.py` 生成。想让眼/嘴真正被参数驱动，需要回 Cubism 给眼、嘴做网格和 keyform。
 3. 保存。打开工作台的桌宠 Live2D 页面。
 4. 点页面右上角 **「重载模型」**；如果没反应，关掉页面再打开。
 5. 如果还是「立绘模式」，按 `F12` 看控制台报错，把红字截图发我。
