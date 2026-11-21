@@ -1742,13 +1742,25 @@ function createStore(opts) {
   }
 }
 
-const defaultStore = createStore({})
-const api = Object.assign({}, defaultStore)
+// 默认 store 不能在模块加载时就建：main.js 顶部的 require 早于它写回 DSH_HOME，
+// 那样会把 home 算死在 resources\引擎数据。改成首次调用时再建。
+let defaultStore = null
+function lazyDefaultStore() {
+  if (!defaultStore) defaultStore = createStore({})
+  return defaultStore
+}
+const api = new Proxy({}, {
+  get(target, prop) {
+    if (prop in target) return target[prop]
+    return lazyDefaultStore()[prop]
+  }
+})
 
 module.exports = Object.assign(api, {
   DEFAULT_CONFIG,
   defaultDshHome,
   DEFAULT_DSH_HOME: defaultDshHome(),
+  lazyDefaultStore,
   STAGES,
   MOOD_LABELS,
   createStore,
