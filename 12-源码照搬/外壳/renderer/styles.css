@@ -752,6 +752,15 @@ html[data-theme="light"] .init-error { color: #7a1220; background: rgba(255, 235
   transition: all .15s;
 }
 .boot-retry:hover { background: rgba(79, 140, 255, .22); }
+/* 首启下载引擎：缺引擎时唯一的主动作（描边 + 强调色，比「重试」更重；不写死颜色，跟主题走） */
+.boot-download {
+  margin-top: 0; padding: 8px 20px; font-size: 12.5px; font-weight: 600; cursor: pointer;
+  color: var(--accent); background: var(--accent-soft);
+  border: 1px solid var(--accent); border-radius: 9px;
+  box-shadow: 0 0 10px var(--accent-soft);
+  transition: background .15s, box-shadow .15s;
+}
+.boot-download:hover { background: var(--accent); color: var(--bg); box-shadow: 0 0 14px var(--accent-line, var(--accent-soft)); }
 /* 失败态：进度条转红、标题区提示 */
 .boot-overlay.err .boot-bar-in { background: linear-gradient(90deg, #e5484d, #ff9a9a); box-shadow: 0 0 12px rgba(229, 72, 77, .5); animation: none; }
 .boot-overlay.err .boot-stage { color: var(--err); font-weight: 600; }

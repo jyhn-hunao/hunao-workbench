@@ -16,6 +16,7 @@ const os = require('os');
 const fs = require('fs');
 const crypto = require('crypto');
 const projectSwitch = require('./项目切换');   // 程序开发场景「项目下拉」的数据面（可单测：scripts\项目切换自检.mjs）
+const engineBoot = require('./引擎引导');       // 首启下载引擎：检测 / 下载 / sha256 / 解包 / 整目录替换（可单测：工具\引擎引导.mjs）
 const socialSvc = require('./社交');           // 社交场景「消息流」的数据面（只读 transcript + 探 OneBot 端口；可单测：工具\消息流.mjs）
 const qqChatSvc = require('./QQ会话');         // QQ 私聊/群聊独立 DSH 会话路由（建会话 + 写 qq-bridge routes）
 const qqMediaSvc = require('./QQ能力');        // QQ 媒体能力：语音转写 / 千问表情包 / 语音合成（不碰第三方插件）
@@ -1021,6 +1022,19 @@ async function startServer() {
     resetBootFail();
     markEngineGood();
     return true;
+  }
+  // 2026-11-20 首启 / 安装包：引擎目录空着时，下面两套启动方式都注定失败
+  //   （pnpm 脚本要本机 pnpm；内置入口要 引擎\lib\bin.js）⇒ 不空转 90 秒，直接把启动页交给「下载引擎」。
+  //   下载完成后由 engine:download / boot:retry 重新进本函数。
+  const eng = engineBoot.detect(HARNESS_DIR);
+  if (!eng.ok) {
+    log('[engine] 未就位：' + eng.text + '（' + HARNESS_DIR + '）');
+    sendBoot({
+      stage: 'engine-missing', pct: 0,
+      text: '未检测到 DSH 引擎',
+      detail: eng.text + ' · 首次启动需要下载引擎包（约 500 MB）'
+    });
+    return false;
   }
   const plans = [];
   // 2026-11-14 实测（同条件：真 DSH_HOME + 3099 端口，各两次）：pnpm 脚本 14.1s / 12.9s，内置入口 20.6s / 20.3s。
@@ -6087,6 +6101,73 @@ ipcMain.handle('boot:retry', async () => {
     return { ok: false, err: (e && e.message) || String(e) };
   } finally {
     bootRunning = false;
+  }
+});
+
+// ---- 首启下载引擎（2026-11-20）：安装包不随引擎分发，缺引擎时由启动页按下载源补齐 ----
+function engineSourceNow() {
+  return engineBoot.readSource({
+    configPath: MACHINE_FILE_EARLY,
+    shippedPath: path.join(__dirname, '引擎源.json')
+  });
+}
+ipcMain.handle('engine:status', () => {
+  const d = engineBoot.detect(HARNESS_DIR);
+  const s = engineSourceNow();
+  return {
+    installed: d.ok, version: d.version || '', layout: d.layout || '', reason: d.reason || '', text: d.text,
+    source: { ok: s.ok, url: s.url, version: s.version, problems: s.problems }
+  };
+});
+let engineDownloading = false;
+ipcMain.handle('engine:download', async () => {
+  if (engineDownloading) return { ok: false, err: '正在下载中，请稍候' };
+  engineDownloading = true;
+  try {
+    // 1. 源必须齐：url + sha256（没配就把原因原样给启动页，别静默）
+    const src = engineSourceNow();
+    if (!src.ok) {
+      sendBoot({ stage: 'engine-missing', pct: 0, text: '下载源未配置', detail: src.problems.join('；') });
+      return { ok: false, err: src.problems.join('；') };
+    }
+    // 2. 下载 → 校验 → 解包 → 替换（进度转成启动页的 stage/pct）
+    const r = await engineBoot.ensure({
+      root: HARNESS_DIR,
+      source: src,
+      onProgress: function (p) {
+        if (p.phase === 'download') {
+          sendBoot({
+            stage: 'engine-download', pct: Math.round((p.pct || 0) * 0.8),
+            text: '正在下载 DSH 引擎…',
+            detail: (p.bytes ? (p.bytes / 1048576).toFixed(1) : '0') + ' / ' +
+              (p.total ? (p.total / 1048576).toFixed(1) : '?') + ' MB' +
+              (p.speed ? ' · ' + (p.speed / 1048576).toFixed(1) + ' MB/s' : '')
+          });
+        } else if (p.phase === 'verify') {
+          sendBoot({ stage: 'engine-install', pct: 84, text: '校验引擎包…', detail: 'sha256' });
+        } else if (p.phase === 'extract') {
+          sendBoot({ stage: 'engine-install', pct: 88, text: '解包引擎…', detail: p.text || '' });
+        } else if (p.phase === 'install') {
+          sendBoot({ stage: 'engine-install', pct: 92, text: '安装引擎…', detail: p.text || '' });
+        }
+      }
+    });
+    if (!r.ok) {
+      sendBoot({ stage: 'engine-missing', pct: 0, text: '引擎安装失败', detail: r.err || '' });
+      return { ok: false, err: r.err || '安装失败' };
+    }
+    // 3. 装好直接起：复用 startServer（它会重新探测端口 / 选启动方式）
+    sendBoot({ stage: 'spawn', pct: 14, text: '引擎已装好，正在启动…', detail: r.version ? 'v' + r.version : '' });
+    const ok = await startServer();
+    if (ok) broadcast('harness:ready');
+    return { ok: ok, version: r.version || '' };
+  } catch (e) {
+    const msg = (e && e.message) || String(e);
+    log('[engine] 首启下载失败: ' + msg);
+    sendBoot({ stage: 'engine-missing', pct: 0, text: '引擎下载失败', detail: msg });
+    return { ok: false, err: msg };
+  } finally {
+    engineDownloading = false;
   }
 });
 

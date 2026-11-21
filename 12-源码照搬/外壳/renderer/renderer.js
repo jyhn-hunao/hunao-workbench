@@ -957,11 +957,17 @@ function initBoot() {
   const detail = document.getElementById('boot-detail');
   const retry = document.getElementById('boot-retry');
   const refresh = document.getElementById('boot-refresh');
+  const download = document.getElementById('boot-download');
+  const hint = document.getElementById('boot-hint');
   let curPct = 0;
 
   const paint = (v) => {
     if (!v) return;
+    const missing = v.stage === 'engine-missing';
+    const installing = v.stage === 'engine-download' || v.stage === 'engine-install';
     overlay.classList.toggle('err', v.stage === 'error');
+    // 首启装配阶段（0%）与失败重来：进度条要回到 0，不能沿用上一次的 92%
+    if (missing && !v.pct) { curPct = 0; bar.style.width = '0%'; pctEl.textContent = '0%'; }
     if (typeof v.pct === 'number' && v.pct > curPct) {
       curPct = v.pct;
       bar.style.width = curPct + '%';
@@ -970,6 +976,17 @@ function initBoot() {
     if (v.text) stage.textContent = v.text;
     if (v.detail) detail.textContent = v.detail;
     retry.style.display = (v.stage === 'error') ? '' : 'none';
+    // 缺引擎时只留「下载引擎」一个动作；下载中连「立即进入」也收起来（进去也没有引擎界面）
+    refresh.style.display = (missing || installing) ? 'none' : '';
+    if (download) {
+      download.style.display = missing ? '' : 'none';
+      download.textContent = /失败/.test(v.text || '') ? '⬇ 重新下载引擎' : '⬇ 下载引擎（约 500 MB）';
+    }
+    if (hint) {
+      hint.textContent = (missing || installing)
+        ? '安装包不带引擎：点「下载引擎」自动补齐（约 500 MB），装完会自动启动'
+        : '首次启动较慢；点「立即进入」可直接进入界面（等同切场景再切回来）';
+    }
   };
   window.__bootPaint = paint;
   // 引擎/界面就绪 → 100% 并淡出
@@ -993,6 +1010,24 @@ function initBoot() {
     stage.textContent = '正在重试启动…';
     detail.textContent = '—';
     Promise.resolve(window.app.bootRetry()).catch(() => { /* ignore */ });
+  });
+
+  // 首启「下载引擎」：主进程负责 下载 → sha256 → 解包 → 启动，进度仍走 boot:progress
+  if (download) download.addEventListener('click', () => {
+    overlay.classList.remove('err');
+    download.style.display = 'none';
+    stage.textContent = '正在连接下载源…';
+    detail.textContent = '—';
+    Promise.resolve(window.app.engineDownload()).then((r) => {
+      if (!r || r.ok === false) {
+        // 失败原因已由 boot:progress 写成 engine-missing；这里只兜底把按钮露出来
+        download.style.display = '';
+        if (r && r.err) detail.textContent = r.err;
+      }
+    }).catch((e) => {
+      download.style.display = '';
+      detail.textContent = (e && e.message) || String(e);
+    });
   });
 }
 

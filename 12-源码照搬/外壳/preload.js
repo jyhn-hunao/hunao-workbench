@@ -326,6 +326,9 @@ contextBridge.exposeInMainWorld('app', {
   onBootProgress: (cb) => { ipcRenderer.on('boot:progress', (e, v) => cb(v)); },
   bootState: () => ipcRenderer.invoke('boot:state'),
   bootRetry: () => ipcRenderer.invoke('boot:retry'),
+  // ---- 首启下载引擎（安装包不带引擎）----
+  engineStatus: () => ipcRenderer.invoke('engine:status'),
+  engineDownload: () => ipcRenderer.invoke('engine:download'),
   // ---- 外链与探测（程序开发场景的「网址」面板 code-urls 在用；个人站面板已于 2026-11-12 删除）----
   site: {
     open: (url) => ipcRenderer.invoke('site:open', url),
