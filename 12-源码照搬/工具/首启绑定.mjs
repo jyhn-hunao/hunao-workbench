@@ -72,6 +72,7 @@ for (const g of missing) {
 if (!go) { say('\n（只列不动；加 --go 才建。壳会在引擎就绪后自动跑 --go）'); process.exit(0); }
 
 let failed = 0;
+let bound = 0;
 for (const g of missing) {
   const title = String(g[0].p.sessionTitle || (g[0].p.pinTarget || [])[0] || g[0].p.title || g[0].scene.name || g[0].p.id).trim();
   const ids = g.map((x) => x.p.id).join(',');
@@ -81,6 +82,7 @@ for (const g of missing) {
       env: Object.assign({}, process.env, { DSH_HOME: DSH_HOME }),
     });
     const line = String(out).split(/\r?\n/).find((l) => l.startsWith('✓ 新会话')) || '';
+    bound++;
     say('  ✓ ' + line.replace(/^✓\s*/, '') + ' → ' + ids);
   } catch (e) {
     failed++;
@@ -89,4 +91,6 @@ for (const g of missing) {
   }
 }
 say(failed ? '\n✗ ' + failed + ' 条没绑成（面板仍空；壳下次启动会再试）' : '\n✓ 全部绑好');
+// 机器可读尾行：壳据此判断要不要刷新界面（没人会手动点 ⟳）。
+say('BOUND=' + bound + ' FAILED=' + failed);
 process.exit(failed ? 1 : 0);

@@ -614,6 +614,21 @@ function healSessionBindings() {
     proc.on('exit', function (code) {
       const tail = out.trim().split(/\r?\n/).slice(-2).join(' / ');
       log('[boot] 会话自愈 exit=' + code + (tail ? '：' + tail : ''));
+      // 2. 新建了会话 ⇒ 场景 json 刚被回写，渲染层在 2 秒前已经按旧 id 挂过面板。
+      //    这里点一次「⟳ 刷新当前场景」让它重读场景文件；⛔ 不整页 reload（会连所有 webview 一起刷掉）。
+      const m = out.match(/BOUND=(\d+)/);
+      const bound = Number(m && m[1]) || 0;
+      if (code === 0 && bound > 0) {
+        log('[boot] 会话自愈新建 ' + bound + ' 条；刷新当前场景以重钉会话');
+        setTimeout(function () {
+          try {
+            if (!mainWindow || mainWindow.isDestroyed()) return;
+            mainWindow.webContents.executeJavaScript(
+              "(function(){var b=document.getElementById('btn-refresh');if(b)b.click();})()", true
+            ).catch(function (e) { warnOnce('boot-heal-refresh', e); });
+          } catch (e) { warnOnce('boot-heal-refresh', e); }
+        }, 500);
+      }
     });
   } catch (e) { log('[boot] 会话自愈没跑起来：' + ((e && e.message) || e)); }
 }
