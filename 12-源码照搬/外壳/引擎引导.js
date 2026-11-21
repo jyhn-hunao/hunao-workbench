@@ -97,6 +97,27 @@ function readSource(opts) {
 }
 
 // 3. 下载：支持 http/https 跳转、file:// 与本机路径；边下边算 sha256
+function sha256File(file, onProgress) {
+  return new Promise(function (resolve, reject) {
+    const hash = crypto.createHash('sha256');
+    const rs = fs.createReadStream(file);
+    let bytes = 0;
+    let total = 0;
+    try { total = fs.statSync(file).size; } catch (e) { total = 0; }
+    let lastAt = 0;
+    rs.on('data', function (chunk) {
+      bytes += chunk.length;
+      hash.update(chunk);
+      const now = Date.now();
+      if (onProgress && now - lastAt > 150) {
+        lastAt = now;
+        onProgress({ bytes: bytes, total: total, pct: total ? Math.round(bytes / total * 100) : 0 });
+      }
+    });
+    rs.on('error', reject);
+    rs.on('end', function () { resolve(hash.digest('hex')); });
+  });
+}
 function download(url, dest, onProgress, opts) {
   const o = opts || {};
   return new Promise(function (resolve, reject) {
@@ -375,6 +396,7 @@ module.exports = {
   detect: detect,
   readVersion: readVersion,
   readSource: readSource,
+  sha256File: sha256File,
   download: download,
   extract: extract,
   findTreeRoot: findTreeRoot,

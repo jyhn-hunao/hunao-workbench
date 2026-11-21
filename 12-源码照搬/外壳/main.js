@@ -6120,6 +6120,41 @@ ipcMain.handle('engine:status', () => {
   };
 });
 let engineDownloading = false;
+
+// 进度映射：下载 0–80%，校验 84 / 解包 88 / 安装 92
+function engineBootProgress(p) {
+  if (p.phase === 'download') {
+    sendBoot({
+      stage: 'engine-download', pct: Math.round((p.pct || 0) * 0.8),
+      text: '正在下载 DSH 引擎…',
+      detail: (p.bytes ? (p.bytes / 1048576).toFixed(1) : '0') + ' / ' +
+        (p.total ? (p.total / 1048576).toFixed(1) : '?') + ' MB' +
+        (p.speed ? ' · ' + (p.speed / 1048576).toFixed(1) + ' MB/s' : '')
+    });
+  } else if (p.phase === 'verify') {
+    sendBoot({ stage: 'engine-install', pct: 84, text: '校验引擎包…', detail: 'sha256' });
+  } else if (p.phase === 'extract') {
+    sendBoot({ stage: 'engine-install', pct: 88, text: '解包引擎…', detail: p.text || '' });
+  } else if (p.phase === 'install') {
+    sendBoot({ stage: 'engine-install', pct: 92, text: '安装引擎…', detail: p.text || '' });
+  }
+}
+
+// 装好直接起：下载与「选本地包」共用这一段（保证两条路走同一套校验与启动）
+async function installEngineThenStart(src, force) {
+  const r = await engineBoot.ensure({
+    root: HARNESS_DIR, source: src, force: !!force, onProgress: engineBootProgress
+  });
+  if (!r.ok) {
+    sendBoot({ stage: 'engine-missing', pct: 0, text: '引擎安装失败', detail: r.err || '' });
+    return { ok: false, err: r.err || '安装失败' };
+  }
+  sendBoot({ stage: 'spawn', pct: 14, text: '引擎已装好，正在启动…', detail: r.version ? 'v' + r.version : '' });
+  const ok = await startServer();       // 重新探测端口 / 选启动方式
+  if (ok) broadcast('harness:ready');
+  return { ok: ok, version: r.version || '' };
+}
+
 ipcMain.handle('engine:download', async () => {
   if (engineDownloading) return { ok: false, err: '正在下载中，请稍候' };
   engineDownloading = true;
@@ -6130,41 +6165,41 @@ ipcMain.handle('engine:download', async () => {
       sendBoot({ stage: 'engine-missing', pct: 0, text: '下载源未配置', detail: src.problems.join('；') });
       return { ok: false, err: src.problems.join('；') };
     }
-    // 2. 下载 → 校验 → 解包 → 替换（进度转成启动页的 stage/pct）
-    const r = await engineBoot.ensure({
-      root: HARNESS_DIR,
-      source: src,
-      onProgress: function (p) {
-        if (p.phase === 'download') {
-          sendBoot({
-            stage: 'engine-download', pct: Math.round((p.pct || 0) * 0.8),
-            text: '正在下载 DSH 引擎…',
-            detail: (p.bytes ? (p.bytes / 1048576).toFixed(1) : '0') + ' / ' +
-              (p.total ? (p.total / 1048576).toFixed(1) : '?') + ' MB' +
-              (p.speed ? ' · ' + (p.speed / 1048576).toFixed(1) + ' MB/s' : '')
-          });
-        } else if (p.phase === 'verify') {
-          sendBoot({ stage: 'engine-install', pct: 84, text: '校验引擎包…', detail: 'sha256' });
-        } else if (p.phase === 'extract') {
-          sendBoot({ stage: 'engine-install', pct: 88, text: '解包引擎…', detail: p.text || '' });
-        } else if (p.phase === 'install') {
-          sendBoot({ stage: 'engine-install', pct: 92, text: '安装引擎…', detail: p.text || '' });
-        }
-      }
-    });
-    if (!r.ok) {
-      sendBoot({ stage: 'engine-missing', pct: 0, text: '引擎安装失败', detail: r.err || '' });
-      return { ok: false, err: r.err || '安装失败' };
-    }
-    // 3. 装好直接起：复用 startServer（它会重新探测端口 / 选启动方式）
-    sendBoot({ stage: 'spawn', pct: 14, text: '引擎已装好，正在启动…', detail: r.version ? 'v' + r.version : '' });
-    const ok = await startServer();
-    if (ok) broadcast('harness:ready');
-    return { ok: ok, version: r.version || '' };
+    return await installEngineThenStart(src, false);
   } catch (e) {
     const msg = (e && e.message) || String(e);
     log('[engine] 首启下载失败: ' + msg);
     sendBoot({ stage: 'engine-missing', pct: 0, text: '引擎下载失败', detail: msg });
+    return { ok: false, err: msg };
+  } finally {
+    engineDownloading = false;
+  }
+});
+
+// 没有下载源 / 内网离线：直接选本机引擎包（同一套 sha256 + 解包 + 替换）
+ipcMain.handle('engine:pick-local', async () => {
+  if (engineDownloading) return { ok: false, err: '正在安装中，请稍候' };
+  const picked = await dialog.showOpenDialog(mainWindow, {
+    title: '选择 DSH 引擎包（.tar.gz）',
+    filters: [{ name: '引擎包', extensions: ['gz', 'tgz', 'tar'] }]
+  });
+  if (!picked || picked.canceled || !picked.filePaths || !picked.filePaths[0]) return { ok: false, canceled: true };
+  const file = picked.filePaths[0];
+  engineDownloading = true;
+  try {
+    // 1. 本地包没有发布方给的 sha256，就算一份当完整性基线（防拷坏，不证明来源）
+    sendBoot({ stage: 'engine-install', pct: 0, text: '校验本地引擎包…', detail: path.basename(file) });
+    const sha = await engineBoot.sha256File(file, function (p) {
+      sendBoot({
+        stage: 'engine-install', pct: Math.round((p.pct || 0) * 0.8),
+        text: '校验本地引擎包…', detail: path.basename(file) + ' · ' + (p.bytes / 1048576).toFixed(1) + ' MB'
+      });
+    });
+    return await installEngineThenStart({ ok: true, url: file, sha256: sha, version: '', origin: ['local'] }, true);
+  } catch (e) {
+    const msg = (e && e.message) || String(e);
+    log('[engine] 本地引擎包安装失败: ' + msg);
+    sendBoot({ stage: 'engine-missing', pct: 0, text: '本地引擎包安装失败', detail: msg });
     return { ok: false, err: msg };
   } finally {
     engineDownloading = false;

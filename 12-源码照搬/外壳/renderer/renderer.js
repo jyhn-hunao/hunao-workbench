@@ -958,6 +958,7 @@ function initBoot() {
   const retry = document.getElementById('boot-retry');
   const refresh = document.getElementById('boot-refresh');
   const download = document.getElementById('boot-download');
+  const pick = document.getElementById('boot-pick');
   const hint = document.getElementById('boot-hint');
   let curPct = 0;
 
@@ -982,9 +983,10 @@ function initBoot() {
       download.style.display = missing ? '' : 'none';
       download.textContent = /失败/.test(v.text || '') ? '⬇ 重新下载引擎' : '⬇ 下载引擎（约 500 MB）';
     }
+    if (pick) pick.style.display = missing ? '' : 'none';
     if (hint) {
       hint.textContent = (missing || installing)
-        ? '安装包不带引擎：点「下载引擎」自动补齐（约 500 MB），装完会自动启动'
+        ? '安装包不带引擎：可点「下载引擎」自动补齐，没有下载源时可选本地 .tar.gz 引擎包'
         : '首次启动较慢；点「立即进入」可直接进入界面（等同切场景再切回来）';
     }
   };
@@ -1026,6 +1028,25 @@ function initBoot() {
       }
     }).catch((e) => {
       download.style.display = '';
+      detail.textContent = (e && e.message) || String(e);
+    });
+  });
+
+  // 没有下载源 / 内网离线：直接选本机引擎包（主进程仍走 sha256 + 解包 + 替换）
+  if (pick) pick.addEventListener('click', () => {
+    overlay.classList.remove('err');
+    pick.style.display = 'none';
+    stage.textContent = '请选择引擎包…';
+    detail.textContent = '—';
+    Promise.resolve(window.app.enginePickLocal()).then((r) => {
+      if (!r || r.canceled) { pick.style.display = ''; stage.textContent = '未检测到 DSH 引擎'; return; }
+      if (r.ok === false) {
+        pick.style.display = '';
+        stage.textContent = '本地引擎包安装失败';
+        if (r.err) detail.textContent = r.err;
+      }
+    }).catch((e) => {
+      pick.style.display = '';
       detail.textContent = (e && e.message) || String(e);
     });
   });
