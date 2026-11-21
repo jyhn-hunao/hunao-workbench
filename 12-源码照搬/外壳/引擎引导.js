@@ -45,6 +45,12 @@ function detect(root) {
       if (l.layout === 'built' && !fs.existsSync(path.join(dir, 'node_modules'))) {
         return { ok: false, root: dir, entry: p, layout: l.layout, version: version, reason: 'no-deps', text: '引擎入口在，但缺 node_modules（半截产物）' };
       }
+      // 2026-11-21 首启失败复盘：旧安装版被 pnpm 改写过 node_modules，只剩 .pnpm 与状态文件，
+      //   入口还在、node_modules 目录也在 ⇒ 旧判据会误判“已就位”，永远不再自动补装。
+      //   钉一个运行时必依赖（CLI 第一行就 import 它）作为完整性判据。
+      if (l.layout === 'built' && !fs.existsSync(path.join(dir, 'node_modules', '@deepseek-ai', 'dsh-app-boot', 'package.json'))) {
+        return { ok: false, root: dir, entry: p, layout: l.layout, version: version, reason: 'no-deps', text: '引擎缺 @deepseek-ai/dsh-app-boot（node_modules 不完整，需重装引擎）' };
+      }
       return { ok: true, root: dir, entry: p, layout: l.layout, version: version, reason: '', text: '引擎已就位' };
     }
   }
