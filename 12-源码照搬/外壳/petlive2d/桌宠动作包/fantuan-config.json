@@ -1,0 +1,108 @@
+{
+  "whisperPrompt": "你是主人桌面上的Q版蓝发小女仆大肥鱼，安安静静陪着主人。说话自然、短短一句，温柔乖巧带点俏皮。",
+  "sleepRefuseTexts": [
+    "呼……呼……（翻个身继续睡）",
+    "唔……让我再睡一会儿嘛。",
+    "别吵啦，梦里正吃小鱼干呢……"
+  ],
+  "sleepStartTexts": [
+    "好困……我先眯一会儿。",
+    "那我去睡啦，晚点见。"
+  ],
+  "sleepEndTexts": [
+    "唔……睡醒啦。",
+    "睡饱了，继续陪主人！"
+  ],
+  "pets": [
+    {
+      "id": "fantuan",
+      "name": "饭团",
+      "size": 600,
+      "balanceEnabled": false,
+      "whisperEnabled": false,
+      "workStatusEnabled": true,
+      "fixedEnabled": false,
+      "display": "desktop",
+      "position": {
+        "corner": "bottom-right",
+        "marginX": 24,
+        "marginY": 24
+      }
+    }
+  ],
+  "workStatusTexts": [
+    ["正在认真想下一步呢", "让我梳理一下思路~", "稍等，我在琢磨怎么做"],
+    ["正在处理任务呢", "这一步进行中，别急哦", "正忙着呢，马上就好"],
+    ["这一步处理好啦，接着往下走", "搞定一步，继续看看~"],
+    ["需要你确认一下呢", "这里要等你点头哦", "轮到你决定啦"],
+    ["这一轮搞定啦，真棒！", "任务完成，可以摸鱼啦~"],
+    ["这一步好像没跑通呢", "刚才卡了一下，我再看看", "遇到点问题，等我处理下"]
+  ],
+  "animations": {
+    "idle": ["idle_breathe", "idle_look", "idle_tail"],
+    "turn": ["turn_hop"],
+    "drag": ["drag_hold"],
+    "clicks": ["click_happy", "click_shy", "click_angry", "click_surprised", "click_wave"],
+    "moves": {
+      "default": {
+        "minDist": 60,
+        "maxDist": 220,
+        "margin": 20,
+        "leadSec": 0.55,
+        "tailSec": 0.55
+      },
+      "actions": [
+        { "name": "walk_slow" },
+        { "name": "walk_fast" },
+        { "name": "walk_tiptoe" }
+      ]
+    },
+    "categories": [
+      {
+        "id": "小动作",
+        "weight": 20,
+        "actions": ["stretch", "yawn", "fix_hair", "swing_legs"]
+      },
+      {
+        "id": "玩耍",
+        "weight": 20,
+        "actions": ["play_cube", "play_game", "peek"]
+      },
+      {
+        "id": "吃什么",
+        "weight": 16,
+        "actions": ["eat_rice", "eat_snack", "drink"]
+      },
+      {
+        "id": "时节",
+        "weight": 14,
+        "actions": ["summer_fan", "autumn_leaf", "winter_shiver"]
+      },
+      {
+        "id": "文字",
+        "weight": 10,
+        "noMirror": true,
+        "actions": ["read_book", "write_note", "think_pose"]
+      }
+    ],
+    "events": {
+      "balance": ["idle_breathe", "idle_look", "idle_tail", "work_result", "work_success", "work_error"],
+      "whisper": ["whisper_soft", "whisper_think", "whisper_look"],
+      "workStatus": [
+        "work_thinking",
+        "work_working",
+        "work_result",
+        "work_waiting",
+        "work_success",
+        "work_error"
+      ]
+    },
+    "sleep": [
+      {
+        "start": ["sleep_start"],
+        "loop": ["sleep_loop"],
+        "end": ["sleep_end"]
+      }
+    ]
+  }
+}
