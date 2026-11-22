@@ -1,0 +1,305 @@
+{
+  "generatedAt": "2026-11-22 14:04:28",
+  "fps": 30,
+  "stage": [
+    640,
+    360
+  ],
+  "hitBox": [
+    200,
+    50,
+    440,
+    335
+  ],
+  "feetY": 330,
+  "clips": [
+    {
+      "name": "idle_breathe",
+      "duration": 8.0,
+      "frames": 240,
+      "bytes": 432293,
+      "ok": true
+    },
+    {
+      "name": "idle_look",
+      "duration": 8.0,
+      "frames": 240,
+      "bytes": 555508,
+      "ok": true
+    },
+    {
+      "name": "idle_tail",
+      "duration": 8.0,
+      "frames": 240,
+      "bytes": 397154,
+      "ok": true
+    },
+    {
+      "name": "turn_hop",
+      "duration": 1.2,
+      "frames": 36,
+      "bytes": 113056,
+      "ok": true
+    },
+    {
+      "name": "drag_hold",
+      "duration": 4.0,
+      "frames": 120,
+      "bytes": 345872,
+      "ok": true
+    },
+    {
+      "name": "click_happy",
+      "duration": 2.8,
+      "frames": 84,
+      "bytes": 170538,
+      "ok": true
+    },
+    {
+      "name": "click_shy",
+      "duration": 3.0,
+      "frames": 90,
+      "bytes": 130243,
+      "ok": true
+    },
+    {
+      "name": "click_angry",
+      "duration": 2.6,
+      "frames": 78,
+      "bytes": 246654,
+      "ok": true
+    },
+    {
+      "name": "click_surprised",
+      "duration": 2.4,
+      "frames": 72,
+      "bytes": 157035,
+      "ok": true
+    },
+    {
+      "name": "click_wave",
+      "duration": 3.0,
+      "frames": 90,
+      "bytes": 144482,
+      "ok": true
+    },
+    {
+      "name": "walk_slow",
+      "duration": 4.0,
+      "frames": 120,
+      "bytes": 357140,
+      "ok": true
+    },
+    {
+      "name": "walk_fast",
+      "duration": 3.0,
+      "frames": 90,
+      "bytes": 273284,
+      "ok": true
+    },
+    {
+      "name": "walk_tiptoe",
+      "duration": 3.5,
+      "frames": 105,
+      "bytes": 275415,
+      "ok": true
+    },
+    {
+      "name": "stretch",
+      "duration": 4.0,
+      "frames": 120,
+      "bytes": 159672,
+      "ok": true
+    },
+    {
+      "name": "yawn",
+      "duration": 3.5,
+      "frames": 105,
+      "bytes": 119002,
+      "ok": true
+    },
+    {
+      "name": "fix_hair",
+      "duration": 4.0,
+      "frames": 120,
+      "bytes": 137384,
+      "ok": true
+    },
+    {
+      "name": "swing_legs",
+      "duration": 3.5,
+      "frames": 105,
+      "bytes": 166691,
+      "ok": true
+    },
+    {
+      "name": "play_cube",
+      "duration": 4.0,
+      "frames": 120,
+      "bytes": 293574,
+      "ok": true
+    },
+    {
+      "name": "play_game",
+      "duration": 4.0,
+      "frames": 120,
+      "bytes": 133124,
+      "ok": true
+    },
+    {
+      "name": "peek",
+      "duration": 3.0,
+      "frames": 90,
+      "bytes": 113833,
+      "ok": true
+    },
+    {
+      "name": "eat_rice",
+      "duration": 4.0,
+      "frames": 120,
+      "bytes": 275909,
+      "ok": true
+    },
+    {
+      "name": "eat_snack",
+      "duration": 3.5,
+      "frames": 105,
+      "bytes": 257720,
+      "ok": true
+    },
+    {
+      "name": "drink",
+      "duration": 3.5,
+      "frames": 105,
+      "bytes": 135780,
+      "ok": true
+    },
+    {
+      "name": "summer_fan",
+      "duration": 4.0,
+      "frames": 120,
+      "bytes": 182164,
+      "ok": true
+    },
+    {
+      "name": "autumn_leaf",
+      "duration": 4.0,
+      "frames": 120,
+      "bytes": 168157,
+      "ok": true
+    },
+    {
+      "name": "winter_shiver",
+      "duration": 3.5,
+      "frames": 105,
+      "bytes": 327391,
+      "ok": true
+    },
+    {
+      "name": "read_book",
+      "duration": 4.0,
+      "frames": 120,
+      "bytes": 132413,
+      "ok": true
+    },
+    {
+      "name": "write_note",
+      "duration": 4.0,
+      "frames": 120,
+      "bytes": 115605,
+      "ok": true
+    },
+    {
+      "name": "think_pose",
+      "duration": 3.5,
+      "frames": 105,
+      "bytes": 130404,
+      "ok": true
+    },
+    {
+      "name": "work_thinking",
+      "duration": 4.0,
+      "frames": 120,
+      "bytes": 185951,
+      "ok": true
+    },
+    {
+      "name": "work_working",
+      "duration": 4.0,
+      "frames": 120,
+      "bytes": 283832,
+      "ok": true
+    },
+    {
+      "name": "work_result",
+      "duration": 3.5,
+      "frames": 105,
+      "bytes": 163552,
+      "ok": true
+    },
+    {
+      "name": "work_waiting",
+      "duration": 4.0,
+      "frames": 120,
+      "bytes": 278577,
+      "ok": true
+    },
+    {
+      "name": "work_success",
+      "duration": 3.0,
+      "frames": 90,
+      "bytes": 135184,
+      "ok": true
+    },
+    {
+      "name": "work_error",
+      "duration": 4.0,
+      "frames": 120,
+      "bytes": 119562,
+      "ok": true
+    },
+    {
+      "name": "whisper_soft",
+      "duration": 3.0,
+      "frames": 90,
+      "bytes": 116209,
+      "ok": true
+    },
+    {
+      "name": "whisper_think",
+      "duration": 3.0,
+      "frames": 90,
+      "bytes": 110253,
+      "ok": true
+    },
+    {
+      "name": "whisper_look",
+      "duration": 3.0,
+      "frames": 90,
+      "bytes": 246849,
+      "ok": true
+    },
+    {
+      "name": "sleep_start",
+      "duration": 2.5,
+      "frames": 75,
+      "bytes": 240255,
+      "ok": true
+    },
+    {
+      "name": "sleep_loop",
+      "duration": 8.0,
+      "frames": 240,
+      "bytes": 199622,
+      "ok": true
+    },
+    {
+      "name": "sleep_end",
+      "duration": 2.5,
+      "frames": 75,
+      "bytes": 242555,
+      "ok": true
+    }
+  ],
+  "totalSeconds": 86.6
+}
