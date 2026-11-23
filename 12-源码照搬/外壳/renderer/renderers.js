@@ -8283,7 +8283,7 @@ renderers.chan = function (body, meta, head) {
     box.className = 'ch-account-pick ch-qq-media';
     var lab = document.createElement('div');
     lab.className = 'ch-account-pick-label';
-    lab.textContent = 'QQ 语音 / 表情包';
+    lab.textContent = 'QQ 语音';
     box.appendChild(lab);
 
     if (!api || typeof api.status !== 'function') {
@@ -8310,10 +8310,7 @@ renderers.chan = function (body, meta, head) {
       return;
     }
     var d = st.qqMediaDraft || m.config || {};
-    var cats = (m.stickers && m.stickers.categories) || [];
-    var catText = cats.map(function (c) { return c.name + '(' + c.count + ')'; }).join('、') || '无';
     var asrOk = m.asr && m.asr.configured === true && m.asr.deepseek === true;
-    var qwenOk = m.qwen && m.qwen.configured === true;
     var ttsProvider = d.ttsProvider === 'breeze' ? 'breeze' : 'sapi';
     var ttsInfo = m.tts || {};
     var breezeInfo = ttsInfo.breeze || {};
@@ -8324,7 +8321,7 @@ renderers.chan = function (body, meta, head) {
       : ('Windows SAPI' + (sapiInfo.available ? ' 可用' : ' 不可用'));
 
     var state = document.createElement('div');
-    state.className = 'ch-detail' + (asrOk && qwenOk && ttsAvailable ? '' : ' is-warn');
+    state.className = 'ch-detail' + (asrOk && ttsAvailable ? '' : ' is-warn');
     state.textContent = '语音转写：' + (d.voice !== false ? '开' : '关')
       + (asrOk ? ' · ASR 已配置' : ' · ASR 未配置')
       + ' · 群旁听转写：' + (d.voiceListen !== false ? '开' : '关')
@@ -8349,17 +8346,9 @@ renderers.chan = function (body, meta, head) {
       box.appendChild(dvLine);
     }
 
-    var line2 = document.createElement('div');
-    line2.className = 'ch-detail' + (qwenOk ? '' : ' is-warn');
-    line2.textContent = '表情包：' + (d.stickers !== false ? '开' : '关')
-      + ' · 图库 ' + ((m.stickers && m.stickers.total) || 0) + ' 张（' + catText + '）'
-      + ' · 动态生成：' + (d.stickerDynamic !== false ? '开' : '关')
-      + ' · 千问：' + (qwenOk ? '已配置' : '未配置');
-    box.appendChild(line2);
-
     var tip = document.createElement('div');
     tip.className = 'ch-detail';
-    tip.textContent = '语音转写复用微信通道的 ASR Key；千问表情包复用微信通道的千问 Key 和 pet3d 概念图；Breeze 的 Key 与音色只保存在本机 QQ 能力配置里，界面只显示末尾四位。';
+    tip.textContent = '语音转写复用微信通道的 ASR Key；Breeze 的 Key 与音色只保存在本机 QQ 能力配置里，界面只显示末尾四位。';
     box.appendChild(tip);
 
     var actions = document.createElement('div');
@@ -8381,13 +8370,11 @@ renderers.chan = function (body, meta, head) {
         saveQqMedia();
       }, !!st.qqMediaBusy));
     }
-    toggle('stickers', '随机接话带表情包', '关掉后随机接话只发文字；正常 @ 回复仍走插件自带表情');
-    toggle('stickerDynamic', '表情包动态生成', '图库没有合适情绪时，用千问按当前语境生成一张并入库');
     toggle('voiceReplyGroups', '群随机语音回复', '打开后按概率把正文合成为语音；默认关，避免群里突然出现语音');
     toggleOff('voiceReplyMentions', '普通 @ 直接语音', '普通群里被 @ 时，正文发完后按概率补一条语音；默认关，不会和群随机语音重复');
     toggleOff('voiceReplyPrivate', '私聊直接语音', '私聊回复时，正文发完后按概率补一条语音；默认关');
     toggle('voiceListen', '群旁听语音转写', '开：群里语音先转成文字再进旁听上下文；关：只留 [语音] 占位；聊天档案里的语音原文仍以协议端同步为准');
-    actions.appendChild(chBtn(st.qqMediaBusy === 'save' ? '保存中…' : '保存语音 / 表情包设置',
+    actions.appendChild(chBtn(st.qqMediaBusy === 'save' ? '保存中…' : '保存语音设置',
       '保存到 QQ 能力配置；不重启工作台，下一轮群消息就按新设置走',
       saveQqMedia, !!st.qqMediaBusy));
     box.appendChild(actions);
@@ -8417,7 +8404,6 @@ renderers.chan = function (body, meta, head) {
       wrap.appendChild(inp);
       return wrap;
     }
-    fields.appendChild(mfield('表情概率 %', 'stickerChancePct', d.stickerChancePct, '普通闲聊里带表情包的比例；0 = 不带', '0.1'));
     fields.appendChild(mfield('群随机语音概率 %', 'voiceReplyChancePct', d.voiceReplyChancePct, '群随机接话转成语音的比例；需要先打开「群随机语音回复」', '0.1'));
     fields.appendChild(mfield('@ 语音概率 %', 'voiceReplyMentionsChancePct', d.voiceReplyMentionsChancePct, '普通 @ 正文发完后补语音的比例；需要先打开「普通 @ 直接语音」', '0.1'));
     fields.appendChild(mfield('私聊语音概率 %', 'voiceReplyPrivateChancePct', d.voiceReplyPrivateChancePct, '私聊正文发完后补语音的比例；需要先打开「私聊直接语音」', '0.1'));
@@ -8584,43 +8570,11 @@ renderers.chan = function (body, meta, head) {
     ttsBox.appendChild(ttsFoot);
     box.appendChild(ttsBox);
 
-    var genRow = document.createElement('div');
-    genRow.className = 'ch-qq-group-actions';
-    var emotion = document.createElement('input');
-    emotion.className = 'ch-input ch-qq-media-emotion';
-    emotion.placeholder = '情绪名，如 惊讶 / 无语';
-    emotion.maxLength = 12;
-    emotion.title = '生成到 QQ千问 分类；同一情绪之后可以直接复用';
-    genRow.appendChild(emotion);
-    genRow.appendChild(chBtn(st.qqMediaBusy === 'generate' ? '生成中…' : '生成一张表情包',
-      '按 pet3d 概念图和千问生成一张，存进 QQ千问 分类；只入库，不自动发到任何聊天',
-      function () {
-        if (st.qqMediaBusy) return;
-        var label = String(emotion.value || '').trim();
-        if (!label) { toast('先填一个情绪名（2–6 个汉字）', true); return; }
-        st.qqMediaBusy = 'generate';
-        draw();
-        Promise.resolve(api.stickerGenerate({ emotion: label, situation: label })).then(function (r) {
-          st.qqMediaBusy = '';
-          if (!r || r.ok === false) toast('生成失败：' + ((r && r.error) || '主进程没返回'), true);
-          else toast('已生成并入库：' + (r.label || label));
-          loadQqMedia(); draw();
-        }).catch(function (e) {
-          st.qqMediaBusy = '';
-          toast('生成失败：' + String((e && e.message) || e), true);
-          draw();
-        });
-      }, !!st.qqMediaBusy));
-    box.appendChild(genRow);
-
     card.appendChild(box);
 
     function saveQqMedia() {
       if (st.qqMediaBusy) return;
       var p = {
-        stickers: st.qqMediaDraft.stickers !== false,
-        stickerDynamic: st.qqMediaDraft.stickerDynamic !== false,
-        stickerChancePct: Number(st.qqMediaDraft.stickerChancePct),
         voiceReplyGroups: st.qqMediaDraft.voiceReplyGroups === true,
         voiceReplyMentions: st.qqMediaDraft.voiceReplyMentions === true,
         voiceReplyPrivate: st.qqMediaDraft.voiceReplyPrivate === true,
@@ -8649,7 +8603,7 @@ renderers.chan = function (body, meta, head) {
           return;
         }
         st.qqMediaDraft = Object.assign({}, (r.config || r));
-        toast('QQ 语音 / 表情包设置已保存');
+        toast('QQ 语音设置已保存');
         loadQqMedia(); draw();
       }).catch(function (e) {
         st.qqMediaBusy = '';
@@ -9904,7 +9858,7 @@ renderers.embed = (body, meta, head) => {  body.classList.add('embed-panel');
 
   const start = () => {
     if (!url) { showMsg('这个面板没有配置 url。'); return; }
-    // @site: 前缀（2026-11-18）：场景 json 不写死端口，@site:/petlive2d/ → http://127.0.0.1:<SITE_PORT>/petlive2d/
+    // @site: 前缀（2026-11-18）：场景 json 不写死端口，@site:/<路径> → http://127.0.0.1:<SITE_PORT>/<路径>
     if (url.indexOf('@site:') === 0) {
       if (urlResolving) return;
       if (!(window.app && typeof window.app.siteBase === 'function')) {
@@ -25360,14 +25314,14 @@ window.openPetSettings = function () {
     if (!logs.length) logC.appendChild(mk('div', 'psed-empty', '（还没有派过）'));
     else logs.slice(-5).forEach(function (x) { logC.appendChild(mk('div', 'psed-log', String(x).replace(/^-\s*/, ''))); });
 
-    // 10.5 ⑨ 形象：桌面身体（dsh-pet 0.4.9，备用）——2026-11-20
+    // 10.5 ⑨ 桌面身体：dsh-pet 0.4.9（2026-11-23 起为唯一形象）
     // 只借身体：渲染/动画/物理/气泡由它做；人格、路由、待批准、记忆仍归本场景。
-    // 2026-11-21 起工作台形象改用 Cubism（pet-live2d 已改 embed），这里默认关闭，只在需要桌面常驻时打开。
-    var bodyC = section('body', 9, '备用：桌面身体（dsh-pet 0.4.9）',
-      '工作台里的形象已由 Cubism 面板「大肥鱼 · 形象」渲染；这里只在需要桌面常驻一只时打开，避免多宠物同屏。形象素材 CC BY-NC-SA 4.0，署名见 说明\\第三方素材署名.md');
-    navBtn('body', '形象');
+    // 本仓个性化形象（Cubism / 预烘焙动作包）已于 2026-11-23 移除，桌面只用 dsh-pet 原生「蓝毛小女仆」。
+    var bodyC = section('body', 9, '桌面身体（dsh-pet 0.4.9）',
+      '桌面形象由 dsh-pet 原生「蓝毛小女仆」渲染；人格、路由、待批准、记忆仍归本场景。素材许可见 说明\\第三方素材署名.md');
+    navBtn('body', '桌面身体');
     var bCfg = s.body || {};
-    var bOn = chk(bodyC, 'b-enable', '启用桌面身体（备用，桌面常驻；不影响工作台 Cubism 形象与人格派发）', bCfg.enabled !== false);
+    var bOn = chk(bodyC, 'b-enable', '启用桌面身体（桌面常驻；不影响人格派发）', bCfg.enabled !== false);
     var bPetWrap = mk('div', 'psed-field');
     bPetWrap.appendChild(mk('div', 'psed-fl', '宠物 id（dsh-pet 配置里的 id，默认 main）'));
     var bPet = document.createElement('input');

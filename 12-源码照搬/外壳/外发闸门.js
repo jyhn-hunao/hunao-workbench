@@ -1230,16 +1230,15 @@ function createService(opts) {
   }
 
   // QQ 群媒体发送（2026-11-19）：语音、表情包和正文走同一条闸门。
-  // 只允许工作台自己生成的媒体：表情包必须在 pet3d\表情包 下，语音必须在 QQ能力\voice 下。
+  // 只允许工作台自己生成的媒体：语音必须在 QQ能力\voice 下；表情包图库已随个性化形象移除（2026-11-23）。
   // 这是防止模型/调用方把任意本机文件当附件发出去，不是「媒体免检」。
   function mediaAllowed(file, kind) {
     const p = String(file || '').trim();
     if (!p) return '';
+    if (kind !== 'voice') return '';   // 表情包图库已移除，只放行语音媒体
     let full = '';
     try { full = fs.realpathSync(p); } catch (e) { return ''; }
-    const roots = kind === 'image'
-      ? [path.join(__dirname, 'pet3d', '表情包')]
-      : [path.join(DATA_DIR, 'QQ能力', 'voice')];
+    const roots = [path.join(DATA_DIR, 'QQ能力', 'voice')];
     for (const root of roots) {
       let real = '';
       try { real = fs.realpathSync(root); } catch (e) { continue; }

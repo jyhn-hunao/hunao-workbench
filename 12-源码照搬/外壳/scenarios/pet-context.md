@@ -2,7 +2,7 @@
 
 - 场景 id：`pet`（**开机落点**：`first: true` + `customer-start.js` 的 `FIRST='pet'`，2026-11-14 起）
 - 一句话：**人格本体的唯一落点**。她是谁、怎么说、记得什么，全部在这个场景里；别的场景只取用，不复制。
-- 面板：`外壳\scenarios\pet.json`（`pet-ai`「胡闹的大肥鱼」= 人格会话；右列 `pet-dog`「派发巡检」= **总入口的派发台**：待批准 / 定时触发 / 超时未回执 / 补投；`pet-live2d`「大肥鱼 · 形象」= 本仓 Cubism 模型，`embed` 指向 `@site:/petlive2d/`；本机桌面 dsh-pet 身体已启用 `fantuan` 动作包，工作台内留实时面板。**设置不常驻**——标题栏「⚙ 设置」点开弹窗，可改主动性 / 能做什么 / 什么要先问你 / 免打扰 / 场景路由（可增删选）/ 最近派发，并带「恢复默认」）
+- 面板：`外壳\scenarios\pet.json`（`pet-ai`「胡闹的大肥鱼」= 人格会话，铺满整行；右列 `pet-dog`「派发巡检」= **总入口的派发台**：待批准 / 定时触发 / 超时未回执 / 补投。**设置不常驻**——标题栏「⚙ 设置」点开弹窗，可改主动性 / 能做什么 / 什么要先问你 / 免打扰 / 场景路由（可增删选）/ 最近派发 / 桌面身体，并带「恢复默认」）
 - 记忆根：`引擎数据\.dsh\场景记忆\胡闹的大肥鱼\`
   - `场景私有记忆.md` §〇 = 人格卡（开场注入就是它，≤4 KB）
   - `记忆\` 长期记忆（人物关系 / 偏好 / 承诺），`对话\` 输入侧流水（谁来找她、聊过什么）
@@ -20,13 +20,12 @@
 
 ## 还没做的
 
-- 形象：**已切本仓 Cubism 4.2 模型**，`pet-live2d` 面板 `embed` 渲染 `正式\大肥鱼-半身\大肥鱼-半身.model3.json`；`body.enabled` 默认 `false`，桌面不再常驻 dsh-pet 身体。3D（three.js + GLB）已于 2026-11-20 移除，`pet3d\` 只剩概念图与表情包。
-  - 桌面身体（`dsh-pet 0.4.9`）本机已启用：`body.enabled=true`、`pet=fantuan`；它只负责渲染/动画/物理/气泡，人格、场景路由、待批准、记忆仍在本场景与外壳。桌面形象是 `桌宠动作包\webm\` 的 41 段 640×360 VP9-alpha WebM（A 方案，预烘焙），不是实时 moc3。外壳 `桌宠状态.js` 聚合全会话六态（thinking/working/result/waiting/success/error + idle），每 2 秒经 `桌宠身体.js` 推到 `/dsh-pet-7340/work-status`；待批准非空时强制 waiting。`fantuan` 条目 `workStatusEnabled:true`（要接外部状态动画）、`whisperEnabled:false`（碎碎念/梦话仍归工作台，避免两套人格）、`balanceEnabled:false`（账本归工作台）。用户配置在 `引擎数据\.dsh\dsh-pet\main-config.jsonc` + `pet\fantuan-config.json`，署名与许可见 `12-源码照搬\说明\第三方素材署名.md`。
+- 形象：本仓个性化形象（Cubism 模型 / 预烘焙动作包 / 概念图 / 表情包）已于 2026-11-23 全量移除，改用 dsh-pet 0.4.9 原生素材（`蓝毛小女仆`，id `main`）。工作台内不再有「形象」面板，桌面只跑一只 dsh-pet 身体。
+  - 桌面身体（`dsh-pet 0.4.9`）：`body.enabled=true`、`pet=main`；它只负责渲染/动画/物理/气泡，人格、场景路由、待批准、记忆仍在本场景与外壳。外壳 `桌宠状态.js` 聚合全会话六态（thinking/working/result/waiting/success/error + idle），每 2 秒经 `桌宠身体.js` 推到 `/dsh-pet-7340/work-status`；待批准非空时强制 waiting。`main` 条目 `workStatusEnabled:true`（接外部状态动画）、`whisperEnabled:false`（碎碎念/梦话仍归工作台，避免两套人格）、`balanceEnabled:false`（账本归工作台）。用户配置在 `引擎数据\.dsh\dsh-pet\main-config.jsonc`，署名与许可见 `12-源码照搬\说明\第三方素材署名.md`。
   - 右键菜单（2026-11-20 接）：桌面身体上「工作台 / 人格会话 / 待办 + 全部场景」；点待办直接弹主窗口顶栏的待办层。
   - 待办：`dsh-pet` 的 `/todos` 是唯一真源，汇入顶栏「⋯ → 待办 / 谁在等我」；可在顶栏加、勾办结、删。
   - 通知：`dsh-pet` 的 `sections.notify` 由主进程长轮询转成 `topbar:toast`；它的系统通知已关（`notificationsEnabled:false`），统一走工作台顶栏。
-  - 语音：设置弹窗「形象」区可开关 dsh-pet 自带 TTS、改音色 / 音量 / 通知播报 / 待办播报；BreezeBlue 暂未混入，避免和 QQ 语音共用 key。
-- 本仓 Live2D：`pet-live2d` 面板已是 `embed`，模型 `正式\大肥鱼-半身\大肥鱼-半身.model3.json`；桌面 dsh-pet 已接 `fantuan` 预烘焙动作包，面板实时参数与桌面视频两条路线并存。3D（three.js + GLB）已于 2026-11-20 移除，`pet3d\` 只剩概念图与表情包。
+  - 语音：设置弹窗「桌面身体」区可开关 dsh-pet 自带 TTS、改音色 / 音量 / 通知播报 / 待办播报；BreezeBlue 暂未混入，避免和 QQ 语音共用 key。
 
 <!-- 记忆自主管理（2026-11-13） -->
 ## 记忆自主管理（每轮收工前）

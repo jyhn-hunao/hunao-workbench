@@ -663,7 +663,7 @@
     featSec.appendChild(linksSw.row);
     var webSw = switchRow('第三方搜索 API（热榜 / 网页）', '本地搜索常开；这个开关只控制第三方搜索 API。关闭后仍会做本地搜索，只是没有热榜和外部网页结果。', function () { return form.native.websearch; }, function (v) { form.native.websearch = !!v; });
     featSec.appendChild(webSw.row);
-    var stickerSw = switchRow('贴纸', '允许鲸鲸发送/收集贴纸；DSH 在回复末尾写 [[sticker:开心]] 等分类名时会真的补图。开启按需生成后，新情绪名也会由千问补成图库分类。', function () { return form.native.stickers; }, function (v) { form.native.stickers = !!v; });
+    var stickerSw = switchRow('贴纸', '允许鲸鲸发送/收集贴纸；DSH 在回复末尾写 [[sticker:开心]] 等分类名时会真的补图。', function () { return form.native.stickers; }, function (v) { form.native.stickers = !!v; });
     featSec.appendChild(stickerSw.row);
     var stickerInfo = (data.nativeFiles && data.nativeFiles.stickers) || {};
     featSec.appendChild(pathRow('贴纸素材',
@@ -673,8 +673,8 @@
     // ---- 千问表情包：生成和发送都走工作台通道 ----
     var sg = form.stickerGen;
     var sgBox = mk('div', 'wxs-subsec');
-    sgBox.appendChild(mk('div', 'wxs-subsec-title', '千问表情包'));
-    sgBox.appendChild(mk('div', 'wxs-subsec-hint', '以 pet3d\\概念 的蓝发鲸鲸女仆为基准；固定四张会自动入「鲸鲸千问」分类。开启「按需生成」后，图库没有的情绪会按当前对话补一张并自动入库，固定分类仍然优先。'));
+    sgBox.appendChild(mk('div', 'wxs-subsec-title', '表情包生成（已停用）'));
+    sgBox.appendChild(mk('div', 'wxs-subsec-hint', '个性化形象（pet3d 概念图 / 表情包图库）已于 2026-11-23 移除，表情包生成不再可用。'));
 
     var sgKey = mk('input', 'wxs-in');
     sgKey.type = 'password';
@@ -858,7 +858,7 @@
     sgBtn('生成并发送一张', function () { sgRun(true); });
     sgBox.appendChild(sgBar);
     sgBox.appendChild(sgState);
-    sgBox.appendChild(mk('div', 'wxs-note', 'Key 只写进本机鲸鲸 data，不进仓库；生成结果同时留在 pet3d\\表情包\\鲸鲸千问。'));
+    sgBox.appendChild(mk('div', 'wxs-note', '个性化形象已移除，生成接口已停用。'));
     featSec.appendChild(sgBox);
 
     var diarySw = switchRow('日记生成', '每天按鲸鲸原生时间生成一篇；生成不等于会发到微信。', function () { return form.native.diary; }, function (v) { form.native.diary = !!v; });

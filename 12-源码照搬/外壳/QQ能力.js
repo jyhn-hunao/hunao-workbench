@@ -3,13 +3,12 @@
 //
 // 为什么单独一层：
 //   · dsh-onebot-channel 负责收发、图片、经典表情、收藏表情，但不带语音转写/语音发送；
-//   · 工作台 QQ 群旁听需要把语音变成正文，否则群里发语音等于只看到「[语音]」；
-//   · 千问表情包在微信侧已经有生成链路，QQ 侧复用同一套概念图和 Key，不另造人格。
+//   · 工作台 QQ 群旁听需要把语音变成正文，否则群里发语音等于只看到「[语音]」。
 //
 // 这层只做「能复用、能自检」的东西：
 //   · 语音转写：OneBot record → SILK/WAV → DeepSeek ASR（Key 复用微信通道配置）；
-//   · 表情包：概念图 + 千问生成 → 本地图库，发送时按情绪挑图；
 //   · 语音合成：Windows SAPI 生成 WAV，交给 OneBot 发送 record 段（不依赖外部 TTS 服务）。
+//   （2026-11-23：千问表情包随个性化形象一并移除，图库/概念图不再维护。）
 //
 // 配置落盘：外壳\data\QQ能力.json（本机配置，gitignored；不回显任何 Key）。
 // 日志：外壳\data\QQ能力\通道.log
@@ -19,22 +18,18 @@ const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
 const https = require('https');
-const { spawn, spawnSync, execFile } = require('child_process');
+const { spawn, spawnSync } = require('child_process');
 // 情绪联动：语音概率也按当前心情收；缺失时退回原概率，不阻断发送。
 let socialReply = null;
 try { socialReply = require('./社交回复'); } catch (e) { /* 没有回复策略层，语音保持原行为 */ }
 
 const SHELL = __dirname;
-const ROOT = path.dirname(SHELL);
 const DATA_DIR = process.env.DSH_SHELL_DATA || path.join(SHELL, 'data');
 const CONFIG_FILE = path.join(DATA_DIR, 'QQ能力.json');
 const WORK_DIR = path.join(DATA_DIR, 'QQ能力');
 const VOICE_DIR = path.join(WORK_DIR, 'voice');
 const TMP_DIR = path.join(WORK_DIR, 'tmp');
 const LOG_FILE = path.join(WORK_DIR, '通道.log');
-const STICKER_ROOT = path.join(SHELL, 'pet3d', '表情包');
-const QQ_STICKER_DIR = path.join(STICKER_ROOT, 'QQ千问');
-const CONCEPT_REF = path.join(SHELL, 'pet3d', '概念', '07-气氛图.png');
 const WECHAT_CONFIG = path.join(DATA_DIR, '微信通道.json');
 const DEFAULT_ASR = 'https://api.deepseek.com/v1/tools/asr';
 const DEFAULT_BREEZE_BASE = 'https://api.breeze.blue';
@@ -94,11 +89,6 @@ function ensureDir(p) {
   try { fs.mkdirSync(p, { recursive: true }); } catch (e) { /* 调用方报错 */ }
 }
 
-function safeLabel(value) {
-  const s = String(value || '').replace(/[\\/:*?"<>|\[\]\r\n\x00-\x1f]/g, '').replace(/\s+/g, '').slice(0, 12);
-  return s === '.' || s === '..' ? '' : s;
-}
-
 function normalizeConfig(raw) {
   const x = Object.assign({}, DEFAULTS, raw && typeof raw === 'object' ? raw : {});
   x.enabled = x.enabled !== false;
@@ -153,7 +143,6 @@ function createService(options) {
   let sapiCache = { checkedAt: 0, available: false, voices: [] };
   let breezeLast = { at: 0, ok: false, provider: 'breeze', ms: 0, bytes: 0, error: '' };
   let directVoiceLast = { at: 0, ok: false, chatType: '', chatId: '', provider: '', bytes: 0, error: '' };
-  const generating = new Map();
 
   function appendLog(line) {
     const text = '[' + nowText() + '] ' + String(line || '').slice(0, 1000);
@@ -177,26 +166,13 @@ function createService(options) {
     return readJson(WECHAT_CONFIG) || {};
   }
 
-  // 鲸鲸 home 由微信通道配置给出；只读它的 qwen-image.json 和 config.json，不读桌面端宿主目录。
+  // 鲸鲸 home 由微信通道配置给出；只读它的 config.json，不读桌面端宿主目录。
   function whaleHome() {
     const wc = readWechatConfig();
     const explicit = String(process.env.WHALE_HOME || wc.whaleHome || '').trim();
     if (explicit) return explicit;
     const fallback = path.join('D:\\', 'whale-girl');
     return fs.existsSync(fallback) ? fallback : '';
-  }
-
-  function qwenConfig() {
-    const home = whaleHome();
-    const candidates = [
-      home ? path.join(home, 'data', 'qwen-image.json') : '',
-      path.join(DATA_DIR, 'qwen-image.json')
-    ].filter(Boolean);
-    for (const file of candidates) {
-      const j = readJson(file);
-      if (j && String(j.apiKey || '').trim()) return j;
-    }
-    return {};
   }
 
   // 语音识别 Key 只复用同源配置：鲸鲸 voice.apiKey → 鲸鲸聊天 Key → 环境变量。
@@ -248,25 +224,15 @@ function createService(options) {
   }
 
   function stickerCategories() {
-    const out = [];
-    try {
-      for (const ent of fs.readdirSync(STICKER_ROOT, { withFileTypes: true })) {
-        if (!ent || !ent.isDirectory()) continue;
-        const dir = path.join(STICKER_ROOT, ent.name);
-        const count = listFiles(dir).length;
-        if (count > 0) out.push({ name: ent.name, count: count, dir: dir });
-      }
-    } catch (e) { /* 图库不存在按空处理 */ }
-    out.sort((a, b) => b.count - a.count);
-    return out;
+    // 2026-11-23：个性化形象（pet3d 表情包图库）已移除，QQ 不再有本仓表情包分类。
+    return [];
   }
 
   function normalizeStickerName(value) {
     return String(value || '').replace(/[\s\[\]【】「」『』]/g, '').slice(0, 20);
   }
 
-  // 表情包解析顺序：分类名 → 文件名包含情绪 → 动态生成。
-  // 只在 pet3d\表情包 下找，拒绝模型给任意路径。
+  // 表情包解析已随个性化形象移除（2026-11-23）：分类恒为空，下面只会返回 null。
   function pickSticker(label) {
     const want = normalizeStickerName(label);
     if (!want) return null;
@@ -289,64 +255,9 @@ function createService(options) {
     return file ? { ok: true, file: file, label: normalizeStickerName(label) } : null;
   }
 
-  function execNode(args, env, timeout) {
-    return new Promise((resolve) => {
-      const useElectron = !process.env.QQ_NODE_BIN && /electron/i.test(path.basename(process.execPath || ''));
-      const bin = String(process.env.QQ_NODE_BIN || '').trim() || process.execPath || 'node';
-      const childEnv = Object.assign({}, process.env, env || {});
-      if (useElectron) childEnv.ELECTRON_RUN_AS_NODE = '1';
-      execFile(bin, args, {
-        cwd: ROOT, env: childEnv, timeout: timeout || 260000, maxBuffer: 8 * 1024 * 1024, windowsHide: true
-      }, (error, stdout, stderr) => {
-        resolve({ error: error, stdout: String(stdout || ''), stderr: String(stderr || '') });
-      });
-    });
-  }
-
-  async function generateSticker(label, situation) {
-    const emotion = safeLabel(label);
-    if (!emotion) return { ok: false, error: '表情名不能为空（2–6 个汉字最合适）' };
-    if (generating.has(emotion)) return generating.get(emotion);
-    const p = (async function () {
-      const qwen = qwenConfig();
-      const apiKey = String(qwen.apiKey || '').trim();
-      if (!apiKey) return { ok: false, error: '千问 Key 未配置：先在微信通道功能页保存，QQ 复用同一份配置' };
-      const tool = path.join(ROOT, '工具', '表情包生成.mjs');
-      if (!fs.existsSync(tool)) return { ok: false, error: '生成工具缺失：' + tool };
-      if (!fs.existsSync(CONCEPT_REF)) return { ok: false, error: '概念图缺失：' + CONCEPT_REF };
-      ensureDir(QQ_STICKER_DIR);
-      const fileName = '动态-' + emotion + '-' + Date.now() + '.png';
-      const args = [
-        tool, '--model', String(qwen.model || 'qwen-image-2.1-pro'),
-        '--ref', CONCEPT_REF, '--out', QQ_STICKER_DIR,
-        '--emotion', emotion, '--situation', String(situation || '').replace(/[\r\n]+/g, ' ').slice(0, 600),
-        '--filename', fileName
-      ];
-      const env = { QWEN_API_KEY: apiKey, QWEN_IMAGE_ENDPOINT: String(qwen.baseUrl || '') };
-      const run = await execNode(args, env, 260000);
-      if (run.error) {
-        return { ok: false, error: '千问生成失败：' + (run.stderr.trim() || run.error.message || String(run.error)) };
-      }
-      let generated = null;
-      try { generated = JSON.parse(run.stdout.trim()); } catch (e) { /* 下面报可读错误 */ }
-      const file = generated && generated.ok === true && Array.isArray(generated.files) && generated.files[0]
-        ? String(generated.files[0].path || '') : '';
-      if (!file || !fs.existsSync(file)) {
-        return { ok: false, error: '千问生成没有返回可用图片：' + run.stdout.slice(0, 300) };
-      }
-      appendLog('表情生成 ' + emotion + ' → ' + path.basename(file));
-      return { ok: true, file: file, label: emotion, generated: true, model: String(qwen.model || '') };
-    })().finally(function () { generating.delete(emotion); });
-    generating.set(emotion, p);
-    return p;
-  }
-
   async function ensureSticker(label, situation) {
-    const found = stickerFileFor(label);
-    if (found) return found;
-    if (!config.stickerDynamic) return null;
-    const made = await generateSticker(label, situation);
-    return made && made.ok && made.file ? { ok: true, file: made.file, label: made.label, generated: true } : null;
+    // 2026-11-23：表情包图库与动态生成已随个性化形象移除；这里始终无图，调用方退回纯文字。
+    return null;
   }
 
   function recordSegmentOf(message) {
@@ -779,7 +690,6 @@ function createService(options) {
   function status() {
     const cats = stickerCategories();
     const asr = asrConfig();
-    const qwen = qwenConfig();
     const sapi = sapiInfo(false);
     const breeze = breezeStatus();
     const publicConfig = Object.assign({}, config, {
@@ -793,8 +703,8 @@ function createService(options) {
       ok: true,
       config: publicConfig,
       asr: { configured: !!asr.key, provider: asr.provider, deepseek: /api\.deepseek\.com/i.test(asr.baseUrl) },
-      qwen: { configured: !!String(qwen.apiKey || '').trim(), model: String(qwen.model || '') },
-      stickers: { dir: STICKER_ROOT, categories: cats, total: cats.reduce((n, c) => n + c.count, 0), qqDir: QQ_STICKER_DIR },
+      qwen: { configured: false, model: '' },
+      stickers: { dir: '', categories: cats, total: 0, qqDir: '' },
       tts: {
         provider: config.ttsProvider,
         available: config.ttsProvider === 'breeze' ? breeze.configured : !!sapi.available,
@@ -873,7 +783,6 @@ function createService(options) {
     transcribeMessage: transcribeMessage,
     pickSticker: stickerFileFor,
     ensureSticker: ensureSticker,
-    generateSticker: generateSticker,
     synthesizeVoice: synthesizeVoice,
     shouldVoiceDirect: shouldVoiceDirect,
     noteDirectVoice: noteDirectVoice,

@@ -117,11 +117,10 @@ contextBridge.exposeInMainWorld('app', {
     refresh: () => ipcRenderer.invoke('qq-group:refresh')
   },
   // ---- QQ 媒体能力（2026-11-19）----
-  // 语音转写 / 千问表情包 / 语音合成。缺这个命名空间 = preload 还是旧的，QQ 卡片明确显示重启提示。
+  // 语音转写 / 语音合成。缺这个命名空间 = preload 还是旧的，QQ 卡片明确显示重启提示。
   qqMedia: {
     status: () => ipcRenderer.invoke('qq-media:status'),
     settingsSave: (patch) => ipcRenderer.invoke('qq-media:settings-save', patch || {}),
-    stickerGenerate: (args) => ipcRenderer.invoke('qq-media:sticker-generate', args || {}),
     ttsTest: (args) => ipcRenderer.invoke('qq-media:tts-test', args || {})
   },
   // ---- 聊天长期档案（2026-11-19）----

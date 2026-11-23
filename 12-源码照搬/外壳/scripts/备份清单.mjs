@@ -13,12 +13,7 @@ export const FILES = [
   'package.json', 'package-lock.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml',
   'start.vbs', 'icon.ico', 'icon.png',
   // 说明
-  '项目信息.md', '架构索引.md',
-  // petlive2d 里属于源码的两份（模型/贴图/vendor 是大体积第三方资源，不进快照）
-  'petlive2d/app.js', 'petlive2d/index.html',
-  'petlive2d/vendor/README.md',
-  // pet3d 只剩资产（概念图/表情包），快照只收说明，不搬大图
-  'pet3d/说明.md'
+  '项目信息.md', '架构索引.md'
 ];
 
 export const DIRS = ['renderer', 'scenarios', 'scripts', 'pet'];

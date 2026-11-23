@@ -1,11 +1,10 @@
 // 桌宠状态.js（2026-11-20 扩）——桌宠状态的数据面。
 //
-// 两套口径，别混：
-//   · stateOf(dshHome, sessionId)  → 四态 idle / thinking / speaking / listening
-//     给工作台里的 Live2D 面板用（/petlive2d/state），保持 2026-11-18 的行为不变。
+// 一套口径（2026-11-23 起只留桌面身体）：
 //   · stateAll(dshHome, opts)     → 六态 thinking / working / result / waiting / success / error + idle
 //     给桌面身体（dsh-pet 0.4.9）用：读所有场景绑定的会话，按优先级挑一个当前状态，
 //     再 POST /dsh-pet-7340/work-status；审批队列非空时强制 waiting。
+//     工作台内 Live2D 面板（/petlive2d/state，四态 stateOf）已于 2026-11-23 随个性化形象一并移除。
 //
 // 只读 transcript，复用 社交.js 的 transcriptOf / readEvents，不新增第二套解析。
 // 事件结构（2026-11-20 实测）：
@@ -56,43 +55,7 @@ function eventsOf(file) {
   }
 }
 
-// 1. 四态（Live2D 面板）：事件 → idle / thinking / speaking / listening
-function stateOf(dshHome, sessionId, nowMs) {
-  const file = transcriptOf(dshHome, sessionId);
-  const events = eventsOf(file);
-  const now = nowMs || Date.now();
-  if (!events || !events.length) return { state: 'idle', why: 'no-events' };
-
-  let lastTurnStart = 0;
-  let lastTurnEnd = 0;
-  let lastUser = 0;   // 真人输入（source.kind === 'user'，不含引擎注入）
-  let lastAsst = 0;   // 她输出的最后一条 assistant/message
-  for (const e of events) {
-    if (!e || !e.type) continue;
-    const t = Number(e.time) || 0;
-    if (!t) continue;
-    if (e.type === 'turn/start') lastTurnStart = t;
-    else if (e.type === 'turn/end') lastTurnEnd = t;
-    else if (e.type === 'user/message' && e.data && e.data.source && e.data.source.kind === 'user') lastUser = t;
-    else if (e.type === 'assistant/message') lastAsst = t;
-  }
-
-  // 1. speaking：最近 8 秒有输出，且这一轮还没 turn/end（结束事件把 speaking 掐掉）
-  if (lastAsst && now - lastAsst < WIN.speak && lastAsst > lastTurnEnd) {
-    return { state: 'speaking', lastAsst };
-  }
-  // 2. listening：最近 6 秒有真人说话
-  if (lastUser && now - lastUser < WIN.listen) {
-    return { state: 'listening', lastUser };
-  }
-  // 3. thinking：turn 已开始、尚无输出、尚未结束，且没过 60 秒（过久算引擎卡死 → 回 idle）
-  if (lastTurnStart && lastTurnStart > lastAsst && lastTurnStart > lastTurnEnd && now - lastTurnStart < WIN.think) {
-    return { state: 'thinking', lastTurnStart };
-  }
-  return { state: 'idle' };
-}
-
-// 2. 文本小工具：只取一条消息里的正文，不拼 reasoning / tool-call
+// 1. 文本小工具：只取一条消息里的正文，不拼 reasoning / tool-call
 function textOf(data) {
   if (!data) return '';
   const c = data.content || (data.message && data.message.content);
@@ -313,17 +276,4 @@ function stateAll(dshHome, opts) {
   };
 }
 
-// 上一次「有动静」的时间（供面板显示副文案，可选）
-function lastActivity(dshHome, sessionId) {
-  const file = transcriptOf(dshHome, sessionId);
-  const events = eventsOf(file);
-  if (!events) return 0;
-  let t = 0;
-  for (const e of events) {
-    if (!e || !e.type) continue;
-    t = Math.max(t, Number(e.time) || 0);
-  }
-  return t;
-}
-
-module.exports = { stateOf, stateAll, listSceneSessions, lastActivity, WIN };
+module.exports = { stateAll, listSceneSessions, WIN };

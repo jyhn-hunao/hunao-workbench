@@ -630,8 +630,6 @@ const INTERNAL = [
   'check-gui.mjs', '备份清单.mjs', 'restore-gui.mjs', 'backup-gui.mjs', '接入项目.mjs',
   '换会话.mjs', '建会话.mjs', '归档会话.mjs', '项目切换自检.mjs', '环境适配.mjs',
   '图标库.mjs', 'pc-scan.mjs', '刷新面板.mjs',
-  // 要 key / 会写文件的功能：自动收进只能跑「空跑一遍」，要进就得手写（danger=write + 输入项）
-  '表情包生成.mjs',
 ];
 
 function scanFiles() {

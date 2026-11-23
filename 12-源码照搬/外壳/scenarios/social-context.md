@@ -14,7 +14,7 @@
 2. **路由绑定**：`%USERPROFILE%\.dsh\qq-bridge.config.json` 的 `routes.private["<对方QQ>"]` / `routes.group["<群号>"]` 的 `sessionId` 决定消息投给哪个 DSH 会话。QQ 卡片「QQ 会话隔离」显示每条 route 是**独立会话**还是**共用人格主会话**；「接入并建独立会话」会用 `建会话.mjs` 建新会话并写回 route，群号加进去后插件才会监听该群。换人格会话后只同步仍共用主会话的 route；`chatMode=per-chat` 的独立 route 不动。不要手改 id，也不要让多个聊天共用一条会话。
 3. **三类必审仍在人格层**：涉及钱、承诺、个人信息的回复，等用户确认再发（口径见人格卡 §〇）。
 4. **QQ 群旁听 / 随机接话**：只对已绑定到独立 DSH 群会话的群生效；`外壳\data\QQ群聊\旁听\<群号>.jsonl` 存最近 600 条群上下文，群卡片「QQ 群旁听 / 随机接话」显示已连/未连、已绑定群数、最近跳过原因。随机接话默认关，打开后仍受接话窗口、静默重置、冷却、每分钟上限、群地址保护约束；普通 @ 回复仍由 `dsh-onebot-channel` 处理，二者不抢。
-5. **QQ 媒体层**：`外壳\QQ能力.js` 负责群语音转写（DeepSeek ASR）、群随机语音回复和千问表情包（`pet3d\表情包\QQ千问`，兼容 `鲸鲸千问`）。语音合成可在 QQ 卡片「QQ 语音 / 表情包」里选 **Windows SAPI** 或 **BreezeBlue**：Breeze 走 `wav_24000`，再交给现有 pysilk 编 SILK；Key/音色/演绎指令都在同一张卡片配置，Key 只显示末尾四位。配置落 `外壳\data\QQ能力.json`，日志在 `外壳\data\QQ能力\通道.log`。普通 @ / 私聊的语音出站由 `外发闸门.js` 的 3100 代理在正文成功后补发（`voiceReplyMentions` / `voiceReplyPrivate`，默认关）；群随机由 `QQ群聊.js` 发，代理用 `x-wb-voice-skip` 跳过，避免两条语音。微信原生语音不重写鲸鲸合成器：同一份 Breeze 配置通过「同步到微信原生语音」写入 `D:\whale-girl\data\settings.json`，鲸鲸自己的 `voice-send.json` 策略决定何时发。
+5. **QQ 媒体层**：`外壳\QQ能力.js` 负责群语音转写（DeepSeek ASR）与群随机语音回复。语音合成可在 QQ 卡片「QQ 语音」里选 **Windows SAPI** 或 **BreezeBlue**：Breeze 走 `wav_24000`，再交给现有 pysilk 编 SILK；Key/音色/演绎指令都在同一张卡片配置，Key 只显示末尾四位。配置落 `外壳\data\QQ能力.json`，日志在 `外壳\data\QQ能力\通道.log`。普通 @ / 私聊的语音出站由 `外发闸门.js` 的 3100 代理在正文成功后补发（`voiceReplyMentions` / `voiceReplyPrivate`，默认关）；群随机由 `QQ群聊.js` 发，代理用 `x-wb-voice-skip` 跳过，避免两条语音。微信原生语音不重写鲸鲸合成器：同一份 Breeze 配置通过「同步到微信原生语音」写入 `D:\whale-girl\data\settings.json`，鲸鲸自己的 `voice-send.json` 策略决定何时发。
 
 ## 还没做的
 

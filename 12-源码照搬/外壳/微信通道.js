@@ -24,7 +24,7 @@ const http = require('http');
 const net = require('net');
 const os = require('os');
 const crypto = require('crypto');
-const { spawn, spawnSync, execFileSync, execFile } = require('child_process');
+const { spawn, spawnSync, execFileSync } = require('child_process');
 const { pathToFileURL } = require('url');
 const socialReply = require('./社交回复');
 // 称呼层：关系档案里可以给某个人单独设「称呼 / 身份」，通道提示词优先用它，避免把微信原显示名直接叫出口。
@@ -2098,65 +2098,9 @@ class WechatService {
     };
   }
 
-  // 10.2 千问表情包：生成和发送都归工作台通道，不把 Key 放进仓库，也不走人手操作微信。
-  //     生成：调本机 Node 工具（工具/表情包生成.mjs）→ 写 concept 图同目录；
-  //     入库：走鲸鲸原生 /api/stickers/upload；
-  //     发送：走 /api/stickers/test 的同一套表情包队列，桥接负责落屏和结果回执。
+  // 10.2 千问表情包：2026-11-23 起随个性化形象移除（pet3d 概念图 / 表情包生成工具已删除）。
   async stickerGenerate(args) {
-    const cfg = this.config();
-    const h = this._home(cfg);
-    if (!h.home) return { ok: false, error: h.error };
-    const qwen = readQwenImage(h.home);
-    const apiKey = String((args && args.apiKey) || qwen.apiKey || '').trim();
-    const emotion = cleanStickerLabel(args && args.emotion);
-    const category = emotion || String((args && args.category) || qwen.category || '').replace(/[\\/:*?"<>|]/g, '').slice(0, 20);
-    if (!apiKey) return { ok: false, error: '千问 Key 未配置：先在「功能」页填 Key 并保存' };
-    if (!category) return { ok: false, error: '表情包分类名为空' };
-    const tool = path.join(ROOT, '工具', '表情包生成.mjs');
-    if (!fs.existsSync(tool)) return { ok: false, error: '生成工具缺失：' + tool };
-    const node = String(cfg.whaleNode || '').trim() || findOnPath('node') || 'node';
-    const model = String((args && args.model) || qwen.model || 'qwen-image-2.1-pro');
-    const ref = path.join(SHELL, 'pet3d', '概念', '07-气氛图.png');
-    const out = path.join(SHELL, 'pet3d', '表情包', '鲸鲸千问');
-    const only = args && args.only ? String(args.only) : '';
-    const situation = String((args && (args.situation || args.prompt)) || '').replace(/[\r\n]+/g, ' ').slice(0, 600);
-    const env = Object.assign({}, process.env, { QWEN_API_KEY: apiKey,
-      QWEN_IMAGE_ENDPOINT: qwen.baseUrl || '' });
-    const childArgs = [tool, '--model', model, '--ref', ref, '--out', out];
-    if (emotion) childArgs.push('--emotion', emotion, '--situation', situation);
-    else if (only) childArgs.push('--only', only);
-    const childTimeout = Math.max(10000, Math.min(240000, Number(args && args.timeoutMs) || 260000));
-    const run = await new Promise((resolve) => {
-      execFile(node, childArgs, { cwd: ROOT, env: env, timeout: childTimeout, maxBuffer: 8 * 1024 * 1024, windowsHide: true }, (error, stdout, stderr) => {
-        resolve({ error: error, stdout: String(stdout || ''), stderr: String(stderr || '') });
-      });
-    });
-    if (run.error) {
-      return { ok: false, error: '千问生成失败：' + (run.stderr.trim() || run.error.message || String(run.error)) };
-    }
-    let generated = null;
-    try { generated = JSON.parse(run.stdout.trim()); } catch (e) { /* fall through */ }
-    if (!generated || generated.ok !== true || !Array.isArray(generated.files) || !generated.files.length) {
-      return { ok: false, error: '千问生成没有返回可用图片：' + run.stdout.slice(0, 300) };
-    }
-
-    const base = 'http://127.0.0.1:' + this._kernelPort(cfg, h.home);
-    const made = await httpPostJson(base + '/api/stickers/category', { action: 'add', label: category }, 8000);
-    if (!made.ok && !/已经有这个分类/.test(String(made.error || ''))) {
-      return { ok: false, error: '创建表情分类失败：' + (made.error || 'HTTP ' + made.status) };
-    }
-    const uploaded = [];
-    for (const file of generated.files) {
-      let bytes;
-      try { bytes = fs.readFileSync(file.path); } catch (e) { return { ok: false, error: '读取生成图失败：' + file.path }; }
-      const up = await httpPostJson(base + '/api/stickers/upload', {
-        emotion: 'x:' + category,
-        files: [{ name: file.name, data: bytes.toString('base64') }]
-      }, 60000);
-      if (!up.ok) return { ok: false, error: '表情入库失败（' + file.name + '）：' + (up.error || 'HTTP ' + up.status) };
-      uploaded.push((up.json && up.json.uploaded && up.json.uploaded[0]) || { name: file.name });
-    }
-    return { ok: true, category: category, emotion: emotion || '', model: model, dir: generated.dir, files: generated.files, uploaded: uploaded };
+    return { ok: false, error: '个性化形象已移除（2026-11-23），表情包生成不再可用' };
   }
 
   async stickerSend(args) {

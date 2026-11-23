@@ -26,10 +26,7 @@
       "!data/**",
       "!.engine-staging-*/**",
       "!server.log*",
-      "!**/*.log",
-      "!petlive2d/模型/示例/**",
-      "!petlive2d/模型/正式/**/*.psd",
-      "!petlive2d/模型/正式/**/*.cmo3"
+      "!**/*.log"
     ],
     "asar": false,
     "extraResources": [

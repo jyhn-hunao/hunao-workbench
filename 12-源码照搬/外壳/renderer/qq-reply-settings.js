@@ -252,7 +252,7 @@
 
     // ---------- 语音 / 表情 ----------
     var secVoice = mk('div', 'wxs-sec');
-    secVoice.appendChild(mk('div', 'wxs-sec-title', '语音与表情'));
+    secVoice.appendChild(mk('div', 'wxs-sec-title', '语音'));
     secVoice.appendChild(mk('div', 'wxs-sec-hint', '语音出站有三条：群随机接话、普通 @、私聊。三条都默认关；打开后按各自概率决定，不会默认制造语音噪音。'));
 
     secVoice.appendChild(switchRow('语音回复总开关', '关闭后所有语音出站都不发；正文仍正常发。', form.media.voiceReply, function (v) { form.media.voiceReply = v; }).row);
@@ -264,15 +264,6 @@
     secVoice.appendChild(numRow('私聊语音概率', '私聊回复补语音的比例。', form.media.voiceReplyPrivateChancePct, 0, 100, 0.1, '%', function (v) { form.media.voiceReplyPrivateChancePct = num(v, 100, 0, 100, 0.1); }).row);
     secVoice.appendChild(numRow('语音字数上限', '超过就截断，避免一条语音太长。', form.media.voiceMaxChars, 10, 180, 1, '字', function (v) { form.media.voiceMaxChars = num(v, 80, 10, 180); }).row);
     secVoice.appendChild(switchRow('群旁听语音转写', '开：群里语音先转成文字再进旁听上下文；关：只留 [语音] 占位。', form.media.voiceListen, function (v) { form.media.voiceListen = v; }).row);
-
-    var subSticker = mk('div', 'wxs-subsec');
-    subSticker.appendChild(mk('div', 'wxs-subsec-title', '表情包'));
-    subSticker.appendChild(mk('div', 'wxs-subsec-hint', '普通闲聊按概率带；群随机接话优先用工作台图库，没有合适情绪时可动态生成。这里控制 QQ 实际出站；通用回复弹窗只管提示词层，不替代这里的发送概率。'));
-    subSticker.appendChild(switchRow('随机接话带表情包', '关掉后随机接话只发文字；普通 @ 回复仍走插件自带表情。', form.media.stickers, function (v) { form.media.stickers = v; }).row);
-    subSticker.appendChild(switchRow('表情包动态生成', '图库没有合适情绪时，按当前语境生成一张并入库。', form.media.stickerDynamic, function (v) { form.media.stickerDynamic = v; }).row);
-    subSticker.appendChild(numRow('表情概率', '普通闲聊里带表情包的比例。', form.media.stickerChancePct, 0, 100, 0.1, '%', function (v) { form.media.stickerChancePct = num(v, 30, 0, 100, 0.1); }).row);
-    subSticker.appendChild(numRow('每条最多表情', '一次回复最多带几张。', form.media.stickerMaxPerReply, 1, 2, 1, '张', function (v) { form.media.stickerMaxPerReply = num(v, 1, 1, 2); }).row);
-    secVoice.appendChild(subSticker);
 
     var subTts = mk('div', 'wxs-subsec');
     subTts.appendChild(mk('div', 'wxs-subsec-title', '语音合成服务'));
@@ -336,12 +327,9 @@
     var obsM = mk('div', 'wxs-subsec');
     obsM.appendChild(mk('div', 'wxs-subsec-title', '当前观察（只读）'));
     var mst = mediaStatus || {};
-    var cats = (mst.stickers && Array.isArray(mst.stickers.categories)) ? mst.stickers.categories : [];
     var breeze = (mst.tts && mst.tts.breeze) || {};
     var direct = (mst.directVoice && mst.directVoice.last) || null;
     var linesM = [
-      '表情图库：' + Number((mst.stickers && mst.stickers.total) || 0) + ' 张 · '
-        + (cats.length ? cats.map(function (c) { return c.name + ' ' + c.count; }).join(' / ') : '分类未读到'),
       'Breeze：' + (breeze.configured ? '已配置' : '未配置')
         + ' · 音色 ' + (breeze.voiceName || breeze.voiceId || '—')
         + ' · 最近 ' + (breeze.last && breeze.last.at
@@ -384,7 +372,6 @@
       pill('群语音：' + (form.media.voiceReplyGroups ? '开' : '关'), form.media.voiceReplyGroups ? 'is-warn' : '');
       pill('@ 语音：' + (form.media.voiceReplyMentions ? '开' : '关'), form.media.voiceReplyMentions ? 'is-warn' : '');
       pill('私聊语音：' + (form.media.voiceReplyPrivate ? '开' : '关'), form.media.voiceReplyPrivate ? 'is-warn' : '');
-      pill('表情包：' + (form.media.stickers ? '开' : '关'), form.media.stickers ? 'is-ok' : '');
       pill('合成：' + (form.media.ttsProvider === 'breeze' ? 'BreezeBlue' : 'SAPI'), form.media.ttsProvider === 'breeze' ? 'is-ok' : '');
     }
     function dirtyCount() {

@@ -415,7 +415,7 @@ for (const s of ['scripts/sessions.mjs']) {
 //   10.6 引擎侧扩展点结构正确：技能必须有 SKILL.md；插件目录要有开发约定
 head('10. 目录契约（哪里放什么 · 防乱建）');
 
-const ALLOWED_DIRS = ['renderer', 'scenarios', 'scripts', 'data', 'captures', 'node_modules', '.git', 'GUI改造的项目信息', 'pet', 'pet3d', 'petlive2d', '.idea'];   // .idea = 本机 IDE 缓存（不入库）   // 2026-11-13：pet = 桌宠参数与运行时快照，pet3d = 概念图/表情包资产（3D 渲染已移除），petlive2d = Live2D 面板与模型
+const ALLOWED_DIRS = ['renderer', 'scenarios', 'scripts', 'data', 'captures', 'node_modules', '.git', 'GUI改造的项目信息', 'pet', '.idea'];   // .idea = 本机 IDE 缓存（不入库）   // 2026-11-13：pet = 桌宠参数与运行时快照；pet3d/petlive2d 已随个性化形象移除（2026-11-23）
 const ALLOWED_FILES = [
   'main.js', 'preload.js', 'stock-store.js', 'oa-store.js', 'oa-ssh.js', 'updater.js', 'crash.js',
   '项目切换.js',   // 2026-11-11：程序开发「项目下拉」的数据面（main.js require；单测见 scripts\项目切换自检.mjs）
@@ -492,8 +492,7 @@ if (exists('scripts/backup-gui.mjs')) {
     .filter((x) => exists(x))   // 只要求备份「现在真的存在」的条目；历史清单里的旧文件名不该逼着备份空文件
     .filter((x) => {
       const esc = x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      // 目录：清单里写 'pet3d' 或写 'pet3d/app.js' 这类具体文件都算覆盖
-      // （pet3d 只备份源码文件，不搬 39MB 的模型/贴图）
+      // 目录：清单里写 'pet' 或写 'pet/xx' 这类具体文件都算覆盖
       if (ALLOWED_DIRS.includes(x)) return !new RegExp("['\"]" + esc + "(?:/|['\"])").test(listed);
       return !new RegExp("['\"]" + esc + "['\"]").test(listed);
     });

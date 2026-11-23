@@ -51,7 +51,7 @@ const projectSwitch = require('./项目切换');   // 程序开发场景「项�
 const engineBoot = require('./引擎引导');       // 首启下载引擎：检测 / 下载 / sha256 / 解包 / 整目录替换（可单测：工具\引擎引导.mjs）
 const socialSvc = require('./社交');           // 社交场景「消息流」的数据面（只读 transcript + 探 OneBot 端口；可单测：工具\消息流.mjs）
 const qqChatSvc = require('./QQ会话');         // QQ 私聊/群聊独立 DSH 会话路由（建会话 + 写 qq-bridge routes）
-const qqMediaSvc = require('./QQ能力');        // QQ 媒体能力：语音转写 / 千问表情包 / 语音合成（不碰第三方插件）
+const qqMediaSvc = require('./QQ能力');        // QQ 媒体能力：语音转写 / 语音合成（不碰第三方插件）
 const qqGroupSvc = require('./QQ群聊');        // QQ 群旁听 + 随机接话（不抢 @ 原生路由）
 const bridgeSvc = require('./桥接');           // QQ 个人号桥接（SnowLuma）的进程面：随壳启动/退出、面板按钮按需打开
 const wechatSvc = require('./微信通道');       // 微信个人号通道（whale_girl）的进程面 + 31241 换脑适配器
@@ -133,44 +133,15 @@ const projectSwitchSvc = projectSwitch.createService({
 
 // ---- 保命入口服务（127.0.0.1:SITE_PORT）----
 // 2026-11-12：个人站场景（官网静态预览 / 社区站预览 / 本地文件浏览）已整块删除，
-//   这个端口只剩 `/chat`（用当前 token 跳引擎对话页）与桌宠 Live2D 的 `/petlive2d/*`。
+//   这个端口只剩 `/chat`（用当前 token 跳引擎对话页）。2026-11-23 起桌宠 Live2D 面板也移除。
 //   删面板前先确认过：6 个场景 json 无一引用 personal-site，`code-urls` 只用 app.site.open/probe（不在此服务内）。
 // 2026-11-12 跨机器移植：端口统一可 env 覆盖（与 外壳\scripts\自检.mjs、工具\环境.mjs 同源）
 const SITE_PORT = Number(process.env.SITE_PORT || machinePort('site', 31238));
 let siteServer = null;
 
-// ---- 桌宠形象（2026-11-20）：Live2D —— petlive2d 目录 = 页面 + 模型 + vendor；状态端点 /petlive2d/state ----
-// 3D（three.js + GLB）已于同日移除；概念图/表情包仍留在 pet3d，供 QQ/微信表情链路使用。
-const PETLIVE2D_DIR = path.join(__dirname, 'petlive2d');
-// 可服务的后缀（模型目录里可以放任意文件，但只放行这些类型；⛔ 不放 .exe/.bat/.ps1）
-const PETLIVE2D_CT = {
-  '.html': 'text/html; charset=utf-8',
-  '.js': 'text/javascript; charset=utf-8',
-  '.css': 'text/css; charset=utf-8',
-  '.json': 'application/json; charset=utf-8',
-  '.moc3': 'application/octet-stream',
-  '.png': 'image/png',
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.webp': 'image/webp',
-  '.wav': 'audio/wav',
-  '.mp3': 'audio/mpeg',
-  '.ogg': 'audio/ogg',
-  '.txt': 'text/plain; charset=utf-8',
-  '.md': 'text/plain; charset=utf-8',
-};
-const PETLIVE2D_EXT = Object.keys(PETLIVE2D_CT);
 // 四态判定（复用 社交.js 读人格会话 transcript）
 const petState = require('./桌宠状态');
 const petBody = require('./桌宠身体');   // 桌面身体（dsh-pet 0.4.9）薄客户端：只推状态/说一句，不借它的人格与账
-function petSessionId() {
-  // 会话 id 只认场景 json（换会话.mjs 会同步改它），不硬编码
-  try {
-    const sc = JSON.parse(fs.readFileSync(path.join(SCENARIOS_DIR, 'pet.json'), 'utf8'));
-    const ai = ((sc && sc.panels) || []).find((p) => p && p.type === 'harness' && p.sessionId);
-    return ai ? String(ai.sessionId) : '';
-  } catch (e) { return ''; }
-}
 
 // ---- 桌面身体桥（2026-11-20）----
 // 为什么：工作台自己的 Live2D 还在磨模型，先用 dsh-pet 0.4.9 当身体；它只负责渲染/动画/物理/气泡，
@@ -1366,42 +1337,8 @@ function startSiteServer() {
       }
       return;
     }
-    // ---- 桌宠 Live2D：静态资源 + 状态（2026-11-20）----
-    // 页面 /petlive2d/ 走 HTTP（不是 file://）：模型、贴图、vendor 全部同源，无 CORS/文件协议限制。
-    if (u === '/petlive2d/state') {
-      const sid = petSessionId();
-      const st = sid ? petState.stateOf(DSH_HOME, sid) : { state: 'idle', why: 'no-session' };
-      const body = JSON.stringify({
-        state: st.state,
-        sessionId: sid || '',
-        at: Date.now(),
-      });
-      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store, no-cache, must-revalidate' });
-      res.end(body);
-      return;
-    }
-    if (u === '/petlive2d' || u === '/petlive2d/' || u.indexOf('/petlive2d/') === 0) {
-      const rel = (u === '/petlive2d' || u === '/petlive2d/') ? 'index.html' : u.slice('/petlive2d/'.length);
-      // 防目录穿越：解析后必须仍在 petlive2d 目录内，且后缀在白名单里
-      let fp = '';
-      try {
-        const resolved = path.resolve(PETLIVE2D_DIR, rel);
-        if (resolved.indexOf('\0') < 0 && (resolved === PETLIVE2D_DIR || resolved.startsWith(PETLIVE2D_DIR + path.sep))) fp = resolved;
-      } catch (e) { fp = ''; }
-      const ext = fp ? path.extname(fp).toLowerCase() : '';
-      if (!fp || PETLIVE2D_EXT.indexOf(ext) < 0) {
-        res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' });
-        res.end('not found');
-        return;
-      }
-      fs.readFile(fp, function (err, data) {
-        if (err) { res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }); res.end('not found'); return; }
-        res.writeHead(200, { 'Content-Type': PETLIVE2D_CT[ext] || 'application/octet-stream', 'Cache-Control': 'no-store' });
-        res.end(data);
-      });
-      return;
-    }
-    // 其它路径一律 404：个人站官网预览与 /__community/ 社区站预览已于 2026-11-12 删除
+    // 其它路径一律 404：个人站官网预览与 /__community/ 社区站预览已于 2026-11-12 删除；
+    // 桌宠 Live2D 面板（/petlive2d/*）于 2026-11-23 移除。
     res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' });
     res.end('not found');
   });
@@ -5138,12 +5075,11 @@ ipcMain.handle('qq-chat:remove', (e, args) => qqChatService.remove(args || {}));
 ipcMain.handle('qq-chat:contacts', () => qqChatService.contacts());
 
 // ---- QQ 媒体能力（2026-11-19）----
-// 语音转写 / 千问表情包 / 语音合成统一在这里；不写进 dsh-onebot-channel，
+// 语音转写 / 语音合成统一在这里；不写进 dsh-onebot-channel，
 // 插件升级不会被覆盖，群聊随机接话和 QQ 卡片共用同一份状态。
 const qqMediaService = qqMediaSvc.createService({ dshHome: DSH_HOME, log: log });
 ipcMain.handle('qq-media:status', () => qqMediaService.status());
 ipcMain.handle('qq-media:settings-save', (e, patch) => qqMediaService.settingsSave(patch || {}));
-ipcMain.handle('qq-media:sticker-generate', (e, args) => qqMediaService.generateSticker((args && args.emotion) || '', (args && args.situation) || ''));
 ipcMain.handle('qq-media:tts-test', (e, args) => qqMediaService.synthesizeVoice(String((args && args.text) || '').slice(0, 200)));
 
 // ---- QQ 群聊旁听 / 随机接话（2026-11-19）----

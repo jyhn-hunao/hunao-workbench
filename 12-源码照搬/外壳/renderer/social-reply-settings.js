@@ -176,7 +176,7 @@
     var rowSticker = mk('div', 'wxs-row');
     var sl = mk('div', 'wxs-lab-wrap');
     sl.appendChild(mk('div', 'wxs-lab', '表情包频率'));
-    sl.appendChild(mk('div', 'wxs-hint', '微信固定图库有开心 / 傲娇 / 炸毛 / 鲸鲸千问；开启「按需生成」后，图库没有的合理情绪由微信功能页的千问补图并入库。QQ 用原生表情语法；飞书暂不支持贴纸包。'));
+    sl.appendChild(mk('div', 'wxs-hint', '微信固定图库随个性化形象一并移除（2026-11-23），本仓不再维护表情包素材；QQ 用原生表情语法；飞书暂不支持贴纸包。'));
     rowSticker.appendChild(sl);
     var sc = mk('div', 'wxs-ctrl');
     var si = mk('input', 'wxs-num');

@@ -46,8 +46,7 @@ const cfg = (env, sourceType) => ({
   rules: { 'no-undef': 'error' },
 })
 
-// 1. 三组扫描：后端 .mjs（module / node）；外壳 .js（script / node+browser）；
-//    外壳 petlive2d（浏览器 ES module：app.js 用 type=module 加载，vendor 是第三方不查）
+// 1. 两组扫描：后端 .mjs（module / node）；外壳 .js（script / node+browser）
 const GROUPS = [
   {
     name: '后端脚本（工具 / 外壳 scripts / 插件）',
@@ -61,20 +60,11 @@ const GROUPS = [
     config: path.join(TMP, 'web.json'),
     targets: [SHELL],
     ext: '.js',
-    ignore: ['**/node_modules/**', '**/data/**', '**/scenarios/**', '**/pet3d/**', '**/petlive2d/**'],
-  },
-  {
-    name: '外壳 petlive2d（浏览器 ES module）',
-    config: path.join(TMP, 'petlive2d.json'),
-    targets: [path.join(SHELL, 'petlive2d')].filter((p) => fs.existsSync(p)),
-    ext: '.js',
-    // vendor 是随壳分发的第三方 PixiJS / Live2D，只做语法兜底，不查 no-undef
-    ignore: ['**/vendor/**'],
+    ignore: ['**/node_modules/**', '**/data/**', '**/scenarios/**'],
   },
 ]
 fs.writeFileSync(GROUPS[0].config, JSON.stringify(cfg({ node: true }, 'module'), null, 2), 'utf8')
 fs.writeFileSync(GROUPS[1].config, JSON.stringify(cfg({ node: true, browser: true }, 'script'), null, 2), 'utf8')
-fs.writeFileSync(GROUPS[2].config, JSON.stringify(cfg({ browser: true }, 'module'), null, 2), 'utf8')
 
 // 2. 找 eslint：本地 → 全局 → npx（首次联网装到 npm 缓存，不写进本仓依赖）
 function pickRunner() {
