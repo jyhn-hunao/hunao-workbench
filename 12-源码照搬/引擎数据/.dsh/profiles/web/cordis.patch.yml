@@ -46,3 +46,10 @@
     provider: deepseek-official
     model: deepseek-flash
     reasoningEffort: high
+
+# ---- 2026-11-24 回信路由：面板来的消息只能在面板回，通道工具只放行通道来源（工具\回信路由.mjs 装）----
+- insert:
+    - id: reply-router
+      name: "dsh-reply-router"
+      config:
+        mode: enforce

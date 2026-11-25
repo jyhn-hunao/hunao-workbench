@@ -3,8 +3,7 @@
   "private": true,
   "dependencies": {
     "@xmanrui/dsh-im": "^5.10.0",
-    "dsh-onebot-channel": "^0.15.2",
-    "dsh-pet": "0.4.9"
+    "dsh-onebot-channel": "^0.15.2"
   },
   "dsh": {
     "profile": {
@@ -12,9 +11,7 @@
         "@deepseek-ai/dsh-base",
         "@deepseek-ai/dsh-web-app",
         "@xmanrui/dsh-im",
-        "dsh-onebot-channel",
-        "dsh-token-guard",
-        "dsh-pet"
+        "dsh-onebot-channel"
       ]
     }
   }
