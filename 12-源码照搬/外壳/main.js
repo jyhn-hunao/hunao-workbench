@@ -3581,25 +3581,33 @@ const LIFE_MEM_DIR = path.join(DSH_HOME, '场景记忆', '生活');
 const LIFE_CONTENT_FILE = path.join(LIFE_MEM_DIR, '内容源.json');
 const LIFE_PUB_FILE = path.join(LIFE_MEM_DIR, '发布.json');
 const LIFE_QUOTA_FILE = path.join(LIFE_MEM_DIR, '发布额度.json');
+const LIFE_RHYTHM_FILE = path.join(LIFE_MEM_DIR, '节奏.json');
 const LIFE_DEFAULTS = {
   content: {
     enabled: true, dailyMax: 2, skipProb: 0.3, deepRead: 1,
     taste: { like: [], block: [] },
     sources: [{ id: 'bili-hot', name: 'B站热门', platform: 'bilibili', kind: 'popular', weight: 3, limit: 12, enabled: true }]
   },
-  publish: { ownerMid: '', commentEnabled: true, dmEnabled: true, dynamicEnabled: true }
+  publish: { ownerMid: '', commentEnabled: true, dmEnabled: true, dynamicEnabled: true },
+  // 与 工具\生活节奏.mjs 的 DEFAULT_RHYTHM 同一口径：脚本读不到文件时按这套跑，面板显示也用它兜底
+  rhythm: {
+    browse: { from: '09:00', to: '23:30', minEnergy: 25, growPerHour: 6, cost: 25 },
+    comment: { enabled: true, hourMax: 12, dayMax: 30, cooldownSec: 120, videoCooldownDays: 7 },
+    hail: { enabled: true, perDay: 2, channel: 'auto' }
+  }
 };
 function readJsonSafe(p, fb) { try { return JSON.parse(fs.readFileSync(p, 'utf8')); } catch (e) { return fb; } }
 ipcMain.handle('life:config:get', () => {
   const content = readJsonSafe(LIFE_CONTENT_FILE, null) || LIFE_DEFAULTS.content;
   const publish = Object.assign({}, LIFE_DEFAULTS.publish, readJsonSafe(LIFE_PUB_FILE, null) || {});
+  const rhythm = Object.assign({}, LIFE_DEFAULTS.rhythm, readJsonSafe(LIFE_RHYTHM_FILE, null) || {});
   const quota = readJsonSafe(LIFE_QUOTA_FILE, null) || null;
   let account = null;
   try {
     const a = JSON.parse(fs.readFileSync(BILI_ACCOUNT_FILE, 'utf8'));
     account = { mid: a.dedeUserID || '', at: a.at || 0, hasSessdata: !!a.sessdata };
   } catch (e) { account = null; }
-  return { ok: true, content, publish, quota, account, memDir: LIFE_MEM_DIR };
+  return { ok: true, content, publish, rhythm, quota, account, memDir: LIFE_MEM_DIR };
 });
 ipcMain.handle('life:config:save', (e, payload) => {
   const p = payload && typeof payload === 'object' ? payload : {};
@@ -3611,6 +3619,10 @@ ipcMain.handle('life:config:save', (e, payload) => {
     if (p.publish && typeof p.publish === 'object') {
       fs.mkdirSync(LIFE_MEM_DIR, { recursive: true });
       fs.writeFileSync(LIFE_PUB_FILE, JSON.stringify(p.publish, null, 2) + '\n', 'utf8');
+    }
+    if (p.rhythm && typeof p.rhythm === 'object') {
+      fs.mkdirSync(LIFE_MEM_DIR, { recursive: true });
+      fs.writeFileSync(LIFE_RHYTHM_FILE, JSON.stringify(p.rhythm, null, 2) + '\n', 'utf8');
     }
     return { ok: true };
   } catch (e) {

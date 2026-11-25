@@ -80,7 +80,9 @@ function buildSpecs(ctx) {
     ],
 
     // 生活场景：生活设置已是专用弹窗（额度、刷什么发什么都在里面，不再单列一条只读）
+    // 生活节奏（2026-11-25）把三个"什么时候"摆到面板：刷（时段/劲儿）、评论（开关与额度）、喊你（规则与频次）
     life: [
+      { key: 'lifeRhythm', kind: 'open', open: 'openLifeRhythm', title: '生活节奏', desc: '什么时候刷 / 什么时候评论 / 什么时候喊你（写 生活\\节奏.json）', danger: false },
       { key: 'lifeCfg', kind: 'open', open: 'openLifeConfig', title: '生活设置', desc: '刷什么、发什么、小号同步、发布额度', danger: false }
     ],
 

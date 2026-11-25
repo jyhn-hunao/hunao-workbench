@@ -33,6 +33,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as biliSrc from './内容源/bilibili.mjs';
+import { load as loadRhythm } from './生活节奏.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, '..');
@@ -45,10 +46,13 @@ const QUOTA_FILE = path.join(MEM, '发布额度.json');
 const LOG_FILE = path.join(MEM, '发布日志.md');
 
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36';
-const HOUR_MAX = 12;
-const DAY_MAX = 30;
-const COOLDOWN_MS = 120 * 1000;
-const VIDEO_COOLDOWN_MS = 7 * 24 * 60 * 60 * 1000;
+// 说话额度（2026-11-25 起真源是 生活\节奏.json 的 comment 段，面板「生活 → 节奏」可改）
+const RHYTHM = loadRhythm();
+const COMMENT_CFG = RHYTHM.comment;
+const HOUR_MAX = COMMENT_CFG.hourMax;
+const DAY_MAX = COMMENT_CFG.dayMax;
+const COOLDOWN_MS = COMMENT_CFG.cooldownSec * 1000;
+const VIDEO_COOLDOWN_MS = COMMENT_CFG.videoCooldownDays * 24 * 60 * 60 * 1000;
 
 const argv = process.argv.slice(2);
 const cmd = String(argv[0] || '');
@@ -172,6 +176,7 @@ async function cmdComment() {
   if (!acc) { say('✗ 没有小号登录态：去生活场景网页登录小号，再点面板「同步账号」'); return 2; }
   const pub = readJson(PUB_FILE, {});
   if (pub.commentEnabled === false) { say('✗ 评论出口在 发布.json 里关着'); return 2; }
+  if (COMMENT_CFG.enabled === false) { say('✗ 评论总开关关着（面板「生活 → 节奏 → 什么时候评论」打开它）'); return 2; }
   const q = readQuota();
   const block = checkQuota(q, bv[0]);
   if (block) { say('✗ ' + block); return 1; }

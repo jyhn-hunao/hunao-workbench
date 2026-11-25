@@ -28568,6 +28568,217 @@ window.openLifeConfig = function () {
 };
 
 /* ══════════════════════════════════════════════════════════════════
+   生活 · 生活节奏（弹窗，2026-11-25）
+   入口：生活场景工具条「节奏」按钮 + 面板设置项 lifeRhythm。
+   三个"什么时候"摆到面板：
+     刷   清醒时段 / 劲儿门槛 / 每小时恢复 / 刷一次扣多少
+     评论 总开关 / 每小时 / 每天 / 间隔 / 同视频几天一次
+     喊你 刷到喜欢的要不要通知 / 每天最多几次 / 走哪条通道
+   真源 场景记忆\生活\节奏.json；消费方 工具\刷内容.mjs、工具\B站操作.mjs。
+   每天刷几次 / 跳过概率 / 深读几条 仍在「生活设置」的内容源里，这里不重复放（避免两处改同一个数）。
+   ══════════════════════════════════════════════════════════════════ */
+window.openLifeRhythm = function () {
+  const API = window.app && window.app.lifeConfig;
+  if (!API || typeof API.get !== 'function') {
+    try { if (window.__tbsToast) window.__tbsToast('生活节奏没接上：主进程/preload 还是旧的，重启一次工作台。', true, 8000); } catch (e) { wbWarn(e) }
+    return Promise.resolve(null);
+  }
+  const toast = (m, bad, ms) => { try { if (window.__tbsToast) window.__tbsToast(m, bad, ms); } catch (e) { wbWarn(e) } };
+  let disposed = false;
+  let d = null;
+
+  // 1. 外壳
+  const mask = el('div', 'psed-mask');
+  const dlg = el('div', 'psed-dlg cfg-dlg cfg-dlg-lg');
+  const head = el('div', 'cfg-head');
+  const hw = el('div', 'cfg-hw');
+  hw.appendChild(el('div', 'cfg-title', '生活节奏'));
+  hw.appendChild(el('div', 'cfg-sub', '三个「什么时候」：什么时候刷、什么时候能评论、刷到喜欢的什么时候喊你。改完点保存，不用碰 JSON。'));
+  const x = el('button', 'cfg-x', '✕');
+  x.title = '关闭（Esc）';
+  head.appendChild(hw); head.appendChild(x);
+  dlg.appendChild(head);
+  const body = el('div', 'cfg-body');
+  dlg.appendChild(body);
+  const wrap = el('div', 'life-wrap');
+  body.appendChild(wrap);
+  const form = el('div', 'life-form');
+  wrap.appendChild(form);
+
+  function labeled(label, node, hint) {
+    const f = el('div', 'life-f');
+    f.appendChild(el('div', 'life-l', label));
+    if (node.type !== 'checkbox') node.classList.add('life-in');
+    f.appendChild(node);
+    if (hint) f.appendChild(el('div', 'life-h', hint));
+    return f;
+  }
+  function numInput(v, min, max, step) {
+    const n = el('input');
+    n.type = 'number'; n.min = String(min); n.max = String(max); n.step = String(step || 1);
+    n.value = String(v);
+    return n;
+  }
+  function clampNum(v, lo, hi, d) {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return d;
+    return Math.max(lo, Math.min(hi, n));
+  }
+  function toMin(v) {
+    const m = String(v || '').match(/^(\d{1,2}):(\d{2})$/);
+    if (!m) return -1;
+    const h = Number(m[1]); const mi = Number(m[2]);
+    if (h < 0 || h > 23 || mi < 0 || mi > 59) return -1;
+    return h * 60 + mi;
+  }
+
+  // 2. 什么时候刷
+  const secB = el('section', 'life-sec');
+  secB.appendChild(el('div', 'life-sec-h', '刷 · 什么时候刷'));
+  const gB = el('div', 'life-grid');
+  secB.appendChild(gB);
+  const bFrom = el('input'); bFrom.type = 'time'; bFrom.value = '09:00';
+  const bTo = el('input'); bTo.type = 'time'; bTo.value = '23:30';
+  const bMin = numInput(25, 1, 100, 1);
+  const bGrow = numInput(6, 0, 50, 1);
+  const bCost = numInput(25, 0, 100, 1);
+  gB.appendChild(labeled('清醒从', bFrom, '这个点之前她在睡，不刷'));
+  gB.appendChild(labeled('清醒到', bTo, '过了这个点也不刷'));
+  gB.appendChild(labeled('劲儿门槛', bMin, '0–100；不到这个值就不刷，等它攒上来'));
+  gB.appendChild(labeled('每小时恢复', bGrow, '劲儿每小时自然涨多少'));
+  gB.appendChild(labeled('刷一次扣', bCost, '真刷成一次才扣；跳过和失败不扣'));
+  secB.appendChild(el('div', 'life-sec-sub', '每天最多几次 / 跳过概率 / 深读几条 不在这里 —— 去「生活设置 → 内容源」改（同一份 内容源.json，避免两个地方改同一个数）'));
+  form.appendChild(secB);
+
+  // 3. 什么时候能评论
+  const secC = el('section', 'life-sec');
+  secC.appendChild(el('div', 'life-sec-h', '评论 · 什么时候能评论'));
+  const gC = el('div', 'life-grid');
+  secC.appendChild(gC);
+  const cOn = el('input'); cOn.type = 'checkbox'; cOn.checked = true;
+  const cHour = numInput(12, 1, 60, 1);
+  const cDay = numInput(30, 1, 300, 1);
+  const cGap = numInput(120, 0, 3600, 1);
+  const cVg = numInput(7, 0, 365, 1);
+  gC.appendChild(labeled('允许评论', cOn, '关掉 = 一条都不发（脚本里直接拦）'));
+  gC.appendChild(labeled('每小时最多', cHour, '不管对谁，一小时内总共几条'));
+  gC.appendChild(labeled('每天最多', cDay, '跨小时的总上限'));
+  gC.appendChild(labeled('两条之间至少（秒）', cGap, '防手滑连发'));
+  gC.appendChild(labeled('同一视频隔几天', cVg, '同一条视频几天内只评论一次'));
+  secC.appendChild(el('div', 'life-sec-sub', '还有一道独立的口子在「生活设置 → 说话 → 开评论」（发布.json），两个都开才发得出去；评论里 @ 谁由「主人 B站 UID」决定'));
+  form.appendChild(secC);
+
+  // 4. 什么时候喊你
+  const secH = el('section', 'life-sec');
+  secH.appendChild(el('div', 'life-sec-h', '喊你 · 刷到喜欢的要不要通知'));
+  const gH = el('div', 'life-grid');
+  secH.appendChild(gH);
+  const hOn = el('input'); hOn.type = 'checkbox'; hOn.checked = true;
+  const hPer = numInput(2, 0, 10, 1);
+  const hChan = el('select');
+  [['auto', '跟着通道顺序（微信→QQ→飞书）'], ['微信', '只走微信'], ['QQ', '只走 QQ'], ['飞书', '只走飞书']].forEach(([v, t]) => {
+    const o = el('option'); o.value = v; o.textContent = t;
+    hChan.appendChild(o);
+  });
+  gH.appendChild(labeled('刷到喜欢的喊我', hOn, '候选里有她平时爱看的词，就按通道顺序发你手机一条'));
+  gH.appendChild(labeled('每天最多喊几次', hPer, '0 = 不喊；喊过的不重复喊'));
+  gH.appendChild(labeled('走哪条通道', hChan, '通道能不能通在「社交 → 主动出消息」里测'));
+  secH.appendChild(el('div', 'life-sec-sub', '喊的时机：她真刷完一条之后才喊，不提前；素材还是她挑，这里只是通知，不替她决定看什么'));
+  form.appendChild(secH);
+
+  // 5. 读取 / 保存
+  function fill(res) {
+    d = res || {};
+    const r = (d && d.rhythm) || {};
+    const b = r.browse || {};
+    const c = r.comment || {};
+    const h = r.hail || {};
+    bFrom.value = String(b.from || '09:00');
+    bTo.value = String(b.to || '23:30');
+    bMin.value = String(b.minEnergy != null ? b.minEnergy : 25);
+    bGrow.value = String(b.growPerHour != null ? b.growPerHour : 6);
+    bCost.value = String(b.cost != null ? b.cost : 25);
+    cOn.checked = c.enabled !== false;
+    cHour.value = String(c.hourMax != null ? c.hourMax : 12);
+    cDay.value = String(c.dayMax != null ? c.dayMax : 30);
+    cGap.value = String(c.cooldownSec != null ? c.cooldownSec : 120);
+    cVg.value = String(c.videoCooldownDays != null ? c.videoCooldownDays : 7);
+    hOn.checked = h.enabled !== false;
+    hPer.value = String(h.perDay != null ? h.perDay : 2);
+    hChan.value = String(h.channel || 'auto');
+  }
+  async function load() {
+    try {
+      const res = await API.get();
+      if (disposed) return;
+      fill(res);
+      note.textContent = '已读取';
+    } catch (e) {
+      toast('读节奏失败：' + ((e && e.message) || e), true, 8000);
+    }
+  }
+  async function save() {
+    const from = toMin(bFrom.value);
+    const to = toMin(bTo.value);
+    if (from < 0 || to < 0) { toast('时段填成 HH:MM，比如 09:00 / 23:30', true, 8000); return; }
+    if (to <= from) { toast('「清醒到」必须晚于「清醒从」（暂不支持跨天）', true, 8000); return; }
+    const rhythm = {
+      browse: {
+        from: bFrom.value, to: bTo.value,
+        minEnergy: Math.round(clampNum(bMin.value, 1, 100, 25)),
+        growPerHour: Math.round(clampNum(bGrow.value, 0, 50, 6)),
+        cost: Math.round(clampNum(bCost.value, 0, 100, 25))
+      },
+      comment: {
+        enabled: cOn.checked,
+        hourMax: Math.round(clampNum(cHour.value, 1, 60, 12)),
+        dayMax: Math.round(clampNum(cDay.value, 1, 300, 30)),
+        cooldownSec: Math.round(clampNum(cGap.value, 0, 3600, 120)),
+        videoCooldownDays: Math.round(clampNum(cVg.value, 0, 365, 7))
+      },
+      hail: {
+        enabled: hOn.checked,
+        perDay: Math.round(clampNum(hPer.value, 0, 10, 2)),
+        channel: hChan.value || 'auto'
+      }
+    };
+    try {
+      const r = await API.save({ rhythm });
+      if (!r || !r.ok) throw new Error((r && r.error) || '保存失败');
+      note.textContent = '已保存 ' + new Date().toLocaleTimeString();
+      toast('生活节奏已保存（下一轮刷内容就按新规矩来）', false, 5000);
+    } catch (e) {
+      toast('保存失败：' + ((e && e.message) || e), true, 8000);
+    }
+  }
+
+  const note = el('div', 'cfg-fh', '只改节奏，不动内容源；保存后脚本下一轮读新值。');
+  const bSave = el('button', 'cfg-btn is-primary', '保存节奏');
+  bSave.type = 'button';
+  bSave.addEventListener('click', save);
+  wrap.appendChild(el('div', 'life-foot', '这三个"什么时候"写在同一份 节奏.json：刷内容.mjs 读它判时段与劲儿，B站操作.mjs 读它判额度，刷完一条按它决定喊不喊你。'));
+  const foot = el('div', 'cfg-foot');
+  foot.appendChild(note);
+  foot.appendChild(bSave);
+  dlg.appendChild(foot);
+
+  // 6. 关闭与挂载
+  function close() {
+    disposed = true;
+    try { mask.remove(); } catch (e) { wbWarn(e) }
+    document.removeEventListener('keydown', onKey);
+  }
+  function onKey(e) { if (e.key === 'Escape') { e.stopPropagation(); close(); } }
+  x.addEventListener('click', close);
+  mask.addEventListener('mousedown', (e) => { if (e.target === mask) close(); });
+  document.addEventListener('keydown', onKey);
+  mask.appendChild(dlg);
+  document.body.appendChild(mask);
+  load();
+  return Promise.resolve(null);
+};
+
+/* ══════════════════════════════════════════════════════════════════
    社交 · 主动出消息走哪个通道（弹窗，2026-11-25）
    入口：社交场景「通道规矩」卡（type=links，open=openChannelOrder），不常驻面板。
    默认 微信 → QQ → 飞书 → 其它，前一条不通顺位往下。

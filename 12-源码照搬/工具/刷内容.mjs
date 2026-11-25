@@ -32,6 +32,8 @@ import {
   finalTextOf, getCookie, promptSession
 } from './派发-公共.mjs';
 import { adapterFor, listAdapters } from './内容源/索引.mjs';
+import { spawnSync } from 'node:child_process';
+import { load as loadRhythm, fmtHM } from './生活节奏.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, '..');
@@ -49,15 +51,20 @@ const PACER_FILE = path.join(CONTENT_DIR, '_pacer.json');
 const DATA_DIR = path.join(process.env.DSH_SHELL_DATA || path.join(SHELL, 'data'), 'pet');
 const ENERGY_FILE = path.join(DATA_DIR, '劲儿.json');
 
-// 生物钟与攒劲参数（与 开口.mjs 同一口径；劲儿账是同一个文件）
-const WAKE_FROM = 9 * 60;        // 09:00
-const WAKE_TO = 23 * 60 + 30;    // 23:30
-const GROW_PER_HOUR = 6;         // 每小时攒 6 点
-const BROWSE_MIN = 25;           // 劲儿 >= 25 才刷
-const BROWSE_COST = 25;          // 刷一次扣 25
+// 生物钟与攒劲参数（2026-11-25 起真源是 生活\节奏.json 的 browse 段，这里只留兜底默认）
+// 与 开口.mjs 同一口径（劲儿账是同一个文件）；面板「生活 → 节奏」可改时段 / 门槛 / 恢复 / 扣劲
+const RHYTHM = loadRhythm();
+const RHY_BROWSE = RHYTHM.browse;
+const WAKE_FROM = RHY_BROWSE.fromMin;   // 默认 09:00
+const WAKE_TO = RHY_BROWSE.toMin;       // 默认 23:30
+const GROW_PER_HOUR = RHY_BROWSE.growPerHour;  // 默认每小时攒 6 点
+const BROWSE_MIN = RHY_BROWSE.minEnergy;       // 默认劲儿 >= 25 才刷
+const BROWSE_COST = RHY_BROWSE.cost;           // 默认刷一次扣 25
 const MAX_PER_DAY = 2;           // 兜底上限；配置里 dailyMax 更小则用配置
 const CANDIDATES_MAX = 10;       // 给她的候选上限
 const SEEN_KEEP = 500;           // 已看记录保留条数
+const CHANNEL_TOOL = path.join(HERE, '通道发送.mjs');   // 「喊主人」走通道优先级（微信→QQ→飞书→其它）
+const HAIL_FILE = path.join(DATA_DIR, '喊我.json');
 
 const DEFAULT_CONFIG = {
   enabled: true,
@@ -181,7 +188,7 @@ function pacerOk(p) {
 function canBrowse(st, cfg) {
   const min = nowMin();
   if (!cfg.enabled) return { ok: false, reason: '内容源配置关了（enabled=false）' };
-  if (min < WAKE_FROM || min >= WAKE_TO) return { ok: false, reason: '没到清醒时段（09:00–23:30），她在睡' };
+  if (min < WAKE_FROM || min >= WAKE_TO) return { ok: false, reason: '没到清醒时段（' + fmtHM(WAKE_FROM) + '–' + fmtHM(WAKE_TO) + '），她在睡' };
   if (Number(st.energy) < BROWSE_MIN) return { ok: false, reason: '劲儿不够（' + Math.round(st.energy) + '/' + BROWSE_MIN + '）' };
   const n = countToday();
   if (n >= cfg.dailyMax) return { ok: false, reason: '今天已经刷了 ' + n + '/' + cfg.dailyMax + ' 次' };
@@ -290,6 +297,49 @@ function filterAndRank(items, cfg) {
     }
   }
   return kept.slice(0, CANDIDATES_MAX);
+}
+
+// 7.5 喊主人一声（2026-11-25，真源 节奏.json 的 hail 段）
+//     不是替她决定看什么，只是「刷到的候选里有你可能爱看的」按通道优先级发到手机上；
+//     有总开关 + 每天次数上限 + 同一 key 不重复喊，避免变成推送机器。
+function readHail() {
+  const st = readJson(HAIL_FILE, null);
+  if (!st || st.day !== dayKey()) return { day: dayKey(), n: 0, keys: [] };
+  if (!Array.isArray(st.keys)) st.keys = [];
+  return st;
+}
+function hailOwner(cands, cfg) {
+  const h = (RHYTHM && RHYTHM.hail) || {};
+  if (h.enabled === false) return;
+  const like = (cfg.taste.like || []).map((x) => String(x).toLowerCase()).filter(Boolean);
+  if (!like.length) return;
+  const st = readHail();
+  const perDay = Number(h.perDay) || 0;
+  if (perDay <= 0 || st.n >= perDay) return;
+  const hit = cands.find((c) => {
+    if ((st.keys || []).includes(c.key)) return false;
+    const hay = (c.title + ' ' + (c.desc || '') + ' ' + (c.author || '')).toLowerCase();
+    return like.some((w) => hay.includes(w));
+  });
+  if (!hit) return;
+  const bv = String((hit.extra && hit.extra.bvid) || '');
+  const text = '刷到一条你可能爱看的：' + hit.title + (hit.author ? ' — ' + hit.author : '') + (bv ? '（BV ' + bv + '）' : '');
+  const args = ['发', '--说', text];
+  if (h.channel && h.channel !== 'auto') args.push('--通道', h.channel);
+  try {
+    const r = spawnSync(process.execPath, [CHANNEL_TOOL, ...args], { encoding: 'utf8', timeout: 60000 });
+    if (r.status === 0) {
+      st.n += 1;
+      st.keys = [...(st.keys || []), hit.key].slice(-20);
+      writeJson(HAIL_FILE, st);
+      say('· 喊了主人一声（今天 ' + st.n + '/' + perDay + '）：' + hit.title);
+    } else {
+      const tail = String((r.stdout || r.stderr || '').trim().split(/\r?\n/).filter(Boolean).pop() || '');
+      say('· 想喊主人但通道没通（exit ' + r.status + '）' + (tail ? '：' + tail.slice(0, 80) : ''));
+    }
+  } catch (e) {
+    say('· 喊主人失败：' + ((e && e.message) || e));
+  }
 }
 
 // 8. 深读：对排前 N 条调适配器 read()，把更多文字带回候选
@@ -490,6 +540,8 @@ async function cmdBrush() {
         saveEnergy(st2);
         pacerOk(pacer);
         say('✓ 她刷完一条（' + body.length + ' 字，劲儿 ' + Math.round(st2.energy) + ' 剩）→ ' + path.relative(ROOT, f));
+        // 刷成了才喊人：候选里有她平时爱看的，就按 节奏.json 的 hail 段通知主人
+        hailOwner(cands, cfg);
         return 0;
       }
       say('回合已结束但正文为空，再等一拍');
@@ -512,7 +564,7 @@ function cmdQuery() {
   const pacer = readPacer();
   const seen = readSeen();
   say('劲儿：' + Math.round(Number(st.energy)) + ' / 100（每小时 +' + GROW_PER_HOUR + '，刷一次扣 ' + BROWSE_COST + '，开口扣 50）');
-  say('时段：' + (awake ? '清醒（09:00–23:30），可以刷' : '在睡（09:00–23:30），这会儿不刷'));
+  say('时段：' + (awake ? '清醒（' + fmtHM(WAKE_FROM) + '–' + fmtHM(WAKE_TO) + '），可以刷' : '在睡（' + fmtHM(WAKE_FROM) + '–' + fmtHM(WAKE_TO) + '），这会儿不刷'));
   say('今天刷：' + n + ' / ' + cfg.dailyMax + ' 次（跳过也算一次醒）');
   say('跳过概率：' + Math.round(cfg.skipProb * 100) + '% · 深读 ' + cfg.deepRead + ' 条 · 已看 ' + Object.keys(seen).length + ' 条');
   if (pacerBlocked(pacer)) say('⚠ 平台退避中，还剩 ' + Math.round((Number(pacer.cooldownUntil) - Date.now()) / 60000) + ' 分钟');

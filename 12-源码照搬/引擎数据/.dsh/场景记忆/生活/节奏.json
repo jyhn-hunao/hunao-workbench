@@ -1,0 +1,21 @@
+{
+  "browse": {
+    "from": "09:00",
+    "to": "23:30",
+    "minEnergy": 25,
+    "growPerHour": 6,
+    "cost": 25
+  },
+  "comment": {
+    "enabled": true,
+    "hourMax": 12,
+    "dayMax": 30,
+    "cooldownSec": 120,
+    "videoCooldownDays": 7
+  },
+  "hail": {
+    "enabled": true,
+    "perDay": 2,
+    "channel": "auto"
+  }
+}

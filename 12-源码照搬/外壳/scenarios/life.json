@@ -17,6 +17,7 @@
     "h": 11,
     "items": [
       {"kind":"call","label":"生活","icon":"leaf","open":"scene-cfg:life:lifeCfg","title":"生活设置：刷什么 / 发什么 / 小号同步 / 发布额度"},
+      {"kind":"call","label":"节奏","icon":"clock","open":"scene-cfg:life:lifeRhythm","title":"生活节奏：什么时候刷 / 什么时候能评论 / 刷到喜欢的什么时候喊你"},
       {"kind":"call","label":"能力","icon":"sparkles","open":"scene-abil:life","title":"这个场景现在能干什么：面板 / 按钮 / 常用命令（点开就是功能地图）"}
     ]
   },
