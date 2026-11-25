@@ -642,12 +642,44 @@ function fitText(text, maxChars = 4000) {
 /** 手有什么（2026-11-25）：大脑要知道每双手能干什么、现在怎么干。
  *  数据源 = 外壳\data\场景能力.json（`场景能力.mjs 生成` 从 外壳\场景能力.js 的 MECHANISMS 同步）；
  *  每轮只列「场景 · 一句机制」，本轮消息命中某场景关键词再展开该场景全部机制。 */
+/** 场景能力目录：优先读 `外壳\data\场景能力.json`（本机派生、gitignore 掉了）；
+ *  换机器 / 安装版首次没有这个文件，就退回读 `scenarios\_场景能力.md`（随 git 走、格式固定），
+ *  别让「手有什么」整块静默消失。 */
+function capIndex(shell) {
+  try {
+    const j = JSON.parse(fs.readFileSync(path.join(shell, 'data', '场景能力.json'), 'utf8'))
+    if (j && (j.scenes || []).length) return j.scenes
+  } catch (e) { /* 落 md 兜底 */ }
+  try {
+    const txt = fs.readFileSync(path.join(shell, 'scenarios', '_场景能力.md'), 'utf8')
+    const out = []
+    const cells = (b, k) => {
+      const line = b.split(/\r?\n/).find((l) => l.startsWith('| ' + k + ' |'))
+      return line ? line.split('|')[2].trim() : ''
+    }
+    for (const b of txt.split(/^## /m).slice(1)) {
+      const head = b.split(/\r?\n/)[0].trim()
+      const idm = head.match(/`([^`]+)`/)
+      const mech = cells(b, '机制').split('<br>').map((s) => s.trim()).filter(Boolean)
+      if (!mech.length) continue
+      out.push({
+        id: idm ? idm[1] : head,
+        name: head.replace(/[（(][^）)]*[）)]\s*$/, '').trim(),
+        session: cells(b, '会话'),
+        keywords: cells(b, '能接').split(/\s*\/\s*/).map((s) => s.trim()).filter(Boolean),
+        mechanisms: mech,
+        commands: cells(b, '命令').split('<br>').map((s) => s.replace(/`/g, '').trim()).filter(Boolean)
+      })
+    }
+    return out.length ? out : null
+  } catch (e) { return null }
+}
+
 function handsBlock(query) {
   try {
     const shell = path.resolve(dshHome(), '..', '..', '外壳')
-    const j = JSON.parse(fs.readFileSync(path.join(shell, 'data', '场景能力.json'), 'utf8'))
-    const scenes = (j && j.scenes) || []
-    if (!scenes.length) return ''
+    const scenes = capIndex(shell)
+    if (!scenes || !scenes.length) return ''
     const q = String(query || '')
     const out = ['## 手有什么（各场景的机制，自动同步；不用记命令）']
     for (const s of scenes) {
