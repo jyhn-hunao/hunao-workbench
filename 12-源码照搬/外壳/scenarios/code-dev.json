@@ -1,77 +1,75 @@
 {
   "id": "code-dev",
   "name": "程序开发",
-  "description": "程序开发：写代码的统一入口，一个场景挂多个项目——AI 面板钉的是「当前项目」那条会话（会话 cwd = 项目根，所以那个仓的 AGENTS.md 自动生效）。上排 = Git（左分支树 / 右变更与提交历史，可切分支、双击文件看内容或改动）+ 预览（md/代码/图片/PDF）+ 文件树（跟着当前项目根，仍可上翻到盘符），下排 = 两块 AI：左「AI·工作区」是常驻的项目管理会话（cwd = 12-源码照搬\\工作区，管接入 / 切项目 / 跨项目规矩，不会被项目顶掉），右「AI·项目」钉当前项目的会话（cwd = 项目根，那个仓的 AGENTS.md 自动生效）。换项目 = 「AI·项目」标题栏的「项目」按钮（会话 / Git 仓库 / 文件面板 / 定位卡一起换，未接入的目录会先走接入脚本），也可 node 外壳\\scripts\\接入项目.mjs 手动接入；不是换场景。",
+  "description": "程序开发：写代码的统一入口，一个场景挂多个项目——AI 面板钉的是「当前项目」那条会话（会话 cwd = 项目根，所以那个仓的 AGENTS.md 自动生效）。布局：左列上 = 文件（跟着当前项目根，仍可上翻到盘符；第一行是全局搜索入口，Ctrl+Shift+F 打开居中弹窗（默认搜当前项目，也可手选具体目录），双击结果跳到预览对应行）、左列下 = Git（分支树 + 变更与提交历史，可切分支、双击文件看内容或改动）、中间 = 预览（md/代码/图片/PDF，点左边文件即看，代码默认彩色只读、Ctrl+F 文件内查找）、右列 = AI·项目 / AI多项目管理 共用同一块面板位（右侧图标条切换，不叠层）、最右侧 = 窄图标条（按钮只显示 Lucide 图标，悬停看名称；当前两个会话切换按钮，后续可加更多功能）。「AI·项目」是常驻会话（cwd = 项目根）；「AI多项目管理」是管理所有项目的入口，负责接入 / 切项目 / 跨项目规矩 / 派发任务 / 收回执，点右侧功能条切过去，再点 AI·项目切回。换项目 = 「AI·项目」标题栏的「项目」按钮（会话 / Git 仓库 / 文件面板 / 定位卡一起换，未接入的目录会先走接入脚本），也可 node 外壳\\scripts\\接入项目.mjs 手动接入；不是换场景。",
   "layout": "grid",
   "theme": "dark",
-  "cols": 6,
+  "cols": 23,
   "panels": [
-    {
-      "id": "cd-view",
-      "title": "预览",
-      "sub": "点右边的文件就在此预览；只读，不改任何文件",
-      "type": "view",
-      "home": true,
-      "homeFolders": [
-        "D:\\codeData"
-      ],
-      "filesPanel": "cd-files",
-      "col": 3,
-      "row": 1,
-      "w": 3,
-      "h": 3
-    },
     {
       "id": "cd-files",
       "title": "文件",
-      "sub": "D: · 代码目录",
       "type": "file",
       "mode": "local",
       "drives": [
         "D:"
       ],
       "followProject": true,
+      "tree": true,
       "viewPanel": "cd-view",
-      "col": 6,
+      "searchPanel": "cd-search",
+      "searchShortcut": "Ctrl+Shift+F",
+      "col": 1,
       "row": 1,
-      "w": 1,
+      "w": 6,
       "h": 3
     },
     {
       "id": "cd-git",
       "title": "Git",
-      "sub": "左：分支树（本地 / 远程，点一条切换）· 右：变更与提交历史（双击文件看文件内容 / 改动 diff）；空白处或分支上右键 = Update / Push / Fetch",
       "type": "git",
       "repo": "D:\\codeData\\workData\\workCode\\mlw",
       "viewPanel": "cd-view",
       "filesPanel": "cd-files",
       "col": 1,
-      "row": 1,
-      "w": 2,
+      "row": 4,
+      "w": 6,
       "h": 3
+    },
+    {
+      "id": "cd-view",
+      "title": "预览",
+      "type": "view",
+      "home": true,
+      "homeFolders": [
+        "D:\\codeData"
+      ],
+      "filesPanel": "cd-files",
+      "col": 7,
+      "row": 1,
+      "w": 9,
+      "h": 6
     },
     {
       "id": "cd-ai",
       "title": "AI·项目",
-      "sub": "钉当前项目的会话（cwd = 项目根）；换项目用标题栏「项目」",
       "type": "harness",
       "sessionTitle": "mlw",
-      "sessionId": "session-2373eea4-0555-4d30-9656-ab24666ff05c",
+      "sessionId": "session-14527449-637d-4713-9ef9-086d186468ff",
       "pinTarget": [
         "mlw",
         "程序开发"
       ],
       "projectSwitch": true,
       "expand": true,
-      "col": 3,
-      "row": 4,
-      "w": 4,
-      "h": 3
+      "col": 16,
+      "row": 1,
+      "w": 7,
+      "h": 6
     },
     {
       "id": "cd-ai-home",
-      "title": "AI·工作区",
-      "sub": "管项目：接入 / 切项目 / 跨项目规矩；会话 cwd = 12-源码照搬\\工作区",
+      "title": "AI多项目管理",
       "type": "harness",
       "sessionTitle": "程序开发·工作区",
       "sessionId": "session-e0306764-02f1-430b-a35d-959b75c62120",
@@ -79,11 +77,41 @@
         "程序开发·工作区",
         "程序开发"
       ],
-      "expand": true,
-      "col": 1,
-      "row": 4,
-      "w": 2,
-      "h": 3
+      "multiProject": true,
+      "drawer": "swap",
+      "swap": "cd-ai",
+      "drawerLauncher": "none",
+      "col": 16,
+      "row": 1,
+      "w": 7,
+      "h": 6
+    },
+    {
+      "id": "cd-rail",
+      "title": "功能",
+      "type": "rail",
+      "noBadge": true,
+      "col": 23,
+      "row": 1,
+      "w": 1,
+      "h": 6,
+      "items": [
+        {"kind":"base","label":"AI项目","icon":"folder-code","target":"cd-ai","close":"cd-ai-home","title":"AI·项目（当前项目会话）"},
+        {"kind":"drawer","label":"AI多项目管理","icon":"layers","target":"cd-ai-home","title":"AI多项目管理（接入 / 切项目 / 派发 / 回执）"},
+        {"kind":"call","label":"端口","icon":"network","open":"scene-cfg:code-dev:ports","title":"端口：引擎 / 站点 / 预览 / 网页版 AI 各占哪个口"},
+        {"kind":"call","label":"能力","icon":"sparkles","open":"scene-abil:code-dev","title":"这个场景现在能干什么：面板 / 按钮 / 常用命令（点开就是功能地图）"}
+      ]
+    },
+    {
+      "id": "cd-search",
+      "title": "全局搜索",
+      "type": "search",
+      "drawer": "modal",
+      "width": 760,
+      "shortcut": "Ctrl+Shift+F",
+      "drawerLauncher": "none",
+      "viewPanel": "cd-view",
+      "filesPanel": "cd-files"
     }
   ],
   "first": false

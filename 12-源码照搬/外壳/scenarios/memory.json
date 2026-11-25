@@ -4,15 +4,31 @@
  "description": "记忆：左边大窗口 = 记忆神经元视图（节点 = 记忆区域 / 场景 / 技能 / 项目 / 共享文档，连线 = 关系与跨场景依赖；可拖拽旋转、滚轮缩放、搜索、点节点看详情，节点路径加载时校验，失效标红）；右边窄条 = 内置 AI 会话（整列高）。数据只读自 引擎\\场景记忆\\_共享记忆 与 引擎\\.dsh\\skills；本场景职责只管记忆（体检 / 交接 / 归档 / 召回），不碰派发，面板本身只读。",
  "layout": "grid",
  "theme": "dark",
+ "cols": 24,
  "panels": [
-  {
+    {
+    "id": "mem-rail",
+    "title": "设置",
+    "type": "rail",
+    "noBadge": true,
+    "col": 24,
+    "row": 1,
+    "w": 1,
+    "h": 5,
+    "items": [
+      {"kind":"call","label":"维护","icon":"wrench","open":"scene-cfg:memory:auto","title":"自动维护：整理 / 巡检 / 清缓存 / 回滚开关与周期"},
+      {"kind":"call","label":"换会话","icon":"refresh-cw","open":"scene-cfg:memory:rotate","title":"自动换会话：阈值 / 轮次 / 空闲 / 冷却"},
+      {"kind":"call","label":"能力","icon":"sparkles","open":"scene-abil:memory","title":"这个场景现在能干什么：面板 / 按钮 / 常用命令（点开就是功能地图）"}
+    ]
+  },
+{
    "id": "mem-neuron",
    "title": "记忆神经元",
    "sub": "拖拽旋转 · 滚轮缩放 · 点击节点看详情 · 搜索过滤（只读，不改任何文件）",
    "type": "neuron",
    "col": 1,
    "row": 1,
-   "w": 3,
+   "w": 16,
    "h": 5
   },
   {
@@ -20,16 +36,27 @@
    "title": "AI·记忆",
    "sub": "",
    "type": "harness",
-   "col": 4,
+   "col": 17,
    "row": 1,
-   "w": 1,
+   "w": 7,
    "h": 5,
    "sessionTitle": "记忆",
    "sessionId": "session-a4f1c231-a316-4f9f-aaae-ca550f9ba485",
    "pinTarget": [
     "记忆"
    ]
+  },
+  {
+   "id": "mem-inject",
+   "title": "注入台账",
+   "sub": "每个会话面板注入没注入 · 此刻会注入哪些段 · 点一行看正文（只读，不写文件）",
+   "type": "mem-inject",
+   "drawer": "right",
+   "width": 580,
+   "drawerLauncher": "mem-chat",
+   "launcherLabel": "注入台账"
   }
+  
  ],
  "first": false
 }

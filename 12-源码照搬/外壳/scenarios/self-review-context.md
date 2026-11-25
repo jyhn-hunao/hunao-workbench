@@ -3,6 +3,7 @@
 - 场景 id：`self-review`
 - 一句话：自我复盘 场景
 - 面板：`外壳\scenarios\self-review.json`
+- 工具条：最右 38px 纯图标一枚「目录」→ `scene-cfg:self-review:lib` 弹窗，可改复盘目录（写 `引擎数据\.dsh\机器配置.json` 的 `reviewDir`，重启整壳后文档面板与「库」都跟着走）；原「库」只读项已改成能配
 - 记忆：`引擎数据\.dsh\场景记忆\自我复盘\`
 
 <!-- 记忆自主管理（2026-11-13） -->

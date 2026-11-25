@@ -1,53 +1,49 @@
 {
   "id": "pet",
   "name": "胡闹的大肥鱼",
-  "description": "胡闹的大肥鱼：人格本体场景。上方「人格主会话」负责她是谁、怎么说、记得什么，以及你直接教她的输入框；下方「通道消息」按聊天独立 DSH 会话聚合，能看私聊/群聊各自的消息，也可只看某一条。人格记忆在 引擎数据\\.dsh\\场景记忆\\胡闹的大肥鱼\\，标题栏「⚙ 设置」点开是参数弹窗（主动性 / 能做什么 / 什么要先问你 / 免打扰 / 场景路由 / 最近派发 / 桌面身体），参数落 外壳\\data\\pet\\设置.json（本机，不入库）。桌面形象由 dsh-pet 原生素材（蓝毛小女仆）渲染，不再维护本仓个性化形象；人格、场景路由、待批准、记忆仍由本场景与外壳负责。",
+  "description": "胡闹的大肥鱼：人格本体场景。整块「人格主会话」负责她是谁、怎么说、记得什么，以及你直接教她的输入框；右侧「设置」竖条是她的设置入口（人格 / 表达 / 关系 / 边界 / 档案 / 定时 / 劲儿 / 派发，一项一个按钮，点开就是对应弹窗，不占栅格）。通道消息不再复制到本场景，统一去「社交 → 全部消息」；通道怎么接、默认接哪个号也在「社交」。人格记忆在 引擎数据\\.dsh\\场景记忆\\胡闹的大肥鱼\\，桌宠参数（主动性 / 能做什么 / 什么要先问你 / 免打扰 / 场景路由 / 最近派发 / 桌面身体）从「设置 → 人格」进，参数落 外壳\\data\\pet\\设置.json（本机，不入库）。桌面形象由 dsh-pet 原生素材（蓝毛小女仆）渲染，不再维护本仓个性化形象；人格、场景路由、待批准、记忆仍由本场景与外壳负责。",
   "layout": "grid",
   "theme": "dark",
-  "cols": 3,
+  "cols": 24,
   "panels": [
-    {
+        {
+      "id": "pet-rail",
+      "title": "设置",
+      "type": "rail",
+      "noBadge": true,
+      "col": 24,
+      "row": 1,
+      "w": 1,
+      "h": 12,
+      "items": [
+        {"kind":"call","label":"人格","icon":"fish","open":"openPetSettings","title":"桌宠设置：主动性 / 能力 / 审批 / 记忆 / 场景互通"},
+        {"kind":"call","label":"表达","icon":"message-circle-more","open":"openSocialReplySettings","title":"回复风格：跨微信 / QQ / 飞书的语气与频率"},
+        {"kind":"call","label":"关系","icon":"heart","open":"openSocialRelationSettings","title":"关系与情绪：熟悉度 / 好感 / 当前情绪"},
+        {"kind":"call","label":"边界","icon":"shield","open":"openOutboundSettings","title":"安全闸门：IP / 路径 / 密钥 / 账号拦截"},
+        {"kind":"call","label":"档案","icon":"database","open":"openChatArchive","title":"聊天档案库：入库量 / 按天读 / 原文检索"},
+        {"kind":"call","label":"定时","icon":"clock","open":"scene-cfg:pet:timers","title":"定时任务：按点干的事（只读）"},
+        {"kind":"call","label":"劲儿","icon":"zap","open":"scene-cfg:pet:energy","title":"劲儿：主动开口的燃料（只读）"},
+        {"kind":"call","label":"派发","icon":"list-checks","open":"openDispatchBoard","title":"派发巡检：待批准 / 定时触发 / 超时未回执 / 补投（弹窗）"},
+        {"kind":"call","label":"能力","icon":"sparkles","open":"scene-abil:pet","title":"这个场景现在能干什么：面板 / 按钮 / 常用命令（点开就是功能地图）"}
+      ]
+    },
+{
       "id": "pet-ai",
       "title": "胡闹的大肥鱼",
-      "sub": "人格主会话 · 直接教学/对话输入；通道消息看下方「通道消息」",
+      "sub": "人格主会话 · 直接教学/对话输入；通道消息与通道参数在「社交」场景",
       "type": "harness",
       "col": 1,
       "row": 1,
-      "w": 3,
-      "h": 6,
+      "w": 23,
+      "h": 12,
       "sessionTitle": "胡闹的大肥鱼",
       "sessionId": "session-3b4debec-abf6-43a9-bbb6-737a265f3550",
-      "settingsBtn": "pet",
       "sessionRail": false,
       "chatStyle": "bubble",
       "hideThinking": true,
       "pinTarget": [
         "胡闹的大肥鱼"
       ]
-    },
-    {
-      "id": "pet-msg",
-      "title": "通道消息",
-      "sub": "每个私聊/每个群独立 DSH 会话 · 合并查看，会话下拉可只看一条",
-      "type": "msgflow",
-      "sessionTitle": "胡闹的大肥鱼",
-      "sessionId": "session-3b4debec-abf6-43a9-bbb6-737a265f3550",
-      "aggregate": true,
-      "defaultRange": "all",
-      "col": 1,
-      "row": 7,
-      "w": 2,
-      "h": 6
-    },
-    {
-      "id": "pet-dog",
-      "title": "派发巡检",
-      "sub": "总入口的派发台：待批准 / 定时触发 / 超时未回执；每 60 秒自动扫，批准与补投都要你点按钮",
-      "type": "dispatch-board",
-      "col": 3,
-      "row": 7,
-      "w": 1,
-      "h": 6
     }
   ],
   "first": true

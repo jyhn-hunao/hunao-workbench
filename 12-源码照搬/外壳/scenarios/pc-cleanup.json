@@ -4,23 +4,38 @@
  "description": "本地电脑：分区容量 + 磁盘大户排行 + 可清理体检 + 清理台账 + AI 助手（电脑清理 + 本机杂事）",
  "layout": "grid",
  "theme": "dark",
+ "cols": 24,
  "panels": [
-  {
+    {
+    "id": "pc-rail",
+    "title": "设置",
+    "type": "rail",
+    "noBadge": true,
+    "col": 24,
+    "row": 1,
+    "w": 1,
+    "h": 4,
+    "items": [
+      {"kind":"call","label":"口径","icon":"hard-drive","open":"scene-cfg:pc-cleanup:scan","title":"扫描口径：多大才列出来 / 扫多深 / 最多扫几秒（下次扫描按这里）"},
+      {"kind":"call","label":"能力","icon":"sparkles","open":"scene-abil:pc-cleanup","title":"这个场景现在能干什么：面板 / 按钮 / 常用命令（点开就是功能地图）"}
+    ]
+  },
+{
    "id": "pc-drives",
    "title": "磁盘分区（容量一览）",
    "type": "pc-drives",
    "col": 1,
    "row": 1,
-   "w": 3,
+   "w": 16,
    "h": 2
   },
   {
    "id": "pc-r1",
    "title": "磁盘大户排行",
    "type": "pc-toplarge",
-   "col": 4,
+   "col": 17,
    "row": 1,
-   "w": 1,
+   "w": 7,
    "h": 2
   },
   {
@@ -29,7 +44,7 @@
    "type": "pc-junk",
    "col": 1,
    "row": 3,
-   "w": 1,
+   "w": 6,
    "h": 1
   },
   {
@@ -38,7 +53,7 @@
    "type": "pc-ledger",
    "col": 1,
    "row": 4,
-   "w": 1,
+   "w": 6,
    "h": 1
   },
   {
@@ -50,11 +65,12 @@
    "pinTarget": [
     "本地电脑"
    ],
-   "col": 2,
+   "col": 7,
    "row": 3,
-   "w": 3,
+   "w": 17,
    "h": 2
   }
+  
  ],
  "first": false
 }

@@ -1,23 +1,41 @@
 {
   "id": "social",
   "name": "社交",
-  "description": "社交：只做通道。这里没有 AI 会话——消息流的来源是「胡闹的大肥鱼」人格场景的会话。通道不再一个平台占一个格：统一收进一个「通道」面板（type:channels），内部并列 QQ / 飞书 / 微信三列；加平台 = 在 channels 数组加一项，不再往场景里加 top-level panel。右侧「全部消息」现在是按聊天独立 DSH 会话的聚合流（可按会话筛选），不再只读单一人格会话。底部「SnowLuma 桥接」是 QQ 控制台面板（type:embed）。微信列的「通道自检」会逐项显示鲸鲸内核/桥接/UIA/账号/插件/适配器/DSH 会话/真实发送，哪一项红就修哪一项。通道参数与排障口径记在 场景记忆\\社交\\，人格与对话记忆归 场景记忆\\胡闹的大肥鱼\\",
+  "description": "社交：只做通道和消息。这里没有 AI 会话——消息流的来源是「胡闹的大肥鱼」人格场景的会话。通道统一收进「通道」面板（type:channels），卡片只放状态（通/待/无）、概览（账号/运行/今日/更新）、一条最近消息、问题与能立即做的动作；参数统一在右侧「设置」竖条（出站 / QQ / 群聊 / 微信 / 闸门，一项一个按钮，点开就是对应弹窗）。人格本身不在这里：回复风格、关系与情绪、安全闸门、聊天档案库在「胡闹的大肥鱼 → 设置」；本场景只留只读「闸门」状态。右侧「全部消息」是唯一消息总览（人格场景不再复制「通道消息」）。底部「SnowLuma 桥接」是 QQ 控制台面板（type:embed）。通道参数与排障口径记在 场景记忆\\社交\\，人格与对话记忆归 场景记忆\\胡闹的大肥鱼\\",
   "layout": "grid",
   "theme": "dark",
-  "cols": 4,
+  "cols": 24,
   "panels": [
-    {
+        {
+      "id": "ch-rail",
+      "title": "设置",
+      "type": "rail",
+      "noBadge": true,
+      "col": 24,
+      "row": 1,
+      "w": 1,
+      "h": 13,
+      "items": [
+        {"kind":"call","label":"出站","icon":"send","open":"openChannelOrder","title":"主动出消息：微信 → QQ → 飞书 → 其它"},
+        {"kind":"call","label":"QQ","icon":"message-square","open":"openQqChannelSettings","title":"QQ 接入：接哪个号 / 哪个聊天进哪条会话"},
+        {"kind":"call","label":"群聊","icon":"users","open":"openQqReplySettings","title":"QQ 群聊与语音：群旁听 / 接话概率 / 语音 / 表情"},
+        {"kind":"call","label":"微信","icon":"message-circle","open":"openWechatSettings","title":"鲸鲸设置：账号 / 群聊触发 / 回复长度 / 后台发送"},
+        {"kind":"call","label":"闸门","icon":"radar","open":"scene-cfg:social:safety","title":"安全闸门现状（只读）"},
+        {"kind":"call","label":"控制台","icon":"monitor","open":"openSnowLumaConsole","title":"SnowLuma 桥接控制台（5099 · 弹窗内嵌网页，可复制控制台密码）"},
+        {"kind":"call","label":"能力","icon":"sparkles","open":"scene-abil:social","title":"这个场景现在能干什么：面板 / 按钮 / 常用命令（点开就是功能地图）"}
+      ]
+    },
+{
       "id": "ch-hub",
       "title": "通道",
-      "sub": "QQ / 飞书 / 微信 · 同一块区域，可收起/展开 · 微信卡右上「鲸鲸设置」",
+      "sub": "QQ / 飞书 / 微信 · 状态 / 账号 / 今日 / 最近一条 · 参数在场景「设置」卡 · 人格表达在「胡闹的大肥鱼」",
       "type": "channels",
       "channels": [
         {
           "id": "ch-qq",
           "key": "qq",
           "title": "QQ",
-          "console": "snowluma",
-          "consolePanel": "sl-console"
+          "console": "snowluma"
         },
         {
           "id": "ch-feishu",
@@ -35,8 +53,8 @@
       "sessionId": "session-3b4debec-abf6-43a9-bbb6-737a265f3550",
       "col": 1,
       "row": 1,
-      "w": 2,
-      "h": 6
+      "w": 16,
+      "h": 13
     },
     {
       "id": "so-msg",
@@ -51,27 +69,10 @@
         "胡闹的大肥鱼"
       ],
       "expand": true,
-      "col": 3,
+      "col": 17,
       "row": 1,
-      "w": 2,
-      "h": 6
-    },
-    {
-      "id": "sl-console",
-      "title": "SnowLuma 桥接",
-      "sub": "QQ 个人号控制台 · 本机 5099 · 进程页可区分两个账号",
-      "type": "embed",
-      "url": "http://127.0.0.1:5099/",
-      "bridgeUrl": true,
-      "partition": "persist:webai-snowluma",
-      "startBridge": true,
-      "failHint": "SnowLuma 还没起来或还在启动：点「▶ 启动 SnowLuma」让壳拉起来，再点「🔄 重试」。日志在 外壳\\data\\桥接\\snowluma.log。",
-      "expand": true,
-      "embedToggle": true,
-      "col": 1,
-      "row": 7,
-      "w": 4,
-      "h": 7
+      "w": 7,
+      "h": 13
     }
   ],
   "first": false
