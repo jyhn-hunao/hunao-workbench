@@ -202,6 +202,24 @@ function checkScenarios() {
       if (!p.title) bad.push(tag + ' → 缺 title');
       if ((p.sessionId && !p.sessionTitle) || (!p.sessionId && p.sessionTitle)) bad.push(tag + ' → sessionId / sessionTitle 必须成对');
     }
+    // ── 行列覆盖（2026-11-25）：面板可以少铺，但「空着的列 / 行」在界面上就是一块留白。
+    //    记忆场景就因为 mem-chat 只写到 w:6（占 17–22 列）而把第 23 列整列空着，右侧看着就是一条空白带。
+    const grid = panels.filter((p) => !p.drawer && p.col && p.w);
+    if (grid.length) {
+      const cols = Number(json.cols) || 24;
+      const rows = Math.max(...grid.map((p) => (Number(p.row) || 1) + Math.max(1, Number(p.h) || 1) - 1));
+      const colHit = new Array(cols + 1).fill(0); const rowHit = new Array(rows + 1).fill(0);
+      for (const p of grid) {
+        const c = Number(p.col) || 1, w = Math.max(1, Number(p.w) || 1);
+        const r = Number(p.row) || 1, h = Math.max(1, Number(p.h) || 1);
+        for (let i = c; i < c + w && i <= cols; i++) colHit[i]++;
+        for (let i = r; i < r + h && i <= rows; i++) rowHit[i]++;
+      }
+      const holes = [];
+      for (let i = 1; i <= cols; i++) if (!colHit[i]) holes.push('第 ' + i + ' 列');
+      for (let i = 1; i <= rows; i++) if (!rowHit[i]) holes.push('第 ' + i + ' 行');
+      if (holes.length) bad.push(where + ' → 网格有空位（界面上就是一块留白）：' + holes.join(' / '));
+    }
   }
   if (bad.length) add('场景 JSON 契约', 'fail', '违规 ' + bad.length + ' 条', bad);
   else add('场景 JSON 契约', 'ok', files.length + ' 个场景 · id/name 唯一 · 面板字段齐全 · AI 面板 id 成对');
@@ -341,6 +359,75 @@ function checkFeatureDesk() {
   else add('未登记脚本', 'ok', '扫到的脚本都有归属：手写 / @功能台 声明 / 一键收进 / 内部入口（内部 ' + un.filter((x) => x.internal).length + ' 个）');
 }
 
+// ── 定时补偿判定：关机错过那一分钟后，重启还能不能补上（2026-11-24）──────────────
+// 为什么单列：timerTick 原来靠 HH:MM 精确匹配，机器在计划那一分钟关着就永久漏；
+//   这个纯函数把「今天这格 / 昨天那格」的判定固定下来，改逻辑先看这里。
+function checkTimerCatchUp() {
+  const { timerDecision, pruneTimerState } = req(path.join(SHELL, 'pet', '定时判定.js'));
+  const bad = [];
+  const task = { id: 'daily-memory-check', time: '09:30', enabled: true };
+  const at = (h, m) => new Date(2026, 10, 24, h, m);   // 2026-11-24 本地时间
+  let d;
+
+  // ① 今天已过点、今天没跑 ⇒ 补今天这格
+  d = timerDecision(task, at(10, 0), {});
+  if (!d.run || d.mode !== 'due' || d.stateKey !== 'daily-memory-check@2026-11-24') bad.push('今天过点没跑却不补');
+  // ② 今天这格已经跑过 ⇒ 不重复
+  d = timerDecision(task, at(10, 0), { 'daily-memory-check@2026-11-24': 1 });
+  if (d.run) bad.push('今天已跑还重复起进程');
+  // ③ 今天还没到点、昨天已跑 ⇒ 等今天到点
+  d = timerDecision(task, at(8, 0), { 'daily-memory-check@2026-11-23': 1 });
+  if (d.run) bad.push('昨天跑过、今天没到点却提前跑');
+  // ④ 今天还没到点、昨天那格漏了（有更早历史）⇒ 开机补一次
+  d = timerDecision(task, at(8, 0), { 'daily-memory-check@2026-11-22': 1 });
+  if (!d.run || d.mode !== 'catch-up-yesterday' || d.stateKey !== 'daily-memory-check@2026-11-24') bad.push('昨天漏跑却不补');
+  // ⑤ 全新任务没有历史 ⇒ 今天没到点不凭空补昨天
+  d = timerDecision(task, at(8, 0), {});
+  if (d.run) bad.push('全新任务凭空补昨天');
+  // ⑥ 补跑后把今天记成已跑 ⇒ 今天到点不再跑第二次
+  const seen = { 'daily-memory-check@2026-11-22': 1, 'daily-memory-check@2026-11-24': 1 };
+  d = timerDecision(task, at(9, 31), seen);
+  if (d.run) bad.push('昨天补跑后今天到点又跑一次');
+  // ⑦ 时间写坏 ⇒ 不起进程
+  d = timerDecision({ id: 'x', time: '25:00' }, at(10, 0), {});
+  if (d.run) bad.push('非法时间仍起进程');
+  // ⑧ 状态裁剪：45 天前的旧键清掉，昨天保留
+  const pruned = pruneTimerState({ 'a@2026-08-01': 1, 'a@2026-11-23': 1 }, at(10, 0), 45);
+  if (!pruned['a@2026-11-23'] || pruned['a@2026-08-01']) bad.push('状态裁剪把该留/该删的弄反');
+
+  // ⑨ 定时任务只尊重免打扰，不被 proactive=low 挡住（2026-11-24 实测旧逻辑每天被挡）
+  const pet = req(path.join(SHELL, '桌宠设置.js'));
+  const cfgLow = { persona: { proactive: 'low' }, quiet: { from: '23:30', to: '08:00', proactiveMaxPerHour: 2 } };
+  const q1 = pet.proactiveGate(cfgLow, { quietOnly: true, now: new Date(2026, 10, 24, 10, 0) });
+  if (!q1.ok) bad.push('定时任务在非免打扰时段仍被「少吭声」挡住');
+  const q2 = pet.proactiveGate(cfgLow, { quietOnly: true, now: new Date(2026, 10, 24, 3, 0) });
+  if (q2.ok) bad.push('定时任务在免打扰时段没被拦住');
+
+  // ⑩ 起进程后还没收尾（pending）：窗口内不重复起；超过 15 分钟视为上次没收尾，补跑
+  const now = at(10, 0).getTime();
+  d = timerDecision(task, at(10, 0), { 'daily-memory-check@2026-11-24': { pending: true, at: now - 2 * 60 * 1000, pid: 999999 } });
+  if (d.run) bad.push('pending 还在窗口内却重复起进程');
+  d = timerDecision(task, at(10, 0), { 'daily-memory-check@2026-11-24': { pending: true, at: now - 20 * 60 * 1000, pid: 999999 } });
+  if (!d.run) bad.push('pending 超过 15 分钟却不补跑');
+
+  // ⑪ 子进程失败：10 分钟内不重复；过了窗口补一次（mode=retry）
+  d = timerDecision(task, at(10, 0), { 'daily-memory-check@2026-11-24': { ok: false, at: now - 2 * 60 * 1000, code: 1 } });
+  if (d.run) bad.push('失败才过 2 分钟就重试');
+  d = timerDecision(task, at(10, 0), { 'daily-memory-check@2026-11-24': { ok: false, at: now - 20 * 60 * 1000, code: 1 } });
+  if (!d.run || d.mode !== 'retry') bad.push('失败过 20 分钟却不重试');
+
+  // ⑫ 新格式的完成态（{ok:true}）与旧数字时间戳一样，不重复
+  d = timerDecision(task, at(10, 0), { 'daily-memory-check@2026-11-24': { ok: true, at: now, code: 0 } });
+  if (d.run) bad.push('ok:true 的完成态仍重复起进程');
+
+  // ⑬ 状态裁剪不能把新格式对象丢掉
+  const prunedObj = pruneTimerState({ 'a@2026-11-23': { ok: true, at: now, code: 0 } }, at(10, 0), 45);
+  if (!prunedObj['a@2026-11-23'] || typeof prunedObj['a@2026-11-23'] !== 'object') bad.push('裁剪把新格式完成态丢了');
+
+  if (bad.length) add('定时补偿判定', 'fail', '违规 ' + bad.length + ' 条', bad);
+  else add('定时补偿判定', 'ok', '今天过点补今天 · 昨天漏跑开机补一次 · 今天已跑不重复 · pending/失败可重试 · 非法时间不派 · 45 天裁剪 · 定时任务只避免打扰');
+}
+
 // ── 换会话交接闸门：唯一实现 + 生产/消费契约（2026-11-20）─────────────────────
 // 为什么单列：2026-11-20 的假失败（面板交接刚写、§〇 停在前一天 ⇒ 退出码 3）就是没有测试盯这个口径。
 //   这里锁死四件事：① 面板交接新鲜即可；② 收据放行不看墙钟；③ 收据不能掩盖缺文件/空文件；
@@ -400,6 +487,60 @@ function checkHandoffGate() {
   else add('换会话交接闸门', 'ok', '判定唯一实现 · 面板交接优先 · 收据放行 · 缺文件/空文件仍拦 · 生产消费同源');
 }
 
+// ── 分层口径：手不许替大脑做决定（2026-11-25）───────────────────────────
+// 为什么单列：这套工作台分「大脑 / 手 / 性格 / 人」四层（doc\分层设计理念.md）。
+//   场景 SKILL 是写给"手"看的，一旦里面出现「我挑 / 我决定 / 这不归我管」，
+//   AI 就会在业务场景里越位决策，或把活推回给用户——这轮就是靠人肉复查才发现的。
+//   四类越位句式锁成红灯；「你是手」这条正向口径缺了只报 warning（SKILL 可能整体重写）。
+const LAYER_BAD = [
+  { re: /不归我管/, why: '把活推回去（跨场景任务应派给该场景）' },
+  { re: /你去(那个|别的|其他)场景/, why: '把活推回去（应派给该场景）' },
+  { re: /(我|自己)(来)?(挑|选|决定)(了|看|学|做|这条|哪条|一条)/, why: '手替大脑做决定（应取回候选等大脑定）' },
+  { re: /我说了算/, why: '手替大脑做决定' },
+  { re: /不用问(他|她|用户|主人)/, why: '该回执却自作主张' },
+  { re: /默认选(一个|一条)/, why: '多候选应回执，不默认挑' },
+  { re: /自己决定(就|吧|看|算)/, why: '手替大脑做决定' },
+]
+const LAYER_NEG = /别|不要|不许|不准|不能|勿|⛔/   // 「别自己选」这类规劝不算越位
+const HAND_SCENES = ['life', 'code-dev', 'memory', 'pc-cleanup', 'self-review']
+
+function checkLayerWords() {
+  const bad = []
+  const warn = []
+  const skills = path.join(REPO, '12-源码照搬', '引擎数据', '.dsh', 'skills')
+  let scanned = 0
+  try {
+    for (const d of fs.readdirSync(skills, { withFileTypes: true })) {
+      if (!d.isDirectory()) continue
+      const f = path.join(skills, d.name, 'SKILL.md')
+      if (!fs.existsSync(f)) continue
+      scanned++
+      const text = read(f)
+      text.split(/\r?\n/).forEach((line, i) => {
+        for (const b of LAYER_BAD) {
+          if (!b.re.test(line)) continue
+          if (LAYER_NEG.test(line)) continue
+          bad.push(d.name + '/SKILL.md:' + (i + 1) + ' ' + b.why + ' → ' + line.trim().slice(0, 60))
+          break   // 同一行只报第一条，别重复刷屏
+        }
+      })
+      if (HAND_SCENES.includes(d.name) && !/你是手/.test(text)) {
+        warn.push(d.name + '/SKILL.md 没写「你是手，不是大脑」')
+      }
+    }
+  } catch (e) {
+    bad.push('扫 SKILL 失败：' + e.message)
+  }
+  // 理念文档与入口：删了或没接到入口，等于规矩丢失
+  const doc = path.join(REPO, 'doc', '分层设计理念.md')
+  if (!fs.existsSync(doc)) bad.push('doc\\分层设计理念.md 不见了')
+  const agentsF = path.join(REPO, 'AGENTS.md')
+  if (!fs.existsSync(agentsF) || !/分层理念/.test(read(agentsF))) bad.push('AGENTS.md 没接「分层理念」入口')
+  if (bad.length) add('分层口径', 'fail', '越位写法 / 理念丢失 ' + bad.length + ' 处', bad)
+  else if (warn.length) add('分层口径', 'warn', '句式干净（' + scanned + ' 份 SKILL），' + warn.length + ' 份缺「你是手」', warn)
+  else add('分层口径', 'ok', scanned + ' 份 SKILL 无越位写法 · ' + HAND_SCENES.length + ' 份业务场景都有「你是手」· 理念文档与入口在位')
+}
+
 // ── 跑 ───────────────────────────────────────────────────────────────────────────────
 const want = (k) => !ONLY || ONLY.includes(k);
 let types = new Set();
@@ -413,7 +554,9 @@ try {
   types = sc.types; count = sc.scenarioCount;
   if (want('renderers')) checkRenderers(types);
   if (want('icons')) checkIcons();
+  if (want('timers')) checkTimerCatchUp();
   if (want('handoff')) checkHandoffGate();
+  if (want('layers')) checkLayerWords();
   if (want('syntax')) checkSyntax();
   if (want('meta')) checkMeta(count);
   if (want('features')) checkFeatureDesk();

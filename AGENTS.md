@@ -43,7 +43,7 @@
 | 启动 | 双击 `12-源码照搬\启动.vbs`（默认端口 3083） | `12-源码照搬/启动.vbs:11` |
 | 启动（命令行） | `cd 12-源码照搬\外壳` 后 `npm start` | `12-源码照搬/外壳/package.json:8` |
 | 环境自检 | `node 12-源码照搬\外壳\scripts\自检.mjs` | `12-源码照搬/外壳/scripts/自检.mjs:2` |
-| 外壳静态测试（端口单一真源 / 静默 catch / IPC 配对 / 场景契约 / 渲染器注册 / 图标唯一 / 全量语法） | `node 12-源码照搬\外壳\scripts\测试.mjs`（`npm test` 同效；`--json` 给 CI，`--only ports,ipc` 跑单项） | `12-源码照搬/外壳/scripts/测试.mjs` |
+| 外壳静态测试（端口单一真源 / 静默 catch / IPC 配对 / 场景契约 / 渲染器注册 / 图标唯一 / 分层口径 / 全量语法） | `node 12-源码照搬\外壳\scripts\测试.mjs`（`npm test` 同效；`--json` 给 CI，`--only ports,ipc` 跑单项） | `12-源码照搬/外壳/scripts/测试.mjs` |
 | 场景与会话核对 | `node 12-源码照搬\外壳\scripts\sessions.mjs --check` | `12-源码照搬/外壳/scripts/sessions.mjs:12` |
 | 场景能力（能接什么任务 / 有哪些面板·按钮·命令） | `node 12-源码照搬\工具\场景能力.mjs 列`；`查 --词 "<原话>"`；`生成`（落 `外壳\data\场景能力.json` + `scenarios\_场景能力.md`） | `12-源码照搬/工具/场景能力.mjs`、`12-源码照搬/外壳/场景能力.js` |
 | 建会话 | `node 12-源码照搬\外壳\scripts\建会话.mjs --title "场景名"`（默认不写开场消息；`--seed` 才写） | `12-源码照搬/外壳/scripts/建会话.mjs:13` |
