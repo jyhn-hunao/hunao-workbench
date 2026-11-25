@@ -1,14 +1,14 @@
 {
-  "id": "bilibili",
-  "name": "B站视频理解",
-  "description": "B站：左边网页直接看/搜，右边 AI 帮你总结、找相关视频（对话名「B站」）",
+  "id": "life",
+  "name": "生活",
+  "description": "生活：她的日子——作息、喜好、看什么、记什么；左边网页看内容，右边 AI 定义生活（对话名「生活」）",
   "layout": "grid",
   "theme": "dark",
   "cols": 5,
   "panels": [
     {
       "id": "p1",
-      "title": "B站（网页）",
+      "title": "内容源（网页）",
       "type": "embed",
       "url": "https://www.bilibili.com",
       "col": 1,
@@ -17,15 +17,15 @@
       "h": 6,
       "userAgent": "chrome",
       "embedToggle": false,
-      "failHint": "B站打不开：① 检查网络 ② 点右上角「在浏览器中打开」"
+      "failHint": "网页打不开：① 检查网络 ② 点右上角「在浏览器中打开」"
     },
     {
       "id": "p2",
-      "title": "AI·B站",
+      "title": "AI·生活",
       "type": "harness",
-      "sessionTitle": "B站",
+      "sessionTitle": "生活",
       "sessionId": "session-0000…",
-      "pinTarget": "B站",
+      "pinTarget": ["生活"],
       "col": 5,
       "row": 1,
       "w": 1,

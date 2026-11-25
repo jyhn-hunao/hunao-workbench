@@ -6,7 +6,7 @@
 
 | 文件 | 场景 | 面板类型 | 说明 |
 |---|---|---|---|
-| `bilibili.json` | B站 | `embed` + `harness` | 左边嵌网页、右边 AI；看视频时总结用 |
+| `life.json` | 生活 | `embed` + `harness` | 左边嵌网页（内容源）、右边 AI；她过日子的定义与内容（原 B站 场景泛化） |
 | `pc-cleanup.json` | 本地电脑 | `pc-drives` / `pc-toplarge` / `pc-junk` / `pc-ledger` + `harness` | 磁盘容量、大户排行、可清理体检、清理台账四块 + AI |
 | `self-review.json` | 自我复盘 | `review-doc` / `review-files` / `embed` + `harness` | 左边读文档、右边浏览文件，右下 AI |
 

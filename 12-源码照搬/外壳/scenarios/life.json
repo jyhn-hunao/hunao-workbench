@@ -1,0 +1,53 @@
+{
+ "id": "life",
+ "name": "生活",
+ "description": "生活：她的日子——作息、喜好、看什么、记什么；左边网页看内容，右边 AI 定义生活并记账（对话名「生活」）",
+ "layout": "grid",
+ "theme": "dark",
+ "cols": 24,
+ "panels": [
+    {
+    "id": "life-rail",
+    "title": "设置",
+    "type": "rail",
+    "noBadge": true,
+    "col": 24,
+    "row": 1,
+    "w": 1,
+    "h": 11,
+    "items": [
+      {"kind":"call","label":"生活","icon":"leaf","open":"scene-cfg:life:lifeCfg","title":"生活设置：刷什么 / 发什么 / 小号同步 / 发布额度"},
+      {"kind":"call","label":"能力","icon":"sparkles","open":"scene-abil:life","title":"这个场景现在能干什么：面板 / 按钮 / 常用命令（点开就是功能地图）"}
+    ]
+  },
+{
+   "id": "bv-web",
+   "title": "内容源（网页）",
+   "type": "embed",
+   "url": "https://www.bilibili.com",
+   "col": 1,
+   "row": 1,
+   "w": 17,
+   "h": 11,
+   "userAgent": "chrome",
+   "embedToggle": false,
+   "failHint": "网页打不开：① 检查网络 ② 点右上角「在浏览器中打开」"
+  },
+  {
+   "id": "life-ai",
+   "title": "生活",
+   "type": "harness",
+   "sessionTitle": "生活",
+   "sessionId": "session-f8b144e2-acbf-4fe4-8ae6-206a79b1aef6",
+   "pinTarget": [
+    "生活"
+   ],
+   "col": 18,
+   "row": 1,
+   "w": 6,
+   "h": 11
+  }
+  
+ ],
+ "first": false
+}
