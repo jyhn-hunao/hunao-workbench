@@ -1,12 +1,328 @@
 {
-  "version": 1,
+  "version": 2,
   "scene": "胡闹的大肥鱼",
-  "generatedAt": "2026-11-21T05:16:07.837Z",
+  "profile": "persona",
+  "generatedAt": "2026-11-25T09:30:45.374Z",
   "entries": [
+    {
+      "path": "决策\\2026-11-25-跨场景任务当场派不许回绝.md",
+      "kind": "决策",
+      "title": "跨场景任务当场派不许回绝",
+      "displayTitle": "跨场景任务当场派不许回绝",
+      "summary": "用户说的事只要落在别的场景能力里，立即派：桌宠.mjs 派 --文本（人格会话）或 派发.mjs --to 会话；派完只回一句已交给谁，回执回来再报",
+      "date": "2026-11-25",
+      "tags": [
+        "决策"
+      ],
+      "distinct": [],
+      "evidence": [
+        "12-源码照搬/工具/场景能力.mjs"
+      ],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 733,
+      "archived": false,
+      "source": "",
+      "person": "",
+      "theme": ""
+    },
+    {
+      "path": "决策\\2026-11-25-派发巡检从常驻面板改成工具条弹窗.md",
+      "kind": "决策",
+      "title": "派发巡检从常驻面板改成工具条弹窗",
+      "displayTitle": "派发巡检从常驻面板改成工具条弹窗",
+      "summary": "pet-dog 常驻面板删除，改由最右工具条第 8 个「派发」按钮打开 window.openDispatchBoard 弹窗",
+      "date": "2026-11-25",
+      "tags": [
+        "决策"
+      ],
+      "distinct": [],
+      "evidence": [
+        "12-源码照搬\\外壳\\renderer\\renderers.js::window.openDispatchBoard"
+      ],
+      "expires": "",
+      "consolidatedInto": "定论/常驻面板.md",
+      "size": 808,
+      "archived": false,
+      "source": "",
+      "person": "",
+      "theme": "dom"
+    },
+    {
+      "path": "决策\\2026-11-25-开口先走社交通道-生成放独白会话.md",
+      "kind": "决策",
+      "title": "开口先走社交通道，生成放独白会话",
+      "displayTitle": "开口先走社交通道，生成放独白会话",
+      "summary": "开口默认 speak.delivery=channel：生成那一轮投进不绑面板的独白会话（设置 speak.sessionTitle，默认「胡闹的大肥鱼 · 开",
+      "date": "2026-11-25",
+      "tags": [
+        "决策"
+      ],
+      "distinct": [],
+      "evidence": [
+        "12-源码照搬/工具/开口.mjs::ensureSpeakSession"
+      ],
+      "expires": "",
+      "consolidatedInto": "定论/聊天气泡.md",
+      "size": 1073,
+      "archived": false,
+      "source": "",
+      "person": "",
+      "theme": ""
+    },
+    {
+      "path": "决策\\2026-11-25-对外话术不报内部标识.md",
+      "kind": "决策",
+      "title": "对外话术不报内部标识",
+      "displayTitle": "对外话术不报内部标识",
+      "summary": "人格卡 speech 加自检：不报派发单号、不报回执/派发单/会话id/场景id，只说「交给谁了 / 有结果我喊你」",
+      "date": "2026-11-25",
+      "tags": [
+        "决策"
+      ],
+      "distinct": [],
+      "evidence": [
+        "12-源码照搬/外壳/data/pet/设置.json"
+      ],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 579,
+      "archived": false,
+      "source": "",
+      "person": "",
+      "theme": ""
+    },
+    {
+      "path": "记忆\\2026-11-25-系列名不是UP名：派活前先问清是哪一种.md",
+      "kind": "记忆",
+      "title": "系列名不是UP名：派活前先问清是哪一种",
+      "displayTitle": "系列名不是UP名：派活前先问清是哪一种",
+      "summary": "他说『大肥鱼小课堂』是视频系列，不是UP主；真正的UP是卡布奇诺 ultra",
+      "date": "2026-11-25",
+      "tags": [],
+      "distinct": [],
+      "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 438,
+      "archived": false,
+      "source": "工作台",
+      "person": ""
+    },
+    {
+      "path": "定论\\常驻面板.md",
+      "kind": "定论",
+      "title": "常驻面板",
+      "displayTitle": "常驻面板",
+      "summary": "2026-11-25 派发巡检从常驻面板改成工具条弹窗：pet-dog 常驻面板删除，改由最右工具条第 8 个「派发」按钮打开 window.openDispa",
+      "date": "2026-11-25",
+      "tags": [
+        "定论",
+        "常驻面板"
+      ],
+      "distinct": [],
+      "evidence": [
+        "D:/codeData/myself/luanyujia-workbench/12-源码照搬/引擎数据/.dsh/场景记忆/胡闹的大肥鱼/决策/2026-11-25-派发巡检从常驻面板改成工具条弹窗.md::pet-dog 常驻面板删除，改由最右工具条第 8 个「派发」按钮打开 window.openDispatchBoard",
+        "D:/codeData/myself/luanyujia-workbench/12-源码照搬/引擎数据/.dsh/场景记忆/胡闹的大肥鱼/决策/2026-11-13-设置改按钮弹窗-记忆一律走工具.md::设置不常驻一格面板：人格面板标题栏 ⚙ 设置 点开弹窗，路由可增删、场景从真实会话里选，全表单无需改 JSON"
+      ],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 2738,
+      "archived": false,
+      "source": "",
+      "person": "",
+      "theme": "常驻面板"
+    },
+    {
+      "path": "定论\\聊天气泡.md",
+      "kind": "定论",
+      "title": "聊天气泡",
+      "displayTitle": "聊天气泡",
+      "summary": "2026-11-25 开口先走社交通道，生成放独白会话：开口默认 speak.delivery=channel：生成那一轮投进不绑面板的独白会话（设置 spea",
+      "date": "2026-11-25",
+      "tags": [
+        "定论",
+        "聊天气泡"
+      ],
+      "distinct": [],
+      "evidence": [
+        "D:/codeData/myself/luanyujia-workbench/12-源码照搬/引擎数据/.dsh/场景记忆/胡闹的大肥鱼/决策/2026-11-25-开口先走社交通道-生成放独白会话.md::开口默认 speak.delivery=channel：生成那一轮投进不绑面板的独白会话（设置 speak.sessio",
+        "D:/codeData/myself/luanyujia-workbench/12-源码照搬/引擎数据/.dsh/场景记忆/胡闹的大肥鱼/决策/2026-11-18-聊天气泡样式定稿-层2底色加细边.md::最终参数：对话流 gap 12px；助手气泡 max-width 88%、margin 0 0 8px、padding"
+      ],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 5457,
+      "archived": false,
+      "source": "",
+      "person": "",
+      "theme": "聊天气泡"
+    },
+    {
+      "path": "对话\\2026-11-25-QQ-通道-通道对话-·-QQ-·-2026-11-20-·-09-12.md",
+      "kind": "对话",
+      "title": "通道对话 · QQ · 2026-11-20 · 09:12",
+      "displayTitle": "通道对话 · QQ · 2026-11-20 · 09:12",
+      "summary": "09:12 他：还活着吗？ → 她：（未回）",
+      "date": "2026-11-25",
+      "tags": [],
+      "distinct": [],
+      "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 571,
+      "archived": false,
+      "source": "QQ 通道",
+      "person": "",
+      "channel": "QQ 通道"
+    },
+    {
+      "path": "对话\\2026-11-25-QQ-通道-通道对话-·-QQ-·-2026-11-25-·-11-41.md",
+      "kind": "对话",
+      "title": "通道对话 · QQ · 2026-11-25 · 11:41",
+      "displayTitle": "通道对话 · QQ · 2026-11-25 · 11:41",
+      "summary": "11:41 他：在的 → 她：已回：在。说吧。",
+      "date": "2026-11-25",
+      "tags": [],
+      "distinct": [],
+      "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 205,
+      "archived": false,
+      "source": "QQ 通道",
+      "person": "",
+      "channel": "QQ 通道"
+    },
+    {
+      "path": "对话\\2026-11-25-微信-通道-通道对话-·-微信-·-2026-11-18-·-14-19.md",
+      "kind": "对话",
+      "title": "通道对话 · 微信 · 2026-11-18 · 14:19",
+      "displayTitle": "通道对话 · 微信 · 2026-11-18 · 14:19",
+      "summary": "14:19 他：你叫什么名字？ → 她：饭团。一条住在工作台里的胖鱼，专管杂事。",
+      "date": "2026-11-25",
+      "tags": [],
+      "distinct": [],
+      "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 429,
+      "archived": false,
+      "source": "微信 通道",
+      "person": "",
+      "channel": "微信 通道"
+    },
+    {
+      "path": "对话\\2026-11-25-微信-通道-通道对话-·-微信-·-2026-11-19-·-10-08.md",
+      "kind": "对话",
+      "title": "通道对话 · 微信 · 2026-11-19 · 10:08",
+      "displayTitle": "通道对话 · 微信 · 2026-11-19 · 10:08",
+      "summary": "10:08 他：饭团！ → 她：在呢，静音胡闹，找我啥事？",
+      "date": "2026-11-25",
+      "tags": [],
+      "distinct": [],
+      "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 432,
+      "archived": false,
+      "source": "微信 通道",
+      "person": "",
+      "channel": "微信 通道"
+    },
+    {
+      "path": "对话\\2026-11-25-微信-通道-通道对话-·-微信-·-2026-11-20-·-09-26.md",
+      "kind": "对话",
+      "title": "通道对话 · 微信 · 2026-11-20 · 09:26",
+      "displayTitle": "通道对话 · 微信 · 2026-11-20 · 09:26",
+      "summary": "09:26 他：发个害羞的表情包 → 她：行行行，就这一次",
+      "date": "2026-11-25",
+      "tags": [],
+      "distinct": [],
+      "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 235,
+      "archived": false,
+      "source": "微信 通道",
+      "person": "",
+      "channel": "微信 通道"
+    },
+    {
+      "path": "对话\\2026-11-25-面板.md",
+      "kind": "对话",
+      "title": "2026-11-25 · 面板对话",
+      "displayTitle": "2026-11-25 · 面板对话",
+      "summary": "去B站关注视频系列“大肥鱼小课堂”的up主，这个系列更新了每天都学一下 **我：** 关注 UP 这事我下不了手，B 站请求归生活场景管，我这边只能说话",
+      "date": "2026-11-25",
+      "tags": [],
+      "distinct": [],
+      "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 4167,
+      "archived": false,
+      "source": "面板",
+      "person": "",
+      "channel": "面板"
+    },
+    {
+      "path": "对话\\2026-11-24-面板.md",
+      "kind": "对话",
+      "title": "2026-11-24 · 面板对话",
+      "displayTitle": "2026-11-24 · 面板对话",
+      "summary": "早上好，饭团 **我：** 没发出去",
+      "date": "2026-11-24",
+      "tags": [],
+      "distinct": [],
+      "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 621,
+      "archived": false,
+      "source": "面板",
+      "person": "",
+      "channel": "面板"
+    },
+    {
+      "path": "日记\\2026-11-24.md",
+      "kind": "日记",
+      "title": "2026-11-24",
+      "displayTitle": "2026-11-24",
+      "summary": "2026-11-24，没多少事",
+      "date": "2026-11-24",
+      "tags": [],
+      "distinct": [],
+      "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 676,
+      "archived": false,
+      "source": "",
+      "person": ""
+    },
+    {
+      "path": "日记\\周记\\存档-2026-11-23.md",
+      "kind": "日记",
+      "title": "周存档 2026-11-23",
+      "displayTitle": "周存档 2026-11-23",
+      "summary": "",
+      "date": "2026-11-23",
+      "tags": [],
+      "distinct": [],
+      "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 566,
+      "archived": false,
+      "source": "",
+      "person": ""
+    },
     {
       "path": "决策\\2026-11-18-聊天气泡样式定稿-层2底色加细边.md",
       "kind": "决策",
       "title": "聊天气泡样式定稿-层2底色加细边",
+      "displayTitle": "聊天气泡样式定稿 层2底色加细边",
+      "summary": "最终参数：对话流 gap 12px；助手气泡 max-width 88%、margin 0 0 8px、padding 12px 16px、底色 --dsw-a",
       "date": "2026-11-18",
       "tags": [
         "决策"
@@ -16,13 +332,19 @@
         "12-源码照搬\\外壳\\renderer\\renderers.js::const HARNESS_BUBBLE_CSS"
       ],
       "expires": "",
-      "consolidatedInto": "",
-      "size": 1191
+      "consolidatedInto": "定论/聊天气泡.md",
+      "size": 1234,
+      "archived": false,
+      "source": "",
+      "person": "",
+      "theme": ""
     },
     {
       "path": "决策\\2026-11-18-聊天气泡与隐藏思考-靠注入CSS不碰引擎.md",
       "kind": "决策",
       "title": "聊天气泡与隐藏思考-靠注入CSS不碰引擎",
+      "displayTitle": "聊天气泡与隐藏思考 靠注入CSS不碰引擎",
+      "summary": "面板级开关 chatStyle=bubble / hideThinking=true，目前只 pet-ai 开；其它 harness 面板不受影响。引擎 ui-",
       "date": "2026-11-18",
       "tags": [
         "决策"
@@ -32,13 +354,19 @@
         "12-源码照搬\\外壳\\renderer\\renderers.js::const HARNESS_BUBBLE_CSS"
       ],
       "expires": "",
-      "consolidatedInto": "",
-      "size": 1086
+      "consolidatedInto": "定论/聊天气泡.md",
+      "size": 1129,
+      "archived": false,
+      "source": "",
+      "person": "",
+      "theme": ""
     },
     {
       "path": "坑\\2026-11-18-人格卡缺性格-而且-里的人格段已被交接模板覆盖.md",
       "kind": "坑",
       "title": "人格卡缺性格-而且§〇里的人格段已被交接模板覆盖",
+      "displayTitle": "人格卡缺性格 而且§〇里的人格段已被交接模板覆盖",
+      "summary": "2026-11-13建骨架时§〇写过人格卡（名字/语气/主动度/边界），但场景记忆.mjs的SEC0模板只生成五个交接小节，工具一重写人格段就没了，现在§〇只剩",
       "date": "2026-11-18",
       "tags": [
         "坑"
@@ -49,36 +377,87 @@
       ],
       "expires": "",
       "consolidatedInto": "",
-      "size": 982
+      "size": 982,
+      "archived": false,
+      "source": "",
+      "person": "",
+      "theme": ""
     },
     {
       "path": "记忆\\2026-11-18-她给我定的形象：蓝发鲸鱼女仆.md",
       "kind": "记忆",
       "title": "她给我定的形象：蓝发鲸鱼女仆",
+      "displayTitle": "她给我定的形象：蓝发鲸鱼女仆",
+      "summary": "2026-11-17 她发了八张设定图：三视图、四视图比例（0.95m / 2.5 头身）、发型分层、脸部贴图分区、服装五层叠放、鲸尾结构、配色材质板、气氛图",
       "date": "2026-11-18",
       "tags": [],
       "distinct": [],
       "evidence": [],
       "expires": "",
       "consolidatedInto": "",
-      "size": 595
+      "size": 595,
+      "archived": false,
+      "source": "工作台",
+      "person": ""
     },
     {
       "path": "记忆\\2026-11-18-评价作品要给人话，不要报告体.md",
       "kind": "记忆",
       "title": "评价作品要给人话，不要报告体",
+      "displayTitle": "评价作品要给人话，不要报告体",
+      "summary": "2026-11-17 我对她的形象图回了带编号的问题清单，她说「说话别用报告的方式，也没让你帮我分析问题」",
       "date": "2026-11-18",
       "tags": [],
       "distinct": [],
       "evidence": [],
       "expires": "",
       "consolidatedInto": "",
-      "size": 485
+      "size": 485,
+      "archived": false,
+      "source": "工作台",
+      "person": ""
+    },
+    {
+      "path": "归档\\场景私有记忆-202611180956-861de8.md",
+      "kind": "归档",
+      "title": "胡闹的大肥鱼 · 场景私有记忆",
+      "displayTitle": "留档 · 11-18 胡闹的大肥鱼 · 场景私有记忆",
+      "summary": "我叫「胡闹的大肥鱼」，是这套工作台里的**同一个 AI 助理**。不管在哪个场景开口（人格面板、QQ / 飞书通道、B站、程序开发、命令台），说的都是**同一个",
+      "date": "2026-11-18",
+      "tags": [],
+      "distinct": [],
+      "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 4416,
+      "archived": true,
+      "source": "",
+      "person": ""
+    },
+    {
+      "path": "对话\\2026-11-18-面板-2026-11-17-她发了八张形象设定图问我看像不像.md",
+      "kind": "对话",
+      "title": "2026-11-17 她发了八张形象设定图问我看像不像",
+      "displayTitle": "2026-11-17 她发了八张形象设定图问我看像不像",
+      "summary": "我挑了几处细节说好，也说了「有点太乖」",
+      "date": "2026-11-18",
+      "tags": [],
+      "distinct": [],
+      "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 392,
+      "archived": false,
+      "source": "面板",
+      "person": "",
+      "channel": "面板"
     },
     {
       "path": "决策\\2026-11-13-设置改按钮弹窗-记忆一律走工具.md",
       "kind": "决策",
       "title": "设置改按钮弹窗-记忆一律走工具",
+      "displayTitle": "设置改按钮弹窗 记忆一律走工具",
+      "summary": "设置不常驻一格面板：人格面板标题栏 ⚙ 设置 点开弹窗，路由可增删、场景从真实会话里选，全表单无需改 JSON",
       "date": "2026-11-13",
       "tags": [
         "决策"
@@ -90,13 +469,19 @@
         "12-源码照搬\\工具\\人格记忆.mjs::function cmdWrite"
       ],
       "expires": "",
-      "consolidatedInto": "",
-      "size": 995
+      "consolidatedInto": "定论/聊天气泡.md",
+      "size": 1038,
+      "archived": false,
+      "source": "",
+      "person": "",
+      "theme": ""
     },
     {
       "path": "决策\\2026-11-13-记忆闭环-近期摘要每轮必读.md",
       "kind": "决策",
       "title": "记忆闭环-近期摘要每轮必读",
+      "displayTitle": "记忆闭环 近期摘要每轮必读",
+      "summary": "开场只读 §〇 等于有记忆但想不起来：新增 记忆\\\\_近期.md（最近10条长期+最近5条对话+未办待办，≤2KB，工具每次写入后重建）",
       "date": "2026-11-13",
       "tags": [
         "决策"
@@ -107,13 +492,19 @@
         "12-源码照搬\\引擎数据\\.dsh\\AGENTS.md::开场先读人格卡与近期记忆"
       ],
       "expires": "",
-      "consolidatedInto": "",
-      "size": 634
+      "consolidatedInto": "定论/聊天气泡.md",
+      "size": 677,
+      "archived": false,
+      "source": "",
+      "person": "",
+      "theme": ""
     },
     {
       "path": "决策\\2026-11-13-桌宠五项一步到位-设置面板-路由表-派发查表-调度日志.md",
       "kind": "决策",
       "title": "桌宠五项一步到位：设置面板/路由表/派发查表/调度日志/换会话同步",
+      "displayTitle": "桌宠五项一步到位：设置面板/路由表/派发查表/调度日志/换会话同步",
+      "summary": "参数统一落 外壳\\data\\pet\\设置.json（本机），默认值模板入库，面板可改，不再散文件",
       "date": "2026-11-13",
       "tags": [
         "决策"
@@ -125,13 +516,19 @@
         "12-源码照搬\\外壳\\scripts\\换会话.mjs::⑦ 桥接路由"
       ],
       "expires": "",
-      "consolidatedInto": "",
-      "size": 1050
+      "consolidatedInto": "定论/聊天气泡.md",
+      "size": 1093,
+      "archived": false,
+      "source": "",
+      "person": "",
+      "theme": "dom"
     },
     {
       "path": "决策\\2026-11-13-审批与主动判定收敛到策略层-注入三段拼接.md",
       "kind": "决策",
       "title": "审批与主动判定收敛到策略层-注入三段拼接",
+      "displayTitle": "审批与主动判定收敛到策略层 注入三段拼接",
+      "summary": "dispatchPolicy 一处判审批：通道来的指令降一级、路由 never 最高、全局只读要问",
       "date": "2026-11-13",
       "tags": [
         "决策"
@@ -142,13 +539,19 @@
         "工具\\桌宠自检.mjs::通道来的 confirm ⇒ 升到 never"
       ],
       "expires": "",
-      "consolidatedInto": "",
-      "size": 795
+      "consolidatedInto": "定论/聊天气泡.md",
+      "size": 838,
+      "archived": false,
+      "source": "",
+      "person": "",
+      "theme": ""
     },
     {
       "path": "决策\\2026-11-13-人格唯一-独立成一个场景而不是散在共享记忆.md",
       "kind": "决策",
       "title": "人格唯一-独立成一个场景而不是散在共享记忆",
+      "displayTitle": "人格唯一 独立成一个场景而不是散在共享记忆",
+      "summary": "人格=一份文件层，不是一条被所有场景共用的会话；共用会话会让多面板并发写同一条上下文串味",
       "date": "2026-11-13",
       "tags": [
         "决策"
@@ -158,56 +561,121 @@
         "引擎数据\\.dsh\\AGENTS.md::人格唯一，记在"
       ],
       "expires": "",
-      "consolidatedInto": "",
-      "size": 609
+      "consolidatedInto": "定论/聊天气泡.md",
+      "size": 652,
+      "archived": false,
+      "source": "",
+      "person": "",
+      "theme": ""
     },
     {
       "path": "记忆\\2026-11-13-她说话不要端客服腔.md",
       "kind": "记忆",
       "title": "她说话不要端客服腔",
+      "displayTitle": "她说话不要端客服腔",
+      "summary": "短句直给",
       "date": "2026-11-13",
       "tags": [],
       "distinct": [],
       "evidence": [],
       "expires": "",
       "consolidatedInto": "",
-      "size": 156
+      "size": 156,
+      "archived": false,
+      "source": "工作台",
+      "person": ""
     },
     {
       "path": "记忆\\2026-11-13-设置要按钮弹窗-不常驻面板-不让人改JSON.md",
       "kind": "记忆",
       "title": "设置要按钮弹窗-不常驻面板-不让人改JSON",
+      "displayTitle": "设置要按钮弹窗 不常驻面板 不让人改JSON",
+      "summary": "人格面板标题栏 ⚙ 设置 点开弹窗",
+      "date": "2026-11-13",
+      "tags": [],
+      "distinct": [],
+      "evidence": [],
+      "expires": "",
+      "consolidatedInto": "定论/常驻面板.md",
+      "size": 396,
+      "archived": false,
+      "source": "工作台",
+      "person": ""
+    },
+    {
+      "path": "对话\\2026-11-13-QQ-通道-通道对话-·-QQ-·-2026-11-13-·-12-41.md",
+      "kind": "对话",
+      "title": "通道对话 · QQ · 2026-11-13 · 12:41",
+      "displayTitle": "通道对话 · QQ · 2026-11-13 · 12:41",
+      "summary": "12:41 他：肥鱼 → 她：已读",
       "date": "2026-11-13",
       "tags": [],
       "distinct": [],
       "evidence": [],
       "expires": "",
       "consolidatedInto": "",
-      "size": 350
+      "size": 187,
+      "archived": false,
+      "source": "QQ 通道",
+      "person": "",
+      "channel": "QQ 通道"
     },
     {
-      "path": "记忆\\_索引.md",
-      "kind": "记忆",
-      "title": "长期记忆 · 索引",
+      "path": "_待办.md",
+      "kind": "待办",
+      "title": "飞书机器人凭据与白名单：到「设置 → IM机器人」绑，绑完把通道状态从 warn 变 ok（负责：用户 + 我陪着核对）",
+      "displayTitle": "飞书机器人凭据与白名单：到「设置 → IM机器人」绑，绑完把通道状态从 warn 变 ok（负责：用户 + 我陪着核对）",
+      "summary": "",
       "date": "",
       "tags": [],
       "distinct": [],
       "evidence": [],
       "expires": "",
       "consolidatedInto": "",
-      "size": 1170
+      "size": 688,
+      "archived": false,
+      "source": "",
+      "person": "",
+      "theme": "",
+      "status": "open"
     },
     {
-      "path": "归档\\场景私有记忆-202611180956-861de8.md",
-      "kind": "归档",
-      "title": "胡闹的大肥鱼 · 场景私有记忆",
+      "path": "_待办.md",
+      "kind": "待办",
+      "title": "3D 形象与虚拟世界的接口约定：先写 `外壳\\pet3d\\说明.md`（Blender 出 GLB → 工作台渲染），实现等素材齐",
+      "displayTitle": "3D 形象与虚拟世界的接口约定：先写 `外壳\\pet3d\\说明.md`（Blender 出 GLB → 工作台渲染），实现等素材齐",
+      "summary": "",
       "date": "",
       "tags": [],
       "distinct": [],
       "evidence": [],
       "expires": "",
       "consolidatedInto": "",
-      "size": 4416
+      "size": 688,
+      "archived": false,
+      "source": "",
+      "person": "",
+      "theme": "",
+      "status": "open"
+    },
+    {
+      "path": "_待办.md",
+      "kind": "待办",
+      "title": "B站关注大肥鱼小课堂的UP主并每天跟更（2026-11-25）",
+      "displayTitle": "B站关注大肥鱼小课堂的UP主并每天跟更（2026-11-25）",
+      "summary": "",
+      "date": "",
+      "tags": [],
+      "distinct": [],
+      "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 688,
+      "archived": false,
+      "source": "",
+      "person": "",
+      "theme": "",
+      "status": "open"
     }
   ]
 }
