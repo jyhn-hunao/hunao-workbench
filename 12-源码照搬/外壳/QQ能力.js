@@ -17,8 +17,8 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
-const https = require('https');
 const { spawn, spawnSync } = require('child_process');
+const voiceSvc = require('./声音');
 // 情绪联动：语音概率也按当前心情收；缺失时退回原概率，不阻断发送。
 let socialReply = null;
 try { socialReply = require('./社交回复'); } catch (e) { /* 没有回复策略层，语音保持原行为 */ }
@@ -32,10 +32,10 @@ const TMP_DIR = path.join(WORK_DIR, 'tmp');
 const LOG_FILE = path.join(WORK_DIR, '通道.log');
 const WECHAT_CONFIG = path.join(DATA_DIR, '微信通道.json');
 const DEFAULT_ASR = 'https://api.deepseek.com/v1/tools/asr';
-const DEFAULT_BREEZE_BASE = 'https://api.breeze.blue';
-const DEFAULT_BREEZE_MODEL = 'breeze-tts-2';
-const DEFAULT_BREEZE_LANGUAGE = 'zh';
-const DEFAULT_BREEZE_INSTRUCTION = '用饭团的语气，自然、亲近、稍微俏皮，句尾轻快。';
+const DEFAULT_BREEZE_BASE = voiceSvc.DEFAULTS.baseUrl;
+const DEFAULT_BREEZE_MODEL = voiceSvc.DEFAULTS.model;
+const DEFAULT_BREEZE_LANGUAGE = voiceSvc.DEFAULTS.language;
+const DEFAULT_BREEZE_INSTRUCTION = voiceSvc.DEFAULTS.instructions;
 
 const DEFAULTS = {
   enabled: true,
@@ -55,7 +55,7 @@ const DEFAULTS = {
   stickerMaxPerReply: 1,
   stickerDynamic: true,
   voiceMaxChars: 80,
-  ttsProvider: 'sapi',
+  ttsProvider: 'breeze',
   ttsVoice: 'Microsoft Huihui Desktop',
   breezeBaseUrl: DEFAULT_BREEZE_BASE,
   breezeApiKey: '',
@@ -481,18 +481,11 @@ function createService(options) {
     return { ok: true, file: silkFile, bytes: fs.statSync(silkFile).size };
   }
 
-  // BreezeBlue 只做 TTS：Key 和音色都落本机 QQ能力.json，界面只回显末尾四位。
-  function maskKey(value) {
-    const key = String(value || '').trim();
-    if (!key) return '';
-    return key.length <= 4 ? '••••' : '••••' + key.slice(-4);
-  }
-
   function breezeStatus() {
     return {
       configured: !!(config.breezeApiKey && config.breezeVoiceId),
       keyConfigured: !!config.breezeApiKey,
-      keyMasked: maskKey(config.breezeApiKey),
+      keyMasked: voiceSvc.maskKey(config.breezeApiKey),
       voiceId: config.breezeVoiceId,
       voiceName: config.breezeVoiceName,
       model: config.breezeModel,
@@ -502,79 +495,6 @@ function createService(options) {
       baseUrl: config.breezeBaseUrl,
       last: Object.assign({}, breezeLast)
     };
-  }
-
-  // 只发一个 JSON、收一段二进制音频；不引入 SDK，避免把 Key 交给第三方包。
-  function postJsonBinary(url, key, body, timeoutMs) {
-    return new Promise(function (resolve, reject) {
-      let target;
-      try { target = new URL(url); } catch (e) { reject(new Error('Breeze 地址无效')); return; }
-      const payload = Buffer.from(JSON.stringify(body), 'utf8');
-      const req = https.request({
-        hostname: target.hostname,
-        port: target.port || 443,
-        path: target.pathname + target.search,
-        method: 'POST',
-        headers: {
-          'xi-api-key': key,
-          'content-type': 'application/json',
-          'content-length': payload.length
-        }
-      }, function (res) {
-        const chunks = [];
-        res.on('data', function (chunk) { chunks.push(chunk); });
-        res.on('end', function () {
-          resolve({ status: Number(res.statusCode) || 0, body: Buffer.concat(chunks) });
-        });
-      });
-      req.setTimeout(timeoutMs, function () { req.destroy(new Error('Breeze 合成超时')); });
-      req.on('error', reject);
-      req.end(payload);
-    });
-  }
-
-  function breezeErrorText(status, buf) {
-    let detail = '';
-    try {
-      const j = JSON.parse(buf.toString('utf8'));
-      detail = [j.code, j.detail].filter(Boolean).join(' · ');
-    } catch (e) {
-      detail = buf.toString('utf8').slice(0, 180);
-    }
-    return 'Breeze ' + status + (detail ? '：' + detail : '');
-  }
-
-  // 输出固定 wav_24000：24 kHz / 16-bit / 单声道，正好对上现有 pysilk 编码脚本。
-  async function synthesizeBreeze(text, wavFile) {
-    const started = Date.now();
-    if (!config.breezeApiKey) throw new Error('Breeze API Key 未配置');
-    if (!config.breezeVoiceId) throw new Error('Breeze 音色 ID 未配置');
-    const body = {
-      text: text,
-      language_code: config.breezeLanguage,
-      model_id: config.breezeModel
-    };
-    if (config.breezeInstructions) body.instructions = config.breezeInstructions;
-    const url = config.breezeBaseUrl + '/v1/text-to-speech/' + encodeURIComponent(config.breezeVoiceId) + '?output_format=wav_24000';
-    try {
-      const r = await postJsonBinary(url, config.breezeApiKey, body, 45000);
-      if (r.status !== 200) throw new Error(breezeErrorText(r.status, r.body));
-      if (r.body.length < 100) throw new Error('Breeze 返回空音频');
-      if (r.body.subarray(0, 4).toString('ascii') !== 'RIFF') throw new Error('Breeze 返回的不是 WAV');
-      fs.writeFileSync(wavFile, r.body);
-      breezeLast = {
-        at: Date.now(), ok: true, provider: 'breeze', ms: Date.now() - started,
-        bytes: r.body.length, chars: text.length, error: ''
-      };
-      return { ok: true, bytes: r.body.length, ms: Date.now() - started };
-    } catch (e) {
-      const msg = String((e && e.message) || e);
-      breezeLast = {
-        at: Date.now(), ok: false, provider: 'breeze', ms: Date.now() - started,
-        bytes: 0, chars: text.length, error: msg.slice(0, 180)
-      };
-      throw e;
-    }
   }
 
   async function synthesizeVoice(text) {
@@ -590,12 +510,21 @@ function createService(options) {
     let voice = config.breezeVoiceName || config.breezeVoiceId;
     let breezeError = '';
 
-    // 1. 先走界面选中的 provider；Breeze 失败且允许回退时才落到 SAPI。
+    // 1. 先走全局声音层（BreezeBlue）；失败且允许回退时才落到 SAPI 本机兜底。
     if (provider === 'breeze') {
       try {
-        await synthesizeBreeze(body, wavFile);
+        const made = await voiceSvc.synthesizeToWav(body, voiceSvc.readVoiceConfig(CONFIG_FILE), wavFile);
+        breezeLast = {
+          at: Date.now(), ok: true, provider: 'breeze', ms: made.ms,
+          bytes: made.bytes, chars: body.length, error: ''
+        };
       } catch (e) {
-        breezeError = String((e && e.message) || e).slice(0, 180);
+        const msg = String((e && e.message) || e);
+        breezeLast = {
+          at: Date.now(), ok: false, provider: 'breeze', ms: 0,
+          bytes: 0, chars: body.length, error: msg.slice(0, 180)
+        };
+        breezeError = msg.slice(0, 180);
         appendLog('Breeze 合成失败，' + (config.breezeFallback ? '回退 SAPI' : '不发送语音') + '：' + breezeError);
         if (!config.breezeFallback) return { ok: false, error: breezeError, provider: 'breeze' };
         provider = 'sapi';
@@ -788,15 +717,16 @@ function createService(options) {
     noteDirectVoice: noteDirectVoice,
     // 只给主进程内部用的同步接口；不经过 preload 暴露，完整 Key 不下发渲染层。
     breezeConfig: function () {
+      const v = voiceSvc.readVoiceConfig(CONFIG_FILE);
       return {
         provider: config.ttsProvider,
-        apiKey: config.breezeApiKey,
-        baseUrl: config.breezeBaseUrl,
-        model: config.breezeModel,
-        voiceId: config.breezeVoiceId,
-        voiceName: config.breezeVoiceName,
-        language: config.breezeLanguage,
-        instructions: config.breezeInstructions
+        apiKey: v.apiKey,
+        baseUrl: v.baseUrl,
+        model: v.model,
+        voiceId: v.voiceId,
+        voiceName: v.voiceName,
+        language: v.language,
+        instructions: v.instructions
       };
     },
     cleanupVoice: cleanupVoice,

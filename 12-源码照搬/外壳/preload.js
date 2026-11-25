@@ -5,9 +5,13 @@ let webAiTaskCb = null;
 
 
 const __wbHome = (process.env.DSH_CUSTOMER_HOME || '');
+// 复盘目录：main.js 已按「env > 机器配置.json 的 reviewDir > 仓内 自我复盘」算好并写回 DSH_REVIEW_DIR，
+// 这里同步读同一个值（拿不到才退回原来按 DSH_SHELL_DIR 推的默认）。
+const __wbReviewDir = process.env.DSH_REVIEW_DIR
+  || ((process.env.DSH_SHELL_DIR || '') ? ((process.env.DSH_SHELL_DIR || '').replace(/[\\/]外壳$/, '') + '\\自我复盘') : '');
 const __wbPaths = {
   dataDir: (process.env.DSH_SHELL_DIR || '') + '\\data',
-  reviewDir: (process.env.DSH_SHELL_DIR || '') ? ((process.env.DSH_SHELL_DIR || '').replace(/[\\/]外壳$/, '') + '\\自我复盘') : '',
+  reviewDir: __wbReviewDir,
   bootCfg: process.env.DSH_SHELL_DIR ? (process.env.DSH_SHELL_DIR + '\\data\\boot-animation.json') : '',
   memRoot: __wbHome ? (__wbHome + '\\场景记忆') : '',
   skillDir: __wbHome ? (__wbHome + '\\skills') : '',
@@ -234,10 +238,19 @@ contextBridge.exposeInMainWorld('app', {
     read: (p) => ipcRenderer.invoke('kun:file:read', p),
     write: (p, text) => ipcRenderer.invoke('kun:file:write', p, text),
     stat: (p) => ipcRenderer.invoke('kun:file:stat', p),
+    // 项目内容全局搜索（2026-11-24）：root = 当前项目根，query = 关键字；只读，返回文件 + 行号。
+    // 缺这个 = 主进程/预加载还是旧的 ⇒ 搜索抽屉会提示「重启一次工作台」。
+    search: (root, query, opts) => ipcRenderer.invoke('kun:file:search', root, query, opts),
     // Office/WPS 文档 → PDF（2026-10-13 加）：主进程借本机 Office 的 COM 转一次，缓存到 %TEMP%，
     // 渲染层拿回来的 pdf 路径喂给内核 PDF 阅读器 ⇒ Word / Excel / PPT 也能在预览面板里看。
     // 缺这个 = 主进程还是旧的 ⇒ 要重启一次 GUI（预览层会退回"用系统默认程序打开"的卡片，不会白屏）。
     toPdf: (p) => ipcRenderer.invoke('kun:file:toPdf', p)
+  },
+  // ---- 记忆注入台账（2026-11-25）：场景「记忆」右侧抽屉「注入台账」用 ----
+  // 只读；参数只有 { preview?: { scene, panel, query } }，不传就是台账（每个面板注入没注入）。
+  // 缺这个命名空间 = 主进程还是旧的 ⇒ 抽屉会提示「重启一次工作台」。
+  memInject: {
+    get: (opt) => ipcRenderer.invoke('mem-inject:get', opt || {})
   },
     // ---- 本机系统信息（2026-10-06 新增；本地电脑场景（原名电脑清理）用）：磁盘分区容量 ----
     // 缺这个命名空间 = 主进程还是旧的 ⇒ 要重启一次 GUI 才有（面板会先显示提示，不会白屏）。
@@ -281,10 +294,11 @@ contextBridge.exposeInMainWorld('app', {
     // 缺这个命名空间 = 主进程还是旧的 ⇒ 重启一次工作台。
   // ---- 拖文件进画布 / 选生成路径 / 选具体文件 / 窗口置顶（2026-09-23 第七轮 + 第十一轮）----
   // filePath：拖进画布的文件 → 真实路径（webUtils.getPathForFile 是 Electron 新 API；
-  //   老壳没有它 ⇒ 渲染层退回 File.path，照样能用）。pickFolder：选文件夹（待生成的存到哪）；
+  //   老壳没有它 ⇒ 渲染层退回 File.path，照样能用）。pickFolder：选文件夹（待生成的存到哪；
+  //   2026-11-24 可传 {title, buttonLabel}，全局搜索「选目录」复用同一个系统框）；
   //   pickFile：选具体文件（参考素材的路径）；setAlwaysOnTop：独立窗口置顶开关。
   filePath: (file) => { try { return webUtils.getPathForFile(file); } catch (e) { return ''; } },
-  pickFolder: () => ipcRenderer.invoke('kun:pick-folder'),
+  pickFolder: (opts) => ipcRenderer.invoke('kun:pick-folder', opts || {}),
   pickFile: () => ipcRenderer.invoke('kun:pick-file'),
   setAlwaysOnTop: (on) => ipcRenderer.invoke('kun:set-always-on-top', !!on),
   // ---- 宿主通用能力：探测本机端口在不在（流程画布「ComfyUI 控制台 / 工作台」节点的状态点）----
@@ -302,6 +316,8 @@ contextBridge.exposeInMainWorld('app', {
     dog: () => ipcRenderer.invoke('dispatch:dog'),
     dogFix: (id) => ipcRenderer.invoke('dispatch:dogFix', id),
     dogOpen: (id) => ipcRenderer.invoke('dispatch:dogOpen', id),
+    // 壳内新建派发：壳外脚本拿不到 DSH_TOKEN，所以这里由主进程起 派发.mjs（env 自带 token）
+    send: (payload) => ipcRenderer.invoke('dispatch:send', payload || {}),
     // 待批准队列（confirm 级不再靠聊天点头）：列出 / 批准 / 忽略
     approvals: () => ipcRenderer.invoke('dispatch:approvals'),
     approve: (id) => ipcRenderer.invoke('dispatch:approve', id),
@@ -337,6 +353,31 @@ contextBridge.exposeInMainWorld('app', {
   // ---- 程序开发场景：把项目 H5 用手机尺寸窗口打开（400×830，独立持久会话记住登录）----
   code: {
     phoneWindow: (url, title) => ipcRenderer.invoke('code:phone-window', url, title)
+  },
+  // ---- 生活场景：内容源/发布配置与小号账号（2026-11-25）----
+  lifeConfig: {
+    get: () => ipcRenderer.invoke('life:config:get'),
+    save: (payload) => ipcRenderer.invoke('life:config:save', payload),
+    syncAccount: () => ipcRenderer.invoke('life:account:sync')
+  },
+  // ---- 社交场景：主动出消息走哪个通道（默认 微信 → QQ → 飞书 → 其它，2026-11-25）----
+  channelPriority: {
+    get: () => ipcRenderer.invoke('channel:priority:get'),
+    save: (payload) => ipcRenderer.invoke('channel:priority:save', payload),
+    probe: () => ipcRenderer.invoke('channel:probe')
+  },
+  // ---- 场景设置目录（每个场景一张「设置」卡，2026-11-25）----
+  // 列项 / 读一项 / 只写白名单字段；表在 外壳\场景配置.js
+  sceneCfg: {
+    list: (sceneId) => ipcRenderer.invoke('scene:cfg:list', sceneId),
+    read: (sceneId, key) => ipcRenderer.invoke('scene:cfg:read', sceneId, key),
+    save: (sceneId, key, patch) => ipcRenderer.invoke('scene:cfg:save', sceneId, key, patch)
+  },
+  // 场景能力目录（2026-11-25）：面板「能力」弹窗读这一份，与 工具\场景能力.mjs 同一算法
+  sceneAbil: {
+    list: (sceneId) => ipcRenderer.invoke('scene:abil:list', sceneId),
+    all: () => ipcRenderer.invoke('scene:abil:all'),
+    find: (text) => ipcRenderer.invoke('scene:abil:find', text)
   },
   // ---- 自我复盘场景：本地 md 文档树（只读；根＝<工作台>\自我复盘，路径由主进程夹在本目录内）----
   review: {

@@ -1,10 +1,11 @@
 'use strict';
-// 关系与情绪设置（2026-11-20）
+// 关系与情绪设置（2026-11-20，2026-11-24 改）
 //
 // 反黑盒约定：
-//   · 入口常驻在社交通道标题行，文字按钮「关系与情绪」，不藏齿轮 / 右键 / 长弹层；
-//   · 每个人的熟悉度、好感、档位、事件、来源都能看见；滑块改的是手动值，可一键解锁回自动；
-//   · 所有规则参数（初始值、熟悉 / 好感 / 情绪三条曲线、群接话系数）都在「规则」页可改；
+//   · 入口常驻在「胡闹的大肥鱼 → 设置」，文字按钮「关系与情绪」；
+//   · 每个人的熟悉度、好感、档位、事件、来源都能看见；
+//   · 分数 / 曲线 / 情绪联动表由代码固定成一套标准，面板只读，不提供手动加减分或调参；
+//   · 称呼 / 身份 / 标签 / 备注仍可改，属于人物资料，不碰分数；
 //   · 「预览」页显示下一轮模型实际会看到的关系卡，字数和人数都写出来；
 //   · 不改人格底线：这里只调表达，不提供「骂人 / 无视正事 / 越过安全规则」的开关。
 
@@ -26,14 +27,6 @@
     if (cls) n.className = cls;
     if (text != null) n.textContent = String(text);
     return n;
-  }
-
-  function clone(v) { return JSON.parse(JSON.stringify(v)); }
-
-  function num(v, dflt, lo, hi) {
-    var n = Number(v);
-    if (!Number.isFinite(n)) return dflt;
-    return Math.max(lo, Math.min(hi, n));
   }
 
   function fmtNum(v) {
@@ -81,7 +74,6 @@
       openKey: '',
       deleteKey: '',
       dirty: false,
-      draft: clone(data.config || {}),
       data: data
     };
 
@@ -104,7 +96,7 @@
     var head = mk('div', 'wxs-head');
     var hw = mk('div', 'wxs-hw');
     hw.appendChild(mk('div', 'wxs-title', '关系与情绪 · 内部状态'));
-    hw.appendChild(mk('div', 'wxs-sub', '对每个人的熟悉度 / 好感，和她自己此刻的情绪；只调表达，不改事实、边界和安全规则。所有人可见、可改。'));
+    hw.appendChild(mk('div', 'wxs-sub', '对每个人的熟悉度 / 好感，和她自己此刻的情绪；分数和曲线由一套固定标准自动推进，面板只观察。称呼 / 身份 / 标签 / 备注仍可改。'));
     head.appendChild(hw);
     var x = mk('button', 'wxs-x', '✕');
     x.type = 'button';
@@ -121,7 +113,7 @@
     var tabDefs = [
       ['people', '关系'],
       ['mood', '情绪'],
-      ['rules', '规则'],
+      ['standard', '标准'],
       ['preview', '预览']
     ];
     tabDefs.forEach(function (t) {
@@ -133,7 +125,6 @@
         if (state.dirty && !window.confirm('当前页还有没保存的修改，切走就丢了。确定切换？')) return;
         state.tab = t[0];
         state.dirty = false;
-        state.draft = clone(state.data.config || {});
         render();
       });
       tabs.appendChild(b);
@@ -143,14 +134,14 @@
     dlg.appendChild(body);
 
     var foot = mk('div', 'wxs-foot');
-    var fh = mk('div', 'wxs-fh', '保存后下一轮生效；不重启通道、不重启引擎。');
+    var fh = mk('div', 'wxs-fh', '称呼 / 标签 / 备注保存后下一轮生效；分数与情绪由固定标准自动推进。');
     foot.appendChild(fh);
     var seedBtn = mk('button', 'wxs-btn', '重建档案');
     seedBtn.type = 'button';
     seedBtn.title = '按聊天档案的消息数 / 互动天数重算熟悉度；好感、标签、备注都保留';
     seedBtn.addEventListener('click', function () {
       if (!api || typeof api.relationSeed !== 'function') { toast('接口没接上：重启一次工作台', true); return; }
-      if (!window.confirm('会按聊天档案重算熟悉度（消息数 × 权重 + 互动天数 × 权重）。\n好感、标签、备注、手动锁定都保留。继续？')) return;
+      if (!window.confirm('会按聊天档案重算熟悉度（消息数 × 权重 + 互动天数 × 权重）。\n好感、称呼、身份、标签、备注都保留；熟悉度按档案和固定标准推进。继续？')) return;
       seedBtn.disabled = true;
       Promise.resolve(api.relationSeed({})).then(function (r) {
         seedBtn.disabled = false;
@@ -192,7 +183,6 @@
       return Promise.resolve(api.relationGet()).then(function (d) {
         if (!d || d.ok === false) throw new Error((d && d.error) || '读不到关系数据');
         state.data = d;
-        state.draft = clone(d.config || {});
         state.dirty = false;
         render();
         if (!silent) fh.textContent = '已刷新；保存后下一轮生效。';
@@ -207,20 +197,19 @@
     function render() {
       var d = state.data;
       sum.innerHTML =
-        '<span class="wxs-pill ' + (d.config.inject ? 'is-ok' : 'is-bad') + '">注入：' + (d.config.inject ? '开' : '关') + '</span>' +
+        '<span class="wxs-pill is-ok">标准：固定</span>' +
         '<span class="wxs-pill">人数 ' + Number((d.people || []).length) + '</span>' +
         '<span class="wxs-pill">聊天 ' + Number((d.chats || []).length) + '</span>' +
         '<span class="wxs-pill ' + (d.mood && d.mood.visible ? 'is-warn' : '') + '">心情：' + String((d.mood && d.mood.label) || '平静') +
           (d.mood && d.mood.visible ? ' ' + Number(d.mood.intensity) + '/100' : '') + '</span>' +
-        '<span class="wxs-pill ' + (d.config.modelNotesEnabled ? 'is-ok' : 'is-warn') + '">模型事件：' + (d.config.modelNotesEnabled ? '开' : '关') + '</span>' +
-        '<span class="wxs-pill">群接话系数：' + (d.config.groupBiasEnabled ? '开' : '关') + '</span>';
+        '<span class="wxs-pill ' + (d.config.inject ? 'is-ok' : 'is-bad') + '">注入：' + (d.config.inject ? '开' : '关') + '</span>';
       tabs.querySelectorAll('.wxs-tab').forEach(function (b) {
         b.classList.toggle('is-on', b.dataset.tab === state.tab);
       });
       body.innerHTML = '';
       if (state.tab === 'people') renderPeople();
       else if (state.tab === 'mood') renderMood();
-      else if (state.tab === 'rules') renderRules();
+      else if (state.tab === 'standard') renderStandard();
       else renderPreview();
     }
 
@@ -237,69 +226,8 @@
       return s;
     }
 
-    // 配置允许嵌套（curves.familiarity.*）；点号路径读写，避免面板只能改顶层 key。
-    function readPath(obj, key) {
-      var parts = String(key || '').split('.');
-      var cur = obj;
-      for (var i = 0; i < parts.length; i++) {
-        if (cur == null) return undefined;
-        cur = cur[parts[i]];
-      }
-      return cur;
-    }
-    function writePath(obj, key, value) {
-      var parts = String(key || '').split('.');
-      var cur = obj;
-      for (var i = 0; i < parts.length - 1; i++) {
-        if (!cur[parts[i]] || typeof cur[parts[i]] !== 'object') cur[parts[i]] = {};
-        cur = cur[parts[i]];
-      }
-      cur[parts[parts.length - 1]] = value;
-    }
-
-    function numRow(label, hint, obj, key, lo, hi, step, unit) {
-      var row = mk('div', 'wxs-row');
-      var lw = mk('div', 'wxs-lab-wrap');
-      lw.appendChild(mk('div', 'wxs-lab', label));
-      if (hint) lw.appendChild(mk('div', 'wxs-hint', hint));
-      row.appendChild(lw);
-      var cw = mk('div', 'wxs-ctrl');
-      var input = mk('input', 'wxs-num');
-      input.type = 'number';
-      input.min = String(lo); input.max = String(hi); input.step = String(step);
-      var current = readPath(obj, key);
-      input.value = String(current === undefined ? '' : current);
-      input.addEventListener('input', function () {
-        var old = readPath(obj, key);
-        writePath(obj, key, num(input.value, old, lo, hi));
-        markDirty();
-      });
-      cw.appendChild(input);
-      if (unit) cw.appendChild(mk('span', 'wxs-unit', unit));
-      row.appendChild(cw);
-      return row;
-    }
-
-    function switchRow(label, hint, obj, key) {
-      var row = mk('div', 'wxs-row');
-      var lw = mk('div', 'wxs-lab-wrap');
-      lw.appendChild(mk('div', 'wxs-lab', label));
-      if (hint) lw.appendChild(mk('div', 'wxs-hint', hint));
-      row.appendChild(lw);
-      var cw = mk('div', 'wxs-ctrl');
-      var sw = mk('label', 'wxs-switch');
-      var cb = mk('input');
-      cb.type = 'checkbox';
-      cb.checked = obj[key] !== false;
-      cb.addEventListener('change', function () { obj[key] = !!cb.checked; markDirty(); });
-      sw.appendChild(cb);
-      sw.appendChild(mk('span', 'wxs-slider'));
-      cw.appendChild(sw);
-      row.appendChild(cw);
-      return row;
-    }
-
     // 主人 / 称呼这类是文本，不是数字；单独做一行，保存时仍走同一个 config。
+
     function textRow(label, hint, obj, key, placeholder, maxLen) {
       var row = mk('div', 'wxs-row');
       var lw = mk('div', 'wxs-lab-wrap');
@@ -317,76 +245,6 @@
       cw.appendChild(input);
       row.appendChild(cw);
       return row;
-    }
-
-    function listRow(label, hint, obj, key, placeholder) {
-      var row = mk('div', 'wxs-row');
-      var lw = mk('div', 'wxs-lab-wrap');
-      lw.appendChild(mk('div', 'wxs-lab', label));
-      if (hint) lw.appendChild(mk('div', 'wxs-hint', hint));
-      row.appendChild(lw);
-      var cw = mk('div', 'wxs-ctrl');
-      var input = mk('input', 'wxs-num');
-      input.type = 'text';
-      input.style.width = '260px';
-      input.placeholder = placeholder || '';
-      input.value = (Array.isArray(obj[key]) ? obj[key] : []).join('|');
-      input.addEventListener('input', function () {
-        obj[key] = input.value.split(/[|,，]/).map(function (x) { return String(x || '').trim(); }).filter(Boolean).slice(0, 12);
-        markDirty();
-      });
-      cw.appendChild(input);
-      row.appendChild(cw);
-      return row;
-    }
-
-    // 情绪联动表：9 个标签 × 6 个通道参数，全部在这里改；不在代码里藏第二套默认值。
-    function moodEffectTable(c) {
-      var sec = section('情绪联动表', '每个标签对回复的实际影响；字/句 0 表示不额外限长，系数 0 表示不发，1 表示不改变原通道概率。改完点本页「保存规则」。');
-      if (!c.moodEffects || typeof c.moodEffects !== 'object') c.moodEffects = {};
-      var labels = state.data.moodLabels || ['平静', '开心', '兴奋', '得意', '低落', '委屈', '烦躁', '疲惫', '心虚'];
-      var table = mk('table', 'wxs-mood-table');
-      var head = mk('thead');
-      var hr = mk('tr');
-      ['情绪', '字数上限', '句数上限', 'emoji 权重', '贴纸权重', '语音权重', '群接话权重'].forEach(function (t) {
-        hr.appendChild(mk('th', '', t));
-      });
-      head.appendChild(hr);
-      table.appendChild(head);
-      var tb = mk('tbody');
-      labels.forEach(function (label) {
-        var e = c.moodEffects[label];
-        if (!e || typeof e !== 'object') {
-          e = { maxChars: 0, maxSentences: 0, emojiFactor: 1, stickerFactor: 1, voiceFactor: 1, groupFactor: 1 };
-          c.moodEffects[label] = e;
-        }
-        var tr = mk('tr');
-        tr.appendChild(mk('td', 'wxs-mood-name', label));
-        function cell(key, lo, hi, step) {
-          var td = mk('td');
-          var input = mk('input', 'wxs-num is-mini');
-          input.type = 'number';
-          input.min = String(lo); input.max = String(hi); input.step = String(step);
-          input.value = String(e[key] === undefined ? (key.indexOf('Factor') >= 0 ? 1 : 0) : e[key]);
-          input.addEventListener('input', function () {
-            e[key] = num(input.value, e[key], lo, hi);
-            markDirty();
-          });
-          td.appendChild(input);
-          return td;
-        }
-        tr.appendChild(cell('maxChars', 0, 300, 1));
-        tr.appendChild(cell('maxSentences', 0, 10, 1));
-        tr.appendChild(cell('emojiFactor', 0, 2, 0.1));
-        tr.appendChild(cell('stickerFactor', 0, 2, 0.1));
-        tr.appendChild(cell('voiceFactor', 0, 2, 0.1));
-        tr.appendChild(cell('groupFactor', 0, 2, 0.1));
-        tb.appendChild(tr);
-      });
-      table.appendChild(tb);
-      sec.appendChild(table);
-      sec.appendChild(mk('div', 'wxs-note', '语音权重只乘在「主动发语音」的概率上；对方明确要求语音仍优先。负向情绪默认不发贴纸、不发语音、少接话。'));
-      return sec;
     }
 
     // ---------- 关系 ----------
@@ -408,7 +266,7 @@
       sel.value = state.filter;
       sel.addEventListener('change', function () { state.filter = sel.value; state.openKey = ''; render(); });
       filterBar.appendChild(sel);
-      filterBar.appendChild(mk('span', 'wxs-hint', '点心人展开编辑；滑块一改就是手动锁定值，点「解锁」回到自动统计。'));
+      filterBar.appendChild(mk('span', 'wxs-hint', '点人名展开编辑称呼 / 身份 / 标签 / 备注；分数由固定标准自动推进。'));
       body.appendChild(filterBar);
 
       var groups = {};
@@ -435,7 +293,7 @@
       }
 
       // 手动建档：聊天键 + 名字；避免只能从档案里等人出现
-      var addSec = section('手动建档 / 补录', '用于飞书等没有聊天档案的通道，或档案里还没出现的人。建档按规则页的初始值开始；名字命中主人别名会直接按主人初始值。');
+      var addSec = section('手动建档 / 补录', '用于飞书等没有聊天档案的通道，或档案里还没出现的人。建档按固定标准 60 / 60 开始；名字命中主人别名会直接按主人 100 / 100。');
       var addRow = mk('div', 'wxs-row');
       var al = mk('div', 'wxs-lab-wrap');
       al.appendChild(mk('div', 'wxs-lab', '聊天键 + 名字'));
@@ -483,9 +341,6 @@
         head.appendChild(mk('span', 'wxs-person-meta', '原名 ' + p.name));
       }
       if (p.role) head.appendChild(mk('span', 'wxs-pill is-warn', p.role));
-      if (p.manual && (p.manual.familiarity !== null || p.manual.affinity !== null)) {
-        head.appendChild(mk('span', 'wxs-pill is-warn', '手动锁定'));
-      }
       if (p.lockUntil && p.lockUntil > Date.now()) head.appendChild(mk('span', 'wxs-pill is-bad', '严重负向 24h 锁'));
       if (p.repairUntil && p.repairUntil > Date.now()) head.appendChild(mk('span', 'wxs-pill is-warn', '修复惩罚期'));
       if (p.tags && p.tags.length) head.appendChild(mk('span', 'wxs-person-meta', p.tags.join('、')));
@@ -506,7 +361,7 @@
       var meta = mk('div', 'wxs-note', '消息 ' + Number(p.stats.messages || 0) + ' · 互动 ' + Number(p.stats.days || 0) + ' 天 · 最近 ' + hhmm(p.stats.lastAt) +
         ' · 基础值 熟悉 ' + fmtNum(p.stage.rawFamiliarity) + ' / 好感 ' + fmtAff(p.stage.rawAffinity) +
         (p.stage.decayed && (p.stage.decayed.familiarity || p.stage.decayed.affinity) ? '（冷落衰减 -' + fmtNum(p.stage.decayed.familiarity) + ' / -' + fmtNum(p.stage.decayed.affinity) + '）' : '') +
-        ' · 来源 ' + (p.manual && (p.manual.familiarity !== null || p.manual.affinity !== null) ? '手动' : '自动统计 + 事件'));
+        ' · 来源 ' + (p.manual && (p.manual.familiarity !== null || p.manual.affinity !== null) ? '自动统计 + 事件（旧手动值）' : '自动统计 + 事件'));
       bodyEl.appendChild(meta);
       var curveText = (p.curves || []).map(function (x) {
         return x.days + 'd ' + fmtNum(x.familiarity) + '/' + fmtAff(x.affinity);
@@ -514,41 +369,11 @@
       if (curveText) bodyEl.appendChild(mk('div', 'wxs-note', '未来曲线：' + curveText));
 
       var draft = {
-        familiarity: Math.round(Number(st.familiarity) || 0),
-        affinity: Math.round(Number(st.affinity) || 0),
         preferredName: p.preferredName || '',
         role: p.role || '',
         tags: (p.tags || []).join('|'),
-        note: '',
-        lockFamiliarity: false,
-        lockAffinity: false
+        note: ''
       };
-      function sliderRow(label, hint, key, lo, hi) {
-        var row = mk('div', 'wxs-row');
-        var lw = mk('div', 'wxs-lab-wrap');
-        lw.appendChild(mk('div', 'wxs-lab', label));
-        lw.appendChild(mk('div', 'wxs-hint', hint));
-        row.appendChild(lw);
-        var cw = mk('div', 'wxs-ctrl');
-        cw.style.maxWidth = '62%';
-        var range = mk('input');
-        range.type = 'range'; range.min = String(lo); range.max = String(hi); range.step = '1';
-        range.value = String(draft[key]);
-        range.style.width = '220px';
-        var val = mk('span', 'wxs-unit', String(draft[key]));
-        range.addEventListener('input', function () {
-          draft[key] = Math.round(Number(range.value) || 0);
-          if (key === 'familiarity') draft.lockFamiliarity = true;
-          if (key === 'affinity') draft.lockAffinity = true;
-          val.textContent = String(draft[key]);
-          markDirty();
-        });
-        cw.appendChild(range); cw.appendChild(val);
-        row.appendChild(cw);
-        return row;
-      }
-      bodyEl.appendChild(sliderRow('熟悉度', '决定主动程度、能不能用昵称 / 开玩笑；0–100。只有拖动这个滑块才会手动锁定这一项。', 'familiarity', 0, 100));
-      bodyEl.appendChild(sliderRow('好感', '决定耐心、热络和玩笑深度；-100–+100。只有拖动这个滑块才会手动锁定这一项。', 'affinity', -100, 100));
       bodyEl.appendChild(textRow('称呼', '发消息时模型会叫这个；留空就用原显示名。例：胡闹。', draft, 'preferredName', '胡闹', 24));
       bodyEl.appendChild(textRow('身份', '写进关系卡；例：主人。只影响称呼与表达，不改安全规则。', draft, 'role', '主人', 12));
 
@@ -606,8 +431,6 @@
           tags: draft.tags,
           note: String(draft.note || '').trim()
         };
-        if (draft.lockFamiliarity) payload.familiarity = draft.familiarity;
-        if (draft.lockAffinity) payload.affinity = draft.affinity;
         Promise.resolve(api.relationSavePerson(payload)).then(function (r) {
           save.disabled = false;
           if (!r || r.ok === false) { toast('保存失败：' + String((r && r.error) || '未知原因'), true); return; }
@@ -620,23 +443,6 @@
         });
       });
       btns.appendChild(save);
-
-      var unlock = mk('button', 'wxs-btn', '解锁回自动');
-      unlock.type = 'button';
-      unlock.title = '清掉手动值；熟悉度回到档案公式，好感回到事件累计';
-      unlock.addEventListener('click', function () {
-        unlock.disabled = true;
-        Promise.resolve(api.relationSavePerson({ key: p.key, familiarity: null, affinity: null })).then(function (r) {
-          unlock.disabled = false;
-          if (!r || r.ok === false) { toast('解锁失败：' + String((r && r.error) || '未知原因'), true); return; }
-          toast('已解锁：' + shown, false, 3000);
-          reload(true);
-        }).catch(function (e) {
-          unlock.disabled = false;
-          toast('解锁失败：' + String((e && e.message) || e), true);
-        });
-      });
-      btns.appendChild(unlock);
 
       var reset = mk('button', 'wxs-btn', '重置');
       reset.type = 'button';
@@ -710,75 +516,10 @@
       pn.style.marginTop = '6px';
       box.appendChild(pn);
       sec.appendChild(box);
-
-      var draft = { label: m.label || '平静', intensity: Math.round(Number(m.intensity) || 0), cause: m.cause || '' };
-      var row1 = mk('div', 'wxs-row');
-      var l1 = mk('div', 'wxs-lab-wrap');
-      l1.appendChild(mk('div', 'wxs-lab', '手动设置情绪'));
-      l1.appendChild(mk('div', 'wxs-hint', '只认白名单；强度 0–100。手动设置优先于自动事件，直到下一次自动事件或巡检。'));
-      row1.appendChild(l1);
-      var c1 = mk('div', 'wxs-ctrl');
-      c1.style.maxWidth = '66%';
-      var sel = mk('select', 'wxs-select');
-      (d.moodLabels || []).forEach(function (lab) {
-        var o = mk('option', '', lab); o.value = lab; sel.appendChild(o);
-      });
-      sel.value = draft.label;
-      sel.addEventListener('change', function () { draft.label = sel.value; markDirty(); });
-      c1.appendChild(sel);
-      var range = mk('input');
-      range.type = 'range'; range.min = '0'; range.max = '100'; range.step = '1';
-      range.value = String(draft.intensity);
-      range.style.width = '180px';
-      var val = mk('span', 'wxs-unit', String(draft.intensity));
-      range.addEventListener('input', function () { draft.intensity = Math.round(Number(range.value) || 0); val.textContent = String(draft.intensity); markDirty(); });
-      c1.appendChild(range); c1.appendChild(val);
-      row1.appendChild(c1);
-      sec.appendChild(row1);
-
-      var row2 = mk('div', 'wxs-row');
-      var l2 = mk('div', 'wxs-lab-wrap');
-      l2.appendChild(mk('div', 'wxs-lab', '原因'));
-      l2.appendChild(mk('div', 'wxs-hint', '一句人话，面板和注入卡都会显示；不要写「系统要求」。'));
-      row2.appendChild(l2);
-      var c2 = mk('div', 'wxs-ctrl');
-      var cause = mk('input', 'wxs-num');
-      cause.style.width = '260px';
-      cause.placeholder = '例：被连着催了两次';
-      cause.value = draft.cause;
-      cause.addEventListener('input', function () { draft.cause = cause.value; markDirty(); });
-      c2.appendChild(cause);
-      row2.appendChild(c2);
-      sec.appendChild(row2);
-
-      var btns = mk('div', 'wxs-ctrl');
-      btns.style.justifyContent = 'flex-start';
-      var save = mk('button', 'wxs-btn is-primary', '保存情绪');
-      save.type = 'button';
-      save.addEventListener('click', function () {
-        save.disabled = true;
-        Promise.resolve(api.moodSet({ label: draft.label, intensity: draft.intensity, cause: draft.cause })).then(function (r) {
-          save.disabled = false;
-          if (!r || r.ok === false) { toast('保存情绪失败：' + String((r && r.error) || '未知原因'), true); return; }
-          toast('情绪已保存：' + (r.mood && r.mood.label ? r.mood.label : draft.label), false, 3000);
-          reload(true);
-        }).catch(function (e) { save.disabled = false; toast('保存情绪失败：' + String((e && e.message) || e), true); });
-      });
-      btns.appendChild(save);
-      var reset = mk('button', 'wxs-btn', '回平静');
-      reset.type = 'button';
-      reset.addEventListener('click', function () {
-        Promise.resolve(api.moodReset()).then(function (r) {
-          if (!r || r.ok === false) { toast('回平静失败：' + String((r && r.error) || '未知原因'), true); return; }
-          toast('已回平静', false, 2500);
-          reload(true);
-        }).catch(function (e) { toast('回平静失败：' + String((e && e.message) || e), true); });
-      });
-      btns.appendChild(reset);
-      sec.appendChild(btns);
+      sec.appendChild(mk('div', 'wxs-note', '情绪只由事件和 ' + Number(m.halfLife || 90) + ' 分钟半衰期自动推进；面板不提供手动设置，下面「最近情绪事件」能看到每次变化和原因。'));
       body.appendChild(sec);
 
-      var evSec = section('最近情绪事件', '按时间倒序；自动事件与手动设置都在这里，来源可审计。');
+      var evSec = section('最近情绪事件', '按时间倒序；自动事件与系统记录都在这里，来源可审计。');
       var evBox = mk('div', 'wxs-events');
       (d.moodEvents || []).forEach(function (e) {
         evBox.appendChild(mk('div', 'wxs-ev', hhmm(e.at) + ' · ' + (e.kind || '') + ' ' + ((e.delta || 0) > 0 ? '+' : '') + (e.delta || 0) +
@@ -789,137 +530,80 @@
       body.appendChild(evSec);
     }
 
-    // ---------- 规则 ----------
-    function renderRules() {
+    // ---------- 标准（只读） ----------
+    // 2026-11-24：分数 / 曲线 / 情绪联动表由 社交状态.js 的 DEFAULT_CONFIG 固定；
+    // 面板只展示标准，不提供输入框；要改标准走代码评审，避免两套口径。
+    function renderStandard() {
       var d = state.data;
-      var c = state.draft;
-      // 老数据迁到 v3 前可能没有 curves；先补空对象，numRow 仍按点号路径写。
-      if (!c.curves) c.curves = {};
-      ['familiarity', 'affinity', 'mood'].forEach(function (k) {
-        if (!c.curves[k]) c.curves[k] = {};
+      var c = d.config || {};
+      var fam = (c.curves && c.curves.familiarity) || {};
+      var aff = (c.curves && c.curves.affinity) || {};
+      var mood = (c.curves && c.curves.mood) || {};
+      var labels = d.moodLabels || ['平静', '开心', '兴奋', '得意', '低落', '委屈', '烦躁', '疲惫', '心虚'];
+
+      function block(title, hint, lines) {
+        var sec = section(title, hint);
+        lines.forEach(function (line) {
+          var n = mk('div', 'wxs-note', line);
+          n.style.marginTop = '6px';
+          sec.appendChild(n);
+        });
+        return sec;
+      }
+
+      body.appendChild(block('关系分怎么走', '全部由代码标准自动推进；面板不提供加减分或曲线输入。', [
+        '新建档案：私聊 / 群 ' + fmtNum(c.privateFamiliarity) + ' / ' + fmtNum(c.privateAffinity) + '；主人 ' + fmtNum(c.ownerFamiliarity) + ' / ' + fmtNum(c.ownerAffinity) + '（按别名或 senderId 认人）。',
+        '熟悉度：每条消息 +' + fmtNum(c.familiarityMsgWeight) + '，每个互动日 +' + fmtNum(c.familiarityDayWeight) + '；按饱和曲线向 100 靠近，单日最多 +' + fmtNum(fam.dailyGainCap) + '；' + fmtNum(fam.graceDays) + ' 天不聊后，按 ' + fmtNum(fam.decayHalfLifeDays) + ' 天半衰期回落到 ' + fmtNum(fam.floor) + ' 下限。',
+        '好感：单次事件最多 ±' + fmtNum(c.affinityEventMax) + '，踩雷 -2，严重负向 -' + fmtNum(c.affinitySevereMax) + '，单日净变化 ±' + fmtNum(c.affinityDailyCap) + '；' + fmtNum(aff.graceDays) + ' 天不互动后，正向 ' + fmtNum(aff.positiveHalfLifeDays) + ' 天 / 负向 ' + fmtNum(aff.negativeHalfLifeDays) + ' 天半衰期回 0；严重负向后 ' + fmtNum(aff.repairPenaltyHours) + ' 小时内修复只算 ' + fmtNum(aff.repairEfficiency) + '。',
+        '档位：认识 ' + fmtNum(c.stageKnown) + ' / 普通朋友 ' + fmtNum(c.stageFriend) + ' / 熟 ' + fmtNum(c.stageClose) + ' / 自己人 ' + fmtNum(c.stageInner) + '；熟需好感 ' + fmtNum(c.stageCloseAffinity) + '，自己人需 ' + fmtNum(c.stageInnerAffinity) + '；边界 ' + fmtNum(c.stageHysteresis) + ' 点滞回。'
+      ]));
+
+      body.appendChild(block('情绪分怎么走', '模型只报情绪标签，分数按固定表折算；面板不提供手动设置。', [
+        '一次事件：开心 +4 / 兴奋 +8 / 得意 +3 / 低落 -4 / 委屈 -6 / 烦躁 -6 / 疲惫 -4 / 心虚 -3 / 平静 0。',
+        '单次最多 ±' + fmtNum(mood.eventMax) + '，单日最多 ' + fmtNum(mood.dailyCap) + '；强度按 ' + fmtNum(mood.halfLifeMin) + ' 分钟半衰期回落；正向封顶 ' + fmtNum(mood.positiveMax) + '，负向封顶 ' + fmtNum(mood.negativeMax) + '；低于 ' + fmtNum(mood.visible) + ' 不写进关系卡。',
+        '换标签：新信号至少达到当前强度 ' + Math.round(Number(mood.switchMargin || 0) * 100) + '% 才换，避免一句话来回跳。'
+      ]));
+
+      var fsec = section('情绪表达（固定表）', '每个标签只调表达上限，不改事实、边界；表由代码固定。');
+      var table = mk('table', 'wxs-mood-table');
+      var thead = mk('thead');
+      var hr = mk('tr');
+      ['情绪', '字数上限', '句数上限', 'emoji 权重', '贴纸权重', '语音权重', '群接话权重'].forEach(function (t) {
+        hr.appendChild(mk('th', '', t));
       });
-      var sec1 = section('总开关', '关掉注入：下一轮不再追加关系卡；已有数据不动，面板仍可看。');
-      sec1.appendChild(switchRow('启用关系与情绪', '总开关；关掉后所有通道都不追加。', c, 'enabled'));
-      sec1.appendChild(switchRow('注入到提示词', '关掉只保留数据，不注入；排查时可先关这里。', c, 'inject'));
-      sec1.appendChild(switchRow('允许模型记事件', '关掉后 social_note 直接拒绝；已记的事件保留。', c, 'modelNotesEnabled'));
-      body.appendChild(sec1);
-
-      var sec2 = section('注入预算', '控制模型每轮多看到多少；群名单最多 10 人，当前说话人始终保留。');
-      sec2.appendChild(numRow('群名单最多几人', '按熟悉度降序；当前说话人不在前列也会被替换进来。', c, 'groupRosterLimit', 1, 30, 1, '人'));
-      sec2.appendChild(numRow('关系卡最多字符', '超预算先砍非当前说话人的名单行。', c, 'cardMaxChars', 120, 1200, 10, 'B'));
-      sec2.appendChild(numRow('情绪可见阈值', '强度低于这个值就不写进卡，避免每轮都「有点烦」。', c, 'curves.mood.visible', 0, 100, 1, ''));
-      body.appendChild(sec2);
-
-      var sec3 = section('初始值', '只用于新建档案的起点，不是永远不变；已有关系不会被覆盖，之后仍按公式 / 事件 / 冷落衰减继续走。');
-      sec3.appendChild(numRow('私聊初始好感', '新私聊档案从 60 开始；之后仍可变。', c, 'privateAffinity', -100, 100, 1, ''));
-      sec3.appendChild(numRow('群成员初始好感', '新群成员档案从 60 开始；之后仍可变。', c, 'groupAffinity', -100, 100, 1, ''));
-      sec3.appendChild(numRow('私聊初始熟悉度', '新私聊档案从 60 开始；之后仍可变。', c, 'privateFamiliarity', 0, 100, 1, ''));
-      sec3.appendChild(numRow('群成员初始熟悉度', '新群成员档案从 60 开始；之后仍可变。', c, 'groupFamiliarity', 0, 100, 1, ''));
-      body.appendChild(sec3);
-
-      var ownerSec = section('主人', '认人、称呼、初始值都可改；只影响表达与初始分，不改事实、边界和安全规则。');
-      ownerSec.appendChild(textRow('称呼', '发消息时模型用这个称呼；默认「胡闹」，不要叫原显示名。', c, 'ownerPreferredName', '胡闹', 24));
-      ownerSec.appendChild(textRow('身份', '写进关系卡；默认「主人」。', c, 'ownerRole', '主人', 12));
-      ownerSec.appendChild(listRow('认人的别名', '用 | 分隔；命中任一个就按主人处理。', c, 'ownerAliases', '静音胡闹|胡闹'));
-      ownerSec.appendChild(listRow('认人的 senderId', '可选；用 | 分隔。名字不稳定时靠它认人。', c, 'ownerSenderIds', 'wxid_...|2310468741'));
-      ownerSec.appendChild(numRow('主人初始熟悉度', '主人档案创建时直接到 100；之后仍可手动解锁。', c, 'ownerFamiliarity', 0, 100, 1, ''));
-      ownerSec.appendChild(numRow('主人初始好感', '主人档案创建时直接到 +100；之后仍可手动解锁。', c, 'ownerAffinity', -100, 100, 1, ''));
-      body.appendChild(ownerSec);
-
-      var sec4 = section('熟悉度曲线', '慢饱和上升：越接近 100 越难涨；冷落 21 天后按 120 天半衰期回落，但不会掉成生人。');
-      var formula = mk('div', 'wxs-note', '上升：F新 = 100 - (100 - F旧) × exp(-d / ' + fmtNum(c.curves.familiarity.gainScale) + ')，d = 每条消息 × ' + fmtNum(c.familiarityMsgWeight) + ' + 每个互动日 × ' + fmtNum(c.familiarityDayWeight) + '，单日最多 +' + fmtNum(c.curves.familiarity.dailyGainCap) + '。');
-      formula.style.marginBottom = '4px';
-      sec4.appendChild(formula);
-      var formula2 = mk('div', 'wxs-note', '下降：冷落满 ' + fmtNum(c.curves.familiarity.graceDays) + ' 天后，F(t) = 下限 + (F0 - 下限) × 2^(-(t-' + fmtNum(c.curves.familiarity.graceDays) + ')/' + fmtNum(c.curves.familiarity.decayHalfLifeDays) + ')。');
-      formula2.style.marginBottom = '6px';
-      sec4.appendChild(formula2);
-      sec4.appendChild(numRow('每条消息权重', '只进熟悉度增量 d，不直接加分；刷屏不会无限涨。', c, 'familiarityMsgWeight', 0, 10, 0.1, ''));
-      sec4.appendChild(numRow('每个互动日权重', '有聊过的那一天算一天，不看消息多少。', c, 'familiarityDayWeight', 0, 30, 0.1, ''));
-      sec4.appendChild(numRow('饱和尺度', 'd 到这个量时，离 100 的差距约掉 63%；越小涨得越快。', c, 'curves.familiarity.gainScale', 1, 500, 1, ''));
-      sec4.appendChild(numRow('单日最多涨', '同一个人一天最多加这么多，避免刷屏冲顶。', c, 'curves.familiarity.dailyGainCap', 0, 50, 1, '点'));
-      sec4.appendChild(numRow('冷落多少天开始降', '宽限期内不降；超过后按半衰期连续回落，不是每 60 天跳一格。', c, 'curves.familiarity.graceDays', 0, 3650, 1, '天'));
-      sec4.appendChild(numRow('回落半衰期', '每过这么多天，离下限的差距减半。', c, 'curves.familiarity.decayHalfLifeDays', 1, 3650, 1, '天'));
-      sec4.appendChild(numRow('熟悉度下限', '长期冷落也不低于这里；同时不允许高于「认识」门槛，避免 floor 把生人直接抬档。', c, 'curves.familiarity.floor', 0, 100, 1, ''));
-      sec4.appendChild(numRow('建档最少消息', '少于这个数不自动建档，防止大群撑爆；手动建档不受限。', c, 'seedMinMessages', 1, 200, 1, '条'));
-      sec4.appendChild(numRow('认识 阈值', '熟悉度到多少算「认识」。', c, 'stageKnown', 1, 99, 1, ''));
-      sec4.appendChild(numRow('普通朋友 阈值', '', c, 'stageFriend', 2, 99, 1, ''));
-      sec4.appendChild(numRow('熟 阈值', '', c, 'stageClose', 3, 100, 1, ''));
-      sec4.appendChild(numRow('自己人 阈值', '', c, 'stageInner', 4, 100, 1, ''));
-      sec4.appendChild(numRow('熟 需要好感', '熟悉到了但好感不够，只到「普通朋友」，防止一边熟一边冷。', c, 'stageCloseAffinity', 0, 100, 1, ''));
-      sec4.appendChild(numRow('自己人 需要好感', '', c, 'stageInnerAffinity', 0, 100, 1, ''));
-      sec4.appendChild(numRow('档位滞回', '边界上下 5 点内不换档，防止一句话跨档；0 表示不滞回。', c, 'stageHysteresis', 0, 20, 1, '点'));
-      body.appendChild(sec4);
-
-      var sec5 = section('好感曲线', '慢涨快跌：分越高越难涨、也越容易跌；长期不互动只向 0 回落，不穿 0。');
-      var affFormula = mk('div', 'wxs-note', '涨：A新 = A旧 + δ×(1 - ' + fmtNum(c.curves.affinity.positiveDiminish) + '×max(A旧,0)/100)；跌：A新 = A旧 + δ×(1 + ' + fmtNum(c.curves.affinity.negativeAmplify) + '×max(A旧,0)/100)。');
-      affFormula.style.marginBottom = '4px';
-      sec5.appendChild(affFormula);
-      var affFormula2 = mk('div', 'wxs-note', '回落：宽限 ' + fmtNum(c.curves.affinity.graceDays) + ' 天后，正向按 ' + fmtNum(c.curves.affinity.positiveHalfLifeDays) + ' 天半衰期、负向按 ' + fmtNum(c.curves.affinity.negativeHalfLifeDays) + ' 天半衰期向 0 走。');
-      affFormula2.style.marginBottom = '6px';
-      sec5.appendChild(affFormula2);
-      sec5.appendChild(numRow('单次好感上限', '模型写 +10 会被夹到这个值。', c, 'affinityEventMax', 0, 20, 1, ''));
-      sec5.appendChild(numRow('单日净变化上限', '同一个人一天最多涨/跌这么多；只统计好感类事件。', c, 'affinityDailyCap', 0, 100, 1, ''));
-      sec5.appendChild(numRow('严重负向上限', '辱骂 / 人身攻击一次最多扣多少；同时锁 24h 不接受正向抵消。', c, 'affinitySevereMax', 0, 100, 1, ''));
-      sec5.appendChild(numRow('高分涨势折扣', '0 表示线性；0.5 表示 100 分时同样的好事只加一半。', c, 'curves.affinity.positiveDiminish', 0, 1, 0.05, ''));
-      sec5.appendChild(numRow('高分跌势放大', '0 表示线性；0.5 表示 100 分时同样的坏事多跌 50%。', c, 'curves.affinity.negativeAmplify', 0, 2, 0.05, ''));
-      sec5.appendChild(numRow('冷落多少天开始回落', '宽限期内不回落。', c, 'curves.affinity.graceDays', 0, 3650, 1, '天'));
-      sec5.appendChild(numRow('正向回落半衰期', '没有新互动时，正好感每过这么多天减半。', c, 'curves.affinity.positiveHalfLifeDays', 1, 3650, 1, '天'));
-      sec5.appendChild(numRow('负向回落半衰期', '负好感也向 0 走，不永久记仇；但比正向慢。', c, 'curves.affinity.negativeHalfLifeDays', 1, 3650, 1, '天'));
-      sec5.appendChild(numRow('严重负向修复惩罚', '严重负向之后这段时间内，正向修复只按折扣算。', c, 'curves.affinity.repairPenaltyHours', 0, 720, 1, '小时'));
-      sec5.appendChild(numRow('修复效率', '惩罚期内的正向事件乘这个系数；0.5 = 只算一半。', c, 'curves.affinity.repairEfficiency', 0, 1, 0.05, ''));
-      body.appendChild(sec5);
-
-      var sec6 = section('情绪曲线', '快起慢落：事件先抵消当前方向，再按上限饱和；低于阈值回平静。');
-      var moodFormula = mk('div', 'wxs-note', '上升：M新 = min(上限, M旧 + δ×(1 - M旧/上限))；下降：M(t) = M0 × 2^(-t/' + fmtNum(c.curves.mood.halfLifeMin) + '分钟)。');
-      moodFormula.style.marginBottom = '6px';
-      sec6.appendChild(moodFormula);
-      sec6.appendChild(numRow('半衰期', '强度掉一半需要的分钟数；默认 90。', c, 'curves.mood.halfLifeMin', 5, 1440, 5, '分钟'));
-      sec6.appendChild(numRow('正向强度上限', '开心 / 兴奋最高到多少。', c, 'curves.mood.positiveMax', 0, 100, 1, ''));
-      sec6.appendChild(numRow('负向强度上限', '烦躁 / 委屈最高到多少。', c, 'curves.mood.negativeMax', 0, 100, 1, ''));
-      sec6.appendChild(numRow('单次情绪上限', '一次事件最多 ±多少。', c, 'curves.mood.eventMax', 0, 30, 1, ''));
-      sec6.appendChild(numRow('单日情绪上限', '一天累计最多变化多少；手动设置不算模型额度。', c, 'curves.mood.dailyCap', 0, 200, 1, ''));
-      sec6.appendChild(numRow('换标签门槛', '新信号至少达到当前强度的这个比例才换标签；0.6 = 60%。', c, 'curves.mood.switchMargin', 0, 1, 0.05, '×'));
-      body.appendChild(sec6);
-      body.appendChild(moodEffectTable(c));
-
-      var sec7 = section('群接话系数', '只调「接不接」的小幅权重，原概率仍由 QQ 群聊自己的设置决定；反感和生人不会因为这里调高就话痨。');
-      sec7.appendChild(switchRow('启用关系加权', '关掉后所有档位系数按 1 计算。', c, 'groupBiasEnabled'));
-      sec7.appendChild(numRow('系数下限', '', c, 'groupBiasMin', 0, 5, 0.05, '×'));
-      sec7.appendChild(numRow('系数上限', '', c, 'groupBiasMax', 0, 5, 0.05, '×'));
-      (d.stages || []).forEach(function (s) {
-        if (!c.groupBias) c.groupBias = {};
-        sec7.appendChild(numRow(s.label + ' 的系数', '', c.groupBias, s.key, 0, 5, 0.05, '×'));
+      thead.appendChild(hr);
+      table.appendChild(thead);
+      var tbody = mk('tbody');
+      labels.forEach(function (label) {
+        var e = (c.moodEffects && c.moodEffects[label]) || {};
+        var tr = mk('tr');
+        tr.appendChild(mk('td', 'wxs-mood-name', label));
+        [e.maxChars, e.maxSentences].forEach(function (v) {
+          tr.appendChild(mk('td', '', Number(v) ? ('≤ ' + Number(v)) : '不限'));
+        });
+        [e.emojiFactor, e.stickerFactor, e.voiceFactor, e.groupFactor].forEach(function (v) {
+          tr.appendChild(mk('td', '', '×' + fmtNum(v === undefined ? 1 : v)));
+        });
+        tbody.appendChild(tr);
       });
-      body.appendChild(sec7);
+      table.appendChild(tbody);
+      fsec.appendChild(table);
+      fsec.appendChild(mk('div', 'wxs-note', '低落 / 委屈 / 烦躁 / 疲惫默认不发贴纸、不发语音、少接话；心虚会收一点；对方明确要求语音仍优先。'));
+      body.appendChild(fsec);
 
-      var footRow = mk('div', 'wxs-ctrl');
-      footRow.style.justifyContent = 'flex-start';
-      footRow.style.marginTop = '8px';
-      var save = mk('button', 'wxs-btn is-primary', '保存规则');
-      save.type = 'button';
-      save.addEventListener('click', function () {
-        save.disabled = true;
-        Promise.resolve(api.relationConfigSave(state.draft)).then(function (r) {
-          save.disabled = false;
-          if (!r || r.ok === false) { toast('保存规则失败：' + String((r && r.error) || '未知原因'), true); return; }
-          state.dirty = false;
-          toast('规则已保存；下一轮生效', false, 3000);
-          reload(true);
-        }).catch(function (e) { save.disabled = false; toast('保存规则失败：' + String((e && e.message) || e), true); });
-      });
-      footRow.appendChild(save);
-      var revert = mk('button', 'wxs-btn', '还原为当前已保存值');
-      revert.type = 'button';
-      revert.addEventListener('click', function () {
-        if (state.dirty && !window.confirm('丢掉本页未保存修改，回到已保存值？')) return;
-        state.draft = clone(state.data.config || {});
-        state.dirty = false;
-        render();
-      });
-      footRow.appendChild(revert);
-      body.appendChild(footRow);
+      var g = c.groupBias || {};
+      var stageText = (d.stages || []).map(function (s) {
+        return s.label + ' ' + fmtNum(g[s.key] === undefined ? 1 : g[s.key]);
+      }).join(' / ');
+      body.appendChild(block('群接话', '只调接不接的小幅权重，原概率仍归 QQ 群聊自己的设置。', [
+        '总系数区间 ' + fmtNum(c.groupBiasMin) + '–' + fmtNum(c.groupBiasMax) + '；档位系数：' + stageText + '。',
+        '被 @ / 被直接问仍必须回，好感再低也不许骂人；群接话只影响随机接话。'
+      ]));
+
+      var foot = section('怎么改这套标准', '面板只读，不提供加减分、曲线、情绪联动表的输入框。');
+      foot.appendChild(mk('div', 'wxs-note', '标准写在「外壳\\社交状态.js」的 DEFAULT_CONFIG；要调整就改代码并跑测试，避免面板、CLI、文件三套口径。'));
+      body.appendChild(foot);
     }
-
     // ---------- 预览 ----------
     function renderPreview() {
       var d = state.data;
@@ -1020,7 +704,7 @@
       logSec.appendChild(logBox);
       body.appendChild(logSec);
 
-      var noteSec = section('最近事件', '模型提的事件与手动改值都在这里，来源可审计。');
+      var noteSec = section('最近事件', '模型提的事件与旧版手动改值都在这里，来源可审计。');
       var noteBox = mk('div', 'wxs-events');
       (d.recentNotes || []).forEach(function (r) {
         noteBox.appendChild(mk('div', 'wxs-ev', String(r.at || '') + ' · ' + String(r.kind || '') + ' · ' + String(r.person || '') +

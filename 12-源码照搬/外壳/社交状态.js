@@ -1,13 +1,14 @@
 'use strict'
 // 社交状态.js —— 关系与情绪的数据面（2026-11-20）
 //
-// 定位：把「对每个人的好感」和「她自己此刻的情绪」做成可观测、可配置的一层，
+// 定位：把「对每个人的好感」和「她自己此刻的情绪」做成可观测的一层，
 //       只影响表达（句子长短 / 主动度 / 玩笑尺度 / 称呼 / emoji 概率 / 群接话概率），
 //       不改事实、边界、安全规则和人格底线。
 //
 // 两条硬口径：
 //   1. 关系是慢变量（按人，熟悉度 + 好感），情绪是快变量（按她自己，带半衰期）；
-//      三条曲线的参数全在 config.curves：熟悉饱和上升 / 好感慢涨快跌 / 情绪快起慢落。
+//      三条曲线的参数全在 config.curves，但 2026-11-24 起由 DEFAULT_CONFIG 固定成标准，
+//      面板只读，不再让人手动加减分 / 调曲线。
 //   2. 所有变化都要能追溯：事件带 source / reason / evidence，面板能看到，CLI 能查。
 //
 // 数据（唯一真源在 外壳\data\，镜像给 DSH 插件读）：
@@ -33,7 +34,7 @@ function defaultDshHome() {
   return process.env.DSH_HOME || process.env.DSH_CUSTOMER_HOME || path.join(__dirname, '..', '引擎数据', '.dsh')
 }
 
-// 情绪联动表：每个标签对回复表达的影响，全部可观测、可配置。
+// 情绪联动表：每个标签对回复表达的影响，全部可观测；2026-11-24 起由 DEFAULT_MOOD_EFFECTS 固定。
 // maxChars / maxSentences 为 0 表示不额外限制；系数 1 表示不改变原通道概率。
 const DEFAULT_MOOD_EFFECTS = {
   平静: { maxChars: 60, maxSentences: 2, emojiFactor: 1, stickerFactor: 1, voiceFactor: 1, groupFactor: 1 },
@@ -47,7 +48,7 @@ const DEFAULT_MOOD_EFFECTS = {
   心虚: { maxChars: 30, maxSentences: 1, emojiFactor: 0.5, stickerFactor: 0.5, voiceFactor: 0.8, groupFactor: 0.8 }
 }
 
-// 所有默认值都进 config，面板 / CLI 能逐项改；代码里不再散落第二个数字。
+// 所有默认值都进 DEFAULT_CONFIG；2026-11-24 起分数 / 曲线 / 联动表是固定标准，面板只读。
 const DEFAULT_CONFIG = {
   version: 3,
   enabled: true,
@@ -129,6 +130,31 @@ const DEFAULT_CONFIG = {
   }
 }
 
+// 2026-11-24：以下字段是关系与情绪的固定标准，只由代码定义。
+// 面板不提供输入框；normalizeConfig 每次读盘都会把文件里的旧值重置回 DEFAULT_CONFIG，
+// 避免出现「面板一套、CLI 一套、文件第三套」的口径。
+const STANDARD_LOCKED_KEYS = [
+  'privateAffinity', 'groupAffinity', 'privateFamiliarity', 'groupFamiliarity',
+  'ownerFamiliarity', 'ownerAffinity',
+  'familiarityMsgWeight', 'familiarityDayWeight', 'seedMinMessages',
+  'stageKnown', 'stageFriend', 'stageClose', 'stageInner',
+  'stageCloseAffinity', 'stageInnerAffinity', 'stageHysteresis',
+  'affinityEventMax', 'affinityDailyCap', 'affinitySevereMax',
+  'groupBiasEnabled', 'groupBiasMin', 'groupBiasMax'
+]
+
+function applyStandard(c) {
+  for (const key of STANDARD_LOCKED_KEYS) {
+    const v = DEFAULT_CONFIG[key]
+    c[key] = isObj(v) || Array.isArray(v) ? clone(v) : v
+  }
+  c.curves = normalizeCurves(DEFAULT_CONFIG.curves)
+  c.moodEffects = normalizeMoodEffects(DEFAULT_CONFIG.moodEffects)
+  c.groupBias = clone(DEFAULT_CONFIG.groupBias)
+  c.version = 3
+  return c
+}
+
 const STAGES = [
   { key: 'hate', label: '反感', min: -999, max: -30, fam: false },
   { key: 'cold', label: '有芥蒂', min: -29, max: -1, fam: false },
@@ -157,6 +183,20 @@ const STAGE_GUIDE = {
   inner: '1–2 句；可以主动关心、记得细节；不替对方做主。'
 }
 
+// 情绪事件标准分：模型只报标签，分数按这张表折算。
+// 2026-11-24 起不再让模型 / 面板自由填数字；单次仍受 curves.mood.eventMax 约束。
+const MOOD_STANDARD_DELTA = {
+  平静: 0,
+  开心: 4,
+  兴奋: 8,
+  得意: 3,
+  低落: -4,
+  委屈: -6,
+  烦躁: -6,
+  疲惫: -4,
+  心虚: -3
+}
+
 // 情绪白名单：label / 正负倾向 / 精神头；不允许模型自由造词。
 const MOOD_LABELS = {
   平静: { valence: 0, energy: 0.35 },
@@ -170,7 +210,7 @@ const MOOD_LABELS = {
   心虚: { valence: -0.2, energy: 0.4 }
 }
 
-// 每个标签一张表达表；文件里缺字段就按默认补齐，面板保存时整份写回。
+// 每个标签一张表达表；文件里缺字段就按默认补齐，标准值不接受面板写入。
 function normalizeMoodEffects(raw) {
   const out = {}
   for (const label of Object.keys(MOOD_LABELS)) {
@@ -398,6 +438,9 @@ function normalizeConfig(raw) {
   delete c.moodNegativeMax
   delete c.moodEventMax
   delete c.moodDailyCap
+  // 标准是唯一口径：面板 / CLI 写进来的分数、曲线、联动表都在这里被重置。
+  applyStandard(c)
+  c.curves.familiarity.floor = Math.min(c.curves.familiarity.floor, c.stageKnown)
   return c
 }
 
@@ -1105,7 +1148,7 @@ function createStore(opts) {
     let eventKind = kind
 
     if (kind === '情绪' || kind === 'mood') {
-      const m = applyMood({ label: a.mood || a.label, delta: a.delta, cause: a.reason || a.cause, source: 'model', chatKey, person: p.name })
+      const m = applyMood({ label: a.mood || a.label, standardDelta: true, cause: a.reason || a.cause, source: 'model', chatKey, person: p.name })
       if (!m.ok) return m
       log('note', { person: p.name, chatKey, kind: '情绪', label: m.mood.label, intensity: m.mood.intensity, reason: a.reason || '' })
       return { ok: true, kind: '情绪', mood: m.mood, person: p.name }
@@ -1235,7 +1278,9 @@ function createStore(opts) {
     const labelWanted = String(a.label || a.mood || '')
     if (labelWanted && !MOOD_LABELS[labelWanted]) return { ok: false, error: '情绪只认：' + Object.keys(MOOD_LABELS).join(' / ') }
     let delta = Number(a.delta)
-    if (!Number.isFinite(delta)) delta = 4
+    const standard = MOOD_STANDARD_DELTA[labelWanted]
+    // 模型 / 面板只报标签，分数按标准表折算；显式 delta 只留给 CLI 自检和内部测试。
+    if (a.standardDelta === true || !Number.isFinite(delta)) delta = standard !== undefined ? standard : 4
     delta = clamp(delta, -curve.eventMax, curve.eventMax)
 
     const day = localDay(now)
@@ -1246,7 +1291,7 @@ function createStore(opts) {
     }
     const room = a.force ? curve.eventMax + curve.dailyCap : Math.max(0, curve.dailyCap - used)
     delta = delta > 0 ? Math.min(delta, room) : Math.max(delta, -room)
-    if (delta === 0) return { ok: false, error: '今天的情绪变化到上限了（config.curves.mood.dailyCap）' }
+    if (delta === 0 && labelWanted !== '平静') return { ok: false, error: '今天的情绪变化到上限了（config.curves.mood.dailyCap）' }
 
     const wantedMeta = labelWanted && labelWanted !== '平静' ? MOOD_LABELS[labelWanted] : null
     const curValence = cur.label === '平静' ? 0 : Number((MOOD_LABELS[cur.label] || {}).valence || 0)

@@ -1,8 +1,9 @@
 'use strict';
-// QQ 回复设置弹窗（2026-11-19）
+// QQ 群聊与语音弹窗（原 QQ 回复设置，2026-11-19）
 // 为什么单独一个弹窗：QQ 卡片里原来挤着「群旁听 + 随机接话 + 语音 + 表情包 + Breeze
 // + 试音 + 直接语音」十几种控件，通道面板应该只回答「通不通、策略概览」。
-// 这里只编辑回复行为；QQ 会话路由仍在「QQ 会话隔离」块，不混进来。
+// 这里只编辑 QQ 通道自己的收发行为；跨通道的回复语气在「胡闹的大肥鱼 → 设置 → 表达」，
+// QQ 会话路由与默认接入号在「设置 → QQ」，都不混进来。
 //
 // 交互约定：
 //   · 入口常驻在 QQ 卡标题行，通道停着也能打开；
@@ -188,8 +189,8 @@
 
     var head = mk('div', 'wxs-head');
     var hw = mk('div', 'wxs-hw');
-    hw.appendChild(mk('div', 'wxs-title', 'QQ 回复设置'));
-    hw.appendChild(mk('div', 'wxs-sub', '只改 QQ 收到消息后怎么回：群旁听、随机接话、语音、表情包和语音合成。会话路由在 QQ 卡片的「QQ 会话隔离」里。'));
+    hw.appendChild(mk('div', 'wxs-title', 'QQ 群聊与语音'));
+    hw.appendChild(mk('div', 'wxs-sub', '只改 QQ 收到消息后怎么回：群旁听、随机接话、语音、表情包和语音合成。回复语气在「胡闹的大肥鱼 → 设置 → 表达」；接哪个号 / 哪个聊天进哪条会话在「设置 → QQ」。'));
     head.appendChild(hw);
     var x = mk('button', 'wxs-x', '✕');
     x.type = 'button';
@@ -465,7 +466,7 @@
         form.media.breezeApiKey = '';
         save.disabled = true;
         refreshDirty();
-        toast('QQ 回复设置已保存；下一轮消息生效');
+        toast('QQ 群聊与语音已保存；下一轮消息生效');
       }).catch(function (e) {
         saving = false;
         toast('保存失败：' + String((e && e.message) || e), true, 10000);
@@ -502,11 +503,11 @@
 
   window.openQqReplySettings = function () {
     if (!mediaApi || typeof mediaApi.status !== 'function' || !groupApi || typeof groupApi.status !== 'function') {
-      toast('QQ 回复设置没接上：主进程/preload 还是旧的，重启一次工作台。', true, 10000);
+      toast('QQ 群聊与语音没接上：主进程/preload 还是旧的，重启一次工作台。', true, 10000);
       return Promise.resolve(false);
     }
     if (document.querySelector('.wxs-mask')) {
-      toast('已有一个通道设置弹窗打开，先关掉它再开 QQ 回复设置', true);
+      toast('已有一个通道设置弹窗打开，先关掉它再开 QQ 群聊与语音', true);
       return Promise.resolve(false);
     }
     return Promise.all([mediaApi.status(), groupApi.status()]).then(function (rs) {
@@ -516,7 +517,7 @@
       if (!g || g.ok === false) { toast('读不到 QQ 群聊设置：' + ((g && g.error) || '未知原因'), true, 10000); return false; }
       return build(m, g);
     }).catch(function (e) {
-      toast('读不到 QQ 回复设置：' + String((e && e.message) || e), true, 10000);
+      toast('读不到 QQ 群聊与语音：' + String((e && e.message) || e), true, 10000);
       return false;
     });
   };

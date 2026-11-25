@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * 图标库.mjs —— 把 Lucide 线图标抓成本地静态 SVG，供工作台「场景标签」直接引用。
+ * 图标库.mjs —— 把 Lucide 线图标抓成本地静态 SVG，供工作台「场景标签 / 功能条」直接引用。
  *
  *   node scripts\图标库.mjs            # 抓取/补齐（已存在且版本标记对得上的跳过，可反复跑）
  *   node scripts\图标库.mjs --force    # 全部重抓
@@ -37,6 +37,10 @@ const SPEC = [
   // 社交：圆气泡 + 三个点。2026-11-13 离屏渲染横评过 5 个候选（messages-square / message-square-more /
   // message-circle-more / message-square / users-round），16px 下这个"气球 + 点"最认得出，也不跟鱼的曲线混。
   { name: 'message-circle-more', note: '社交（多平台通道 + 合并消息流 · 气泡+三点）' },
+  // 程序开发右侧功能条：图标只表示「去哪」，不跟场景图标抢语义。
+  //   folder-code = 当前项目会话；folders = 多项目管理（所有项目的入口）。
+  { name: 'folder-code',      note: '程序开发 · AI项目（当前项目会话）' },
+  { name: 'folders',          note: '程序开发 · AI多项目管理（所有项目的入口）' },
   // 兜底池：没在 scene-icons.js 登记的新场景按顺序各领一个，保证两个场景不撞同一个
   { name: 'shapes',          note: '兜底 1（抽象图形）' },
   { name: 'layers',          note: '兜底 2（叠层）' },
@@ -44,7 +48,30 @@ const SPEC = [
   { name: 'sparkles',        note: '兜底 4（星点）' },
   { name: 'circle-dot',      note: '兜底 5（圆点）' },
   { name: 'radar',           note: '兜底 6（雷达）' },
-];
+  // ── 场景设置工具条（2026-11-25）：一个设置按钮一枚，按语义各挑一个，别让按钮全是兜底字 ──
+  { name: 'heart',            note: '人格 · 关系与情绪' },
+  { name: 'shield',           note: '人格 · 安全闸门（边界）' },
+  { name: 'database',         note: '人格 · 聊天档案库' },
+  { name: 'clock',            note: '人格 · 定时任务' },
+  { name: 'zap',              note: '人格 · 劲儿（主动开口的燃料）' },
+  { name: 'leaf',             note: '生活 · 生活设置' },
+  { name: 'gauge',            note: '生活 · 发布额度' },
+  { name: 'send',             note: '社交 · 主动出消息' },
+  { name: 'message-square',   note: '社交 · QQ 接入' },
+  { name: 'users',            note: '社交 · QQ 群聊与语音' },
+  { name: 'message-circle',   note: '社交 · 微信（鲸鲸设置）' },
+  { name: 'wrench',           note: '维护（记忆 / 控制台）' },
+  { name: 'refresh-cw',       note: '记忆 · 自动换会话' },
+  { name: 'archive',          note: '记忆 · 上次整理' },
+  { name: 'clipboard-check',  note: '记忆 · 上次巡检' },
+  { name: 'sliders-horizontal', note: '控制台 · 工具策略' },
+  { name: 'hard-drive',       note: '本地电脑 · 上次扫描' },
+  { name: 'clipboard-list',   note: '本地电脑 · 清理台账' },
+  { name: 'book-open',        note: '自我复盘 · 复盘库' },
+  { name: 'network',          note: '程序开发 · 端口' },
+  { name: 'git-branch',       note: '程序开发 · 变更单' },
+  { name: 'list-checks',      note: '总入口 · 派发巡检（弹窗）' },
+  { name: 'monitor',          note: '社交 · SnowLuma 控制台（弹窗）' },];
 
 const args = process.argv.slice(2);
 const CHECK = args.includes('--check');
@@ -75,14 +102,14 @@ function isFresh(p) {
 
 function readmeText() {
   return [
-    '# 场景图标库（生成产物，别手改）',
+    '# 图标库（生成产物，别手改）',
     '',
     '本目录下的 `*.svg` 由 `12-源码照搬\\外壳\\scripts\\图标库.mjs` 从 Lucide 官方图标库抓取后写入，',
     '手改会在下次重跑时被覆盖。改图标请改脚本里的 `SPEC`，再加场景登记（见下）。',
     '',
     '- 来源：<https://lucide.dev> · npm 包 `' + LIB + '@' + VER + '`',
     '- 许可：ISC（可商用、可再分发）；每个文件头保留来源与版本标记',
-    '- 规格：`viewBox="0 0 24 24"`、显示 17×17、描边 `#8fb4ff`（工作台图标主色）、`stroke-width="2"`',
+    '- 规格：`viewBox="0 0 24 24"`、源文件按 17×17 输出（功能条 UI 显示 20×20）、描边 `#8fb4ff`（工作台图标主色）、`stroke-width="2"`',
     '',
     '## 加一个场景图标（四步）',
     '',

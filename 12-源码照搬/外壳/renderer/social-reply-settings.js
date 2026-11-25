@@ -1,5 +1,5 @@
 'use strict';
-// 通用社交回复设置弹窗（2026-11-19）
+// 回复风格弹窗（原「通用社交回复设置」，2026-11-19）
 // 为什么单独一个弹窗：微信设置里已经有一堆微信专属项；语气 / emoji / 表情包频率
 // 是微信、QQ、飞书共用的回复机制，不能塞进微信页里变成「只对微信生效」的假通用。
 //
@@ -223,7 +223,7 @@
       var sub = key === 'wechat'
         ? '微信个人号：文本 / 分条 / 原生贴纸 / 语音 / 引用；发送走鲸鲸后台窗口。'
         : (key === 'qq'
-          ? 'QQ：文本 / 分条 / OneBot 原生表情 / 引用 / 语音（Breeze 或 SAPI）；具体回复开关在 QQ 卡标题行的「⚙ 回复设置」里。'
+          ? 'QQ：文本 / 分条 / OneBot 原生表情 / 引用 / 语音（Breeze 或 SAPI）；具体回复开关在 QQ 卡标题行的「⚙ 群聊与语音」里。'
           : '飞书：文本 / 分条 / 语音 / 引用；不支持贴纸包，出站闸门尚未接入。');
       l.appendChild(mk('div', 'wxs-hint', sub));
       r.appendChild(l);
@@ -367,7 +367,7 @@
   function open() {
     if (document.querySelector('.wxs-mask[data-social-reply="1"]')) return Promise.resolve(true);
     if (!api || typeof api.replyPolicyGet !== 'function') {
-      toast('通用回复设置还没接上：重启一次工作台（preload / main 是旧的）', true);
+      toast('回复风格设置还没接上：重启一次工作台（preload / main 是旧的）', true);
       return Promise.resolve(false);
     }
     return Promise.resolve(api.replyPolicyGet()).then(function (data) {

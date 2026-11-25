@@ -1294,6 +1294,49 @@ function createService(opts) {
     };
   }
 
+  // QQ 私聊文本（2026-11-25）：她主动找主人时走这条。
+  // 「发送动作只允许出现在闸门本体里」——所以脚本侧不许自己拼 OneBot 请求，统一从这里过。
+  // 正文先按同一套规则审：block 不发、redact 用打码正文；onebotHttp 指向 3100 代理时还会再过一次。
+  async function sendQqPrivateText(userId, text) {
+    const body = String(text || '');
+    const ctx = { channel: 'qq', chatType: 'private', chatId: String(userId || '') };
+    const g = check(body, ctx);
+    if (g.verdict === 'block') {
+      return { ok: false, blocked: true, rules: (g.rules || []).slice(0, 8), fallback: String(g.fallback || '') };
+    }
+    const finalText = g.verdict === 'redact' ? String(g.text || body) : body;
+    if (!finalText) return { ok: false, error: '空消息，不发送' };
+    const qq = readJson(QQ_CONFIG_FILE) || {};
+    const url = String(qq.onebotHttp || '').trim();
+    if (!url) return { ok: false, error: 'QQ 协议端地址为空（qq-bridge.config.json onebotHttp）' };
+    let r;
+    try {
+      r = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer ' + String(qq.token || ''),
+          'x-wb-voice-skip': '1'
+        },
+        body: JSON.stringify({
+          action: 'send_private_msg',
+          params: { user_id: Number(userId), message: [{ type: 'text', data: { text: finalText } }] }
+        }),
+        signal: AbortSignal.timeout(12000)
+      });
+    } catch (e) {
+      return { ok: false, error: '连不上协议端：' + ((e && e.message) || e) };
+    }
+    const raw = await r.text();
+    let j = null;
+    try { j = JSON.parse(raw); } catch (e) { /* 下面按原文报 */ }
+    if (!r.ok) return { ok: false, error: 'OneBot HTTP ' + r.status + '：' + raw.slice(0, 120) };
+    if (!j || Number(j.retcode) !== 0) {
+      return { ok: false, error: 'OneBot 私聊返回 retcode ' + (j && j.retcode) + '：' + raw.slice(0, 120) };
+    }
+    return { ok: true, messageId: String((j.data && j.data.message_id) || ''), text: finalText, verdict: g.verdict };
+  }
+
   async function postQqGroupAction(url, qq, groupId, message) {
     const r = await fetch(url, {
       method: 'POST',
@@ -1329,6 +1372,7 @@ function createService(opts) {
     testText: testText,
     sendQqGroupText: sendQqGroupText,
     sendQqGroupMessage: sendQqGroupMessage,
+    sendQqPrivateText: sendQqPrivateText,
     getSettings: getSettings,
     saveSettings: saveSettings,
     refreshAssets: refreshAssets,

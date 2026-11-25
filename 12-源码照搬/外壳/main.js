@@ -7,7 +7,7 @@
 // ⚠ 本文件 5,700+ 行，改之前先看 `外壳\架构索引.md`（分段表 + 段起行 + 函数索引命令）。
 //   定位方式：grep 段标题里的中文关键词，别整文件重排/格式化（会造出几万行 diff）。
 //   本文件属"壳"层：改完必须重启工作台才生效（renderer\ 下的文件才走 ⟳ 热更新）。
-const { app, BrowserWindow, dialog, shell, ipcMain, clipboard, webContents, nativeImage, screen } = require('electron');
+const { app, BrowserWindow, dialog, shell, ipcMain, clipboard, webContents, nativeImage, screen, powerMonitor } = require('electron');
 const { spawn, spawnSync, execFile } = require('child_process');
 const http = require('http');
 const net = require('net');
@@ -57,8 +57,10 @@ const bridgeSvc = require('./桥接');           // QQ 个人号桥接（SnowLum
 const wechatSvc = require('./微信通道');       // 微信个人号通道（whale_girl）的进程面 + 31241 换脑适配器
 const outGateSvc = require('./外发闸门');       // 外发安全闸门：QQ 代理 + 正文判定 + 审计（唯一判据出处）
 const petSvc = require('./桌宠设置');          // 桌宠层的机器可读设置 + 路由打分 + 派发日志（面板与 工具\桌宠.mjs 共用）
+const timerPolicy = require('./pet/定时判定');   // 定时任务的补偿判定（纯函数；单测见 scripts\测试.mjs 的 timers 项）
 const chatArchiveSvc = require('./社交档案');   // 聊天长期档案：SnowLuma messages.db → 本地 SQLite/FTS5（只读源库）
 const socialStateSvc = require('./社交状态');    // 关系 + 情绪：数据根下的 社交关系.json / 社交情绪.json（可观测、可配置）
+const projectSearchSvc = require('./项目搜索');   // 程序开发「全局搜索」：只读扫项目内容，返回文件 + 行号（可单测）
 
 // ---- 端口真源（2026-11-20）：env > 机器配置.json 的 ports > 默认 ----
 // 为什么补这一层：控制台的「机器层」展示的是 机器配置.json 的 ports，但主进程原来只认 env / 写死默认；
@@ -634,21 +636,72 @@ function cleanOrphanStaging() {
   if (!n) log('[auto] staging 已干净（state 指向 ' + (keep || '无') + '）');
 }
 
-// ② 后台巡检：开机 60s 后跑一次（每天最多一次），只在有失败时弹通知，详细结果在 data\巡检.json
+// ② 后台巡检：开机 60s 后起，每 30 分钟查一次是否到期（默认 12h 一次）；
+//    到期才跑，只在有失败时弹通知，详细结果在 data\巡检.json。
+//    2026-11-24 修：原来只在启动时判一次「距上次够不够 12h」，不够就直接 return；
+//    壳长开不重启，这个 return 就永远没人再叫它，控制台里的「下次」成了摆设。
+const AUTO_INSPECT_TICK_MS = 30 * 60 * 1000;
+let autoInspectTimer = null;
+let autoInspectRunning = false;
+let autoInspectStarted = false;
+let autoInspectKick = null;   // 系统唤醒时清掉等待中的定时器、立刻重判一次
 function scheduleAutoInspection() {
-  const cfg = autoMaintConfig();
-  if (!cfg.inspect.enabled) { log('[auto] 后台巡检已关，跳过'); return; }
-  const everyMs = cfg.inspect.everyHours * 3600 * 1000;
-  const last = readJsonSafe(INSPECT_FILE, null);
-  const at = last && typeof last.at === 'string' ? Date.parse(last.at) : 0;
-  if (at && (Date.now() - at) < everyMs) { log('[auto] 距上次巡检不足 ' + cfg.inspect.everyHours + ' 小时，跳过'); return; }
-  setTimeout(function () {
-    // 定时器等待期间用户可能已经关掉：执行前再读一次，避免「关了还跑」
-    if (!autoMaintConfig().inspect.enabled) { log('[auto] 后台巡检已关，定时取消'); return; }
+  if (autoInspectStarted) return;   // 只挂一条链；链自己续，不靠反复调用
+  autoInspectStarted = true;
+
+  const tick = function () {
+    autoInspectTimer = null;
+    const cfg = autoMaintConfig();
+    if (!cfg.inspect.enabled) {
+      // 关掉也留着低频检查：用户可能在控制台重新打开，不能等下次重启
+      autoInspectTimer = setTimeout(tick, AUTO_INSPECT_TICK_MS);
+      return;
+    }
+    const everyMs = cfg.inspect.everyHours * 3600 * 1000;
+    const last = readJsonSafe(INSPECT_FILE, null);
+    const at = last && typeof last.at === 'string' ? Date.parse(last.at) : 0;
+    const elapsed = at ? (Date.now() - at) : Infinity;
+    if (at && elapsed < everyMs) {
+      // 还没到期：睡到「到期」或「下一次 tick」，取小的；at 在未来时至少 1 分钟，避免空转
+      const wait = Math.max(60000, Math.min(everyMs - elapsed, AUTO_INSPECT_TICK_MS));
+      autoInspectTimer = setTimeout(tick, wait);
+      return;
+    }
+    if (autoInspectRunning) {
+      autoInspectTimer = setTimeout(tick, AUTO_INSPECT_TICK_MS);
+      return;
+    }
+    // 到期/超期就是补跑：不把「关机几天」当成没发生，也不重放多个周期，只补这一轮
+    log(at
+      ? '[auto] 巡检已超期 ' + Math.round(elapsed / 3600000) + 'h（上次 ' + last.at + '），立即补跑'
+      : '[auto] 巡检没有上次记录，启动后先跑一轮');
+
+    // 1. 先占住 running，再判脚本 / 起进程：任何一条失败路径都要能走 finish 续上下一轮，
+    //    否则一次「脚本不在」就把整条链断掉，又退回「长开不重启永远不跑」。
+    autoInspectRunning = true;
+    const finish = function () {
+      if (!autoInspectRunning) return;
+      autoInspectRunning = false;
+      if (!autoInspectTimer) autoInspectTimer = setTimeout(tick, AUTO_INSPECT_TICK_MS);
+    };
+
+    // 2. 脚本在不在这件事，每轮都查：补装后不用重启壳
     const tool = path.join(__dirname, '..', '工具', '自动巡检.mjs');
-    if (!fs.existsSync(tool)) { log('[auto] 自动巡检脚本不在，跳过：' + tool); return; }
+    if (!fs.existsSync(tool)) {
+      log('[auto] 自动巡检脚本不在，跳过：' + tool);
+      finish();
+      return;
+    }
+
+    // 3. 起进程；成功 / 失败都落日志，完成后再挂下一轮
     let child;
-    try { child = spawnTool(null, tool, [], { stdio: 'ignore' }); } catch (e) { warnOnce("auto-inspect", e); return; }
+    try {
+      child = spawnTool(null, tool, [], { stdio: 'ignore' });
+    } catch (e) {
+      warnOnce("auto-inspect", e);
+      finish();
+      return;
+    }
     child.on('exit', function (code) {
       const doc = readJsonSafe(INSPECT_FILE, null) || {};
       const items = Array.isArray(doc.items) ? doc.items : [];
@@ -660,8 +713,20 @@ function scheduleAutoInspection() {
           bad: true, ms: 15000
         });
       }
+      finish();
     });
-  }, 60000);
+    child.on('error', function (e) {
+      warnOnce("auto-inspect", e);
+      finish();
+    });
+  };
+
+  // 休眠期间 setTimeout 可能被冻住；唤醒时主动清掉旧定时器并立刻按 at 重判一次
+  autoInspectKick = function () {
+    if (autoInspectTimer) { clearTimeout(autoInspectTimer); autoInspectTimer = null; }
+    tick();
+  };
+  autoInspectTimer = setTimeout(tick, 60000);
 }
 
 // ③ 退出后清缓存：壳自己拉一个分离进程，它等本进程退出 + 端口空下来再删（删完写 data\自动维护.log）
@@ -681,24 +746,73 @@ function scheduleAutoCacheCleanup() {
   } catch (e) { warnOnce("auto-clean", e); }
 }
 
-// ④ 自动记忆整理：每周一次（把超 180 天的条目搬 归档\、刷索引与近期记忆、复核 check --all）
+// ④ 自动记忆整理：开机 90s 后起，每 1 小时查一次是否到期（默认 7 天一次）
+//    把超 180 天的条目搬 归档\、刷索引与近期记忆、复核 check --all。
 //    整理本身就是"改历史文件"，所以顺序卡死：先 dry 看计划 → 有要搬的才 记忆打包 留快照 → 再搬。
 //    快照拿不到就整轮不搬（宁可这周不整理，也不要没有回退点）。
+//    2026-11-24 修：与巡检同因——原来只在启动时判一次，壳长开不重启就不会再整理。
 const TIDY_FILE = path.join(SHELL_DATA_DIR, '记忆整理.json');
+const AUTO_TIDY_TICK_MS = 60 * 60 * 1000;
+let autoTidyTimer = null;
+let autoTidyRunning = false;
+let autoTidyStarted = false;
+let autoTidyKick = null;   // 系统唤醒时清掉等待中的定时器、立刻重判一次
 function scheduleAutoMemoryTidy() {
-  const cfg = autoMaintConfig();
-  if (!cfg.tidy.enabled) { log('[auto] 自动记忆整理已关，跳过'); return; }
-  const everyMs = cfg.tidy.everyDays * 24 * 3600 * 1000;
-  const last = readJsonSafe(TIDY_FILE, null);
-  const at = last && typeof last.at === 'string' ? Date.parse(last.at) : 0;
-  if (at && (Date.now() - at) < everyMs) { log('[auto] 距上次记忆整理不足 ' + cfg.tidy.everyDays + ' 天，跳过'); return; }
-  setTimeout(function () {
-    // 定时器等待期间用户可能已经关掉：执行前再读一次
-    if (!autoMaintConfig().tidy.enabled) { log('[auto] 自动记忆整理已关，定时取消'); return; }
+  if (autoTidyStarted) return;   // 只挂一条链；链自己续，不靠反复调用
+  autoTidyStarted = true;
+
+  const tick = function () {
+    autoTidyTimer = null;
+    const cfg = autoMaintConfig();
+    if (!cfg.tidy.enabled) {
+      // 关掉也留着低频检查：用户可能在控制台重新打开，不能等下次重启
+      autoTidyTimer = setTimeout(tick, AUTO_TIDY_TICK_MS);
+      return;
+    }
+    const everyMs = cfg.tidy.everyDays * 24 * 3600 * 1000;
+    const last = readJsonSafe(TIDY_FILE, null);
+    const at = last && typeof last.at === 'string' ? Date.parse(last.at) : 0;
+    const elapsed = at ? (Date.now() - at) : Infinity;
+    if (at && elapsed < everyMs) {
+      // 还没到期：睡到「到期」或「下一次 tick」，取小的；at 在未来时至少 1 分钟，避免空转
+      const wait = Math.max(60000, Math.min(everyMs - elapsed, AUTO_TIDY_TICK_MS));
+      autoTidyTimer = setTimeout(tick, wait);
+      return;
+    }
+    if (autoTidyRunning) {
+      autoTidyTimer = setTimeout(tick, AUTO_TIDY_TICK_MS);
+      return;
+    }
+    // 到期/超期就是补跑：只补这一轮，不重放关机期间错过的多个周期
+    log(at
+      ? '[auto] 记忆整理已超期 ' + Math.round(elapsed / 86400000) + 'd（上次 ' + last.at + '），立即补跑'
+      : '[auto] 记忆整理没有上次记录，启动后先跑一轮');
+
+    // 1. 先占住 running，再判脚本 / 起进程：任何一条失败路径都要能走 finish 续上下一轮
+    autoTidyRunning = true;
+    const finish = function () {
+      if (!autoTidyRunning) return;
+      autoTidyRunning = false;
+      if (!autoTidyTimer) autoTidyTimer = setTimeout(tick, AUTO_TIDY_TICK_MS);
+    };
+
+    // 2. 脚本在不在这件事，每轮都查：补装后不用重启壳
     const tool = path.join(__dirname, '..', '工具', '自动记忆整理.mjs');
-    if (!fs.existsSync(tool)) { log('[auto] 自动记忆整理脚本不在，跳过：' + tool); return; }
+    if (!fs.existsSync(tool)) {
+      log('[auto] 自动记忆整理脚本不在，跳过：' + tool);
+      finish();
+      return;
+    }
+
+    // 3. 起进程；成功 / 失败都落日志，完成后再挂下一轮
     let child;
-    try { child = spawnTool(null, tool, [], { stdio: 'ignore' }); } catch (e) { warnOnce("auto-tidy", e); return; }
+    try {
+      child = spawnTool(null, tool, [], { stdio: 'ignore' });
+    } catch (e) {
+      warnOnce("auto-tidy", e);
+      finish();
+      return;
+    }
     child.on('exit', function (code) {
       const doc = readJsonSafe(TIDY_FILE, null) || {};
       log('[auto] 记忆整理完成（exit ' + code + '）：' + (doc.scenes || 0) + ' 个场景，搬 ' + (doc.moved || 0) + ' 篇进 归档\\');
@@ -708,8 +822,472 @@ function scheduleAutoMemoryTidy() {
           bad: true, ms: 15000
         });
       }
+      finish();
     });
-  }, 90000);
+    child.on('error', function (e) {
+      warnOnce("auto-tidy", e);
+      finish();
+    });
+  };
+
+  // 休眠期间 setTimeout 可能被冻住；唤醒时主动清掉旧定时器并立刻按 at 重判一次
+  autoTidyKick = function () {
+    if (autoTidyTimer) { clearTimeout(autoTidyTimer); autoTidyTimer = null; }
+    tick();
+  };
+  autoTidyTimer = setTimeout(tick, 90000);
+}
+
+// ⑤ 每晚日记：每天 23:00 后让「胡闹的大肥鱼」写今天的日记（默认只给自己看，不进开场注入）。
+//    判定：到点 + 今天的日记文件还不存在 + 没在写 ⇒ 起 工具\日记.mjs 写（后台等她写完落盘）。
+//    写失败下次 tick 再试；写成后当天不再触发。错过 23:00（当天关机）时，下一次 tick 补写昨天，
+//    但只在昨天有面板对话时补，避免凭空写一篇空日记。
+const DIARY_TOOL = path.join(__dirname, '..', '工具', '日记.mjs');
+const DIARY_DIR = path.join(DSH_HOME, '场景记忆', '胡闹的大肥鱼', '日记');
+const PANEL_TALK_DIR = path.join(DSH_HOME, '场景记忆', '胡闹的大肥鱼', '对话');
+const AUTO_DIARY_TICK_MS = 30 * 60 * 1000;
+const AUTO_DIARY_HOUR = 23;
+let autoDiaryTimer = null;
+let autoDiaryRunning = false;
+let autoDiaryStarted = false;
+let autoDiaryKick = null;
+function diaryFileOf(d) {
+  const p = (n) => String(n).padStart(2, '0');
+  return path.join(DIARY_DIR, d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + '.md');
+}
+function dayStr(d) {
+  const p = (n) => String(n).padStart(2, '0');
+  return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+}
+function panelTalkOf(day) {
+  return path.join(PANEL_TALK_DIR, day + '-面板.md');
+}
+// 空文件（手动 touch / 上次只建了头）不算“写过”，下一轮 tick 还要补；
+// 只看 existsSync 会让空日记永久卡住。
+function hasDiary(p) {
+  try { return fs.statSync(p).size > 0; } catch (e) { return false; }
+}
+function scheduleAutoDiary() {
+  if (autoDiaryStarted) return;
+  autoDiaryStarted = true;
+
+  const tick = function () {
+    autoDiaryTimer = null;
+    const now = new Date();
+    const todayDay = dayStr(now);
+    const todayFile = diaryFileOf(now);
+    const due = now.getHours() >= AUTO_DIARY_HOUR;
+    let target = '';
+    let catchup = false;
+    // 1. 到点先写今天；今天已经写过，或还没到 23:00，再看昨天有没有漏
+    if (due && !hasDiary(todayFile)) {
+      target = todayDay;
+    } else {
+      const y = new Date(now);
+      y.setDate(y.getDate() - 1);
+      const yDay = dayStr(y);
+      const yFile = diaryFileOf(y);
+      // 昨天有面板对话、日记却没落盘 ⇒ 补写；没有对话不凭空补一篇空日记
+      if (!hasDiary(yFile) && fs.existsSync(panelTalkOf(yDay))) {
+        target = yDay;
+        catchup = true;
+      }
+    }
+    if (!target) {
+      autoDiaryTimer = setTimeout(tick, AUTO_DIARY_TICK_MS);
+      return;
+    }
+    if (autoDiaryRunning) {
+      autoDiaryTimer = setTimeout(tick, AUTO_DIARY_TICK_MS);
+      return;
+    }
+    log(catchup ? ('[auto] 发现 ' + target + ' 的日记没写，补写') : '[auto] 到点了，让她写今天的日记');
+    autoDiaryRunning = true;
+    const finish = function () {
+      if (!autoDiaryRunning) return;
+      autoDiaryRunning = false;
+      if (!autoDiaryTimer) autoDiaryTimer = setTimeout(tick, AUTO_DIARY_TICK_MS);
+    };
+    if (!fs.existsSync(DIARY_TOOL)) {
+      log('[auto] 日记脚本不在，跳过：' + DIARY_TOOL);
+      finish();
+      return;
+    }
+    let child;
+    try {
+      child = spawnTool(null, DIARY_TOOL, ['写', '--日', target], { detached: true });
+    } catch (e) {
+      warnOnce('auto-diary', e);
+      finish();
+      return;
+    }
+    child.on('exit', function (code) {
+      log('[auto] 日记完成（exit ' + code + '）' + (code === 0 ? ' → ' + target : '，下次 tick 再试') + (catchup ? '（补写）' : ''));
+      if (code !== 0) {
+        broadcast('topbar:toast', {
+          text: target + ' 的日记没写成（详情见 server.log，或手动跑 工具\\日记.mjs 写' + (catchup ? (' --日 ' + target) : '') + '）',
+          bad: true, ms: 15000
+        });
+      }
+      finish();
+    });
+    child.on('error', function (e) {
+      warnOnce('auto-diary', e);
+      finish();
+    });
+  };
+
+  autoDiaryKick = function () {
+    if (autoDiaryTimer) { clearTimeout(autoDiaryTimer); autoDiaryTimer = null; }
+    tick();
+  };
+  autoDiaryTimer = setTimeout(tick, 5 * 60 * 1000);
+}
+
+// ⑥ 每周存档 + 周记：周日 23:30 后让「胡闹的大肥鱼」存本周快照并写周记（默认只给自己看）。
+//    判定：周日 23:30 后 + 本周周记文件还不存在 + 没在写 ⇒ 起 工具\周记.mjs 写（先存档再写周记）。
+//    存档离线就能成，正文要等引擎在线；写失败下次 tick 再试，写成后当周不再触发。错过周日就不补上周。
+const WEEKLY_TOOL = path.join(__dirname, '..', '工具', '周记.mjs');
+const WEEK_DIR = path.join(DSH_HOME, '场景记忆', '胡闹的大肥鱼', '日记', '周记');
+const AUTO_WEEKLY_TICK_MS = 30 * 60 * 1000;
+let autoWeeklyTimer = null;
+let autoWeeklyRunning = false;
+let autoWeeklyStarted = false;
+let autoWeeklyKick = null;
+function weeklyFileOf(d) {
+  const mon = new Date(d);
+  mon.setHours(0, 0, 0, 0);
+  mon.setDate(mon.getDate() - ((mon.getDay() + 6) % 7));
+  const p = (n) => String(n).padStart(2, '0');
+  return path.join(WEEK_DIR, mon.getFullYear() + '-' + p(mon.getMonth() + 1) + '-' + p(mon.getDate()) + '.md');
+}
+function scheduleAutoWeekly() {
+  if (autoWeeklyStarted) return;
+  autoWeeklyStarted = true;
+
+  const tick = function () {
+    autoWeeklyTimer = null;
+    const now = new Date();
+    const due = now.getDay() === 0 && (now.getHours() * 60 + now.getMinutes()) >= 23 * 60 + 30;
+    const file = weeklyFileOf(now);
+    const exists = fs.existsSync(file);
+    if (!due || exists) {
+      autoWeeklyTimer = setTimeout(tick, AUTO_WEEKLY_TICK_MS);
+      return;
+    }
+    if (autoWeeklyRunning) {
+      autoWeeklyTimer = setTimeout(tick, AUTO_WEEKLY_TICK_MS);
+      return;
+    }
+    log('[auto] 周日到点了，让她存本周快照并写周记');
+    autoWeeklyRunning = true;
+    const finish = function () {
+      if (!autoWeeklyRunning) return;
+      autoWeeklyRunning = false;
+      if (!autoWeeklyTimer) autoWeeklyTimer = setTimeout(tick, AUTO_WEEKLY_TICK_MS);
+    };
+    if (!fs.existsSync(WEEKLY_TOOL)) {
+      log('[auto] 周记脚本不在，跳过：' + WEEKLY_TOOL);
+      finish();
+      return;
+    }
+    let child;
+    try {
+      child = spawnTool(null, WEEKLY_TOOL, ['写'], { detached: true });
+    } catch (e) {
+      warnOnce('auto-weekly', e);
+      finish();
+      return;
+    }
+    child.on('exit', function (code) {
+      log('[auto] 周记完成（exit ' + code + '）' + (code === 0 ? ' → ' + file : '，下次 tick 再试'));
+      if (code !== 0) {
+        broadcast('topbar:toast', {
+          text: '本周的周记没写成（详情见 server.log，或手动跑 工具\\周记.mjs 写）',
+          bad: true, ms: 15000
+        });
+      }
+      finish();
+    });
+    child.on('error', function (e) {
+      warnOnce('auto-weekly', e);
+      finish();
+    });
+  };
+
+  autoWeeklyKick = function () {
+    if (autoWeeklyTimer) { clearTimeout(autoWeeklyTimer); autoWeeklyTimer = null; }
+    tick();
+  };
+  autoWeeklyTimer = setTimeout(tick, 6 * 60 * 1000);
+}
+
+// ⑦ 生物钟主动开口：白天每 15 分钟查一次，过免打扰就起 工具\开口.mjs 说。
+//    劲儿够不够、在不在清醒时段、说什么、发到哪，都由脚本判（单一真源）；这里只做调度层的免打扰粗筛。
+//    去向默认社交通道（微信→QQ→飞书→其它），生成放不绑面板的独白会话，工作台对话框不再被它刷屏。
+//    exit 0 = 她开口了（已按设置投递）；exit 1 = 还没到时候（劲儿不够/时段不对/本小时说满），正常。
+const SPEAK_TOOL = path.join(__dirname, '..', '工具', '开口.mjs');
+const BROWSE_TOOL = path.join(__dirname, '..', '工具', '刷内容.mjs');   // 2026-11-25 生活场景自己刷内容
+const AUTO_SPEAK_TICK_MS = 15 * 60 * 1000;
+const AUTO_BROWSE_TICK_MS = 30 * 60 * 1000;
+let autoSpeakTimer = null;
+let autoSpeakStarted = false;
+let autoSpeakRunning = false;
+let autoSpeakKick = null;
+let autoBrowseTimer = null;
+let autoBrowseStarted = false;
+let autoBrowseRunning = false;
+let autoBrowseKick = null;
+function scheduleAutoSpeak() {
+  if (autoSpeakStarted) return;
+  autoSpeakStarted = true;
+
+  const tick = function () {
+    autoSpeakTimer = null;
+    let quiet = { ok: true };
+    try { quiet = petSvc.proactiveGate(petSvc.getSettings(), { quietOnly: true }); }
+    catch (e) { log('[auto] 开口免打扰判定失败，按允许处理：' + ((e && e.message) || e)); }
+    if (!quiet.ok) { autoSpeakTimer = setTimeout(tick, AUTO_SPEAK_TICK_MS); return; }
+    if (autoSpeakRunning) { autoSpeakTimer = setTimeout(tick, AUTO_SPEAK_TICK_MS); return; }
+    if (!fs.existsSync(SPEAK_TOOL)) { autoSpeakTimer = setTimeout(tick, AUTO_SPEAK_TICK_MS); return; }
+    autoSpeakRunning = true;
+    const finish = function () {
+      if (!autoSpeakRunning) return;
+      autoSpeakRunning = false;
+      if (!autoSpeakTimer) autoSpeakTimer = setTimeout(tick, AUTO_SPEAK_TICK_MS);
+    };
+    let child;
+    try {
+      child = spawnTool(null, SPEAK_TOOL, ['说'], { detached: true });
+    } catch (e) {
+      warnOnce('auto-speak', e);
+      finish();
+      return;
+    }
+    child.on('exit', function (code) {
+      log('[auto] 开口检查完成（exit ' + code + '）' + (code === 0 ? '——她主动说了一句（按设置投递）' : ''));
+      finish();
+    });
+    child.on('error', function (e) {
+      warnOnce('auto-speak', e);
+      finish();
+    });
+  };
+
+  autoSpeakKick = function () {
+    if (autoSpeakTimer) { clearTimeout(autoSpeakTimer); autoSpeakTimer = null; }
+    tick();
+  };
+  autoSpeakTimer = setTimeout(tick, 3 * 60 * 1000);
+}
+
+// 2026-11-25：生活场景自己刷内容（每 30 分钟评估一轮；时段/次数/劲儿由 刷内容.mjs 内部判，不够就 exit 1 不写状态）
+function scheduleAutoBrowse() {
+  if (autoBrowseStarted) return;
+  autoBrowseStarted = true;
+
+  const tick = function () {
+    autoBrowseTimer = null;
+    let quiet = { ok: true };
+    try { quiet = petSvc.proactiveGate(petSvc.getSettings(), { quietOnly: true }); }
+    catch (e) { log('[auto] 刷内容免打扰判定失败，按允许处理：' + ((e && e.message) || e)); }
+    if (!quiet.ok) { autoBrowseTimer = setTimeout(tick, AUTO_BROWSE_TICK_MS); return; }
+    if (autoBrowseRunning) { autoBrowseTimer = setTimeout(tick, AUTO_BROWSE_TICK_MS); return; }
+    if (!fs.existsSync(BROWSE_TOOL)) { autoBrowseTimer = setTimeout(tick, AUTO_BROWSE_TICK_MS); return; }
+    autoBrowseRunning = true;
+    const finish = function () {
+      if (!autoBrowseRunning) return;
+      autoBrowseRunning = false;
+      if (!autoBrowseTimer) autoBrowseTimer = setTimeout(tick, AUTO_BROWSE_TICK_MS);
+    };
+    let child;
+    try {
+      child = spawnTool(null, BROWSE_TOOL, ['刷'], { detached: true });
+    } catch (e) {
+      warnOnce('auto-browse', e);
+      finish();
+      return;
+    }
+    child.on('exit', function (code) {
+      log('[auto] 刷内容检查完成（exit ' + code + '）' + (code === 0 ? '——她刷到一条' : ''));
+      finish();
+    });
+    child.on('error', function (e) {
+      warnOnce('auto-browse', e);
+      finish();
+    });
+  };
+
+  autoBrowseKick = function () {
+    if (autoBrowseTimer) { clearTimeout(autoBrowseTimer); autoBrowseTimer = null; }
+    tick();
+  };
+  autoBrowseTimer = setTimeout(tick, 20 * 60 * 1000);
+}
+
+// 2026-11-25：会话标题自愈 —— 场景改名之后，面板写的 sessionTitle 与引擎里那条会话的标题会漂移
+//   （sessions.mjs --check 报「id 与标题不一致」，记忆回响的 pinTarget、开口 按标题都找不到人）。
+//   判据在 工具\标题自愈.mjs：以面板写的 sessionTitle 为准，用引擎 session/rename 改回（不新建、不动历史）。
+//   只在引擎就绪后跑一次；幂等，跑完再跑只会说「全部一致」。
+let titleHealed = false;
+function healSessionTitles() {
+  if (titleHealed) return;
+  const tool = path.join(__dirname, '..', '工具', '标题自愈.mjs');
+  if (!fs.existsSync(tool)) return;
+  titleHealed = true;
+  // 等引擎把会话索引写稳（与首启绑定同一个节奏），壳 spawn 的子进程带 DSH_TOKEN 才换得到 cookie
+  setTimeout(function () {
+    let child;
+    try { child = spawnTool(null, tool, [], { detached: true }); }
+    catch (e) { warnOnce('title-heal', e); return; }
+    child.on('exit', function (code) {
+      log('[title] 会话标题自愈完成（exit ' + code + '）' + (code === 0 ? '——面板与引擎一致' : '——有改动失败，见 功能台 · 标题自愈'));
+    });
+    child.on('error', function (e) { warnOnce('title-heal', e); });
+  }, 4000);
+}
+
+// 2026-11-25：记忆自主链（面板对话 10 分钟一抓；通道往来 30 分钟一抓）
+// 「设置 → 记忆 → 记下聊过什么」关掉时整条链停；写入仍走 人格记忆/场景记忆 自己的闸门，不在这里二次确认。
+const CAPTURE_TOOL = path.join(__dirname, '..', '工具', '自主记忆.mjs');
+const CHANNEL_MEM_TOOL = path.join(__dirname, '..', '工具', '通道记忆.mjs');
+const CAPTURE_STATUS_FILE = path.join(SHELL_DATA_DIR, 'pet', '自主记忆.json');
+const AUTO_CAPTURE_TICK_MS = 10 * 60 * 1000;
+const AUTO_CHANNEL_MEM_TICK_MS = 30 * 60 * 1000;
+let autoCaptureTimer = null, autoCaptureRunning = false, autoCaptureStarted = false, autoCaptureKick = null;
+let autoChannelMemTimer = null, autoChannelMemRunning = false, autoChannelMemStarted = false, autoChannelMemKick = null;
+
+function memoryWriteOn() {
+  try {
+    const s = petSvc.getSettings() || {};
+    return !(s.memory && s.memory.writeDialog === false);
+  } catch (e) {
+    // 设置读不出来就按「关」处理：宁可这轮不采，也不要在用户已经关掉记忆时继续写
+    warnOnce('auto-memory-settings', e);
+    return false;
+  }
+}
+
+function scheduleAutoCapture() {
+  if (autoCaptureStarted) return;
+  autoCaptureStarted = true;
+  const tick = function () {
+    autoCaptureTimer = null;
+    if (!memoryWriteOn() || !fs.existsSync(CAPTURE_TOOL)) {
+      autoCaptureTimer = setTimeout(tick, AUTO_CAPTURE_TICK_MS);
+      return;
+    }
+    if (autoCaptureRunning) {
+      autoCaptureTimer = setTimeout(tick, AUTO_CAPTURE_TICK_MS);
+      return;
+    }
+    autoCaptureRunning = true;
+    const finish = function () {
+      if (!autoCaptureRunning) return;
+      autoCaptureRunning = false;
+      if (!autoCaptureTimer) autoCaptureTimer = setTimeout(tick, AUTO_CAPTURE_TICK_MS);
+    };
+    let child;
+    try {
+      child = spawnTool(null, CAPTURE_TOOL, ['capture'], { stdio: 'ignore' });
+    } catch (e) {
+      warnOnce('auto-capture', e);
+      finish();
+      return;
+    }
+    child.on('exit', function (code) {
+      const st = readJsonSafe(CAPTURE_STATUS_FILE, null) || {};
+      log('[auto] 面板记忆抓取完成（exit ' + code + '）：新增 ' + (st.added || 0) + ' 条' + (st.error ? '，⚠ ' + st.error : ''));
+      finish();
+    });
+    child.on('error', function (e) {
+      warnOnce('auto-capture', e);
+      finish();
+    });
+  };
+  autoCaptureKick = function () {
+    if (autoCaptureTimer) { clearTimeout(autoCaptureTimer); autoCaptureTimer = null; }
+    tick();
+  };
+  autoCaptureTimer = setTimeout(tick, 2 * 60 * 1000);
+}
+
+function scheduleAutoChannelMemory() {
+  if (autoChannelMemStarted) return;
+  autoChannelMemStarted = true;
+  const tick = function () {
+    autoChannelMemTimer = null;
+    if (!memoryWriteOn() || !fs.existsSync(CHANNEL_MEM_TOOL)) {
+      autoChannelMemTimer = setTimeout(tick, AUTO_CHANNEL_MEM_TICK_MS);
+      return;
+    }
+    if (autoChannelMemRunning) {
+      autoChannelMemTimer = setTimeout(tick, AUTO_CHANNEL_MEM_TICK_MS);
+      return;
+    }
+    autoChannelMemRunning = true;
+    const finish = function () {
+      if (!autoChannelMemRunning) return;
+      autoChannelMemRunning = false;
+      if (!autoChannelMemTimer) autoChannelMemTimer = setTimeout(tick, AUTO_CHANNEL_MEM_TICK_MS);
+    };
+    let child;
+    try {
+      child = spawnTool(null, CHANNEL_MEM_TOOL, [], { stdio: 'ignore' });
+    } catch (e) {
+      warnOnce('auto-channel-mem', e);
+      finish();
+      return;
+    }
+    child.on('exit', function (code) {
+      log('[auto] 通道记忆抓取完成（exit ' + code + '）' + (code === 0 ? '' : '——有失败，下轮再试'));
+      finish();
+    });
+    child.on('error', function (e) {
+      warnOnce('auto-channel-mem', e);
+      finish();
+    });
+  };
+  autoChannelMemKick = function () {
+    if (autoChannelMemTimer) { clearTimeout(autoChannelMemTimer); autoChannelMemTimer = null; }
+    tick();
+  };
+  autoChannelMemTimer = setTimeout(tick, 5 * 60 * 1000);
+}
+
+// ---- B站小号账号同步（2026-11-25）----
+// 她在生活场景的网页（panel bv-web，分区 persist:embed-bv-web）登录小号后，
+// 壳把 cookie 抓出来存到 data\bili-account.json，供 工具\B站操作.mjs 与 B站适配器使用。
+// 只写盘、不打印 cookie；没 SESSDATA 就不动。
+const BILI_ACCOUNT_FILE = path.join(SHELL_DATA_DIR, 'bili-account.json');
+const BILI_PARTITION = 'persist:embed-bv-web';
+let biliSyncTimer = null;
+function syncBiliAccount(reason) {
+  try {
+    const ses = require('electron').session.fromPartition(BILI_PARTITION);
+    ses.cookies.get({ domain: '.bilibili.com' }).then(function (list) {
+      const map = {};
+      for (const c of (list || [])) map[c.name] = c.value;
+      if (!map.SESSDATA) { log('[bili] 分区里还没有 SESSDATA（' + (reason || '') + '），先在小号登录'); return; }
+      const acc = {
+        sessdata: String(map.SESSDATA || ''),
+        biliJct: String(map.bili_jct || ''),
+        buvid3: String(map.buvid3 || ''),
+        dedeUserID: String(map.DedeUserID || ''),
+        at: Date.now()
+      };
+      let old = null;
+      try { old = JSON.parse(fs.readFileSync(BILI_ACCOUNT_FILE, 'utf8')); } catch (e) { old = null; }
+      if (old && old.sessdata === acc.sessdata && old.biliJct === acc.biliJct && old.dedeUserID === acc.dedeUserID) return;
+      fs.mkdirSync(path.dirname(BILI_ACCOUNT_FILE), { recursive: true });
+      fs.writeFileSync(BILI_ACCOUNT_FILE, JSON.stringify(acc, null, 2) + '\n', 'utf8');
+      log('[bili] 小号账号已同步（mid ' + (acc.dedeUserID || '?') + '，来源 ' + (reason || '') + '）');
+    }).catch(function (e) { warnOnce('bili-sync', e); });
+  } catch (e) { warnOnce('bili-sync', e); }
+}
+function scheduleBiliSync() {
+  if (biliSyncTimer) return;
+  biliSyncTimer = setInterval(function () { syncBiliAccount('定时'); }, 10 * 60 * 1000);
 }
 
 // ---- 焦点探针（2026-11-12 用户同意；只记必要几行，不刷屏）----
@@ -915,7 +1493,21 @@ function captureToken(text) {
     // token 本身仍只在内存，只是让同一进程内的适配器能取到（子进程会由 scriptEnv 显式注入）。
     process.env.DSH_TOKEN = m[1];
     // 2026-11-14 · 别把 token 本体写进日志（原来这行是明文的第二处泄漏，log() 的脱敏只管 token=xxx 形态）
-    log('[token] captured（长度 ' + m[1].length + '，不落盘）');
+    log('[token] captured（长度 ' + m[1].length + '）');
+    // 2026-11-25 · 引擎 home 里的 .web-token：CLI 侧（人格会话里跑 派发.mjs / 建会话.mjs）没有 DSH_TOKEN，
+    //   日志又已脱敏，只能靠这一份本机文件换 cookie。⛔ 已在 .gitignore / 发布前检查里挡掉，绝不入库。
+    writeWebToken(m[1]);
+  }
+}
+
+// token 落盘（仅本机、仅本目录）：CLI 与「对话里自己派发」都靠它换 cookie
+function writeWebToken(token) {
+  try {
+    const f = path.join(DSH_HOME, '.web-token');
+    fs.mkdirSync(DSH_HOME, { recursive: true });
+    fs.writeFileSync(f, JSON.stringify({ token: token, port: DSH_PORT, pid: process.pid, at: new Date().toISOString() }, null, 0), 'utf8');
+  } catch (ex) {
+    log('[token] 写 .web-token 失败：' + ((ex && ex.message) || ex));
   }
 }
 
@@ -1164,8 +1756,16 @@ async function startServer() {
     serverProc = plan.spawn();
     const proc = serverProc;
     const t0 = Date.now();
+    log('[boot] 引擎已拉起 pid=' + (proc.pid || '?'));
+    let waitLogAt = 0;
     while ((Date.now() - t0) < plan.budget * 1000) {
       await sleep(300);   // 300ms 轮询：引擎就绪后最多 0.3s 就能进入下一步（原来 1s）
+      // 2026-11-24 · 冷启动可观测性：每 5s 留一行，区分「引擎还没 listen」与「主进程被同步任务堵住没跑到 probe」
+      const waited = Date.now() - t0;
+      if (waited - waitLogAt >= 5000) {
+        waitLogAt = waited;
+        log('[boot] 等待引擎 ' + (waited / 1000).toFixed(1) + 's（pid 存活=' + (proc.exitCode === null) + '）');
+      }
       if (await probe()) {
         const secs = ((Date.now() - t0) / 1000).toFixed(1);
         log('engine ready in ' + secs + 's via ' + plan.label);
@@ -2200,6 +2800,14 @@ ipcMain.handle('kun:file:read', async (e, p) => {
     return { ok: true, path: t, text: text, size: st.size, mtime: Math.floor(st.mtimeMs / 1000) };
   } catch (ex) { return { ok: false, err: '读不到：' + String((ex && ex.message) || ex) }; }
 });
+// ---- 程序开发「全局搜索」（2026-11-24 加）：只读扫项目内容，对标 IDEA Ctrl+Shift+F ----
+// 范围默认 = 当前项目根（与文件面板跟项目同一个根）；也可由搜索面板手选任意目录。
+// git 仓库走 git grep（自动遵守 .gitignore），非 git 目录回退并发读文件；返回按文件分组的命中行，预览面板按 line 定位。
+// 缺这条 IPC = 主进程还是旧的 ⇒ 搜索抽屉会提示「重启一次工作台」，不会白屏。
+ipcMain.handle('kun:file:search', async (e, root, query, opts) => {
+  try { return await projectSearchSvc.searchProject(root, query, opts || {}); }
+  catch (ex) { return { ok: false, err: '搜索失败：' + String((ex && ex.message) || ex) }; }
+});
 ipcMain.handle('kun:file:write', async (e, p, text) => {
   const t = String(p || '');
   if (!t) return { ok: false, err: 'empty' };
@@ -2216,13 +2824,15 @@ ipcMain.handle('kun:file:write', async (e, p, text) => {
 // ---- 宿主通用能力：选文件夹（2026-09-23 加，画布节点的「生成路径（文件夹）」用）----
 // 走系统对话框（openDirectory + createDirectory，可现场新建文件夹）：返回选中的文件夹绝对路径，取消返回 null。
 // 按发起方窗口寻址（分离窗口也能用），拿不到就退回主窗口。
-ipcMain.handle('kun:pick-folder', async (e) => {
+// 2026-11-24：允许调用方传入标题 / 按钮文案（全局搜索「选目录」复用同一个系统框，别显示成"生成路径"）。
+ipcMain.handle('kun:pick-folder', async (e, opts) => {
   const win = windowOfEvent(e) || mainWindow;
   if (!win) return null;
+  const o = opts || {};
   try {
     const r = await dialog.showOpenDialog(win, {
-      title: '选择生成路径（文件夹）',
-      buttonLabel: '选这个文件夹',
+      title: String(o.title || '选择生成路径（文件夹）'),
+      buttonLabel: String(o.buttonLabel || '选这个文件夹'),
       properties: ['openDirectory', 'createDirectory']
     });
     if (r.canceled || !r.filePaths || !r.filePaths.length) return null;
@@ -2378,7 +2988,21 @@ ipcMain.handle('code:phone-window', (e, url, title) => {
 // 为什么必须走主进程：渲染进程是 file:// 页面，fetch/XHR 读不了本地文件（图/视频能当子资源加载，
 // 文本不能），所以目录列表与正文都由这里读盘；路径一律相对 REVIEW_DIR 解析并夹在本目录内。
 // 只读：镜像是「<机主>-个人信息 / 我的知识库」的副本（技能 maben-profile 的默认只读约束），不提供任何写接口。
-const REVIEW_DIR = process.env.REVIEW_DIR || path.resolve(__dirname, '..', '自我复盘');
+const REVIEW_DIR = (function () {
+  // 2026-11-25 · 复盘目录改成可配：env（DSH_REVIEW_DIR / REVIEW_DIR） > 机器配置.json 的 reviewDir > 仓内「自我复盘」
+  // 写回 DSH_REVIEW_DIR 是给 preload 用的：它只能同步读 env（拿不到 await IPC），这样面板显示目录和实际读写是同一个值
+  const env = process.env.DSH_REVIEW_DIR || process.env.REVIEW_DIR || '';
+  if (env) { process.env.DSH_REVIEW_DIR = env; return env; }
+  try {
+    let raw = fs.readFileSync(path.join(DSH_HOME, '机器配置.json'), 'utf8');
+    if (raw.charCodeAt(0) === 0xFEFF) raw = raw.slice(1);
+    const j = JSON.parse(raw);
+    if (j && j.reviewDir) { process.env.DSH_REVIEW_DIR = String(j.reviewDir); return String(j.reviewDir); }
+  } catch (e) { console.log('[复盘目录] 机器配置里没有 reviewDir，按默认走：' + e.message); }
+  const dflt = path.resolve(__dirname, '..', '自我复盘');
+  process.env.DSH_REVIEW_DIR = dflt;
+  return dflt;
+})();
 const REVIEW_TEXT_EXT = /\.(md|markdown|txt|json|ya?ml|csv|log|ini|conf)$/i;
 const REVIEW_MAX_BYTES = 4 * 1024 * 1024;   // 单篇上限 4 MB：超了只回前 4 MB，够看且不会把面板卡死
 
@@ -2719,6 +3343,36 @@ ipcMain.handle('dispatch:dogOpen', async (e, id) => {
   return err ? { ok: false, err: err } : { ok: true };
 });
 
+// 5. 壳内派发（2026-11-25）：壳外脚本没有 DSH_TOKEN（token 只在壳内存、日志已脱敏），
+//    人格会话里 `派发.mjs` 必然「换不到 cookie」。所以人想手派时由壳起进程 ——
+//    env 里 process.env.DSH_TOKEN 是 captureToken 写进来的，子进程直接继承。
+//    from 用该场景的主会话（默认人格「胡闹的大肥鱼」），回执才会回到会说人话的那个会话。
+const DISPATCH_TOOL = path.join(__dirname, '..', '工具', '派发.mjs');
+function sceneMainSession(sceneId) {
+  try {
+    const j = readJsonSafe(path.join(__dirname, 'scenarios', String(sceneId || 'pet') + '.json'), null);
+    const h = j && (j.panels || []).find(function (p) { return p.type === 'harness' && p.sessionId; });
+    return h ? String(h.sessionId) : '';
+  } catch (ex) { log('[dispatch] 读场景会话失败: ' + ((ex && ex.message) || ex)); return ''; }
+}
+ipcMain.handle('dispatch:send', function (e, payload) {
+  const p = payload || {};
+  const text = String(p.text || '').trim();
+  const to = String(p.to || '').trim();
+  const word = String(p.word || '').trim();
+  if (!text && !word) return { ok: false, err: '先写要派的事：要么填任务，要么给一句原话让它自己认场景' };
+  if (!to && !word) return { ok: false, err: '先选一个「派给谁」，或者改用「按原话自动认」' };
+  if (!fs.existsSync(DISPATCH_TOOL)) return { ok: false, err: '缺工具：' + DISPATCH_TOOL };
+  const from = String(p.from || '').trim() || sceneMainSession(String(p.scene || 'pet'));
+  if (!from) return { ok: false, err: '找不到派发方会话：这个场景没绑 AI 面板？' };
+  const args = [DISPATCH_TOOL];
+  if (word && !to) args.push('--词', word); else args.push('--to', to);
+  args.push(text || word, '--from', from, '--no-watch');
+  const r = runToolSync(DISPATCH_TOOL, args.slice(1), 60000);
+  const m = String(r.out || '').match(/(\d{8}-\d{6}-[a-z0-9]+)/);
+  return { ok: r.code === 0, ticket: m ? m[1] : '', out: r.out || '', err: r.err || '' };
+});
+
 // ---- 待批准 / 定时触发（2026-11-14）----
 // confirm 级不再靠「聊天里点头」：派发工具把未确认的派发落进 待批准.json，面板点【批准】当场派出。
 // 触发（Trigger）：定时.json 里到点的任务自动走 桌宠.mjs 派；confirm 级会自然落进待批准，仍由人一键放行。
@@ -2742,6 +3396,35 @@ function readJsonSafe(file, fallback) {
 function writeJsonSafe(file, data) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, JSON.stringify(data, null, 2) + '\n', 'utf8');
+}
+
+// 定时任务的完成态（2026-11-24）：
+//   起进程时先写 pending（带 pid），exit 0/3 才写 ok；失败写 failed，10 分钟后再试。
+//   旧状态是数字时间戳，照旧按"已完成"认；换壳不需要迁移。
+function timerPidAlive(pid) {
+  const n = Number(pid);
+  if (!n || n < 1) return false;
+  try { process.kill(n, 0); return true; } catch (e) { return false; }
+}
+function timerCleanDeadPending(seen) {
+  let changed = false;
+  for (const k of Object.keys(seen || {})) {
+    const v = seen[k];
+    if (v && typeof v === 'object' && v.pending === true && !timerPidAlive(v.pid)) {
+      delete seen[k];
+      changed = true;
+    }
+  }
+  return changed;
+}
+function timerWriteState(key, record, expectPid) {
+  const seen = readJsonSafe(TIMER_STATE, {});
+  const cur = seen[key];
+  // 上一轮的子进程还没收尾时，别让更晚的 exit 覆盖新一轮的结果
+  if (expectPid && cur && cur.pid && String(cur.pid) !== String(expectPid)) return false;
+  seen[key] = record;
+  writeJsonSafe(TIMER_STATE, timerPolicy.pruneTimerState(seen, new Date()));
+  return true;
 }
 
 // 1. 待批准队列：与 桌宠.mjs 读写同一个文件（判据只有一份，壳不复制一套规则）
@@ -2786,30 +3469,85 @@ ipcMain.handle('dispatch:timerToggle', (e, id, on) => {
   return { ok: true, tasks };
 });
 
-// 4. 到点触发：每 30 秒对一次表，同一任务同一天只跑一次；异步起进程，不阻塞界面
-//    带 --自动：桌宠.mjs 会先过「主动性 / 免打扰 / 每小时上限」三闸，不过就跳过不派（2026-11-18）
-function pad2(n) { return String(n).length < 2 ? '0' + n : String(n); }
+// 4. 定时触发：每 30 秒扫一次；判定交给 pet\定时判定.js，不再用「当前 HH:MM 精确等于计划时间」。
+//    为什么改（2026-11-24）：原来是精确分钟匹配，机器在 09:30 那一分钟关着/睡着，重启后就永远不再触发；
+//    现在按「今天这格跑没跑 + 昨天那格漏没漏」补一次，关机错过的那次在开机后能补上。
+//    定时任务是用户显式配的，不走「少吭声 / 每小时上限」的主动闸门（否则默认 proactive=low 会把每天的任务
+//    全部挡掉、却又被写成「已跑」）；但免打扰时段仍然尊重：静默时先不派、不写已跑，时段结束再补。
 function timerTick() {
+  // 引擎没就绪时先不补：桌宠派发要连 DSH 会话，早跑只会失败并被当成「已跑」。等下一轮 30 秒。
+  if (!engineIsForeign && !harnessToken) return;
   const cfg = readJsonSafe(TIMER_FILE, { tasks: [] });
-  const tasks = (cfg && cfg.tasks || []).filter((x) => x && x.enabled && /^\d{2}:\d{2}$/.test(String(x.time || '')));
+  const tasks = (cfg && cfg.tasks || []).filter((x) => x && x.enabled && timerPolicy.parseTime(x.time));
   if (!tasks.length) return;
+  if (!fs.existsSync(PET_TOOL)) { log('[timer] 桌宠工具不在，跳过：' + PET_TOOL); return; }
+
+  // 1. 免打扰闸门：只查静默时段，不查 proactive=low、不占用主动次数；静默时提前返回，下一轮再判
+  let quiet = { ok: true };
+  try { quiet = petSvc.proactiveGate(petSvc.getSettings(), { quietOnly: true }); }
+  catch (e) { log('[timer] 免打扰判定失败，按允许处理：' + ((e && e.message) || e)); }
+  if (!quiet.ok) return;
+
   const now = new Date();
-  const hm = pad2(now.getHours()) + ':' + pad2(now.getMinutes());
-  const day = now.getFullYear() + '-' + pad2(now.getMonth() + 1) + '-' + pad2(now.getDate());
   const seen = readJsonSafe(TIMER_STATE, {});
+  // 上次壳被关机/崩溃带走时，pending 的 pid 已经不在了：先把这些"没收尾"的记录清掉，
+  // 否则新壳会把上一轮没干完的活当成"今天已跑"而跳过。
+  try {
+    if (timerCleanDeadPending(seen)) {
+      writeJsonSafe(TIMER_STATE, timerPolicy.pruneTimerState(seen, now));
+      log('[timer] 清理上次未收尾的 pending 记录');
+    }
+  } catch (e) { log('[timer] 清理 pending 失败：' + ((e && e.message) || e)); }
+
   for (const t of tasks) {
-    if (String(t.time) !== hm) continue;
-    const key = String(t.id) + '@' + day;
-    if (seen[key]) continue;
-    seen[key] = Date.now();
-    writeJsonSafe(TIMER_STATE, seen);
-    const nodeExe = resolveNodeExe();
-    const child = spawn(nodeExe || process.execPath, [PET_TOOL, '派', '--文本', String(t.text || ''), '--超时', '600', '--自动'], {
-      cwd: path.join(__dirname, '..'), detached: true, stdio: 'ignore', windowsHide: true,
-      env: nodeExe ? process.env : Object.assign({}, process.env, { ELECTRON_RUN_AS_NODE: '1' })
-    });
+    // 2. 先算「这一格该不该跑」：今天已到点/已过点、或昨天漏了，返回 run
+    const d = timerPolicy.timerDecision(t, now, seen);
+    if (!d.run) continue;
+    if (!String(t.text || '').trim()) { log('[timer] 任务没有文本，跳过：' + t.id); continue; }
+
+    // 3. 起进程；起不来就不写「已跑」，下一轮还会重试（不能把失败算成已完成）
+    let child;
+    try {
+      const nodeExe = resolveNodeExe();
+      child = spawn(nodeExe || process.execPath, [PET_TOOL, '派', '--文本', String(t.text || ''), '--超时', '600'], {
+        cwd: path.join(__dirname, '..'), detached: true, stdio: 'ignore', windowsHide: true,
+        env: nodeExe ? process.env : Object.assign({}, process.env, { ELECTRON_RUN_AS_NODE: '1' })
+      });
+    } catch (e) {
+      log('[timer] 起进程失败，不记为已跑：' + t.id + ' ' + ((e && e.message) || e));
+      continue;
+    }
+    if (!child || !child.pid) {
+      log('[timer] 起进程失败（没有 pid），不记为已跑：' + t.id);
+      continue;
+    }
+
+    // 4. 先写 pending（不是"已跑"）——子进程 exit 0/3 才落 ok。
+    //    写不进去就把这次子进程收掉，宁可下一轮重试，也不要留一个没人记账的进程。
+    try {
+      timerWriteState(d.stateKey, { pending: true, at: Date.now(), pid: child.pid });
+    } catch (e) {
+      log('[timer] 写 pending 失败，收掉本次子进程等下一轮：' + t.id + ' ' + ((e && e.message) || e));
+      try { child.kill(); } catch (e2) { log('[timer] 收掉子进程失败：' + t.id + ' ' + ((e2 && e2.message) || e2)); }
+      continue;
+    }
+    const finish = function (code, err) {
+      const ok = code === 0 || code === 3;
+      const rec = ok
+        ? { ok: true, at: Date.now(), code: code, pid: child.pid }
+        : { ok: false, at: Date.now(), code: code == null ? 'ERR' : code, pid: child.pid, error: err ? String(err) : '' };
+      try {
+        if (!timerWriteState(d.stateKey, rec, child.pid)) {
+          log('[timer] 忽略过期子进程结果：' + t.id + ' pid=' + child.pid);
+        }
+      } catch (e) { log('[timer] 写完成态失败（下次可能重复触发）：' + t.id + ' ' + ((e && e.message) || e)); }
+      if (code === 3) log('[timer] ' + t.id + ' 需要人点头，已进待批准队列');
+      else if (!ok) log('[timer] ' + t.id + ' 派发失败（' + (code == null ? 'ERR' : code) + '），' + Math.round(timerPolicy.RETRY_FAIL_MS / 60000) + ' 分钟后重试');
+    };
+    child.on('exit', function (code) { finish(code, ''); });
+    child.on('error', function (e) { finish(null, (e && e.message) || e); });
     child.unref();
-    console.log('[timer] ' + t.id + ' 到点触发：' + t.text);
+    console.log('[timer] ' + t.id + ' ' + d.reason + (d.mode === 'catch-up-yesterday' ? '（补跑）' : ''));
   }
 }
 setInterval(timerTick, 30000);
@@ -2837,7 +3575,140 @@ ipcMain.handle('stock:chat:send', (e, sid, role, content) => stockStore.addMessa
 ipcMain.handle('stock:chat:delete', (e, sid) => stockStore.deleteSession(sid));
 ipcMain.handle('stock:chat:rename', (e, sid, title) => stockStore.renameSession(sid, title));
 
+// ---- 生活场景配置与 B站账号（2026-11-25）----
+// 面板「生活配置」用：读/写 内容源.json、发布.json；手动同步小号 cookie；读账号状态（脱敏）。
+const LIFE_MEM_DIR = path.join(DSH_HOME, '场景记忆', '生活');
+const LIFE_CONTENT_FILE = path.join(LIFE_MEM_DIR, '内容源.json');
+const LIFE_PUB_FILE = path.join(LIFE_MEM_DIR, '发布.json');
+const LIFE_QUOTA_FILE = path.join(LIFE_MEM_DIR, '发布额度.json');
+const LIFE_DEFAULTS = {
+  content: {
+    enabled: true, dailyMax: 2, skipProb: 0.3, deepRead: 1,
+    taste: { like: [], block: [] },
+    sources: [{ id: 'bili-hot', name: 'B站热门', platform: 'bilibili', kind: 'popular', weight: 3, limit: 12, enabled: true }]
+  },
+  publish: { ownerMid: '', commentEnabled: true, dmEnabled: true, dynamicEnabled: true }
+};
+function readJsonSafe(p, fb) { try { return JSON.parse(fs.readFileSync(p, 'utf8')); } catch (e) { return fb; } }
+ipcMain.handle('life:config:get', () => {
+  const content = readJsonSafe(LIFE_CONTENT_FILE, null) || LIFE_DEFAULTS.content;
+  const publish = Object.assign({}, LIFE_DEFAULTS.publish, readJsonSafe(LIFE_PUB_FILE, null) || {});
+  const quota = readJsonSafe(LIFE_QUOTA_FILE, null) || null;
+  let account = null;
+  try {
+    const a = JSON.parse(fs.readFileSync(BILI_ACCOUNT_FILE, 'utf8'));
+    account = { mid: a.dedeUserID || '', at: a.at || 0, hasSessdata: !!a.sessdata };
+  } catch (e) { account = null; }
+  return { ok: true, content, publish, quota, account, memDir: LIFE_MEM_DIR };
+});
+ipcMain.handle('life:config:save', (e, payload) => {
+  const p = payload && typeof payload === 'object' ? payload : {};
+  try {
+    if (p.content && typeof p.content === 'object') {
+      fs.mkdirSync(LIFE_MEM_DIR, { recursive: true });
+      fs.writeFileSync(LIFE_CONTENT_FILE, JSON.stringify(p.content, null, 2) + '\n', 'utf8');
+    }
+    if (p.publish && typeof p.publish === 'object') {
+      fs.mkdirSync(LIFE_MEM_DIR, { recursive: true });
+      fs.writeFileSync(LIFE_PUB_FILE, JSON.stringify(p.publish, null, 2) + '\n', 'utf8');
+    }
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: String((e && e.message) || e) };
+  }
+});
+ipcMain.handle('life:account:sync', () => { syncBiliAccount('面板'); return { ok: true }; });
+
+// ---- 通道优先级（2026-11-25）----
+// 面板「主动出消息」用：顺序 / 开关 / 每条通道能不能用 / 最近一次落在哪。
+// 探测口径在 工具\通道发送.mjs（照抄 外壳\社交.js 的 channelStates），壳这里只做读写与转发。
+const CH_PRIO_FILE = path.join(SHELL_DATA_DIR, '通道优先级.json');
+const CH_LAST_FILE = path.join(SHELL_DATA_DIR, '通道外发-最近.json');
+const CH_TOOL_PATH = path.join(__dirname, '..', '工具', '通道发送.mjs');
+const CH_KEYS = ['wechat', 'qq', 'feishu', 'other'];
+const CH_DEFAULTS = {
+  order: ['wechat', 'qq', 'feishu', 'other'],
+  enabled: true,
+  wechat: { chatId: 'filehelper', name: '文件传输助手' },
+  qq: {},
+  feishu: { enabled: false, note: 'dsh-im 未装；装了把凭据绑在 设置 → IM机器人' },
+  other: { kind: 'bili-dm' }
+};
+function chPrioReadFile() {
+  const c = readJsonSafe(CH_PRIO_FILE, null) || {};
+  const order = Array.isArray(c.order) && c.order.length ? c.order.filter((k) => CH_KEYS.includes(k)) : CH_DEFAULTS.order.slice();
+  for (const k of CH_DEFAULTS.order) if (!order.includes(k)) order.push(k);   // 漏写的补齐，不许丢通道
+  return Object.assign({}, CH_DEFAULTS, c, { order, enabled: c.enabled !== false });
+}
+ipcMain.handle('channel:priority:get', () => ({ ok: true, config: chPrioReadFile(), last: readJsonSafe(CH_LAST_FILE, null) || null, file: CH_PRIO_FILE }));
+ipcMain.handle('channel:priority:save', (e, payload) => {
+  const p = payload && typeof payload === 'object' ? payload : {};
+  try {
+    const cur = chPrioReadFile();
+    const order = Array.isArray(p.order) ? p.order.filter((k) => CH_KEYS.includes(k)) : cur.order;
+    for (const k of CH_KEYS) if (!order.includes(k)) order.push(k);
+    const next = Object.assign({}, cur, { order, enabled: p.enabled !== false });
+    fs.mkdirSync(path.dirname(CH_PRIO_FILE), { recursive: true });
+    fs.writeFileSync(CH_PRIO_FILE, JSON.stringify(next, null, 2) + '\n', 'utf8');
+    return { ok: true, config: next };
+  } catch (e) {
+    return { ok: false, error: String((e && e.message) || e) };
+  }
+});
+ipcMain.handle('channel:probe', () => new Promise((resolve) => {
+  if (!fs.existsSync(CH_TOOL_PATH)) { resolve({ ok: false, error: '没有 工具\\通道发送.mjs' }); return; }
+  execFile(process.execPath, [CH_TOOL_PATH, '探测', '--json'], { cwd: __dirname, env: scriptEnv(), timeout: 30000, windowsHide: true, maxBuffer: 4 * 1024 * 1024 }, (err, stdout, stderr) => {
+    if (err) { resolve({ ok: false, error: String((stderr || (err && err.message) || '').trim().slice(0, 200) || '探测失败') }); return; }
+    try { resolve(Object.assign({ ok: true }, JSON.parse(stdout))); }
+    catch (e) { resolve({ ok: false, error: '探测输出不是 JSON' }); }
+  });
+}));
+
+// ---- 场景设置目录（2026-11-25）----
+// 每个场景的常驻「设置」卡都走这三个口：列项 / 读一项 / 写白名单字段。
+// 表在 外壳\场景配置.js（真源路径、字段类型、danger 等级），凭证类字段不进表。
+const sceneCfgSvc = require('./场景配置.js')({ dataDir: SHELL_DATA_DIR, dshHome: DSH_HOME, reviewDir: REVIEW_DIR });
+ipcMain.handle('scene:cfg:list', (e, sceneId) => {
+  try { return { ok: true, scenes: sceneCfgSvc.scenes(), items: sceneCfgSvc.list(String(sceneId || '')) }; }
+  catch (err) { warnOnce('scene-cfg-list', err); return { ok: false, error: String((err && err.message) || err) }; }
+});
+ipcMain.handle('scene:cfg:read', (e, sceneId, key) => {
+  try { return sceneCfgSvc.read(String(sceneId || ''), String(key || '')); }
+  catch (err) { warnOnce('scene-cfg-read', err); return { ok: false, error: String((err && err.message) || err) }; }
+});
+ipcMain.handle('scene:cfg:save', (e, sceneId, key, patch) => {
+  try {
+    const r = sceneCfgSvc.save(String(sceneId || ''), String(key || ''), patch);
+    if (!r || !r.ok) warnOnce('scene-cfg-save', new Error((r && r.error) || '保存失败'));
+    return r;
+  } catch (err) { warnOnce('scene-cfg-save', err); return { ok: false, error: String((err && err.message) || err) }; }
+});
+
+// ---- 场景能力目录（2026-11-25）----
+// 概念：场景 = 能力容器。这里只把「能接什么任务 / 有哪些面板 / 哪些按钮 / 哪些命令」现算出来，
+// 面板「能力」弹窗与 工具\场景能力.mjs 查走同一份算法（外壳\场景能力.js），不另存手写清单。
+const sceneAbilSvc = require('./场景能力.js')({ dataDir: SHELL_DATA_DIR, dshHome: DSH_HOME, reviewDir: REVIEW_DIR, sceneCfg: sceneCfgSvc });
+ipcMain.handle('scene:abil:list', (e, sceneId) => {
+  try {
+    const s = sceneAbilSvc.list(String(sceneId || ''));
+    if (!s) return { ok: false, error: '没有这个场景：' + sceneId };
+    return { ok: true, scene: s };
+  } catch (err) { warnOnce('scene-abil-list', err); return { ok: false, error: String((err && err.message) || err) }; }
+});
+ipcMain.handle('scene:abil:all', () => {
+  try { return { ok: true, scenes: sceneAbilSvc.all() }; }
+  catch (err) { warnOnce('scene-abil-all', err); return { ok: false, error: String((err && err.message) || err) }; }
+});
+ipcMain.handle('scene:abil:find', (e, text) => {
+  try {
+    const r = sceneAbilSvc.find(String(text || ''));
+    if (!r) return { ok: false, error: '没有场景认领这句话' };
+    return { ok: true, id: r.scene.id, name: r.scene.name, session: r.scene.session, matched: r.matched };
+  } catch (err) { warnOnce('scene-abil-find', err); return { ok: false, error: String((err && err.message) || err) }; }
+});
+
 // ---- OA 运维场景：数据读写（D 盘 data/oa.db，与股票完全隔离）----
+
 // 服务器状态 / 操作日志 / 文件 / 网页站点 / 一键操作 / 终端 / 配置 / SSH
 let oaStatusCache = { ts: 0, data: null };
 let oaStatusError = null;
@@ -5780,6 +6651,31 @@ ipcMain.handle('feature:config:get', () => featureDesk.configGet());
 ipcMain.handle('feature:config:set', (e, patch) => featureDesk.configSet(patch));
 ipcMain.handle('feature:kill', (e, id, actionId) => featureDesk.kill(id, actionId));
 
+// ---- 记忆注入台账（2026-11-25）：每个会话面板注入没注入 / 此刻会注入哪些段（只读）----
+// 场景「记忆」的「注入台账」抽屉读这条；台账与 dry-run 预览都走 工具\记忆注入台账.mjs，
+// 界面不自己拼文本 —— 拼装真源在 插件\记忆回响\index.js 的 build，改口径只改那一处。
+// 只接受场景名 / 面板 id / 关键词三个短字符串（去掉换行、截长），其余参数写死。
+const MEM_INJECT_TOOL = path.join(__dirname, '..', '工具', '记忆注入台账.mjs');
+ipcMain.handle('mem-inject:get', (e, opt) => {
+  const o = (opt && typeof opt === 'object') ? opt : {};
+  const arg = (v, n) => String(v == null ? '' : v).replace(/[\r\n]/g, ' ').trim().slice(0, n);
+  let args = ['台账', '--json'];
+  if (o.preview && o.preview.scene) {
+    args = ['预览', '--场景', arg(o.preview.scene, 80), '--json'];
+    if (o.preview.panel) args.push('--面板', arg(o.preview.panel, 60));
+    if (o.preview.query) args.push('--词', arg(o.preview.query, 200));
+  }
+  const r = runToolSync(MEM_INJECT_TOOL, args, 20000);
+  if (!r.ok) return { ok: false, err: r.err };
+  let data = null;
+  try { data = JSON.parse(r.out); }
+  catch (ex) {
+    const tail = String(r.err || r.out || '').split(/\r?\n/).filter(Boolean).slice(-3).join(' / ');
+    return { ok: false, err: '台账脚本输出不是 JSON' + (tail ? '：' + tail : '（退出码 ' + r.code + '）') };
+  }
+  return data;
+});
+
 // ---- 面板「换会话」按钮（2026-11-12）----
 // 一次跑完：写交接（默认从 transcript 摘录，秒级）→ 建新会话 → 场景 json 三字段 + 定位卡 + 身份索引改绑
 //   → 旧会话真归档 → 写 reload-panels.cmd 让面板重载。
@@ -6337,34 +7233,41 @@ if (!gotLock) {
     try {
       outGateService.start().catch(function (e) { log('[gate] 随壳启动失败: ' + ((e && e.message) || e)); });
     } catch (err) { log('[gate] 随壳启动异常: ' + ((err && err.message) || err)); }
-    // QQ 个人号桥接（SnowLuma）：跟着工作台一起起，别让用户再单独开一只。
-    // 起不来不阻塞主流程 —— 原因写日志，面板按钮上也能看到（不许静默）。
-    try {
-      bridgeService.autoStart().catch(function (e) { log('[bridge] 随壳启动失败: ' + ((e && e.message) || e)); });
-    } catch (err) { log('[bridge] 随壳启动异常: ' + ((err && err.message) || err)); }
-    // 微信个人号通道（whale_girl）：默认 autoStart=false（先在鲸鲸里登录小号，再点卡片「启动」）。
-    // 这里先写一份状态文件，社交卡片一打开就能看到「未启动 / 缺哪一步」，不用等用户点。
-    try {
-      wechatService.autoStart().catch(function (e) { log('[wechat] 随壳启动失败: ' + ((e && e.message) || e)); });
-      wechatService.status().catch(function (e) { log('[wechat] 初始状态失败: ' + ((e && e.message) || e)); });
-    } catch (err) { log('[wechat] 随壳启动异常: ' + ((err && err.message) || err)); }
-    // 聊天长期档案：跟着工作台起。它只读 SnowLuma 的 messages.db，不需要等引擎 token；
-    // 先给桥接 8 秒把 SnowLuma 拉起来，再开始首轮回填；失败不阻塞主流程，状态里能看见。
-    setTimeout(function () {
+    // 社交通道错峰（2026-11-24）：SnowLuma 内核 / 微信内核 / 档案回填 / QQ 群旁听都要拉子进程或扫库，
+    //   与引擎同时起会抢同一块盘（引擎启动要读 544 个包、几万文件，实测被拖慢一倍）。
+    //   统一等 startServer() 落定后再起；引擎起不来也照常起 —— 社交不跟着陪葬。
+    let socialChannelsStarted = false;
+    // 1. 桥接与微信：先起，后面档案/群旁听要等它们把内核拉起来
+    // 2. 8 秒后再起档案回填与 QQ 群旁听（原来就是这个节奏，保持不变）
+    // 3. 起不来只写日志，不阻塞主流程（面板按钮上照样能看状态）
+    function startSocialChannels() {
+      if (socialChannelsStarted) return;
+      socialChannelsStarted = true;
       try {
-        chatArchiveService.start();
-        log('[archive] 随壳启动（只读 SnowLuma messages.db → 本地档案库）');
-      } catch (e) {
-        log('[archive] 随壳启动失败: ' + ((e && e.message) || e));
-      }
-      // QQ 群旁听也等桥接把 SnowLuma 拉起来；没有绑定群时只保持 WS，不接话。
+        bridgeService.autoStart().catch(function (e) { log('[bridge] 随壳启动失败: ' + ((e && e.message) || e)); });
+      } catch (err) { log('[bridge] 随壳启动异常: ' + ((err && err.message) || err)); }
+      // 微信个人号通道（whale_girl）：默认 autoStart=false（先在鲸鲸里登录小号，再点卡片「启动」）。
+      // 这里先写一份状态文件，社交卡片一打开就能看到「未启动 / 缺哪一步」，不用等用户点。
       try {
-        const gr = qqGroupService.start();
-        log('[qq-group] 随壳启动旁听：' + JSON.stringify(gr && (gr.skipped || gr.error || { started: gr.started, connected: gr.connected }) || {}));
-      } catch (e) {
-        log('[qq-group] 随壳启动失败: ' + ((e && e.message) || e));
-      }
-    }, 8000);
+        wechatService.autoStart().catch(function (e) { log('[wechat] 随壳启动失败: ' + ((e && e.message) || e)); });
+        wechatService.status().catch(function (e) { log('[wechat] 初始状态失败: ' + ((e && e.message) || e)); });
+      } catch (err) { log('[wechat] 随壳启动异常: ' + ((err && err.message) || err)); }
+      setTimeout(function () {
+        try {
+          chatArchiveService.start();
+          log('[archive] 随壳启动（只读 SnowLuma messages.db → 本地档案库）');
+        } catch (e) {
+          log('[archive] 随壳启动失败: ' + ((e && e.message) || e));
+        }
+        // QQ 群旁听也等桥接把 SnowLuma 拉起来；没有绑定群时只保持 WS，不接话。
+        try {
+          const gr = qqGroupService.start();
+          log('[qq-group] 随壳启动旁听：' + JSON.stringify(gr && (gr.skipped || gr.error || { started: gr.started, connected: gr.connected }) || {}));
+        } catch (e) {
+          log('[qq-group] 随壳启动失败: ' + ((e && e.message) || e));
+        }
+      }, 8000);
+    }
     let ok = false;
     // 2026-11-14：起引擎之前先收拾"孤儿 staging"（不动 state 指向的那份），失败不影响启动
     try { cleanOrphanStaging(); } catch (e) { warnOnce("auto-staging", e); }
@@ -6374,6 +7277,8 @@ if (!gotLock) {
       reportFatal('启动 Harness 引擎失败', err);
       ok = false;
     }
+    // 引擎落定（成功或失败）后再起社交通道：错峰，避免和引擎抢磁盘
+    startSocialChannels();
     if (!ok) {
       // 不再弹框退出：保留窗口，由首屏加载页显示失败态与「重试」（进度条不会空白）
       log('startServer failed — 保留窗口，等待用户重试');
@@ -6382,10 +7287,44 @@ if (!gotLock) {
     log('[boot] 引擎就绪总耗时 ' + ((Date.now() - APP_T0) / 1000).toFixed(1) + 's');
     // 引擎起来后再挂桌面身体桥：dsh-pet 路由依赖 DSH web 端口，早挂只会多几行未就绪日志
     try { startPetBodyBridge(); } catch (e) { warnOnce('pet-body-start', e); }
-    // 2026-11-14：后台巡检（60s 后跑，每天最多一次；只在有失败时弹通知）
+    // 2026-11-14：后台巡检（60s 后起，每 30 分钟查一次是否到期；只在有失败时弹通知）
     try { scheduleAutoInspection(); } catch (e) { warnOnce("auto-inspect", e); }
-    // 2026-11-14：记忆整理（90s 后跑，每周最多一次；整理前后都留痕）
+    // 2026-11-14：记忆整理（90s 后起，每 1 小时查一次是否到期；整理前后都留痕）
     try { scheduleAutoMemoryTidy(); } catch (e) { warnOnce("auto-tidy", e); }
+    // 2026-11-25：记忆自主链（面板对话 10 分钟一抓 / 通道往来 30 分钟一抓）
+    try { scheduleAutoCapture(); } catch (e) { warnOnce("auto-capture", e); }
+    try { scheduleAutoChannelMemory(); } catch (e) { warnOnce("auto-channel-mem", e); }
+    // 2026-11-25：每晚日记（23:00 后让她自己写，默认只给自己看）
+    try { scheduleAutoDiary(); } catch (e) { warnOnce("auto-diary", e); }
+    // 2026-11-25：每周存档与周记（周日 23:30 后让她自己写）
+    try { scheduleAutoWeekly(); } catch (e) { warnOnce("auto-weekly", e); }
+    // 2026-11-25：生物钟主动开口（白天攒够劲儿就让她自己冒一句）
+    try { scheduleAutoSpeak(); } catch (e) { warnOnce("auto-speak", e); }
+    // 2026-11-25：生活场景自己刷内容（每天最多 2 次，克制不刷屏）
+    try { scheduleAutoBrowse(); } catch (e) { warnOnce("auto-browse", e); }
+    // 2026-11-25：B站小号 cookie 同步（用户在生活场景网页登录后自动落盘，供 刷内容/B站操作 用）
+    try { syncBiliAccount('启动'); scheduleBiliSync(); } catch (e) { warnOnce("bili-sync", e); }
+    // 2026-11-25：会话标题自愈（场景改过名之后，引擎侧标题会跟面板写的对不上）
+    try { healSessionTitles(); } catch (e) { warnOnce("title-heal", e); }
+    // 2026-11-24：系统从休眠恢复时补查一次定时任务；关机重启由启动后的 30s tick 自动补，不靠人手动跑
+    try {
+      powerMonitor.on('resume', function () {
+        log('[timer] 系统唤醒，补查定时任务');
+        try { timerTick(); } catch (e) { warnOnce('timer-resume', e); }
+        // 巡检 / 记忆整理也要补判：休眠时 setTimeout 可能被冻住，不能等下一整轮
+        try { if (autoInspectKick) autoInspectKick(); } catch (e) { log('[auto] 唤醒补查巡检失败：' + ((e && e.message) || e)); }
+        try { if (autoTidyKick) autoTidyKick(); } catch (e) { log('[auto] 唤醒补查记忆整理失败：' + ((e && e.message) || e)); }
+        try { if (autoCaptureKick) autoCaptureKick(); } catch (e) { log('[auto] 唤醒补查面板记忆失败：' + ((e && e.message) || e)); }
+        try { if (autoChannelMemKick) autoChannelMemKick(); } catch (e) { log('[auto] 唤醒补查通道记忆失败：' + ((e && e.message) || e)); }
+        try { if (autoDiaryKick) autoDiaryKick(); } catch (e) { log('[auto] 唤醒补查日记失败：' + ((e && e.message) || e)); }
+        try { if (autoWeeklyKick) autoWeeklyKick(); } catch (e) { log('[auto] 唤醒补查周记失败：' + ((e && e.message) || e)); }
+        try { if (autoSpeakKick) autoSpeakKick(); } catch (e) { log('[auto] 唤醒补查开口失败：' + ((e && e.message) || e)); }
+        try { if (autoBrowseKick) autoBrowseKick(); } catch (e) { log('[auto] 唤醒补查刷内容失败：' + ((e && e.message) || e)); }
+        // 引擎版本检查也补一次；24 小时节流在 updateAutoCheck 内部，不会因为唤醒就反复联网
+        try { log('[update] 系统唤醒，补查引擎版本'); updateAutoCheck(false).catch(function (e) { log('[update] 唤醒补查失败：' + ((e && e.message) || e)); }); }
+        catch (e) { log('[update] 唤醒补查异常：' + ((e && e.message) || e)); }
+      });
+    } catch (e) { warnOnce('timer-resume', e); }
     // 判据留痕：这一行说明「端口先通、token 后到」，渲染层会等它（见 harness:ready 的 3s 有界等待）
     if (!engineIsForeign && !harnessToken) log('[boot] token 行尚未到达（端口先通）⇒ 渲染层会等待并重试');
     // 通知渲染层：Harness 已就绪（所有窗口的 webview 都可以加载了）
@@ -7098,7 +8037,12 @@ ipcMain.handle('kun:git:pull', async (_e, repo, opts) => {
   // 5) 没冲突（或用户明确要「合入后解决」）：直接合；分叉默认 merge，不再弹合并/变基
   //    本地已跟踪的脏改动用 --autostash：Git 自己暂存 → 合并 → 自动恢复；恢复撞车会留冲突 + autostash，
   //    由下面的 code=local-conflict 交给面板逐个文件解决（不丢本地改动）。
-  const useAuto = mode === 'merge' && dirtyHit.length > 0;
+  //    5.1 暂存区不干净也要 autostash（2026-11-23 宿主实测 mlw）：Git 2.45 分叉合并会拿**索引**当旧树比较，
+  //        只要索引里有暂存改动（新增/修改都算），哪怕远端根本没碰这些文件，也直接拒单
+  //        「error: Your local changes ... would be overwritten by merge. Merge with strategy ort failed.」；
+  //        未暂存的改动不受影响。所以 ahead>0（真要建合并提交）时，一律带 --autostash 绕开这条。
+  const stagedChanges = st.some((r) => r.code[0] !== ' ' && r.code[0] !== '?');
+  const useAuto = mode === 'merge' && (dirtyHit.length > 0 || (ahead > 0 && stagedChanges));
   const autoArg = useAuto ? ['--autostash'] : [];
   const args = mode === 'rebase' ? ['rebase', upstream]
     : (ahead ? ['merge', ...autoArg, '--no-edit', upstream] : ['merge', ...autoArg, '--ff-only', upstream]);

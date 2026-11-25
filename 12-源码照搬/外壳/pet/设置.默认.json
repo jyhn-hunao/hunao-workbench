@@ -45,11 +45,12 @@
     {
       "keywords": [
         "B站",
+        "生活",
         "视频",
         "弹幕",
         "up主"
       ],
-      "to": "B站",
+      "to": "生活",
       "level": "read"
     },
     {
@@ -118,6 +119,10 @@
     "from": "23:30",
     "to": "08:00",
     "proactiveMaxPerHour": 2
+  },
+  "speak": {
+    "delivery": "channel",
+    "sessionTitle": "胡闹的大肥鱼 · 开口"
   },
   "log": {
     "dispatchLog": "场景记忆\\胡闹的大肥鱼\\派发日志.md"

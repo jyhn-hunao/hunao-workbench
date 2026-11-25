@@ -1212,29 +1212,274 @@ function nextPaint() {
   });
 }
 
+// ---------- 抽屉面板（2026-11-24）----------
+// 场景 json 里带 "drawer": "left|right|modal|swap" 的面板**不走常驻网格排布**：
+//   left/right = 侧抽屉；modal = 居中弹窗（带遮罩，点遮罩空白 / ✕ / Esc 关闭）；
+//   swap = 占住 `swap` 指定面板的网格位（打开时把原面板藏起来，关掉还原；不浮层，见 code-dev 右侧功能条）。
+//   为什么：程序开发右侧只留「AI·项目」常驻；「AI多项目管理」是低频的跨项目入口，按需打开、Esc 关，
+//   不跟预览 / 对话抢宽度（宿主 2026-11-24 原话：「不作为常驻面板，作为可打开可收起的面板」）。
+// 入口：`drawerLauncher` 指定面板标题栏上的文字按钮（找不到就退到场景右上角一颗胶囊，不做黑盒）；
+// 关闭：再点入口 / 抽屉自己的 ✕ / Esc。
+// 内容：首次打开才渲染（AI webview 不预热）；关掉只隐藏不销毁，场景重建时随 stage.cleanups 回收。
+function mountDrawerPanels(stage, items) {
+  if (!items || !items.length) return;
+  const renderers = kRender();
+  const states = [];
+  const openStack = [];   // 打开顺序（后开的压在上面；Esc 只收最上层）
+
+  function paint(s) {
+    s.wrap.classList.toggle('is-open', s.open);
+    if (s.layer) s.layer.classList.toggle('is-open', s.open);
+    // swap 模式：不浮在场景上，而是占住原面板的网格位；打开时把原面板藏起来，关掉再还原。
+    if (s.base) s.base.style.display = s.open ? 'none' : '';
+    if (!s.btn) return;
+    s.btn.classList.toggle('is-on', s.open);
+    s.btn.setAttribute('aria-expanded', s.open ? 'true' : 'false');
+    s.btn.title = (s.open ? '收起' : '打开') + '「' + (s.meta.title || s.meta.id) + '」'
+      + (s.meta.sub ? '：' + s.meta.sub : '')
+      + (s.meta.shortcut ? '（' + s.meta.shortcut + '）' : '');
+  }
+  // 抽屉打开后把光标放进指定控件（搜索框 / 输入框）；没找到就什么都不做
+  function focusIn(s) {
+    try {
+      const f = s.wrap.querySelector('[data-drawer-autofocus]');
+      if (f && typeof f.focus === 'function') f.focus();
+    } catch (e) { wbWarn(e); }
+  }
+  // 快捷键解析：只支持 Ctrl/Cmd + Shift + Alt + 单键 这种简单组合，够用即可
+  function shortcutHit(e, spec) {
+    const parts = String(spec || '').toLowerCase().split('+').map(function (x) { return x.trim(); }).filter(Boolean);
+    if (!parts.length) return false;
+    const key = parts[parts.length - 1];
+    const wantCtrl = parts.indexOf('ctrl') >= 0 || parts.indexOf('cmd') >= 0 || parts.indexOf('meta') >= 0;
+    const wantShift = parts.indexOf('shift') >= 0;
+    const wantAlt = parts.indexOf('alt') >= 0;
+    const hasCtrl = !!(e.ctrlKey || e.metaKey);
+    return hasCtrl === wantCtrl && !!e.shiftKey === wantShift && !!e.altKey === wantAlt
+      && String(e.key || '').toLowerCase() === key;
+  }
+  function renderNow(s) {
+    if (s.rendered) return;
+    s.rendered = true;
+    const m = s.meta;
+    const fn = renderers[m.type];
+    if (!fn) s.frame.body.appendChild(mkEl('div', 'stat-sub', '未知面板类型: ' + m.type));
+    else {
+      try {
+        const cleanup = fn(s.frame.body, m, s.frame.head);
+        if (typeof cleanup === 'function') stage.cleanups.push(cleanup);
+      } catch (err) {
+        s.frame.body.appendChild(mkEl('div', 'stat-sub', '面板渲染失败: ' + err.message));
+      }
+    }
+    // 收起按钮等渲染器把自己的按钮挂完再放，免得被挤到中间
+    const close = mkEl('button', 'panel-drawer-close', '✕');
+    close.title = s.meta.drawer === 'modal' ? '关闭（Esc 也行）' : '收起（Esc 也行）';
+    close.addEventListener('click', function (ev) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      setOpen(m.id, false);
+    });
+    (function () {
+      const U = window.APP_RENDER_UTILS;
+      if (U && U.wireHeadNoDrag) U.wireHeadNoDrag(close);
+    })();
+    (s.frame.head.querySelector('.file-head-acts') || s.frame.head).appendChild(close);
+    if (s.open) focusIn(s);
+  }
+  function setOpen(id, on) {
+    const s = states.filter(function (x) { return x.meta.id === id; })[0];
+    if (!s) return;
+    on = !!on;
+    if (on) {
+      // 一次只开一个抽屉 / 弹窗：同时开两块会把预览区盖成两层
+      states.forEach(function (x) {
+        if (x === s) return;
+        if (x.open) { x.open = false; paint(x); }
+        const i = openStack.indexOf(x);
+        if (i >= 0) openStack.splice(i, 1);   // 被自动关掉的也要从栈里摘掉，否则 Esc 会去关一个已经关着的面板
+      });
+    }
+    s.open = on;
+    const at = openStack.indexOf(s);
+    if (at >= 0) openStack.splice(at, 1);
+    if (on) openStack.push(s);
+    paint(s);
+    try {
+      document.dispatchEvent(new CustomEvent('kun-drawer-change', {
+        detail: { id: s.meta.id, open: s.open, swap: s.meta.drawer === 'swap' }
+      }));
+    } catch (e) { wbWarn(e); }
+    // 先把抽屉显示出来（webview 要量到真实尺寸），下一帧再挂内容
+    if (on && !s.rendered) requestAnimationFrame(function () { if (s.open) renderNow(s); });
+    if (on) {
+      // 通知抽屉内容：项目可能换了 / 搜索框要重新聚焦；内容还没渲染时由 renderNow 兜底
+      try { s.wrap.dispatchEvent(new CustomEvent('drawer-open', { detail: { id: s.meta.id } })); } catch (e) { wbWarn(e); }
+      setTimeout(function () { if (s.open) focusIn(s); }, 40);
+    }
+  }
+
+  items.forEach(function (it) {
+    const m = it.meta;
+    const wrap = it.frame.wrap;
+    const modal = m.drawer === 'modal';
+    const swap = m.drawer === 'swap';
+    wrap.id = 'drawer-' + (m.id || states.length);
+    wrap.classList.add('panel-drawer');
+    wrap.dataset.drawerSide = modal ? 'modal' : (m.drawer === 'left' ? 'left' : (swap ? 'swap' : 'right'));
+    // swap 抽屉占原面板的网格位，不是浮层；普通抽屉 / 弹窗清掉网格坐标。
+    if (swap) {
+      wrap.style.gridColumn = (m.col || 1) + ' / span ' + (m.w || 1);
+      wrap.style.gridRow = (m.row || 1) + ' / span ' + (m.h || 1);
+    } else {
+      wrap.style.gridColumn = '';
+      wrap.style.gridRow = '';
+    }
+    if (modal) {
+      wrap.setAttribute('role', 'dialog');
+      wrap.setAttribute('aria-modal', 'true');
+      wrap.setAttribute('aria-label', m.title || '弹窗');
+    }
+    if (Number(m.width) > 0 && !swap) wrap.style.setProperty('--drawer-w', Math.round(Number(m.width)) + 'px');
+    // 弹窗：单独一层遮罩（只在本场景范围内），点遮罩空白处关闭；侧抽屉仍直接贴在场景上
+    let layer = null;
+    if (modal) {
+      layer = mkEl('div', 'panel-drawer-layer');
+      stage.el.appendChild(layer);
+      layer.appendChild(wrap);
+    } else if (swap) {
+      stage.grid.appendChild(wrap);
+    } else {
+      stage.el.appendChild(wrap);
+    }
+    // swap 的原面板：打开抽屉时藏起来，避免和 AI·项目叠在同一格
+    let base = null;
+    if (swap && m.swap) {
+      try {
+        base = stage.grid.querySelector('.panel[data-panel-id="' + String(m.swap).replace(/"/g, '\\"') + '"]');
+      } catch (e) { wbWarn(e); base = null; }
+    }
+    const s = { meta: m, frame: it.frame, wrap: wrap, layer: layer, base: base, open: false, rendered: false, btn: null };
+    states.push(s);
+    if (layer) {
+      layer.addEventListener('click', function (ev) {
+        if (ev.target === layer) { ev.preventDefault(); setOpen(m.id, false); }
+      });
+    }
+
+    // 入口按钮：优先挂到 drawerLauncher 指定面板的标题栏，并排在最左（按钮组里好找）。
+    // "none" = 由抽屉的使用方在自己的内容区放入口（例如文件面板里的常驻搜索条），
+    // 这时不要退到右上角胶囊，免得同一个功能出现两个入口。
+    if (m.drawerLauncher !== 'none') {
+      const btn = mkEl('button', 'file-refresh panel-drawer-btn', '▤ ' + (m.launcherLabel || m.title || '面板'));
+      btn.setAttribute('aria-controls', wrap.id);
+      btn.addEventListener('click', function (ev) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        setOpen(m.id, !s.open);
+      });
+      (function () {
+        const U = window.APP_RENDER_UTILS;
+        if (U && U.wireHeadNoDrag) U.wireHeadNoDrag(btn);
+      })();
+      s.btn = btn;
+      let hostHead = null;
+      if (m.drawerLauncher) {
+        try {
+          const host = stage.grid.querySelector('.panel[data-panel-id="' + String(m.drawerLauncher).replace(/"/g, '\\"') + '"]');
+          hostHead = host ? host.querySelector('.panel-head') : null;
+        } catch (e) { wbWarn(e); hostHead = null; }
+      }
+      if (hostHead) {
+        const acts = hostHead.querySelector('.file-head-acts');
+        if (acts) acts.insertBefore(btn, acts.firstChild); else hostHead.appendChild(btn);
+      } else {
+        if (!stage.drawerChip) {
+          stage.drawerChip = mkEl('div', 'panel-drawer-chip');
+          stage.el.appendChild(stage.drawerChip);
+        }
+        stage.drawerChip.appendChild(btn);
+      }
+    }
+
+    // 给同场景的其它面板一个程序化入口（文件面板的「全局搜索」搜索条走这里）。
+    // 面板重建时按对象身份删，避免旧 stage 的 cleanups 把新一份注册项删掉。
+    const drawerApi = {
+      open: function () { setOpen(m.id, true); },
+      close: function () { setOpen(m.id, false); },
+      toggle: function () { setOpen(m.id, !s.open); },
+      isOpen: function () { return !!s.open; },
+      swap: m.drawer === 'swap'   // 功能条据此判断“打开时会不会占掉常驻面板”，避免普通抽屉把常驻按钮也判成非激活
+    };
+    window.__kunDrawers = window.__kunDrawers || {};
+    window.__kunDrawers[m.id] = drawerApi;
+    stage.cleanups.push(function () {
+      try {
+        if (window.__kunDrawers && window.__kunDrawers[m.id] === drawerApi) delete window.__kunDrawers[m.id];
+      } catch (e) { wbWarn(e); }
+    });
+    paint(s);
+  });
+
+  // Esc 收起最上层那个；Ctrl+Shift+F 之类的抽屉快捷键（只在本场景 active 时响应）
+  const onKey = function (e) {
+    // 只有当前场景能收 Esc / 快捷键：旧场景的监听还挂在 document 上，
+    // 不判 active 会出现「按 Esc 关掉的是别的场景里藏着的抽屉」。
+    try { if (!stage.el.classList.contains('active')) return; } catch (err) { return; }
+    if (e.key === 'Escape' && openStack.length) {
+      const top = openStack[openStack.length - 1];
+      e.stopImmediatePropagation();
+      setOpen(top.meta.id, false);
+      return;
+    }
+    if (e.repeat) return;
+    for (let i = 0; i < states.length; i++) {
+      const st = states[i];
+      if (!st.meta.shortcut || !shortcutHit(e, st.meta.shortcut)) continue;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      // 快捷键只负责「打开」：再按一次保持打开并重新聚焦输入框，不当成开关；
+      // 要收起走 Esc / 抽屉 ✕（避免在输入框里按 Ctrl+Shift+F 想继续搜却被关掉）。
+      setOpen(st.meta.id, true);
+      return;
+    }
+  };
+  document.addEventListener('keydown', onKey, true);
+  stage.cleanups.push(function () { document.removeEventListener('keydown', onKey, true); });
+}
+
 // 骨架先上屏 + 内容分帧挂载：比一次性建满少一次长任务，切场景不至于整窗"定住"
 async function mountPanels(sc, stage) {
   const renderers = kRender();
   const panels = (sc && sc.panels) || [];
   const frames = [];
+  const drawers = [];   // 不占网格的抽屉面板（见下面 mountDrawerPanels）
   // 1. 先建框（标题栏 / 徽标 / 展开按钮）：这一屏几乎瞬时出来
   for (let i = 0; i < panels.length; i++) {
     const p = panels[i];
     p.scenario = sc.id;   // 场景隔离：面板知道自己属于哪个场景（数据按场景分区）
     const f = mkPanel(p, i);
     frames.push(f);
+    // 抽屉面板：不放进网格、也不占格子；序号徽标去掉（它不是"第几块常驻面板"）
+    if (p.drawer) {
+      const badge = f.head.querySelector('.panel-badge');
+      if (badge) badge.remove();
+      drawers.push({ meta: p, frame: f });
+      continue;
+    }
     stage.grid.appendChild(f.wrap);
   }
   applyBadges();
   // 2. 再逐块挂内容：每块一帧，挂完一块先让界面喘口气
   for (let i = 0; i < panels.length; i++) {
     if (!stage.alive) return;
+    const p = panels[i];
+    if (p.drawer) continue;   // 抽屉内容首次打开才挂（AI webview 不预热）
     if (i > 0) {
       if (stage.id === currentTab) setStatus('正在加载场景 ' + sc.name + '（' + (i + 1) + '/' + panels.length + '）', true);
       await nextPaint();
       if (!stage.alive) return;
     }
-    const p = panels[i];
     const f = frames[i];
     const fn = renderers[p.type];
     if (!fn) { f.body.appendChild(mkEl('div', 'stat-sub', '未知面板类型: ' + p.type)); continue; }
@@ -1245,7 +1490,9 @@ async function mountPanels(sc, stage) {
       f.body.appendChild(mkEl('div', 'stat-sub', '面板渲染失败: ' + err.message));
     }
   }
-  // 3. 纯自动流场景（json 里一个 col/row 都没写，如 oa-ops）：渲染完自己排格 + 拉伸补洞 ——
+  // 3. 抽屉面板装配（入口按钮 + 开合状态）；内容仍然等第一次打开才渲染
+  try { mountDrawerPanels(stage, drawers); } catch (err) { bootFail('抽屉面板', err); }
+  // 4. 纯自动流场景（json 里一个 col/row 都没写，如 oa-ops）：渲染完自己排格 + 拉伸补洞 ——
   //    否则"这块放不下就往下挪"会在半路留出一大块空洞，还把网格行数撑多、把所有面板一起压扁（2026-09-26 用户截图）。
   try { if (kUtils().packAutoGrid) kUtils().packAutoGrid(stage.grid); } catch (e) { wbWarn(e) }
 }
@@ -1522,7 +1769,7 @@ async function init() {
   // 记忆（memory，2026-10-26）：迷你神经元网（6 蓝节点 + 1 琥珀核心 + 连线）—— 与 renderers.js 的 SCENARIO_ICONS['memory'] 同一份。
   const NEURON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3.7 4.5 8 2.9l4.4 1.7M3 8.4l.7-3.9M8 2.9l.4 5.2M12.4 4.6 8.4 8.1M8.4 8.1l3.8 3.4M8.4 8.1l-3.8 4.1M3 8.4l5.4-.3" stroke="#8fb4ff" stroke-width=".85" stroke-linecap="round" opacity=".6"/><circle cx="3.7" cy="4.5" r="1.45" fill="#8fb4ff"/><circle cx="8" cy="2.9" r="1.15" fill="#8fb4ff" opacity=".85"/><circle cx="12.4" cy="4.6" r="1.25" fill="#8fb4ff"/><circle cx="3" cy="8.4" r="1.05" fill="#8fb4ff" opacity=".8"/><circle cx="8.4" cy="8.1" r="1.85" fill="#f0a35e"/><circle cx="12.2" cy="11.5" r="1.15" fill="#8fb4ff" opacity=".85"/><circle cx="4.6" cy="12.2" r="1.05" fill="#8fb4ff" opacity=".8"/></svg>';
   const ICONS = {
-    'bilibili': 'assets/bilibili-icon.png',   // 2026-10-19 宿主新建「B站」场景（官方 favicon.svg）
+    'life': 'assets/bilibili-icon.png',   // 2026-10-19 宿主新建「B站」场景（官方 favicon.svg）
     'harness': 'assets/deepseek-whale.png',
     'self-review': 'data:image/svg+xml;utf8,' + encodeURIComponent(REVIEW_SVG),  // 自我复盘（环形箭头 + 文档）
     'code-dev': 'data:image/svg+xml;utf8,' + encodeURIComponent(CODE_SVG),

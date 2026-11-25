@@ -9,6 +9,9 @@
   <meta http-equiv="Content-Security-Policy"
         content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data: file: http://127.0.0.1:31238; media-src 'self' data: blob: file:; frame-src 'self' file: http://127.0.0.1:3080 http://127.0.0.1:31238;">
   <title>DSH 引擎 · 胡闹的工作台</title>
+  <!-- CodeMirror 5（2026-11-25 接入）：预览面板代码编辑/着色的成熟引擎，替换自写的全量重渲染着色层。
+       顺序：codemirror.css 必须在 styles.css 之前，这样 styles.css 末尾的 .CodeMirror 主题覆盖才能生效。 -->
+  <link rel="stylesheet" href="vendor/codemirror/lib/codemirror.css" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -121,6 +124,29 @@
   <!-- 场景图标登记表（2026-11-13 · 单处权威）：必须在 renderers.js / renderer.js 之前加载，
        两层都用它取图标（图标本体在 renderer\assets\icons\，由 scripts\图标库.mjs 抓取） -->
   <script id="scene-icons-script" src="scene-icons.js"></script>
+  <!-- CodeMirror 5（2026-11-25）：核心 + 语言模式。⚠ 模式之间有依赖，加载顺序不能乱：
+       xml/css/javascript/clike 是基础，htmlmixed 依赖前三者，php 依赖 clike/xml/javascript/css/htmlmixed。 -->
+  <script src="vendor/codemirror/lib/codemirror.js"></script>
+  <script src="vendor/codemirror/mode/xml/xml.js"></script>
+  <script src="vendor/codemirror/mode/css/css.js"></script>
+  <script src="vendor/codemirror/mode/javascript/javascript.js"></script>
+  <script src="vendor/codemirror/mode/clike/clike.js"></script>
+  <script src="vendor/codemirror/mode/htmlmixed/htmlmixed.js"></script>
+  <script src="vendor/codemirror/mode/php/php.js"></script>
+  <script src="vendor/codemirror/mode/python/python.js"></script>
+  <script src="vendor/codemirror/mode/sql/sql.js"></script>
+  <script src="vendor/codemirror/mode/shell/shell.js"></script>
+  <script src="vendor/codemirror/mode/powershell/powershell.js"></script>
+  <script src="vendor/codemirror/mode/yaml/yaml.js"></script>
+  <script src="vendor/codemirror/mode/properties/properties.js"></script>
+  <script src="vendor/codemirror/mode/toml/toml.js"></script>
+  <script src="vendor/codemirror/mode/lua/lua.js"></script>
+  <script src="vendor/codemirror/mode/r/r.js"></script>
+  <script src="vendor/codemirror/mode/go/go.js"></script>
+  <script src="vendor/codemirror/mode/rust/rust.js"></script>
+  <script src="vendor/codemirror/mode/ruby/ruby.js"></script>
+  <script src="vendor/codemirror/mode/dockerfile/dockerfile.js"></script>
+  <script src="vendor/codemirror/mode/markdown/markdown.js"></script>
   <script id="renderers-script" src="renderers.js"></script>
   <script src="renderer.js"></script>
   <!-- 微信通道设置弹窗（2026-11-18）：入口在社交「通道」微信卡标题行，配置读写走 wechat:settings-* -->
@@ -129,6 +155,8 @@
   <script src="social-relation-settings.js"></script>
   <!-- QQ 回复设置弹窗（2026-11-19）：入口在社交「通道」QQ 卡标题行；群旁听/随机接话/语音/表情包/合成 -->
   <script src="qq-reply-settings.js"></script>
+  <!-- QQ 接入设置弹窗（2026-11-24）：入口在 QQ 卡标题行；默认接入 QQ 号 + 会话路由（不再铺在面板里） -->
+  <script src="qq-channel-settings.js"></script>
   <!-- 聊天档案弹窗（2026-11-19）：入口在社交「通道」标题行，查询走 archive:*；只读，不发消息 -->
   <script src="chat-archive.js"></script>
   <!-- 外发安全闸门设置弹窗（2026-11-18）：入口在社交「通道」面板标题行，配置读写走 outbound:* -->

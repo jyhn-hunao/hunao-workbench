@@ -40,7 +40,7 @@ function merge(a, b) {
 }
 
 // 2. 写：只接受认识的结构，原子落盘（先写 .tmp 再改名，避免写一半被面板读到半截 JSON）
-const ALLOWED = ['persona', 'body', 'tools', 'routes', 'approval', 'channels', 'memory', 'quiet', 'log'];
+const ALLOWED = ['persona', 'body', 'tools', 'routes', 'approval', 'channels', 'memory', 'quiet', 'speak', 'log'];
 function setSettings(patch) {
   const cur = getSettings();
   const clean = {};
@@ -56,21 +56,56 @@ function setSettings(patch) {
 
 // 3. 路由：一句话 → 场景会话
 //    打分口径：命中关键词个数多的优先；同分取 routes 里靠前的（配置顺序 = 人的偏好顺序）。
+//    routes 全没命中时，用 外壳\场景能力.js 的 KEYWORDS 兜底（与 派发.mjs --词 / 能力弹窗 同一套）
+//    —— 否则新场景、新词只写在能力表里，桌宠这边又会「认不出该派给谁」（2026-11-25 用户问到这点）。
 //    认不出就返回 null + 候选（⛔ 不按目录名猜，让调用方列候选问人）。
+let _abil = null;
+function abilSvc() {
+  if (_abil) return _abil;
+  try { _abil = require('./场景能力.js')({}); } catch (e) { _abil = null; }
+  return _abil;
+}
 function resolveRoute(text, settings) {
   const s = settings || getSettings();
   const t = String(text || '');
-  if (!t.trim()) return { hit: null, candidates: (s.routes || []).map((r) => r.to) };
+  const routes = s.routes || [];
+  const cand = routes.map((r) => String((r.to || r.scene || '')).trim()).filter((x) => x);
+  if (!t.trim()) return { hit: null, candidates: cand };
   let best = null;
-  for (const r of s.routes || []) {
+  for (const r of routes) {
     const kws = (r.keywords || []).filter((k) => k && t.includes(k));
     if (!kws.length) continue;
     if (!best || kws.length > best.n) best = { n: kws.length, route: r, matched: kws };
   }
-  return {
-    hit: best ? { to: best.route.to, level: best.route.level || 'confirm', matched: best.matched } : null,
-    candidates: (s.routes || []).map((r) => r.to)
-  };
+  if (best) {
+    const to = String(best.route.to || '').trim();
+    // to 留空 = 这活归 routes 里写的那个场景，但它没独立会话 ⇒ 不派，本会话做
+    if (!to) {
+      return {
+        hit: { to: '', level: 'self', matched: best.matched, from: 'routes', scene: best.route.scene || '本场景' },
+        candidates: cand
+      };
+    }
+    return {
+      hit: { to, level: best.route.level || 'confirm', matched: best.matched, from: 'routes' },
+      candidates: cand
+    };
+  }
+  try {
+    const svc = abilSvc();
+    const r = svc && svc.find(t);
+    if (r && r.scene) {
+      const sess = String(r.scene.session || '');
+      return {
+        // 没绑会话的场景（社交 / 工作台控制台）：这活归它，但不用派 —— 人格自己就能做
+        hit: sess
+          ? { to: sess, level: 'read', matched: r.matched, from: 'abil', scene: r.scene.name }
+          : { to: '', level: 'self', matched: r.matched, from: 'abil', scene: r.scene.name },
+        candidates: cand
+      };
+    }
+  } catch (e) { /* 能力模块不在：保持旧口径 */ }
+  return { hit: null, candidates: cand };
 }
 
 // 4. 派发日志：一行一次，落在人格场景记忆里（面板「最近派发」也从这里读）
@@ -238,14 +273,15 @@ function dispatchPolicy(text, rv, settings) {
 }
 
 // 7. 主动闸门：档位 + 免打扰 + 每小时上限（计数落盘，跨进程有效）
-//    为什么不在插件里改：主动钟在第三方插件内，改它等于改引擎依赖；这里给「能不能开口」的硬判据 + 次数账。
+//    quietOnly=true 只查免打扰：定时任务是用户显式配置的，不该被「少吭声」或主动次数上限挡住；
+//    但半夜补跑仍然尊重免打扰，壳会在静默时段先不派、时段结束后再补（2026-11-24）。
 const PROACTIVE_STATE = path.join(process.env.DSH_SHELL_DATA || path.join(SHELL, 'data'), 'pet', '主动记录.json');
 function proactiveGate(settings, opts) {
   const s = settings || getSettings();
   const o = opts || {};
   const now = o.now ? new Date(o.now) : new Date();
   const p = String((s.persona || {}).proactive || 'low');
-  if (p === 'low') return { ok: false, reason: '档位是「少吭声」（只答不说）' };
+  if (!o.quietOnly && p === 'low') return { ok: false, reason: '档位是「少吭声」（只答不说）' };
   const q = s.quiet || {};
   const toMin = (x) => { const m = /^(\d{1,2}):(\d{2})$/.exec(String(x || '')); return m ? (+m[1]) * 60 + (+m[2]) : null; };
   const hh = now.getHours() * 60 + now.getMinutes();
@@ -254,6 +290,7 @@ function proactiveGate(settings, opts) {
     const inside = a <= b ? (hh >= a && hh < b) : (hh >= a || hh < b);
     if (inside) return { ok: false, reason: '免打扰时段（' + q.from + '–' + q.to + '）' };
   }
+  if (o.quietOnly) return { ok: true, reason: '定时任务：已过免打扰时段' };
   const cap = Number(q.proactiveMaxPerHour == null ? 2 : q.proactiveMaxPerHour);
   const stateFile = o.stateFile || PROACTIVE_STATE;
   const st = readJson(stateFile) || {};
