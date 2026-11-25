@@ -107,9 +107,19 @@ lines.forEach((l, i) => {
   }
 });
 let timerBad = 0;
+// 2026-11-24 修：旧版把"下一个 renderers 注册行"之前的所有 setInterval 都算到当前渲染器头上。
+// links 与 embed 之间夹着 resolveEmbedUA 等辅助函数，links 自己没 setInterval，却被误报 4 个。
+// 现在按函数体收口：顶层 renderers.xxx = function (...) { ... }; 以零缩进的 `};` / `}` 结束。
+function rendererBlockEnd(lines, startIdx, limitIdx) {
+  for (let j = startIdx + 1; j < limitIdx; j++) {
+    if (/^\};?\s*$/.test(lines[j]) || /^\}\s*;?\s*$/.test(lines[j])) return j + 1;
+  }
+  return limitIdx;
+}
 for (let i = 0; i < defs.length; i++) {
   const d = defs[i];
-  const end = i + 1 < defs.length ? defs[i + 1].line - 1 : lines.length;
+  const limit = i + 1 < defs.length ? defs[i + 1].line - 1 : lines.length;
+  const end = rendererBlockEnd(lines, d.line - 1, limit);
   const block = lines.slice(d.line - 1, end).join('\n');
   // 注入到 webview 内部字符串里的定时器不算（它们跑在被嵌入页面里）
   const inlineStrs = (block.match(/`[^`]*`/g) || []).join('\n');
@@ -419,6 +429,7 @@ const ALLOWED_DIRS = ['renderer', 'scenarios', 'scripts', 'data', 'captures', 'n
 const ALLOWED_FILES = [
   'main.js', 'preload.js', 'stock-store.js', 'oa-store.js', 'oa-ssh.js', 'updater.js', 'crash.js',
   '项目切换.js',   // 2026-11-11：程序开发「项目下拉」的数据面（main.js require；单测见 scripts\项目切换自检.mjs）
+  '项目搜索.js',   // 2026-11-24：程序开发「全局搜索」数据面（main.js require；另一会话建的源码，登记进目录契约）
   '桌宠设置.js',   // 2026-11-13：桌宠参数 + 审批策略 + 主动闸门（main.js require；工具\桌宠.mjs 也 require）
   '桌宠状态.js',   // 2026-11-13：桌宠运行状态快照（桌宠面板读）
   '桥接.js',       // 2026-11-13：SnowLuma 桥接进程（main.js require）
@@ -435,6 +446,12 @@ const ALLOWED_FILES = [
   'package.json', 'package-lock.json', 'start.vbs', 'icon.ico', 'icon.png',
   'server.log', 'server.log.prev', '.gitignore', '项目信息.md', 'GUI改造私有记忆.md', '官方能力搬迁计划.md', '迁移手册.md',
   'pnpm-lock.yaml', 'pnpm-workspace.yaml',   // 本机包管理器残留（入库与否看 .gitignore，别当源码收进来）
+  '首启数据.js',   // 2026-11-21：首启建目录 / 种 skills / 写机器配置（main.js require）
+  '引擎引导.js',   // 2026-11-21：引擎下载 / 检测引导（功能台「引擎引导」）
+  '引擎源.json',   // 2026-11-21：引擎来源配置（引擎引导.js 读）
+  '社交状态.js',   // 2026-11-21：关系与情绪数据面（main.js require；home 运行时读 env）
+  '桌宠身体.js',   // 2026-11-20：桌宠身体 / 动画数据面
+  'installer.nsh', // 2026-11-21：NSIS 安装脚本（把引擎包拷进安装目录）
 ];
 // 这些名字出现在 GUI 根目录 = 放错地方（技能/插件属于引擎侧，见 §18）
 const WRONG_PLACE_DIRS = ['skills', 'skill', 'plugins', 'plugin', 'extensions', 'extension',

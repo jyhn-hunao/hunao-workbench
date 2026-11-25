@@ -23,6 +23,19 @@ const OPT = parseArgs(process.argv.slice(2));
 
 function parseArgs(argv) {
   const o = { minGb: 0.5, budgetSec: 300, depth: 3, skipJunk: false, quiet: false, out: '' };
+  // 2026-11-25：先读「场景设置 → 扫描口径」写下的 data\pc-cleanup.json；命令行参数仍然最优先
+  try {
+    const cfgPath = path.join(SHELL_DIR, 'data', 'pc-cleanup.json');
+    let raw = fs.readFileSync(cfgPath, 'utf8');
+    if (raw.charCodeAt(0) === 0xFEFF) raw = raw.slice(1);
+    const j = JSON.parse(raw);
+    if (j && typeof j === 'object') {
+      if (Number.isFinite(Number(j.minGb)) && Number(j.minGb) > 0) o.minGb = Number(j.minGb);
+      if (Number.isFinite(Number(j.depth))) o.depth = Math.min(4, Math.max(1, Number(j.depth)));
+      if (Number.isFinite(Number(j.budgetSec)) && Number(j.budgetSec) > 0) o.budgetSec = Number(j.budgetSec);
+      if (j.skipJunk === true) o.skipJunk = true;
+    }
+  } catch (e) { /* 没配过就按默认值扫 */ }
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     const next = () => argv[++i];

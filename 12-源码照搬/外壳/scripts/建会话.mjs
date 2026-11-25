@@ -169,7 +169,7 @@ if (panelArg || sceneArg) {
     for (const h of hits) {
       for (const n of bindPanel(h, newId)) say('  ' + (n[0] === '⚠' ? n : '✓ ' + n));
     }
-    // 记忆联动：有场景记忆目录就重盖章，否则 check 会报"卡指纹过期"
+    // 记忆联动：有场景记忆目录就重盖章；不盖也会被 check 自动重盖章，这里主动盖是为了当场一致
     const first = hits[0];
     const sceneName = String(first.scene.name || first.panel.pinTarget && first.panel.pinTarget[0] || '').trim();
     const memDir = path.join(DSH_HOME, '场景记忆', sceneName);

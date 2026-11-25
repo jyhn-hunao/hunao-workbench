@@ -7,11 +7,11 @@ export const FILES = [
   'main.js', 'preload.js', 'crash.js',
   'QQ自动注入.js', '功能台.js', '外发闸门.js', '微信通道.js',
   'QQ会话.js', 'QQ群聊.js', 'QQ能力.js', '社交档案.js', '社交档案库.js',
-  '桌宠设置.js', '桌宠状态.js', '社交.js', '社交回复.js', '桥接.js',
-  '项目切换.js', '用量.js', '工具清单.js',
+  '桌宠设置.js', '桌宠状态.js', '桌宠身体.js', '社交.js', '社交回复.js', '社交状态.js', '桥接.js',
+  '项目切换.js', '项目搜索.js', '用量.js', '工具清单.js', '首启数据.js', '引擎引导.js',
   // 配置与入口
   'package.json', 'package-lock.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml',
-  'start.vbs', 'icon.ico', 'icon.png',
+  'start.vbs', 'icon.ico', 'icon.png', 'installer.nsh', '引擎源.json',
   // 说明
   '项目信息.md', '架构索引.md'
 ];

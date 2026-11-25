@@ -213,6 +213,8 @@ function stepPlugins() {
   if (!fs.existsSync(PROFILE)) { add('插件落位', 'warn', 'profile 不存在（引擎还没装？）：' + PROFILE); return }
   const nm = path.join(PROFILE, 'node_modules')
   if (!fs.existsSync(nm)) { add('插件落位', 'warn', 'node_modules 不存在（先在本目录 pnpm install）'); return }
+  // 可选插件：由独立开关管理（守卫开关 on/off），没落位 = 未启用，不算环境坏。
+  const OPTIONAL_PLUGINS = new Set(['dsh-token-guard'])
   const seen = []
   for (const d of fs.readdirSync(PLUG_DIR, { withFileTypes: true })) {
     if (!d.isDirectory()) continue
@@ -220,6 +222,7 @@ function stepPlugins() {
     if (!pkg || !pkg.name) { add('插件 ' + d.name, 'warn', '没有可用的 package.json（缺 name）'); continue }
     const target = path.join(nm, pkg.name)
     if (fs.existsSync(target)) { seen.push(pkg.name + ' ✓'); continue }
+    if (OPTIONAL_PLUGINS.has(pkg.name)) { seen.push(pkg.name + '（可选，未启用）'); continue }
     if (APPLY) {
       try {
         fs.symlinkSync(path.join(PLUG_DIR, d.name), target, process.platform === 'win32' ? 'junction' : 'dir')

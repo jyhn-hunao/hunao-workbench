@@ -154,10 +154,10 @@ ok(idx1.text.indexOf('| `memory` |') > 0, '索引表：其它场景行原样保�
 
 // 双 AI 面板场景（程序开发：工作区 cd-ai-home + 项目 cd-ai）：必须按面板 id 命中，不许改错那条
 const idxTwo = '| `code-dev` | `cd-ai` | AI·项目 | alpha | `session-A` | `scenarios\\code-dev-context.md` | code-dev |\r\n'
-  + '| `code-dev` | `cd-ai-home` | AI·工作区 | 程序开发·工作区 | `session-H` | `scenarios\\code-dev-context.md` | code-dev |\r\n';
+  + '| `code-dev` | `cd-ai-home` | AI多项目管理 | 程序开发·工作区 | `session-H` | `scenarios\\code-dev-context.md` | code-dev |\r\n';
 const idx3 = PS.patchIdentityIndex(idxTwo, { sceneId: 'code-dev', panelId: 'cd-ai-home', name: 'beta', sessionId: 'session-B' });
 ok(idx3.changed, '索引表·双面板：按面板 id 命中 cd-ai-home');
-ok(/\| `cd-ai-home` \| AI·工作区 \| beta \| `session-B` \|/.test(idx3.text), '索引表·双面板：cd-ai-home 行已换');
+ok(/\| `cd-ai-home` \| AI多项目管理 \| beta \| `session-B` \|/.test(idx3.text), '索引表·双面板：cd-ai-home 行已换');
 ok(/\| `cd-ai` \| AI·项目 \| alpha \| `session-A` \|/.test(idx3.text), '索引表·双面板：cd-ai 行不动');
 const idx4 = PS.patchIdentityIndex(idxTwo, { sceneId: 'code-dev', panelId: 'cd-ai-x', name: 'z', sessionId: 'session-Z' });
 ok(!idx4.changed && idx4.notes.some((n) => n.indexOf('cd-ai-x') >= 0), '索引表·双面板：对不上面板就报错不写（不静默改错行）');

@@ -25,7 +25,7 @@
 //   ⑤ **最后**才归档旧会话（sessions.mjs --defer-archive 把归档挪到这一步；
 //      旧顺序「先归档再回写」一旦回写失败，面板就指着一条已归档的会话，打开是空白）
 //   ⑥ 记忆联动：会话 id 变了 ⇒ 重跑 `场景记忆.mjs stamp`，把身份卡 / 场景画像里的「AI 会话」与新绑定对齐
-//      （不重盖章的话，check 立刻报"卡指纹过期"，下一轮 AI 会以为记忆坏了）
+//      （不重盖章也会被 check 自动重盖章；这里主动跑是为了下一轮立刻读到正确绑定）
 //   ⑦ 自证：读 §〇 里本面板那行指针，验证它指的文件真的存在（相对路径曾在这里死过链）
 //   ⑧ 机器可读输出 NEWID / OLDID；GUI 模式下由渲染层自己 reload 本面板（不再广播 all）
 //   ⑨ 项目记忆体检（2026-11-13 B 批②）：按「会话 cwd → pinTarget → 场景唯一」三级解析出面板所属项目根，
@@ -55,10 +55,10 @@ import { RECEIPT_FLAG, evaluateHandoff } from '../../工具/交接闸门.mjs';
 const BASE = process.env.DSH_GUI_BASE || process.env.DSH_WEB_URL || ('http://127.0.0.1:' + port('dsh'));
 
 // 面板 → 交接文件的**非标路径覆盖表**。标准路径由 handoffOf() 按场景名现算，新场景无需登记。
-// 2026-11-12：补上「AI·工作区」（cd-ai-home）——同一个场景记忆文件（程序开发）。
+// 2026-11-12：补上「AI多项目管理」（cd-ai-home，原 AI·工作区）——同一个场景记忆文件（程序开发）。
 const HANDOFF = {
   'mem-chat': path.join(DSH_HOME, '场景记忆', '记忆', '场景私有记忆.md'),
-  'bv-ai': path.join(DSH_HOME, '场景记忆', 'B站', '场景私有记忆.md'),
+  'life-ai': path.join(DSH_HOME, '场景记忆', '生活', '场景私有记忆.md'),
   'cd-ai': path.join(DSH_HOME, '场景记忆', '程序开发', '场景私有记忆.md'),
   'cd-ai-home': path.join(DSH_HOME, '场景记忆', '程序开发', '场景私有记忆.md'),
   'pc-ai': path.join(DSH_HOME, '场景记忆', '本地电脑', '场景私有记忆.md'),
@@ -456,8 +456,8 @@ if (!flags.has('--go')) {
     }
   }
 
-  // ⑤ 记忆联动：会话 id 变了 ⇒ 身份卡 / 场景画像里写的「AI 会话」必须重盖章，
-  //    否则 场景记忆.mjs check 立刻报"卡指纹过期"（这是换会话最隐蔽的记忆断点）。
+  // ⑤ 记忆联动：会话 id 变了 ⇒ 身份卡 / 场景画像里写的「AI 会话」必须重盖章；
+  //    不盖也会被 场景记忆.mjs check 自动重盖章，这里主动盖是为了下一轮立刻读到正确的绑定。
   //    必须在归档之后：此时场景 json 已经是新 id，盖章才盖出正确的绑定。
   if (handoffSceneDir && fs.existsSync(MEM_TOOL)) {
     try {
