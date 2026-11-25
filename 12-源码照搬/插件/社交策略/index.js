@@ -609,7 +609,7 @@ function noteToolDef() {
       '记录一次确实发生的关系/情绪事件，只影响你自己的语气和主动度，不改变事实、边界与安全规则。'
       + '\n只在有明确证据时调用：被夸、被认真感谢、被怼、被敷衍、踩雷、帮上忙、情绪明显变化。'
       + '\n普通闲聊、玩笑、没有原话证据时不要调用；不要每轮都记。'
-      + '\n你只提事件，分数由外壳限量折算：好感单次 ±1~3、踩雷 -2、严重负向 -10；情绪 ±3~8。'
+      + '\n你只提事件，分数由外壳限量折算：好感单次 ±1~3、踩雷 -2、严重负向 -10；情绪按固定标签标准（开心 +4 / 兴奋 +8 / 得意 +3 / 低落 -4 / 委屈 -6 / 烦躁 -6 / 疲惫 -4 / 心虚 -3），不由你填数字。'
       + '\nperson 在群聊必填（用对方名字）；私聊可省。reason 写一句人话，evidence 尽量贴原话。',
     parameters: {
       type: 'object',
@@ -621,7 +621,7 @@ function noteToolDef() {
           description: '事件类型。'
         },
         person: { type: 'string', description: '群聊必填：对方名字或 QQ 号；私聊可省。' },
-        delta: { type: 'number', description: '好感事件填 1~3（负向填负数）；情绪事件填 3~8。' },
+        delta: { type: 'number', description: '好感事件填 1~3（负向填负数）；情绪事件不用填，外壳按 mood 标签固定折算。' },
         reason: { type: 'string', description: '一句人话原因，例：他记得我上次说的口味。' },
         evidence: { type: 'string', description: '可选，贴原话或关键片段，方便面板审计。' },
         mood: {
