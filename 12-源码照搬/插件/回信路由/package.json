@@ -1,0 +1,8 @@
+{
+  "name": "dsh-reply-router",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "index.js",
+  "description": "回信路由闸门：面板来的消息只能在面板回，通道工具只对通道来的消息开放"
+}
