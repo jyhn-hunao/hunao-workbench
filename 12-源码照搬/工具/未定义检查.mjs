@@ -60,7 +60,8 @@ const GROUPS = [
     config: path.join(TMP, 'web.json'),
     targets: [SHELL],
     ext: '.js',
-    ignore: ['**/node_modules/**', '**/data/**', '**/scenarios/**'],
+    // vendor/ 是随仓分发的第三方库（CodeMirror 等 UMD），自带 define/全局挂载，不参与 no-undef 审计
+    ignore: ['**/node_modules/**', '**/data/**', '**/scenarios/**', '**/vendor/**'],
   },
 ]
 fs.writeFileSync(GROUPS[0].config, JSON.stringify(cfg({ node: true }, 'module'), null, 2), 'utf8')

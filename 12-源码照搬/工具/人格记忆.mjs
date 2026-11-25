@@ -12,6 +12,7 @@
 //   node 工具\人格记忆.mjs 写 --类 记忆 --标题 "用户偏好直接写代码交付" --要点 "不喜欢反复开浏览器验收|要求交付时就给代码"
 //   node 工具\人格记忆.mjs 写 --类 对话 --来源 QQ --标题 "和他在 QQ 上聊了桌宠设置" --正文 _临时\对话草稿.md
 //   node 工具\人格记忆.mjs 写 --类 待办 --标题 "把 QQ 的主动钟接到人格设置"
+//   node 工具\人格记忆.mjs 写 --类 记忆 --标题 "补昨天的日记提炼" --要点 "…" --日期 2026-11-24  （补写时用，默认今天）
 //   node 工具\人格记忆.mjs 读 --词 "桌宠" --条 5
 //   node 工具\人格记忆.mjs 归档 --天 180 [--dry]
 //   node 工具\人格记忆.mjs 体检
@@ -22,6 +23,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
+import { withLock } from './派发-公共.mjs';
 
 const require = createRequire(import.meta.url);
 const pet = require('../外壳/桌宠设置.js');
@@ -34,6 +36,7 @@ const TODO = path.join(MEM, '_待办.md');
 const IDX_LONG = path.join(DIR_LONG, '_索引.md');
 const IDX_TALK = path.join(DIR_TALK, '_索引.md');
 const CHECK = path.join(ROOT, '工具', '场景记忆.mjs');
+const WRITE_LOCK = path.join(pet.DSH_HOME, '.locks', '人格记忆写.lock');
 
 const argv = process.argv.slice(2);
 const cmd = String(argv[0] || '');
@@ -42,6 +45,13 @@ const has = (k) => argv.includes(k);
 const say = (s) => console.log(s);
 
 function today() { const d = new Date(); const p = (n) => (n < 10 ? '0' : '') + n; return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()); }
+function validDay(s) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(s || ''));
+  if (!m) return false;
+  const y = Number(m[1]), mo = Number(m[2]), day = Number(m[3]);
+  const d = new Date(y, mo - 1, day);
+  return d.getFullYear() === y && d.getMonth() === mo - 1 && d.getDate() === day;
+}
 function slug(s) {
   return String(s || '').replace(/[\\/:*?"<>|\r\n]/g, ' ').trim().replace(/\s+/g, '-').slice(0, 40) || '未命名';
 }
@@ -87,6 +97,20 @@ function findSimilar(titleText) {
   }
   return null;
 }
+// 待办近似：先去掉「的/了/和/我/他/去/写」这类虚词，再按双字重合度判。
+// 只防「同一件事换句话再登记一遍」，不拦真正的新事项；阈值比记忆标题宽一点。
+function todoCore(s) {
+  return normTitle(s).replace(/[的了和与在到里还没等他她它去把被就都说要这那有你我先再一件下上中过会能可不也很太为跟给让将着呢吗啊]/g, '');
+}
+function todoNearDuplicate(titleText) {
+  if (!fs.existsSync(TODO)) return '';
+  for (const line of fs.readFileSync(TODO, 'utf8').split(/\r?\n/)) {
+    if (!/^- \[ \]/.test(line.trim())) continue;
+    const text = line.replace(/^- \[ \]\s*/, '').replace(/（\d{4}-\d{2}-\d{2}）\s*$/, '');
+    if (similarTitle(todoCore(titleText), todoCore(text)) >= 0.55) return line.trim();
+  }
+  return '';
+}
 
 // 3.5 近期摘要：把「最近 10 条记忆索引 + 未办待办 5 条」压成一份 ≤2 KB 的小文件。
 //     为什么有它：开场注入只带 §〇（人格卡），不读这份就等于「有记忆但想不起来」；
@@ -119,20 +143,36 @@ function checkScene() {
   const out = String((r.stdout || '') + (r.stderr || '')).trim();
   return { ok: r.status === 0, out };
 }
+// 写完立刻刷分条索引：否则神经元与开场注入都要等下一次手动 `索引`
+function refreshSceneIndex() {
+  const r = spawnSync(process.execPath || 'node', [CHECK, '索引', '--场景', '胡闹的大肥鱼'], { cwd: ROOT, encoding: 'utf8', timeout: 60000 });
+  const out = String((r.stdout || '') + (r.stderr || '')).trim();
+  return { ok: r.status === 0, out };
+}
 
 // 1. 写：记忆 / 对话 / 待办
+//    入口先拿跨进程写锁：采集、通道、日记可能同时写，_索引.md 与 _近期.md 都是读改写，
+//    不锁会互相覆盖；正文各自独立文件，锁只保护索引与近期这两份派生。
 function cmdWrite() {
+  return withLock(WRITE_LOCK, cmdWriteInner);
+}
+function cmdWriteInner() {
   const kind = String(val('--类', '记忆'));
   const title = String(val('--标题', '')).trim();
+  const date = String(val('--日期', today())).trim();
   const sys = pet.getSettings().memory || {};
   if (!title) { say('✗ 缺 --标题 "<一句话标题>"'); return 2; }
+  if (!validDay(date)) { say('✗ --日期 要真实存在的 YYYY-MM-DD：' + date); return 2; }
   if (kind === '待办') {
     ensureDirs();
-    const line = '- [ ] ' + title + '（' + today() + '）';
+    const line = '- [ ] ' + title + '（' + date + '）';
     const t = fs.readFileSync(TODO, 'utf8');
+    const near = todoNearDuplicate(title);
     if (t.includes(title)) { say('✓ 待办里已有这条，不重复登记：' + title); return 0; }
+    if (near) { say('✓ 待办里已有相近条目，不重复登记：' + near); return 0; }
     fs.writeFileSync(TODO, t.replace(/\s*$/, '\n') + line + '\n', 'utf8');
     rebuildRecent();
+    refreshSceneIndex();
     say('✓ 已登记待办：' + title);
     return 0;
   }
@@ -157,7 +197,6 @@ function cmdWrite() {
       return 0;
     }
   }
-  const date = today();
   const source = String(val('--来源', '工作台')).trim();
   const dir = kind === '记忆' ? DIR_LONG : DIR_TALK;
   const name = (kind === '记忆' ? date + '-' : date + '-' + slug(source) + '-') + slug(title) + '.md';
@@ -195,12 +234,13 @@ function cmdWrite() {
   addIndex(kind === '记忆' ? IDX_LONG : IDX_TALK,
     '- ' + date + ' · ' + (kind === '记忆' ? title : source + ' · ' + title) + ' · `' + rel + '`');
   rebuildRecent();
+  refreshSceneIndex();
   say('✓ 已写入 ' + path.relative(ROOT, file));
 
-  // 3. 写完当场复核：场景记忆闸门（卡指纹 / 证据 / 索引）必须过
+  // 3. 写完当场复核：只提示，不把「这条没落盘」和「场景还有别的问题」混成一个失败
   const c = checkScene();
   (c.out ? c.out.split('\n') : []).forEach((l) => l && say('  ' + l));
-  return c.ok ? 0 : 4;
+  return 0;
 }
 
 // 4. 读：按词召回（记忆 → 对话 → 待办 → 索引），带文件与行号，便于顺着看原文
@@ -252,8 +292,7 @@ function cmdArchive() {
 }
 
 // 6. 体检：目录/索引/待办在不在、有多少条、最旧/最新、有没有孤儿文件（不在索引里的）
-function cmdDoctor() {
-  ensureDirs();
+function cmdDoctor() {  ensureDirs();
   rebuildRecent();
   const long = fs.readdirSync(DIR_LONG).filter((f) => f.endsWith('.md') && !f.startsWith('_'));
   const talk = fs.readdirSync(DIR_TALK).filter((f) => f.endsWith('.md') && !f.startsWith('_'));
@@ -271,7 +310,15 @@ function cmdDoctor() {
   return c.ok && !orphanL.length && !orphanT.length ? 0 : 4;
 }
 
-const table = { 写: cmdWrite, 读: cmdRead, 归档: cmdArchive, 体检: cmdDoctor };
+// 6.1 重建 _近期.md（自主记忆抓完对话后要刷，否则开场注入还是旧的）
+function cmdRecent() {
+  ensureDirs();
+  rebuildRecent();
+  say('✓ 已重建 _近期.md：' + path.relative(ROOT, RECENT));
+  return 0;
+}
+
+const table = { 写: cmdWrite, 读: cmdRead, 归档: cmdArchive, 体检: cmdDoctor, 近期: cmdRecent };
 if (!table[cmd]) {
   say('用法：node 工具\\人格记忆.mjs <写|读|归档|体检> [参数]');
   process.exit(2);

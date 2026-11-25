@@ -40,12 +40,17 @@ const say = (s) => console.log(s);
 function cmdRoute() {
   const text = val('--文本', argv.slice(1).join(' '));
   const r = pet.resolveRoute(text, pet.getSettings());
+  if (r.hit && r.hit.level === 'self') {
+    say('✓ 这活归「' + r.hit.scene + '」，但它没有独立会话 ⇒ 不用派，人格自己处理 · 命中：' + r.hit.matched.join('、'));
+    return 0;
+  }
   if (!r.hit) {
     say('✗ 认不出该派给谁。候选场景：' + (r.candidates || []).join(' / '));
     say('  （改关键词去 外壳\\data\\pet\\设置.json 的 routes，或直接 --to 指定会话）');
     return 2;
   }
-  say('✓ 派给「' + r.hit.to + '」（级别 ' + r.hit.level + '，命中关键词：' + r.hit.matched.join('、') + '）');
+  say('✓ 派给「' + r.hit.to + '」（级别 ' + r.hit.level + '，命中关键词：' + r.hit.matched.join('、')
+    + (r.hit.from === 'abil' ? '，来源：场景能力（routes 没写这条，自动认的）' : '，来源：设置里的 routes') + '）');
   return 0;
 }
 
@@ -110,6 +115,10 @@ function runDispatch(text, opt) {
   }
 
   const r = pet.resolveRoute(text, settings);
+  if (r.hit && r.hit.level === 'self') {
+    say('✓ 这活归「' + r.hit.scene + '」，但它没有独立会话 ⇒ 不用派，就在本会话做 · 命中：' + r.hit.matched.join('、'));
+    return { code: 0 };
+  }
   if (!r.hit) {
     say('✗ 认不出该派给谁。候选场景：' + (r.candidates || []).join(' / '));
     return { code: 2 };

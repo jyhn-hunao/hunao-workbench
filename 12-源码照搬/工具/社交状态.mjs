@@ -1,4 +1,4 @@
-// @功能台 {"name":"社交状态","group":"社交","freq":"按需","plain":"查/改对每个人的熟悉度与好感、她自己当前的情绪；可预览模型下一轮会看到的卡。","why":"关系与情绪是社交表达的分层状态，必须可观测可配置，不能让模型黑盒打分。","label":"关系与情绪"}
+// @功能台 {"name":"社交状态","group":"社交","freq":"按需","plain":"查对每个人的熟悉度与好感、她自己当前的情绪；可预览模型下一轮会看到的卡。","why":"关系与情绪必须可观测；分数和曲线由代码固定成标准，不能让模型黑盒打分，也不让人手动调参。","label":"关系与情绪"}
 //
 // 社交状态.mjs —— 关系与情绪的命令行入口（2026-11-20）
 //
@@ -391,8 +391,8 @@ function cmdSelfCheck() {
     return x.ok && x.applied === true && y.ok && y.applied === false
   })
 
-  // 14. 群接话系数可配置
-  T('群接话系数按档位可配', () => {
+  // 14. 群接话系数固定为标准
+  T('群接话系数按标准固定', () => {
     st.saveConfig({ groupBiasEnabled: true, groupBias: { close: 1.4 } })
     const r = st.readRelations()
     const p = r.people[state.personKeyOf(chat, 'u2', '群友2')]
@@ -405,7 +405,7 @@ function cmdSelfCheck() {
     p.affinityAt = clock
     st.writeRelations(r)
     const info = st.groupBiasInfo({ channel: 'qq', chatType: 'group', chatId: '100', person: '群友2' })
-    return info.bias === 1.4
+    return info.bias === 1.3 && st.readRelations().config.groupBias.close === 1.3
   })
 
   // 15. 预览卡有字数、可复现
@@ -485,6 +485,13 @@ function cmdSelfCheck() {
     return r.ok && r.mood.label === '开心' && Math.abs(r.mood.intensity - 42) < 0.2
   })
 
+  // 24b. 情绪按标签固定折算，模型不填 delta
+  T('情绪按标签标准折算', () => {
+    st.resetMood()
+    const r = st.applyMood({ label: '烦躁', standardDelta: true, force: true, source: 'model' })
+    return r.ok && r.delta === 6 && st.readMood().mood.label === '烦躁' && Math.abs(st.readMood().mood.baseIntensity - 6) < 0.1
+  })
+
   // 25. 严重负向锁 24h，之后 72h 内正向修复只按 0.5 效率
   T('严重负向的 24h 锁与 72h 修复惩罚', () => {
     st.resetMood()
@@ -526,15 +533,14 @@ function cmdSelfCheck() {
       cfg.curves.affinity.positiveHalfLifeDays === 180 && cfg.curves.mood.halfLifeMin === 90
   })
 
-  // 28. 面板 / CLI 保存嵌套曲线参数，不会把同组其他字段冲掉
-  T('嵌套曲线参数可保存且不丢兄弟字段', () => {
+  // 28. 标准锁定：写曲线参数不会改掉固定值，也不会丢兄弟字段
+  T('曲线标准锁定且不丢兄弟字段', () => {
     const before = st.readRelations().config
     st.saveConfig({ curves: { familiarity: { dailyGainCap: 5 } } })
     const after = st.readRelations().config
-    const ok = after.curves.familiarity.dailyGainCap === 5 && after.curves.familiarity.gainScale === before.curves.familiarity.gainScale &&
+    return after.curves.familiarity.dailyGainCap === 4 &&
+      after.curves.familiarity.gainScale === before.curves.familiarity.gainScale &&
       after.curves.mood.halfLifeMin === before.curves.mood.halfLifeMin
-    st.saveConfig({ curves: { familiarity: { dailyGainCap: 4 } } })
-    return ok
   })
 
   console.log('\n自检：' + pass + '/' + total + ' 通过')

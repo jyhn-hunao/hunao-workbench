@@ -10,7 +10,8 @@
 //   node 工具\记忆.mjs check   --project <项目根> [--strict]
 //   node 工具\记忆.mjs 写      --project <根> --类 <类目> --标题 <标题> [--正文 <md>|--要点 "a|b|c"]
 //                              [--描述 <一句话>] [--标签 a,b] [--证据 "<路径>::<片段>"] [--dry]
-//   node 工具\记忆.mjs 体检    --project <项目根> [--noscene]     ← 收工/换会话前的总闸门，exit 0 才算健康
+//   node 工具\记忆.mjs 体检    --project <项目根> [--noscene|--scene]  ← 收工/换会话前的总闸门，exit 0 才算健康
+//                              工作台本体默认带场景层；外部项目默认只验项目层（--scene 强制带，--noscene 强制跳）
 //   node 工具\记忆.mjs 备份    --project <根> [--to <目录>] [--keep 10]
 //   node 工具\记忆.mjs migrate --from <.mnemon> [--dry] [--json]
 //
@@ -39,7 +40,7 @@ function parseArgs(argv) {
   const pos = []
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]
-    if (a === '--dry' || a === '--json' || a === '--force' || a === '--track' || a === '--strict' || a === '--no-log' || a === '--noscene') { flags[a.slice(2)] = true; continue }
+    if (a === '--dry' || a === '--json' || a === '--force' || a === '--track' || a === '--strict' || a === '--no-log' || a === '--noscene' || a === '--scene') { flags[a.slice(2)] = true; continue }
     if (a.startsWith('--')) {
       const k = a.slice(2)
       const v = argv[i + 1]
@@ -123,7 +124,9 @@ function parseFrontmatter(text) {
   if (!text.startsWith('---')) return { fm, body: text }
   const end = text.indexOf('\n---', 3)
   if (end < 0) return { fm, body: text }
-  const head = text.slice(3, end).split(/\r?\n/)
+  // 2026-11-24 修：CRLF 文件切到最后一行时仍带尾部 \r，`^key:` 的 `$` 匹配不上，
+  // 导致 no_evidence / description 这类「最后一行标量」静默丢字段（自检样本是 LF，一直没抓到）。
+  const head = text.slice(3, end).split(/\r?\n/).map(line => line.replace(/\r$/, ''))
   let cur = null
   for (const line of head) {
     if (!line.trim()) continue
@@ -755,9 +758,20 @@ function cmdDoctor(root, flags) {
   const self = fileURLToPath(import.meta.url)
 
   // 1. 结构：直接复用 check，只取结论（不再写第二套判据）
-  const chk = spawnSync(process.execPath, [self, 'check', '--project', root], { encoding: 'utf8' })
-  // 收集时去掉 check 自带的行首「✗ 」：problems 统一在这里加前缀，否则会打印成「✗ ✗ 索引过期」
-  const chkBad = String(chk.stdout || '').split(/\r?\n/).filter(l => l.trim().startsWith('✗')).map(l => l.trim().replace(/^✗\s+/, ''))
+  //    2026-11-24：索引是派生文件，体检发现索引过期/缺失就先自动重建，再按重建后的结果验——
+  //    不再要求用户看到「跑 index」再手动跑一遍。只留一条 ⚠，不阻断收工。
+  let chk = spawnSync(process.execPath, [self, 'check', '--project', root], { encoding: 'utf8' })
+  let chkBad = String(chk.stdout || '').split(/\r?\n/).filter(l => l.trim().startsWith('✗')).map(l => l.trim().replace(/^✗\s+/, ''))
+  if (chk.status !== 0 && chkBad.some(l => l.includes('索引'))) {
+    try {
+      cmdIndex(root, true)
+      warns.push('memory\\_索引.json 过期/缺失 → 已自动重建')
+      chk = spawnSync(process.execPath, [self, 'check', '--project', root], { encoding: 'utf8' })
+      chkBad = String(chk.stdout || '').split(/\r?\n/).filter(l => l.trim().startsWith('✗')).map(l => l.trim().replace(/^✗\s+/, ''))
+    } catch (e) {
+      warns.push('索引自动重建失败：' + ((e && e.message) || e))
+    }
+  }
   if (chk.status === 0) lines.push('结构：✓ 通过')
   else { lines.push('结构：✗ ' + chkBad.length + ' 项'); problems.push(...chkBad.slice(0, 3)) }
 
@@ -800,8 +814,22 @@ function cmdDoctor(root, flags) {
   }
 
   // 5. 备份：记忆不进库，就只能靠自己备份
+  //    2026-11-24：备份也是生成物，不再要求用户看到「跑 备份」再手动跑——
+  //    没有备份或最近一份超过 30 天，体检时直接补一份（只留一条 ⚠）。
   const bkRoot = path.join(root, '.memory-backup')
-  const bks = fs.existsSync(bkRoot) ? fs.readdirSync(bkRoot).filter(x => /^memory-\d{8}-\d{6}$/.test(x)).sort() : []
+  let bks = fs.existsSync(bkRoot) ? fs.readdirSync(bkRoot).filter(x => /^memory-\d{8}-\d{6}$/.test(x)).sort() : []
+  const newestBk = bks[bks.length - 1] || ''
+  const bkAge = newestBk ? daysSince(newestBk.slice(14, 18) + '-' + newestBk.slice(18, 20) + '-' + newestBk.slice(20, 22)) : -1
+  if (!bks.length || bkAge > 30) {
+    try {
+      cmdBackup(root, {}, true)
+      bks = fs.existsSync(bkRoot) ? fs.readdirSync(bkRoot).filter(x => /^memory-\d{8}-\d{6}$/.test(x)).sort() : []
+      const nowBk = bks[bks.length - 1] || ''
+      if (nowBk) warns.push('备份' + (newestBk ? '已 ' + bkAge + ' 天' : '缺失') + ' → 已自动补备份 ' + nowBk)
+    } catch (e) {
+      warns.push('自动备份失败：' + ((e && e.message) || e))
+    }
+  }
   if (!bks.length) warns.push('从未备份过 memory\\（跑 备份）')
   else {
     const newest = bks[bks.length - 1]
@@ -839,15 +867,30 @@ function cmdDoctor(root, flags) {
     }
   }
 
-  // 8. 场景层：另一份记忆（§〇 交接）也一起验，别只报一半
-  if (!flags.noscene) {
+  // 8. 场景层：另一份记忆（§〇 交接）也一起验，别只报一半。
+  //    2026-11-24 修：只有工作台本体的体检默认带场景层；外部项目（如 mlw）默认只验项目层——
+  //    否则 `程序开发` 的定位卡一改，mlw 的项目体检就红，两个 scope 混在一起，用户会以为项目记忆坏了。
+  //    要强制看工作台场景层传 `--scene`；脚本里要显式跳过传 `--noscene`（两者都不传时按 root 判定）。
+  const isWorkbench = path.resolve(root).toLowerCase() === path.resolve(WORKBENCH).toLowerCase()
+  const withScene = !flags.noscene && (flags.scene || isWorkbench)
+  if (withScene) {
     const tool = path.join(TOOL_DIR, '场景记忆.mjs')
     if (fs.existsSync(tool)) {
       const r = spawnSync(process.execPath, [tool, 'check', '--all'], { encoding: 'utf8', cwd: WORKBENCH })
-      const bad = String((r.stdout || '') + (r.stderr || '')).split(/\r?\n/).filter(l => l.includes('✗'))
+      // 2026-11-24 修：check --all 的失败是「场景头 + 缩进明细」两行，旧版按行数报「2 项」，
+      //   把同一个卡指纹过期算成两个问题。这里按「非缩进的场景头」计场景数，明细只作为问题正文。
+      const allBad = String((r.stdout || '') + (r.stderr || '')).split(/\r?\n/).filter(l => l.includes('✗'))
+      const sceneBad = allBad.filter(l => !/^\s/.test(l))
+      const detailBad = allBad.filter(l => /^\s/.test(l))
       if (r.status === 0) lines.push('场景记忆：✓ 全通过')
-      else { lines.push('场景记忆：✗ ' + bad.length + ' 项'); problems.push(...bad.slice(0, 3).map(s => s.trim())) }
+      else {
+        const shown = detailBad.length ? detailBad : sceneBad
+        lines.push('场景记忆：✗ ' + (sceneBad.length || 1) + ' 个场景')
+        problems.push(...shown.slice(0, 3).map(s => s.trim().replace(/^✗\s+/, '')))
+      }
     } else warns.push('找不到 场景记忆.mjs：场景层未体检')
+  } else if (!isWorkbench && !flags.noscene) {
+    lines.push('场景记忆：跳过（外部项目默认只验项目层；要查工作台场景层跑工作台本体体检或加 --scene）')
   }
 
   // 9. 结论：问题数决定退出码，提醒不影响
@@ -889,7 +932,7 @@ function countFiles(dir) {
  * 备份：memory\ 不在 git 里（公开仓不能带本机路径），所以必须有独立的本地副本。
  *   node 记忆.mjs 备份 --project <根> [--to <目录>] [--keep 10]
  */
-function cmdBackup(root, flags) {
+function cmdBackup(root, flags, quiet) {
   // 1. 目标目录：默认 <根>\.memory-backup\memory-YYYYMMDD-HHmmss（已在 .gitignore）
   const d = new Date()
   const p = (n) => String(n).padStart(2, '0')
@@ -912,13 +955,15 @@ function cmdBackup(root, flags) {
   const keep = Math.max(1, Number(flags.keep || 10))
   const olds = fs.existsSync(bkRoot) ? fs.readdirSync(bkRoot).filter(x => /^memory-\d{8}-\d{6}$/.test(x)).sort() : []
   const drop = olds.slice(0, Math.max(0, olds.length - keep))
-  for (const x of drop) { fs.rmSync(path.join(bkRoot, x), { recursive: true, force: true }); console.log('· 清理旧备份：' + x) }
+  for (const x of drop) { fs.rmSync(path.join(bkRoot, x), { recursive: true, force: true }); if (!quiet) console.log('· 清理旧备份：' + x) }
 
   // 4. 报数
   const c = countFiles(to)
-  console.log('✓ 已备份：' + to + '（' + c.n + ' 个文件 · ' + (c.b / 1024).toFixed(1) + ' KB'
-    + (withScene ? ' · 含场景记忆' : '') + '）')
-  if (added.length) console.log('· .gitignore 补 ' + added.join('、'))
+  if (!quiet) {
+    console.log('✓ 已备份：' + to + '（' + c.n + ' 个文件 · ' + (c.b / 1024).toFixed(1) + ' KB'
+      + (withScene ? ' · 含场景记忆' : '') + '）')
+    if (added.length) console.log('· .gitignore 补 ' + added.join('、'))
+  }
   return 0
 }
 

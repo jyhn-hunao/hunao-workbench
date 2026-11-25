@@ -185,7 +185,7 @@ ok('非法类目被拒', r.code === 1 && r.out.includes('必须是'), r.out)
 write(path.join(mem, '_词表.json'), JSON.stringify({ 换会话: ['交接'] }))
 r = run(['体检', '--project', root, '--noscene'])
 ok('体检 通过', r.code === 0 && r.out.includes('结论：✓'), r.out)
-ok('体检 提示没备份', r.out.includes('从未备份'), r.out)
+ok('体检 自动补备份（不再要求人手动跑 备份）', r.out.includes('已自动补备份') && /备份：memory-\d{8}-\d{6}/.test(r.out), r.out)
 
 // 证据失效 → 体检必须失败（这是「记忆漂移」的唯一自动发现手段）
 const badDoc = path.join(mem, 'pitfalls', '坏证据.md')
@@ -223,6 +223,14 @@ write(path.join(mem, 'decisions', '2026-11-13-裸决策有交代.md'), '---\ntit
 run(['index', '--project', root])
 r = run(['体检', '--project', root, '--noscene'])
 ok('写了 no_evidence 就按已交代算', r.code === 0 && r.out.includes('缺证 0 篇'), r.out)
+
+// 2026-11-24 回归：真实文件是 CRLF，frontmatter 最后一行的 \r 不能把 no_evidence 吃掉
+write(path.join(mem, 'decisions', '2026-11-13-裸决策CRLF.md'), '---\r\ntitle: 裸决策CRLF\r\ndate: 2026-11-13\r\nno_evidence: CRLF 文件的最后一行\r\n---\r\n\r\n# 裸决策CRLF\r\n\r\n正文\r\n')
+run(['index', '--project', root])
+r = run(['体检', '--project', root, '--noscene'])
+ok('CRLF 的 no_evidence 也能被读到', r.code === 0 && r.out.includes('缺证 0 篇'), r.out)
+fs.rmSync(path.join(mem, 'decisions', '2026-11-13-裸决策CRLF.md'))
+run(['index', '--project', root])
 
 // 新鲜度（2026-11-13 加）：提交比最新记忆还新只提醒、不阻断——近似判据，误报不能拦收工
 {

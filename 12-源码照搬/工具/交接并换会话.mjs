@@ -12,7 +12,8 @@
 //     · 指针写**绝对路径**：各面板 cwd 不同（cd-ai = 项目根、cd-ai-home = 12-源码照搬\工作区），
 //       相对 12-源码照搬 的路径两边都解析不到（2026-11-12 实测死链）。
 //     · 旧会话没有业务轮次也**落占位文件**，否则指针指向不存在的文件 = 死链。
-//     · 面板交接里固定带「记忆联动」小节：身份卡 → §〇 → 项目薄卡 → 共享注册表，长期记忆只追加。
+//     · 面板交接里固定带「记忆联动」小节：身份卡 → §〇 → 项目薄卡 → 共享注册表，长期记忆只追加；
+//       重写时自动保留旧文件的「面板职责」节，角色卡不随换会话丢。
 //   prompt：老的「让旧会话自己写交接」，要等一整轮 LLM（慢），保留给确实需要模型总结的场合。
 //   direct：不写交接，直接轮换（--force 跳过 2 小时闸）。
 //
@@ -135,7 +136,7 @@ function runMem(cmd) {
 }
 
 // ---- 2026-11-12（第四次改版）：面板级交接 -------------------------------------
-// 为什么：同一场景可能挂两块 AI 面板（程序开发 = AI·项目 + AI·工作区），它们原来抢同一段 §〇：
+// 为什么：同一场景可能挂两块 AI 面板（程序开发 = AI·项目 + AI多项目管理），它们原来抢同一段 §〇：
 //   换 A 就把 B 的上下文写进去，换 B 又覆盖 A；而且整段 §〇 有 4 KB 红线，实测已 3814 B ⇒ 再换必爆。
 // 现在：完整摘要写 `场景记忆\<场景>\面板交接\<面板id>.md`（容量宽松、各写各的），
 //   人格场景 §〇 只保留「当前项目」表；其他场景保留原有 §〇 结构（含上次交接 / 下一步）。
@@ -144,6 +145,16 @@ const META_TALK = /换会话|换一个会话|这个按钮|顶栏|toast|通知|�
 
 function panelHandoverFile() {
   return path.join(DSH_HOME, '场景记忆', sceneName, '面板交接', PANEL + '.md');
+}
+
+/** 换会话会重写面板交接：先把旧的「面板职责」抄回来，别让角色卡一轮换就丢（2026-11-24）。
+    只取这一节；旧文件没有就返回空，不编造角色。 */
+function readPanelRole() {
+  try {
+    const txt = fs.readFileSync(panelHandoverFile(), 'utf8').replace(/\r/g, '');
+    const m = txt.match(/^## 面板职责\s*\n([\s\S]*?)(?=\n## |\n*$)/m);
+    return m ? m[1].trim() : '';
+  } catch (e) { return ''; }
 }
 
 /** 按句子边界截断：宁可少写一句，也不要在句子中间切出「…」（AI 读到半句话会误判）。 */
@@ -170,11 +181,14 @@ function composePanelHandover(o) {
     '> 自动生成 ' + o.when + '｜旧会话 `' + o.oldId + '`｜共 ' + o.allTurns + ' 轮｜由「换会话」脚本从 transcript 直接摘录（未经模型改写）',
     '> 这是**面板级**交接：同一场景里的另一个 AI 面板有自己的文件，不会互相覆盖。',
     '',
+  ];
+  if (o.role) lines.push('## 面板职责', o.role, '');
+  lines.push(
     '## 这次在做',
     '- ' + (clipAtSentence(doing, 300) || '（最近几轮没有业务文字，可能只有工具调用）'),
     '',
     '## 最近轮次',
-  ];
+  );
   if (!tail.length) lines.push('- （无）');
   for (const t of tail) {
     lines.push('- 第 ' + t.turn + ' 轮 · 用户：' + (clipAtSentence(stripReminders(t.user), 240) || '（无文字）'));
@@ -281,10 +295,11 @@ function writeTranscriptHandoff() {
     const panelFile0 = panelHandoverFile();
     try {
       fs.mkdirSync(path.dirname(panelFile0), { recursive: true });
+      const role0 = readPanelRole();
       const prev0 = panelFile0.replace(/\.md$/, '-上一版.md');
       if (fs.existsSync(panelFile0)) { try { fs.copyFileSync(panelFile0, prev0); } catch (e) { /* 留不下上一版不影响 */ } }
       const txt0 = composePanelHandover({
-        turns: [], allTurns: all.length, oldId: oldId, when: nowStr, panelId: PANEL, panelTitle: panelTitle, sceneName: sceneName, pinTarget: pinTarget,
+        turns: [], allTurns: all.length, oldId: oldId, when: nowStr, panelId: PANEL, panelTitle: panelTitle, sceneName: sceneName, pinTarget: pinTarget, role: role0,
       }).replace('（最近几轮没有业务文字，可能只有工具调用）', '（旧会话无新业务轮次 ⇒ 沿用上一次交接；上一版见 `' + PANEL + '-上一版.md` 或 归档\\）');
       fs.writeFileSync(panelFile0, txt0, 'utf8');
     } catch (e) { say('WARN: 面板交接占位没写成（' + ((e && e.message) || e) + '）—— §〇 指针会指空'); }
@@ -327,13 +342,14 @@ function writeTranscriptHandoff() {
   const when = new Date().toLocaleString('zh-CN', { hour12: false });
   const panelFile = panelHandoverFile();
   const prevFile = panelFile.replace(/\.md$/, '-上一版.md');
+  const role = readPanelRole();
   if (fs.existsSync(panelFile)) {
     try { fs.mkdirSync(path.dirname(prevFile), { recursive: true }); fs.copyFileSync(panelFile, prevFile); } catch (e) { /* 留不下上一版不影响本次 */ }
   }
   try {
     fs.mkdirSync(path.dirname(panelFile), { recursive: true });
     fs.writeFileSync(panelFile, composePanelHandover({
-      turns: turns, allTurns: all.length, oldId: oldId, when: when, panelId: PANEL, panelTitle: panelTitle, sceneName: sceneName, pinTarget: pinTarget,
+      turns: turns, allTurns: all.length, oldId: oldId, when: when, panelId: PANEL, panelTitle: panelTitle, sceneName: sceneName, pinTarget: pinTarget, role: role,
     }), 'utf8');
   } catch (e) { rollback(); fail(5, '写面板交接文件失败：' + ((e && e.message) || e) + ' ⇒ 未换会话（已回滚 §〇）'); }
 

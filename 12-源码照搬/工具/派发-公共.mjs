@@ -236,3 +236,38 @@ export function nowStamp() {
   return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate())
     + ' ' + p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
 }
+
+// 11. 跨进程写锁：索引 / 近期记忆都是「读 → 改 → 写」，采集、通道、日记可能同时触发。
+//    只包住同步写盘段；锁文件放在 DSH_HOME\.locks，进程被杀留下的锁 5 分钟后自动视为过期。
+//    ⚠ 不要在持锁时再去拿另一把锁（A 等 B、B 等 A 会互等超时）；调用方按单层锁使用。
+export function withLock(lockPath, fn, opt = {}) {
+  const waitMs = Number(opt.waitMs) || 30000;
+  const staleMs = Number(opt.staleMs) || 300000;
+  fs.mkdirSync(path.dirname(lockPath), { recursive: true });
+  const deadline = Date.now() + waitMs;
+  let fd = null;
+  while (fd === null) {
+    try {
+      fd = fs.openSync(lockPath, 'wx');
+    } catch (e) {
+      if (!e || e.code !== 'EEXIST') throw e;
+      try {
+        const st = fs.statSync(lockPath);
+        if (Date.now() - st.mtimeMs > staleMs) { fs.unlinkSync(lockPath); continue; }
+      } catch { /* 锁刚被释放 / 读不到，下一轮再试 */ }
+      if (Date.now() > deadline) throw new Error('等待写锁超时：' + path.basename(lockPath));
+      try { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 120); }
+      catch { const t = Date.now(); while (Date.now() - t < 120) { /* 极老 Node 兜底 */ } }
+    }
+  }
+  try {
+    try { fs.writeSync(fd, JSON.stringify({ pid: process.pid, at: nowStamp() })); } catch { /* 只用于排查，写不进不影响锁 */ }
+    try { fs.closeSync(fd); } catch { /* 同上 */ }
+    fd = null;
+    return fn();
+  } finally {
+    if (fd !== null) { try { fs.closeSync(fd); } catch { /* 已关 */ } }
+    try { fs.unlinkSync(lockPath); } catch { /* 锁已不在 */ }
+  }
+}
+

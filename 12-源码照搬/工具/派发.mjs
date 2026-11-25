@@ -7,6 +7,7 @@
 //
 // 用法：
 //   node 工具\派发.mjs --to "luanyujia-workbench" "排查技能面板为什么是空的"
+//   node 工具\派发.mjs --词 "去B站关注大肥鱼小课堂的up主"          # 按原话认场景（场景能力.js），任务就是原话
 //   node 工具\派发.mjs --project "工作台本体" "排查技能面板为什么是空的"   # 项目名/别称（查 项目.json）
 //   node 工具\派发.mjs --to session-cd20... "任务" --no-watch --timeout 1800
 //   node 工具\派发.mjs --to "mlw" "任务" --dry        # 只核对会话与派发单，不投递
@@ -14,11 +15,13 @@
 //   node 工具\派发.mjs --to "程序开发·项目" --parent <外层单号> "工单内容"           # 分层派发：回执自动上浮到根派发方
 //
 // 约定：--from 不写就是当前会话（DSH_SESSION_ID）；--to 按会话标题逐字相等或 session id 认；
+//   --词 用 `外壳\场景能力.js` 的 KEYWORDS 按原话认场景（认不出列候选并退出，不静默猜）；
 //   --project 按 `_共享记忆\项目.json` 的 name / aliases 认项目，再按 cwd 找该项目当前会话
 //   （认不出就列候选并退出，不静默猜）。
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { createRequire } from 'node:module';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import {
@@ -26,12 +29,14 @@ import {
   newTicket, findTicketFile, readTicket, getCookie, promptSession
 } from './派发-公共.mjs';
 
+const requireC = createRequire(import.meta.url);
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const argv = process.argv.slice(2);
 const has = (k) => argv.includes(k);
 const val = (k, d) => { const i = argv.indexOf(k); return i >= 0 ? (argv[i + 1] || d) : d; };
 
-const toWant = val('--to', '');
+let toWant = val('--to', '');
+const wordWant = val('--词', '');
 const projectWant = val('--project', '');
 const fromId = val('--from', process.env.DSH_SESSION_ID || '');
 const taskFile = val('--file', '');
@@ -40,14 +45,38 @@ const task = taskFile
   ? (fs.existsSync(taskFile) ? fs.readFileSync(taskFile, 'utf8').trim() : '')
   : argv.filter((a, i) => !a.startsWith('--') && argv[i - 1] !== '--to' && argv[i - 1] !== '--from'
     && argv[i - 1] !== '--timeout' && argv[i - 1] !== '--file' && argv[i - 1] !== '--project'
+    && argv[i - 1] !== '--词'
     && argv[i - 1] !== '--mandate' && argv[i - 1] !== '--parent').join(' ').trim();
 
 // 授权（Mandate）：一次一单写清「这次允许做到哪」；不写就用默认，别让「上次也这么干」变成长期授权
 const DEFAULT_MANDATE = '只做本条任务：可在项目目录内改动、可跑只读检查；⛔ 不动 12-源码照搬\\引擎、不改别人的场景记忆、不提交不推送；越界即停并回问。';
 const mandate = String(val('--mandate', '') || DEFAULT_MANDATE).trim();
 
-if ((!toWant && !projectWant) || !task) {
-  console.error('用法：node 工具\\派发.mjs （--to "<会话标题或 id>" | --project "<项目名/别称>"） "<任务>" [--file 任务.md] [--from <派发方会话id>] [--mandate "本次授权范围"] [--no-watch] [--timeout 秒] [--dry]');
+// 0. --词：按原话认场景（外壳\场景能力.js 的 KEYWORDS）→ 直接落到那个场景的会话，省得记会话名
+//    ⚠ 认不出就列候选退出，不静默猜；场景不绑会话（控制台）也明确报
+if (!toWant && !projectWant && wordWant) {
+  const abilSvc = requireC(path.join(ROOT, '外壳', '场景能力.js'))({
+    dataDir: process.env.DSH_SHELL_DATA || path.join(ROOT, '外壳', 'data'),
+    dshHome: DSH_HOME,
+    reviewDir: process.env.DSH_REVIEW_DIR || '',
+  });
+  const picked = abilSvc.find(wordWant);
+  if (!picked) {
+    console.error('✗ 认不出这活归哪个场景：' + wordWant);
+    for (const s of abilSvc.all()) console.error('   · ' + s.name + '：' + s.keywords.slice(0, 6).join(' / '));
+    console.error('→ 换 --to "<会话标题>" 指定，或先 `node 12-源码照搬\\工具\\场景能力.mjs 查 --词 "<原话>"`');
+    process.exit(2);
+  }
+  if (!picked.scene.session) { console.error('✗ 「' + picked.scene.name + '」不绑会话，派不进去（试试别的场景或 --to）'); process.exit(2); }
+  toWant = picked.scene.session;
+  console.error('· 认到「' + picked.scene.name + '」（命中：' + picked.matched.join('、') + '）→ 会话「' + toWant + '」');
+}
+
+// 任务正文缺省就用 --词 的原话（"它要什么就派什么"）
+const taskText = task || wordWant;
+
+if ((!toWant && !projectWant) || !taskText) {
+  console.error('用法：node 工具\\派发.mjs （--to "<会话标题或 id>" | --词 "<原话>" | --project "<项目名/别称>"） "<任务>" [--file 任务.md] [--from <派发方会话id>] [--mandate "本次授权范围"] [--no-watch] [--timeout 秒] [--dry]');
   process.exit(2);
 }
 if (!fromId) { console.error('✗ 拿不到派发方会话：设 DSH_SESSION_ID 或显式 --from'); process.exit(2); }
@@ -105,11 +134,11 @@ if (parentTicket) console.log('外层单：' + parentTicket.id + '（根派发�
 // 3. 登记派发单（先落盘再投递：投递失败也留得下现场）
 const { ticket, file } = newTicket({
   from: fromId, fromTitle: from.title || '', to: to.id, toTitle: to.title || '',
-  text: task, turnsBefore, mandate, parent: parentTicket ? parentTicket.id : '', rootFrom, rootFromTitle
+  text: taskText, turnsBefore, mandate, parent: parentTicket ? parentTicket.id : '', rootFrom, rootFromTitle
 });
 
 // 4. 正文 = 授权 + 用户任务 + 回执协议（写死绝对路径，目标会话照抄就能跑）
-const msg = task + '\n\n'
+const msg = taskText + '\n\n'
   + '—— 授权（Mandate · 一次一单）——\n'
   + mandate + '\n'
   + '越界即停：发现要超出上面范围，先回问派发方，不拿「上次也这么干」当默认。\n\n'

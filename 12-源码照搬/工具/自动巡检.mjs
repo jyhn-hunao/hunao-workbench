@@ -1,9 +1,9 @@
 // 自动巡检.mjs —— 开机后台跑一遍"体检"，异常才提示（2026-11-14 新增）
-// 为什么有它：自检 / sessions / check-gui / 记忆体检 / 看门狗 原来都靠人记得手动跑；
+// 为什么有它：自检 / sessions / check-gui / 记忆体检 / 项目记忆巡检 / 场景记忆 / 自主记忆 / 看门狗 原来都靠人记得手动跑；
 //   跑不跑全凭自觉 ⇒ 红线（如"面板指到已归档会话"）可能挂好几天没人发现。
 //   这里把它们收成一条：**只读、不改任何东西**，结果落 `外壳\data\巡检.json`，只把"有问题的项"说清楚。
 //
-// 谁在跑它：main.js 引擎就绪 60s 后（每天最多一次，按 巡检.json 的 at 判断），后台异步、不占启动时间。
+// 谁在跑它：main.js 引擎就绪 60s 后起，每 30 分钟查一次是否到期（默认 12h 一次，按 巡检.json 的 at 判断），后台异步、不占启动时间。
 // 用法（人手动跑也行）：
 //   node 12-源码照搬\工具\自动巡检.mjs          跑一遍，打印摘要
 //   node 12-源码照搬\工具\自动巡检.mjs --json   机器可读
@@ -33,7 +33,9 @@ const TASKS = [
   { name: '会话对照', file: path.join(SHELL, 'scripts', 'sessions.mjs'), args: ['--check'], mustPass: true },
   { name: '门禁 check-gui', file: path.join(SHELL, 'scripts', 'check-gui.mjs'), args: [], mustPass: true },
   { name: '记忆体检', file: path.join(HERE, '记忆.mjs'), args: ['体检', '--project', REPO], mustPass: true },
+  { name: '项目记忆巡检', file: path.join(HERE, '项目记忆巡检.mjs'), args: [], mustPass: true },
   { name: '场景记忆', file: path.join(HERE, '场景记忆.mjs'), args: ['check', '--all'], mustPass: true },
+  { name: '自主记忆', file: path.join(HERE, '自主记忆.mjs'), args: ['status'], mustPass: true },
   { name: '派发看门狗', file: path.join(HERE, '看门狗.mjs'), args: [], mustPass: true },
 ]
 
