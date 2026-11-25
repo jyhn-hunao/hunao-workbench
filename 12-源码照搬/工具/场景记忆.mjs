@@ -5,7 +5,7 @@
  * 每个场景的记忆文件夹固定四类：
  *   <场景>\
  *     场景私有记忆.md   ← 人写（§〇 只放当前项目表 / 职责 / 决策 / 项目索引）
- *     身份卡.md         ← 工具写（身份/权限/定位卡指纹）⛔ 手改即校验失败
+ *     身份卡.md         ← 工具写（身份/权限/定位卡指纹）⛔ 手改会被重生成覆盖
  *     场景画像.md       ← 工具写（布局/面板/渲染器/依赖）
  *     项目记忆\ + 归档\ + _文件索引.md
  *
@@ -34,6 +34,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { spawnSync } from 'node:child_process'
+import { withLock } from './派发-公共.mjs'
 
 // 公开模板：根 = --root 参数 > 脚本所在目录的上一级；记忆在 <根>\引擎数据\.dsh\场景记忆
 import { fileURLToPath as __f2u } from 'node:url'
@@ -43,6 +44,8 @@ const WORKBENCH_ROOT = __ARGV_ROOT || process.env.DSH_WORKBENCH_ROOT || path.res
 const MEMROOT = process.env.DSH_SCENE_MEMORY || path.join(WORKBENCH_ROOT, '引擎数据', '.dsh', '场景记忆')
 // 场景目录（派生清单，2026-11-13）：神经元不再靠手工登记表 索引.json，也不用目录扫描 IPC
 const SCENE_REG = path.join(MEMROOT, '_共享记忆', '场景目录.json')
+// 跨进程索引锁：索引 / 场景目录都是读改写；采集、通道、日记可能同时跑索引
+const INDEX_LOCK = path.join(path.dirname(MEMROOT), '.locks', '场景索引.lock')
 // 记忆数据契约版本（2026-11-13）：schema.json 由 工具\记忆打包.mjs 升版 维护；check --all 校验，换机/升级时判「老数据 vs 新工具」
 const MEM_SCHEMA_VERSION = 2
 const MEM_SCHEMA_FILE = path.join(MEMROOT, '_共享记忆', 'schema.json')
@@ -56,10 +59,28 @@ const stamp = () => { const d = NOW(); const p = (n) => String(n).padStart(2, '0
 const sha = (p) => (fs.existsSync(p) ? crypto.createHash('sha256').update(fs.readFileSync(p)).digest('hex') : '')
 
 const ALIAS = {
-  'bilibili': 'B站', 'pc-cleanup': '本地电脑', 'personal-site': '<个人站场景>',
+  'life': '生活', 'pc-cleanup': '本地电脑', 'personal-site': '<个人站场景>',
   'stock-analysis': '<机主>的分析助手', 'code-dev': '程序开发', 'design-misc': '设计杂活',
   'video-workflow': '视频工作流', 'self-review': '自我复盘', 'douyin': '刷抖音', 'memory': '记忆',
   'workbench-custom': '工作台定制', 'dsh-gui': null,
+}
+
+/* 记忆档型（2026-11-25）：一个场景记什么，由它怎么干活决定，不由文件夹决定。
+//   声明优先：场景 json 的 memoryProfile；没声明按场景 id 兜底；都没有当「机制」。
+//   persona 人格 / channel 通道 / ops 运维 / review 复盘 / content 内容 / meta 机制 / project 项目 */
+const PROFILE_BY_ID = {
+  'pet': 'persona', 'social': 'channel', 'pc-cleanup': 'ops',
+  'self-review': 'review', 'life': 'life', 'memory': 'meta', 'code-dev': 'project',
+}
+const PROFILE_NAME = {
+  persona: '人格', channel: '通道', ops: '运维', review: '复盘',
+  life: '生活', content: '内容', meta: '机制', project: '项目',
+}
+function profileOf(dirName) {
+  const sc = sceneOf(dirName) || {}
+  const declared = String(sc.memoryProfile || '').trim()
+  if (PROFILE_NAME[declared]) return declared
+  return PROFILE_BY_ID[String(sc.id || '')] || 'meta'
 }
 
 /* ------------------------------------------------------------ 读两个事实源 */
@@ -188,7 +209,7 @@ function bindingBlock(id, ident, dirName, sceneJson) {
   const panels = (sceneJson?.panels || []).map((p) => `${p.id}:${p.type}${p.url ? '=' + p.url : p.sessionId ? '(会话)' : ''}`).join(' ｜ ')
   // 一个场景可能挂两块 AI 面板（程序开发：工作区 + 项目）⇒ 每条会话都要写出来，别只留第一块
   const ais = (sceneJson?.panels || []).filter((p) => p.type === 'harness').map((p) => `${p.id} = ${p.sessionId || '(未绑)'}`).join(' ｜ ')
-  return `<!-- 场景绑定 BEGIN · 由 场景记忆.mjs 生成，⛔ 手改即校验失败 -->
+  return `<!-- 场景绑定 BEGIN · 由 场景记忆.mjs 生成，⛔ 手改会被 stamp 重生成覆盖 -->
 > **场景** \`${id}\` ｜ **面板** \`${ident?.panel || '?'}\` ｜ **会话** \`${ident?.sessionId || '?'}\`
 > **AI 会话** ${ais || '(无)'}
 > **定位卡** \`${card ? path.relative('<工作台>', card) : '(缺)'}\` ｜ **卡指纹** \`sha256:${fp ? fp.slice(0, 16) : '(缺)'}…\` ｜ **盖章** ${stamp()}
@@ -201,13 +222,13 @@ function bindingBlock(id, ident, dirName, sceneJson) {
 
 function writeIdentityCard(dir, id, ident, sceneJson) {
   const name = dir
-  const txt = `# ${name} · 身份卡（工具生成 · ⛔ 手改即校验失败）
+  const txt = `# ${name} · 身份卡（工具生成 · ⛔ 手改会被重生成覆盖）
 
 ${bindingBlock(id, ident, dir, sceneJson)}
 
 ## 怎么用
 - 开场第一份读的是**这张卡**：我是谁、在哪个面板、会话是哪条、定位卡是哪张、能碰什么。
-- 定位卡或场景 json 改了 ⇒ 立刻跑 \`node <工作台>\\工具\\场景记忆.mjs stamp --场景 ${name}\`，否则 \`场景记忆.mjs check\` 会报指纹过期。
+- 定位卡或场景 json 改了 ⇒ \`check\` / 收工 / 体检发现指纹过期会自动重盖章，只留一条 ⚠；要立刻强制重生成可跑 \`node <工作台>\\工具\\场景记忆.mjs stamp --场景 ${name}\`，然后重读定位卡。
 - 本文件由工具全量重写；要补充说明请写进 \`场景私有记忆.md\`，别写这里。
 `
   fs.writeFileSync(path.join(dir, '身份卡.md'), txt, 'utf8')
@@ -477,6 +498,48 @@ function cmdCheckOa() {
   return problems.length ? 1 : 0
 }
 
+// 场景目录下「应该进索引」的 .md：递归收，排除 `_` 元文件（`_待办.md` 例外）、面板交接卡和点开头文件。
+// 收哪些子目录随场景类型变（人格有 日记/对话，生活有 内容…），所以不再写死 KINDS。
+function sceneMdFiles(dir) {
+  const files = []
+  ;(function walk(base, rel) {
+    for (const f of fs.readdirSync(base)) {
+      if (f.startsWith('.')) continue
+      if (f.startsWith('_') && f !== '_待办.md') continue
+      const p = path.join(base, f)
+      let st; try { st = fs.statSync(p) } catch { continue }
+      if (st.isDirectory()) {
+        if (f === '面板交接') continue
+        walk(p, rel ? rel + '\\' + f : f)
+        continue
+      }
+      if ((rel || f === '_待办.md') && f.endsWith('.md')) files.push(rel ? rel + '\\' + f : f)
+    }
+  })(dir, '')
+  return files
+}
+
+function indexEntryExists(dir, p, files) {
+  if (!p) return true
+  if (path.isAbsolute(p)) return fs.existsSync(p)     // 派生条目指向 data\*.json，按绝对路径验
+  if (p.startsWith('面板交接\\')) return fs.existsSync(path.join(dir, p))
+  return files.includes(p)
+}
+
+function indexMismatch(dir) {
+  const idxPath = path.join(dir, '_索引.json')
+  if (!fs.existsSync(idxPath)) return '缺失'
+  let rows = []
+  try { rows = (JSON.parse(fs.readFileSync(idxPath, 'utf8')).entries || []) } catch { return '解析失败' }
+  const files = sceneMdFiles(dir)
+  const have = new Set(rows.map((r) => String(r.path || '')))
+  const missing = files.filter((f) => !have.has(f))
+  const gone = rows.map((r) => String(r.path || '')).filter((p) => p && !indexEntryExists(dir, p, files))
+  if (missing.length) return '缺 ' + missing.length + ' 个文件'
+  if (gone.length) return '有 ' + gone.length + ' 个已不存在文件'
+  return ''
+}
+
 function cmdCheck(name) {
   const dir = path.join(MEMROOT, name)
   // 例外场景（清单见 场景记忆-例外.json）：没有标准目录时给明确状态，**不再 ENOENT 抛错**
@@ -494,6 +557,21 @@ function cmdCheck(name) {
   // 会话库与场景记忆同级：MEMROOT = <dshHome>\场景记忆 ⇒ 会话在 <dshHome>\sessions
   //（2026-11-12 修：原来多拼了一层 '.dsh'，拼成 <dshHome>\.dsh\.dsh\sessions，5 个场景全报「会话文件不在库」假告警）
   const SESS = path.join(MEMROOT, '..', 'sessions')
+  // 身份卡 / 场景画像是派生文件：缺了就先自动重建，别让「少一个生成物」在运行中途变成红。
+  //   只在定位卡本身存在时重建（卡没了盖不出指纹，仍按 ✗ 报）。
+  if (ident && ident.card && fs.existsSync(ident.card)) {
+    const idCardPath = path.join(dir, '身份卡.md')
+    const portraitPath = path.join(dir, '场景画像.md')
+    if (!fs.existsSync(idCardPath) || !fs.existsSync(portraitPath)) {
+      try {
+        writeIdentityCard(dir, scene.id, ident, scene)
+        writePortrait(dir, scene.id, scene, ident)
+        warns.push('身份卡/场景画像缺失 → 已自动重建')
+      } catch (e) {
+        problems.push('身份卡/场景画像自动重建失败：' + ((e && e.message) || e))
+      }
+    }
+  }
   for (const f of ['场景私有记忆.md', '身份卡.md', '场景画像.md', '_文件索引.md']) {
     if (fs.existsSync(path.join(dir, f))) ok.push(f); else problems.push('缺文件 ' + f)
   }
@@ -501,12 +579,29 @@ function cmdCheck(name) {
     if (fs.existsSync(path.join(dir, d))) ok.push(d + '\\'); else problems.push('缺目录 ' + d + '\\')
   }
   if (ident && ident.card) {
-    const card = fs.readFileSync(path.join(dir, '身份卡.md'), 'utf8')
-    const fp = (card.match(/卡指纹`\s*`?sha256:([0-9a-f]+)/) || card.match(/sha256:([0-9a-f]{8,64})/) || [])[1]
-    const real = sha(ident.card).slice(0, fp ? fp.length : 16)
-    if (!fp) problems.push('身份卡里没有卡指纹')
-    else if (!sha(ident.card).startsWith(fp)) problems.push(`卡指纹过期（卡已改，跑 stamp）${fp}…≠${real}…`)
-    else ok.push('卡指纹一致')
+    const idCardPath = path.join(dir, '身份卡.md')
+    // 2026-11-24：卡是场景在改，指纹不能再留给人工 stamp —— 检查时发现过期就自动重盖章，
+    //   只留一条 ⚠（不阻断 check / 体检 / 发布前检查）。卡真丢了才报 ✗，不拿自动盖章掩盖缺文件。
+    if (fs.existsSync(idCardPath) && fs.existsSync(ident.card)) {
+      const card = fs.readFileSync(idCardPath, 'utf8')
+      const fp = (card.match(/卡指纹`\s*`?sha256:([0-9a-f]+)/) || card.match(/sha256:([0-9a-f]{8,64})/) || [])[1]
+      const realFull = sha(ident.card)
+      if (!fp || !realFull.startsWith(fp)) {
+        try {
+          writeIdentityCard(dir, scene.id, ident, scene)
+          writePortrait(dir, scene.id, scene, ident)
+          warns.push('卡指纹过期（卡已改）→ 已自动重盖章 ' + (fp || '(缺)') + '…→' + realFull.slice(0, 12) + '…；请确认已重读定位卡')
+          const fresh = fs.readFileSync(idCardPath, 'utf8')
+          const freshFp = (fresh.match(/卡指纹`\s*`?sha256:([0-9a-f]+)/) || fresh.match(/sha256:([0-9a-f]{8,64})/) || [])[1]
+          if (freshFp && sha(ident.card).startsWith(freshFp)) ok.push('卡指纹一致（自动重盖章）')
+          else problems.push('自动重盖章后卡指纹仍不一致')
+        } catch (e) {
+          problems.push('卡指纹过期，自动重盖章失败：' + ((e && e.message) || e))
+        }
+      } else ok.push('卡指纹一致')
+    } else {
+      problems.push('身份卡或定位卡不存在，无法校验/自动重盖章')
+    }
   } else problems.push('身份索引里没有这张场景卡')
   // 会话必须绑定到场景（2026-10-27 卡07 决定）
   if (scene && ident) {
@@ -658,6 +753,20 @@ function cmdCheck(name) {
     // 标签整句：联想层会把这些词当主题词连边，越连越糊（用户 2026-11-13 要求防「词像义不同」）
     if (longTagN) warns.push('标签像整句/超长 ' + longTagN + ' 处：收敛成 ≤12 字的主题词（新写入已被 写 拦住）')
   }
+  // 2026-11-24：索引也是派生文件，不再靠人记得跑 `索引` —— check 发现缺失/过期就先自动重建，
+  //   再按重建后的结果验；只留一条 ⚠，不阻断 check / 体检 / 发布前检查。
+  {
+    const why = indexMismatch(dir)
+    if (why) {
+      try {
+        const rc = cmdIndex(name, true)
+        if (rc === 0) warns.push('_索引.json ' + why + ' → 已自动重建')
+        else problems.push('_索引.json ' + why + '，自动重建失败')
+      } catch (e) {
+        problems.push('_索引.json ' + why + '，自动重建失败：' + ((e && e.message) || e))
+      }
+    }
+  }
   // 索引与文件一致（2026-11-14）：派生索引过期/损坏，以前靠"写/沉淀会顺手重建"的纪律兜底，现在直接查
   {
     const idxPath = path.join(dir, '_索引.json')
@@ -665,14 +774,13 @@ function cmdCheck(name) {
     else {
       let rows = []
       try { rows = (JSON.parse(fs.readFileSync(idxPath, 'utf8')).entries || []) } catch { problems.push('_索引.json 解析失败：跑 索引 --场景 ' + name) }
-      const files = KINDS.flatMap((k) => kindFiles(dir, k).map((f) => k + '\\' + f))
-      for (const extra of ['记忆', DISTILL_DIR, '归档']) {
-        const sub = path.join(dir, extra)
-        if (fs.existsSync(sub)) files.push(...fs.readdirSync(sub).filter((x) => x.endsWith('.md')).map((f) => extra + '\\' + f))
-      }
+      // 索引收哪些目录会随场景类型变（人格含 日记/对话，生活含 内容，项目含 面板交接…），
+      //   所以这里按「场景目录下真实存在的 .md」对账，而不是写死 KINDS；
+      //   `_` 开头的是索引/定位卡这类元文件，本来就不进索引，两边一起排除。
+      const files = sceneMdFiles(dir);
       const have = new Set(rows.map((r) => String(r.path || '')))
       const missing = files.filter((f) => !have.has(f))
-      const gone = rows.map((r) => String(r.path || '')).filter((p) => p && !files.includes(p))
+      const gone = rows.map((r) => String(r.path || '')).filter((p) => p && !indexEntryExists(dir, p, files))
       if (missing.length) problems.push('索引缺 ' + missing.length + ' 个文件（' + missing.slice(0, 3).join('、') + '…）：跑 索引 --场景 ' + name)
       if (gone.length) problems.push('索引有 ' + gone.length + ' 个已不存在文件（' + gone.slice(0, 3).join('、') + '…）：跑 索引 --场景 ' + name)
     }
@@ -1241,6 +1349,36 @@ function cmdConfirm(arg) {
   return 0
 }
 
+/** 回流：收工往 _共享记忆\回流.md 记一行（谁干的、这一轮落下了什么），
+    人格注入时读末尾几行 → 大脑知道手最近干了什么（2026-11-25） */
+function appendBackflow(name, dir, info) {
+  const f = path.join(MEMROOT, '_共享记忆', '回流.md')
+  try {
+    if (!fs.existsSync(f)) {
+      fs.writeFileSync(f, '# 跨场景回流\n\n> 一行一条：时间 · 场景 · 这一轮干了什么。由 `场景记忆.mjs 收工` 自动追加，别手改。\n\n', 'utf8')
+    }
+    let digest = ''
+    try {
+      const recent = fs.readFileSync(path.join(dir, '_近期.md'), 'utf8')
+      const now = new Date()
+      const cands = recent.split(/\r?\n/).filter((l) => /^-\s*\d{4}-\d{2}-\d{2}/.test(l.trim()))
+      for (const l of cands) {
+        const d = new Date(l.trim().slice(2, 12))
+        if (isNaN(d) || (now - d) / 86400000 > 7) continue
+        digest = l.replace(/^-\s*/, '').trim().slice(0, 60)
+        break
+      }
+    } catch (e) { digest = '' }
+    const now0 = new Date()
+    const p2 = (n) => String(n).padStart(2, '0')
+    const stamp = now0.getFullYear() + '-' + p2(now0.getMonth() + 1) + '-' + p2(now0.getDate())
+      + ' ' + p2(now0.getHours()) + ':' + p2(now0.getMinutes())
+    const line = '- ' + stamp + ' · ' + name + ' · '
+      + (digest || ('收工：定论 +' + (info.made || 0) + ' · 待确认 ' + (info.pend || 0)))
+    fs.appendFileSync(f, line + '\n', 'utf8')
+  } catch (e) { /* 回流写不进去不影响收工 */ }
+}
+
 /** 收工一条命令：索引 + 近期记忆 + check + 待确认计数（exit 0 才算收工） */
 function cmdFinish(arg) {
   const name = findSceneDir(arg) || arg
@@ -1253,6 +1391,7 @@ function cmdFinish(arg) {
   const r = spawnSync(process.execPath, [path.join(__HERE, '近期记忆.mjs'), '生成', '--场景', name], { encoding: 'utf8' })
   const tail = String(r.stdout || r.stderr || '').trim().split(/\r?\n/).filter(Boolean).pop() || ''
   const pend = readPending(dir).length
+  appendBackflow(name, dir, { made, pend })
   const code = cmdCheck(name)
   console.log('· 收工：索引 ✓ · 近期记忆 ' + (r.status === 0 ? '✓' : '跳过（' + tail.slice(0, 80) + '）')
     + ' · 定论 ' + (made < 0 ? '巩固失败（不影响收工）' : '+' + made) + ' · 待确认 ' + pend + ' 条' + (pend ? '（问用户，别挂着）' : ''))
@@ -1278,16 +1417,88 @@ function tagsOf(text) {
   return one ? one[1].split(/[,，]/).map((s) => s.trim().replace(/^["']|["']$/g, '')).filter(Boolean) : []
 }
 
+/** 展示用标题：落盘时把空格/顿号清洗成了 `-`，展示时把连字符还原成空格（日期里的 `-` 保留） */
+function displayTitleOf(title) {
+  return String(title || '')
+    .replace(/[-—－]/g, (m, i, s) => {
+      const prev = s.charAt(i - 1), next = s.charAt(i + 1)
+      if (/\d/.test(prev) && /\d/.test(next)) return m      // 2026-11-17 这种别拆
+      return ' '
+    })
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+/** 日期兜底：frontmatter → 文件名 YYYY-MM-DD（开头或中间）→ 文件名 YYYYMMDD（归档快照那种） */
+function dateOf(file, fm) {
+  const d = ((fm.match(/^date:[ \t]*(\d{4}-\d{2}-\d{2})/m) || [])[1]) || ''
+  if (d) return d
+  const base = path.basename(file)
+  const m1 = base.match(/^(\d{4}-\d{2}-\d{2})/)
+  if (m1) return m1[1]
+  const m2 = base.match(/(\d{4}-\d{2}-\d{2})/)
+  if (m2) return m2[1]
+  const m3 = base.match(/(\d{4})(\d{2})(\d{2})/)
+  return m3 ? `${m3[1]}-${m3[2]}-${m3[3]}` : ''
+}
+
+/** 一句话摘要：`## 要点` 首条 → 正文首条列表 → frontmatter description → 正文首句（≤80 字）
+ *  跳过「（无）」「- [ ]」这类占位行，免得周记的摘要是三个（无） */
+function summaryOf(text) {
+  const fm = fmOfText(text)
+  const body = text.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, '')
+  const noise = (s) => /^[（(]?\s*(无|空|待补)\s*[）)]?$/.test(String(s || '').trim())
+  const bullets = []
+  const collect = (s) => {
+    s.split(/\r?\n/).forEach((l) => {
+      const m = l.match(/^[-*][ \t]+(.+)/)
+      if (!m) return
+      const v = m[1].trim()
+      if (/^\[[ xX]?\]/.test(v) || noise(v)) return
+      bullets.push(v)
+    })
+    return bullets
+  }
+  const sec = body.match(/##[ \t]*要点\r?\n([\s\S]*?)(?=\r?\n##[ \t]|\r?\n#\s|$)/)
+  if (sec) collect(sec[1])
+  else collect(body)
+  const desc = (fm.match(/^description:[ \t]*(.+)$/m) || [])[1]
+  if (bullets.length) return bullets[0].slice(0, 80)
+  if (desc) return desc.trim().slice(0, 80)
+  const first = body.split(/\r?\n/)
+    .filter((l) => l.trim() && !/^#/.test(l) && !/^>/.test(l) && !noise(l) && !/^[-*][ \t]*\[[ xX]?\]/.test(l))
+    .join(' ')
+  return String((first.split(/[。；]/)[0] || '')).trim().slice(0, 80)
+}
+
+/** 复盘主题：tags 优先；没有就按标题关键词粗归（只影响图上分组，改 tags 即可纠正） */
+const THEME_RULES = [
+  ['dom', /dom|DOM|渲染器|截图|探针|白屏|面板|webview|下拉/i],
+  ['git', /git|提交|回滚|暂存|CRLF|行尾|diff/i],
+  ['token', /token|用量|上下文|会话太长|zstd/i],
+  ['renderers', /renderers\.js/i],
+  ['流程', /流程|顺序|自检|验证|观测|技能|判据/i],
+]
+function themeOf(title, tags) {
+  const t = (tags || []).filter((x) => x && x !== '决策' && x !== '坑' && x !== '定论')
+  if (t.length) return String(t[0])
+  const s = String(title || '')
+  for (const [name, re] of THEME_RULES) if (re.test(s)) return name
+  return ''
+}
+
 /** 一条分条记忆的摘要（渲染器读它画点、算联想边） */
-function entryOf(file, kind) {
+function entryOf(file, kind, extra) {
   const text = fs.readFileSync(file, 'utf8')
-  const fm = (text.match(/^---\r?\n([\s\S]*?)\r?\n---/) || [])[1] || ''
-  const date = ((fm.match(/^date:[ \t]*(\d{4}-\d{2}-\d{2})/m) || [])[1])
-    || (path.basename(file).match(/^(\d{4}-\d{2}-\d{2})/) || [])[1] || ''
-  return {
+  const fm = fmOfText(text)
+  const title = titleOf(file)
+  const date = dateOf(file, fm)
+  const out = {
     path: kind + '\\' + path.basename(file),
     kind,
-    title: titleOf(file),
+    title,
+    displayTitle: displayTitleOf(title),
+    summary: summaryOf(text),
     date,
     tags: tagsOf(text),
     distinct: distinctOfText(text),
@@ -1296,7 +1507,17 @@ function entryOf(file, kind) {
     expires: ((fm.match(/^expires:[ \t]*(\d{4}-\d{2}-\d{2})/m) || [])[1] || ''),
     consolidatedInto: ((fm.match(/^consolidated_into:[ \t]*([^\r\n]+)/m) || [])[1] || '').trim(),
     size: fs.statSync(file).size,
+    archived: kind === '归档',
+    source: ((fm.match(/^source:[ \t]*(.+)$/m) || [])[1] || '').trim(),
+    person: ((fm.match(/^person:[ \t]*(.+)$/m) || [])[1] || '').trim(),
   }
+  if (kind === '定论') out.theme = displayTitleOf(title)
+  else if (kind === '决策' || kind === '坑') out.theme = themeOf(title, out.tags)
+  // 「聊过什么」的通道取 frontmatter 的 source（面板 / QQ / 微信 / 飞书）
+  if (kind === '对话') out.channel = out.source
+  // 归档不再和活文档同名：显示成「留档 · 11-18 …」，免得图上两个「场景私有记忆」
+  if (kind === '归档') out.displayTitle = ('留档 · ' + (date ? date.slice(5) + ' ' : '') + displayTitleOf(title)).trim()
+  return Object.assign(out, extra || {})
 }
 
 /* ---------------------------------------- 场景目录（派生：给神经元一份完整场景清单）
@@ -1324,6 +1545,7 @@ function sceneRegUpsert(name, entryCount) {
     id: String(sc.id || ''),
     panels: (sc.panels || []).filter((p) => p && p.id).map((p) => p.id),
     entries: Number(entryCount) || 0,
+    profile: profileOf(name),
     hasPrivate: fs.existsSync(path.join(dir, '场景私有记忆.md')),
     hasIdentity: fs.existsSync(path.join(dir, '身份卡.md')),
     updatedAt: new Date().toISOString(),
@@ -1351,16 +1573,152 @@ function cmdIndexAll() {
   return 0
 }
 
+/** 目录下所有 md（递归；`_` 开头的元文件跳过） */
+function walkMd(root) {
+  const out = []
+  if (!fs.existsSync(root)) return out
+  for (const e of fs.readdirSync(root, { withFileTypes: true })) {
+    const abs = path.join(root, e.name)
+    if (e.isDirectory()) { out.push(...walkMd(abs)); continue }
+    if (!e.name.endsWith('.md') || e.name.startsWith('_')) continue
+    out.push(abs)
+  }
+  return out.sort()
+}
+
+/** 待办：`_待办.md` 的 `- [ ]` 行逐条成条目（勾掉的只计数、不进图） */
+function todoEntries(dir) {
+  const f = path.join(dir, '_待办.md')
+  if (!fs.existsSync(f)) return []
+  const text = fs.readFileSync(f, 'utf8')
+  const out = []
+  text.split(/\r?\n/).forEach((line) => {
+    const m = line.match(/^[ \t]*[-*][ \t]*\[([ xX]?)\][ \t]*(.+)$/)
+    if (!m || (m[1] && m[1].toLowerCase() === 'x')) return
+    const title = String(m[2]).trim()
+    if (!title) return
+    out.push({
+      path: '_待办.md', kind: '待办', title, displayTitle: displayTitleOf(title),
+      summary: '', date: '', tags: [], distinct: [], evidence: [], expires: '', consolidatedInto: '',
+      size: fs.statSync(f).size, archived: false, source: '', person: '', theme: '', status: 'open',
+    })
+  })
+  return out
+}
+
+/* 派生条目（2026-11-25）：社交 / 本地电脑的真实记忆不在 .md 里，在 data\*.json 里。
+//  不再要求用户手工抄一遍——索引时读事实源，生成「人物 / 记录」条目，点开仍指向原始 json。
+//  只读、不改数据；文件不在就跳过（干净机器上不报错）。 */
+const DATA_DIR = path.join(GUI, 'data')
+function readJsonLoose(p) {
+  try { return JSON.parse(fs.readFileSync(p, 'utf8').replace(/^\uFEFF/, '')) } catch { return null }
+}
+function dateOfTs(ts) {
+  if (!ts) return ''
+  const d = new Date(Number(ts))
+  if (isNaN(d.getTime())) return ''
+  const p2 = (n) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}`
+}
+function makeEntry(o) {
+  return Object.assign({
+    path: '', kind: '记忆', title: '', displayTitle: '', summary: '', date: '', tags: [],
+    distinct: [], evidence: [], expires: '', consolidatedInto: '', size: 0, archived: false,
+    source: '', person: '', channel: '', theme: '', status: '',
+  }, o || {})
+}
+
+/** 社交：一个人一条（跨群/跨私聊合并），带渠道、消息数、熟悉/好感与最近一次 */
+function derivedSocial() {
+  const j = readJsonLoose(path.join(DATA_DIR, '社交关系.json'))
+  const people = (j && j.people) || {}
+  const byName = new Map()
+  for (const k of Object.keys(people)) {
+    const v = people[k] || {}
+    const nm = String(v.preferredName || v.name || '').trim()
+    if (!nm) continue
+    const cur = byName.get(nm) || {
+      name: String(v.name || ''), name2: nm, role: String(v.role || ''), channels: [],
+      chats: 0, msgs: 0, fam: 0, aff: 0, stage: '', last: 0, keys: [],
+    }
+    if (v.channel && cur.channels.indexOf(v.channel) < 0) cur.channels.push(String(v.channel))
+    cur.chats++
+    cur.msgs += Number((v.stats && v.stats.messages) || 0)
+    const fam = Number((v.manual && v.manual.familiarity) != null ? v.manual.familiarity : v.familiarityBase) || 0
+    const aff = Number((v.manual && v.manual.affinity) != null ? v.manual.affinity : v.affinityBase) || 0
+    cur.fam = Math.max(cur.fam, fam); cur.aff = Math.max(cur.aff, aff)
+    cur.stage = String(v.lastStage || cur.stage)
+    cur.last = Math.max(cur.last, Number((v.stats && v.stats.lastAt) || 0))
+    cur.keys.push(k)
+    byName.set(nm, cur)
+  }
+  const out = []
+  const STAGE_CN = { inner: '自己人', close: '亲近', friend: '朋友', known: '认识', stranger: '陌生' }
+  for (const cur of byName.values()) {
+    out.push(makeEntry({
+      path: path.join(DATA_DIR, '社交关系.json'),
+      kind: '人物', title: cur.name2 + (cur.role ? '（' + cur.role + '）' : ''),
+      displayTitle: cur.name2, date: dateOfTs(cur.last),
+      summary: '渠道 ' + (cur.channels.join('/') || '—') + ' · ' + cur.chats + ' 个会话 · 消息 ' + cur.msgs
+        + ' · 熟悉 ' + cur.fam + ' / 好感 ' + cur.aff + (cur.stage ? (' · ' + (STAGE_CN[cur.stage] || cur.stage)) : ''),
+      person: cur.name2, channel: cur.channels.join('/'), tags: ['社交'],
+      size: 0, status: '',
+    }))
+  }
+  return out
+}
+
+/** 本地电脑：清理台账逐批一条 + 最近一次扫描一条（数字都来自 data\*.json，不手写） */
+function derivedOps() {
+  const out = []
+  const log = readJsonLoose(path.join(DATA_DIR, 'pc-cleanup-log.json'))
+  for (const e of (log && Array.isArray(log.entries) ? log.entries : [])) {
+    const freed = Number(e.freed) || 0
+    out.push(makeEntry({
+      path: path.join(DATA_DIR, 'pc-cleanup-log.json'), kind: '记录',
+      title: '清理 ' + freed + 'GB：' + String(e.what || ''), displayTitle: '清理 ' + freed + 'GB',
+      summary: [String(e.what || ''), String(e.note || '')].filter(Boolean).join(' · '),
+      date: String(e.date || ''), tags: ['清理台账'], theme: '清理',
+    }))
+  }
+  const scan = readJsonLoose(path.join(DATA_DIR, 'pc-cleanup-scan.json'))
+  if (scan) {
+    const drives = (Array.isArray(scan.drives) ? scan.drives : []).map((d) => String(d.letter || '')).filter(Boolean)
+    const junk = Number(scan.junkTotalGb) || 0
+    const top = (Array.isArray(scan.items) ? scan.items : []).filter((x) => x && Number(x.gb) > 0)
+      .sort((a, b) => Number(b.gb) - Number(a.gb))[0] || null
+    out.push(makeEntry({
+      path: path.join(DATA_DIR, 'pc-cleanup-scan.json'), kind: '记录',
+      title: '扫描 ' + (drives.join('/') || '本机') + ' · ' + (Number(scan.tookSec) || 0) + ' 秒',
+      displayTitle: '最近一次磁盘扫描', date: dateOfTs(new Date(scan.scannedAt || 0).getTime()),
+      summary: (drives.join('/') || '—') + ' 三盘 · 门槛 ' + (Number(scan.minGb) || 0) + 'GB · 深度 '
+        + (Number(scan.depth) || 0) + (scan.truncated ? ' · 已截断' : '')
+        + (junk ? (' · 可清 ' + junk + 'GB') : '')
+        + (top ? (' · 最大 ' + String(top.path) + ' ' + Number(top.gb) + 'GB') : ''),
+      tags: ['扫描'], theme: '扫描',
+    }))
+  }
+  return out
+}
+
 function cmdIndex(arg, quiet) {
+  return withLock(INDEX_LOCK, () => cmdIndexInner(arg, quiet))
+}
+
+function cmdIndexInner(arg, quiet) {
   const name = findSceneDir(arg) || arg
   const dir = path.join(MEMROOT, name)
   if (!fs.existsSync(dir)) { console.error('✗ 找不到场景目录：' + arg); return 2 }
-  const entries = []
-  for (const k of KINDS) for (const f of kindFiles(dir, k)) entries.push(entryOf(path.join(dir, k, f), k))
+  const profile = profileOf(path.basename(dir))
+  const entries = []  // 1. 三件套（决策 / 坑 / 通知）：`_` 元文件不进图（`_索引.md` 不是一条记忆）
+  for (const k of KINDS) for (const f of kindFiles(dir, k)) {
+    if (f.startsWith('_')) continue
+    entries.push(entryOf(path.join(dir, k, f), k))
+  }
   // 「记忆\」是人格/桌宠这类非 决策/坑 的要点存储，有就一起收（不强制）
   const memDir = path.join(dir, '记忆')
   if (fs.existsSync(memDir)) {
-    for (const f of fs.readdirSync(memDir).filter((x) => x.endsWith('.md')).sort()) entries.push(entryOf(path.join(memDir, f), '记忆'))
+    for (const f of fs.readdirSync(memDir).filter((x) => x.endsWith('.md') && !x.startsWith('_')).sort()) entries.push(entryOf(path.join(memDir, f), '记忆'))
   }
   // 「定论\」是 `沉淀` 产出的语义层（派生草案），一起进索引 ⇒ 神经元下钻能看到
   const disDir = path.join(dir, DISTILL_DIR)
@@ -1372,11 +1730,40 @@ function cmdIndex(arg, quiet) {
   if (fs.existsSync(arcDir)) {
     for (const f of fs.readdirSync(arcDir).filter((x) => x.endsWith('.md')).sort()) entries.push(entryOf(path.join(arcDir, f), '归档'))
   }
+  // 人格（2026-11-25）：真正属于她的是「聊过什么 / 这一周 / 答应没办」，不按 决策/坑 收
+  if (profile === 'persona') {
+    for (const kind of ['对话', '日记']) {
+      const base = path.join(dir, kind)
+      for (const abs of walkMd(base)) {
+        const rel = path.relative(base, abs).replace(/\\/g, '\\')
+        entries.push(entryOf(abs, kind, { path: kind + '\\' + rel }))
+      }
+    }
+    entries.push(...todoEntries(dir))
+  }
+  // 生活（2026-11-25）：她过日子的地方——内容记录 + 日记/周记 + 答应没办
+  if (profile === 'life') {
+    for (const kind of ['内容', '日记']) {
+      const base = path.join(dir, kind)
+      for (const abs of walkMd(base)) entries.push(entryOf(abs, kind, { path: kind + '\\' + path.relative(base, abs).replace(/\\/g, '\\') }))
+    }
+    entries.push(...todoEntries(dir))
+  }
+  // 项目（2026-11-25 补漏）：交接与项目薄卡原来不进索引，图上一直看不到
+  if (profile === 'project') {
+    for (const kind of ['面板交接', '项目记忆']) {
+      for (const abs of walkMd(path.join(dir, kind))) entries.push(entryOf(abs, kind))
+    }
+  }
+  // 通道（2026-11-25）：真实记忆在 data\社交关系.json —— 一个人一条，别只剩两条机制决策
+  if (profile === 'channel') entries.push(...derivedSocial())
+  // 运维（2026-11-25）：清理台账 / 最近扫描在 data\pc-cleanup-*.json —— 逐批一条 + 扫描一条
+  if (profile === 'ops') entries.push(...derivedOps())
   entries.sort((a, b) => String(b.date).localeCompare(String(a.date)))
-  const out = { version: 1, scene: path.basename(dir), generatedAt: new Date().toISOString(), entries }
+  const out = { version: 2, scene: path.basename(dir), profile, generatedAt: new Date().toISOString(), entries }
   fs.writeFileSync(path.join(dir, '_索引.json'), JSON.stringify(out, null, 2) + '\n', 'utf8')
   sceneRegUpsert(path.basename(dir), entries.length)     // 场景目录：神经元靠它把新场景画进来
-  if (!quiet) console.log(`✓ 索引已写：${path.basename(dir)}\\_索引.json（${entries.length} 条）`)
+  if (!quiet) console.log(`✓ 索引已写：${path.basename(dir)}\\_索引.json（${entries.length} 条 · ${PROFILE_NAME[profile] || profile}）`)
   return 0
 }
 
