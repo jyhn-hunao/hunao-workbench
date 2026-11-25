@@ -2,7 +2,7 @@
   "enabled": true,
   "dailyMax": 2,
   "skipProb": 0.3,
-  "deepRead": 1,
+  "deepRead": 2,
   "taste": {
     "like": [
       "原神",
@@ -34,15 +34,15 @@
       "id": "大肥鱼小课堂",
       "name": "大肥鱼小课堂",
       "platform": "bilibili",
+      "weight": 5,
+      "limit": 5,
+      "enabled": true,
       "kind": "up",
       "mid": "171452765",
       "author": "卡布奇诺ultra",
       "series": "大肥鱼小课堂",
       "match": "大肥鱼小课堂",
-      "weight": 5,
-      "limit": 5,
-      "must": true,
-      "enabled": true
+      "must": true
     }
   ]
 }
