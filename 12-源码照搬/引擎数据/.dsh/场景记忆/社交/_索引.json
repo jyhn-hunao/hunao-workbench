@@ -1,12 +1,148 @@
 {
-  "version": 1,
+  "version": 2,
   "scene": "社交",
-  "generatedAt": "2026-11-21T05:16:07.504Z",
+  "profile": "channel",
+  "generatedAt": "2026-11-25T08:46:42.930Z",
   "entries": [
+    {
+      "path": "决策\\2026-11-25-配置面板一律弹窗入口不常驻.md",
+      "kind": "决策",
+      "title": "配置面板一律弹窗入口不常驻",
+      "displayTitle": "配置面板一律弹窗入口不常驻",
+      "summary": "用户2026-11-25明确：配置类面板用弹窗，不要常驻栅格面板",
+      "date": "2026-11-25",
+      "tags": [
+        "决策"
+      ],
+      "distinct": [],
+      "evidence": [
+        "12-源码照搬/外壳/scenarios/social.json::\\",
+        "12-源码照搬/外壳/renderer/renderers.js::window.openChannelOrder = function ()"
+      ],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 699,
+      "archived": false,
+      "source": "",
+      "person": "",
+      "theme": "dom"
+    },
+    {
+      "path": "决策\\2026-11-25-出消息通道优先级.md",
+      "kind": "决策",
+      "title": "出消息通道优先级",
+      "displayTitle": "出消息通道优先级",
+      "summary": "她主动找主人默认走 微信→QQ→飞书→其它，前一条不通顺位往下；顺序在 外壳\\data\\通道优先级.json，面板「社交·主动出消息」可改",
+      "date": "2026-11-25",
+      "tags": [
+        "决策"
+      ],
+      "distinct": [],
+      "evidence": [
+        "12-源码照搬\\工具\\通道发送.mjs::sendQQ"
+      ],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 685,
+      "archived": false,
+      "source": "",
+      "person": "",
+      "theme": ""
+    },
+    {
+      "path": "决策\\2026-11-25-SnowLuma-控制台改成工具条弹窗并带可复制密码.md",
+      "kind": "决策",
+      "title": "SnowLuma 控制台改成工具条弹窗并带可复制密码",
+      "displayTitle": "SnowLuma 控制台改成工具条弹窗并带可复制密码",
+      "summary": "删掉常驻面板 sl-console，社交收成 3 块：ch-hub / so-msg 各占 16+7 列满高 13 行，最右 38px 工具条第 6 钮「控制台",
+      "date": "2026-11-25",
+      "tags": [
+        "决策"
+      ],
+      "distinct": [],
+      "evidence": [
+        "12-源码照搬\\外壳\\renderer\\renderers.js::window.openSnowLumaConsole"
+      ],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 1023,
+      "archived": false,
+      "source": "",
+      "person": "",
+      "theme": ""
+    },
+    {
+      "path": "坑\\2026-11-25-开口要靠壳内跑.md",
+      "kind": "坑",
+      "title": "开口要靠壳内跑",
+      "displayTitle": "开口要靠壳内跑",
+      "summary": "server.log 的 token 已脱敏，外部手跑 开口.mjs 换不到 cookie，只有壳 spawn 的子进程带 DSH_TOKEN",
+      "date": "2026-11-25",
+      "tags": [
+        "坑"
+      ],
+      "distinct": [],
+      "evidence": [
+        "12-源码照搬\\外壳\\main.js::function scriptEnv"
+      ],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 476,
+      "archived": false,
+      "source": "",
+      "person": "",
+      "theme": ""
+    },
+    {
+      "path": "D:\\codeData\\myself\\luanyujia-workbench\\12-源码照搬\\外壳\\data\\社交关系.json",
+      "kind": "人物",
+      "title": "胡闹（主人）",
+      "displayTitle": "胡闹",
+      "summary": "渠道 qq/wechat · 3 个会话 · 消息 11 · 熟悉 100 / 好感 100 · 自己人",
+      "date": "2026-11-25",
+      "tags": [
+        "社交"
+      ],
+      "distinct": [],
+      "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 0,
+      "archived": false,
+      "source": "",
+      "person": "胡闹",
+      "channel": "qq/wechat",
+      "theme": "",
+      "status": ""
+    },
+    {
+      "path": "D:\\codeData\\myself\\luanyujia-workbench\\12-源码照搬\\外壳\\data\\社交关系.json",
+      "kind": "人物",
+      "title": "蒲建衫|小蒲（胡闹的同学）",
+      "displayTitle": "蒲建衫|小蒲",
+      "summary": "渠道 wechat · 1 个会话 · 消息 2 · 熟悉 60 / 好感 60 · 朋友",
+      "date": "2026-11-19",
+      "tags": [
+        "社交"
+      ],
+      "distinct": [],
+      "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 0,
+      "archived": false,
+      "source": "",
+      "person": "蒲建衫|小蒲",
+      "channel": "wechat",
+      "theme": "",
+      "status": ""
+    },
     {
       "path": "决策\\2026-11-13-社交降级为纯通道-不持有AI会话.md",
       "kind": "决策",
       "title": "社交降级为纯通道-不持有AI会话",
+      "displayTitle": "社交降级为纯通道 不持有AI会话",
+      "summary": "so-msg 面板改为只读人格会话的 transcript（sessionTitle 胡闹的大肥鱼）",
       "date": "2026-11-13",
       "tags": [
         "决策"
@@ -17,12 +153,18 @@
       ],
       "expires": "",
       "consolidatedInto": "",
-      "size": 499
+      "size": 499,
+      "archived": false,
+      "source": "",
+      "person": "",
+      "theme": ""
     },
     {
       "path": "坑\\2026-11-13-核心职责块必须在-之后.md",
       "kind": "坑",
       "title": "核心职责块必须在 §〇 之后",
+      "displayTitle": "核心职责块必须在 §〇 之后",
+      "summary": "开场注入取「场景私有记忆.md 里 ## 核心职责 之前那一节」当 §〇（sessions.mjs:86）；把 核心职责 放前面会把注入内容截成只剩文件头，模型",
       "date": "2026-11-13",
       "tags": [
         "坑"
@@ -33,7 +175,11 @@
       ],
       "expires": "",
       "consolidatedInto": "",
-      "size": 602
+      "size": 602,
+      "archived": false,
+      "source": "",
+      "person": "",
+      "theme": ""
     }
   ]
 }
