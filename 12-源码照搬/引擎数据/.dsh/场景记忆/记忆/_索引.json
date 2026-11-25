@@ -1,12 +1,37 @@
 {
-  "version": 1,
+  "version": 2,
   "scene": "记忆",
-  "generatedAt": "2026-11-21T05:16:07.919Z",
+  "profile": "meta",
+  "generatedAt": "2026-11-25T09:20:38.177Z",
   "entries": [
+    {
+      "path": "坑\\2026-11-24-面板-agent-工具进程没有-DSH.md",
+      "kind": "坑",
+      "title": "面板 agent 工具进程没有 DSH_TOKEN",
+      "displayTitle": "面板 agent 工具进程没有 DSH_TOKEN",
+      "summary": "token 只在壳进程内存，scriptEnv 只注入壳 spawn 的子进程；引擎 spawn 的 agent 工具进程 env 没有 DSH_TOKEN，s",
+      "date": "2026-11-24",
+      "tags": [
+        "坑"
+      ],
+      "distinct": [],
+      "evidence": [
+        "12-源码照搬\\外壳\\main.js::function scriptEnv"
+      ],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 809,
+      "archived": false,
+      "source": "",
+      "person": "",
+      "theme": "dom"
+    },
     {
       "path": "决策\\2026-11-13-记忆体系规范-v3-L0-L7-分层-四条不变式.md",
       "kind": "决策",
       "title": "记忆体系规范 v3：L0–L7 分层 + 四条不变式 + 场景矩阵",
+      "displayTitle": "记忆体系规范 v3：L0–L7 分层 + 四条不变式 + 场景矩阵",
+      "summary": "规范落在 doc/记忆体系规范.md：定层级、字段、标签、闸门、迁移；原理仍归 00-核心机制/二-记忆机制，操作仍归 说明/记忆约定",
       "date": "2026-11-13",
       "tags": [
         "决策"
@@ -18,12 +43,18 @@
       ],
       "expires": "",
       "consolidatedInto": "",
-      "size": 518
+      "size": 518,
+      "archived": false,
+      "source": "",
+      "person": "",
+      "theme": ""
     },
     {
       "path": "决策\\2026-11-13-联想层升级为主题节点-让关联从一对一变成一对多.md",
       "kind": "决策",
       "title": "联想层升级为主题节点：让关联从一对一变成一对多/多对一",
+      "displayTitle": "联想层升级为主题节点：让关联从一对一变成一对多/多对一",
+      "summary": "旧做法把两个场景打包成一条线，每个场景最多 3 条 ⇒ 视觉上仍像一对一",
       "date": "2026-11-13",
       "tags": [
         "决策"
@@ -35,12 +66,18 @@
       ],
       "expires": "",
       "consolidatedInto": "",
-      "size": 474
+      "size": 474,
+      "archived": false,
+      "source": "",
+      "person": "",
+      "theme": ""
     },
     {
       "path": "决策\\2026-11-13-神经元加联想层-场景自动进图-共享主题词连边.md",
       "kind": "决策",
       "title": "神经元加联想层：场景自动进图 + 共享主题词连边 + 新鲜度",
+      "displayTitle": "神经元加联想层：场景自动进图 + 共享主题词连边 + 新鲜度",
+      "summary": "场景节点来源改为「_共享记忆\\索引.json ∪ 场景记忆目录」，新场景不用手工登记就进图；空目录（工作台定制）与杂项交接目录排除",
       "date": "2026-11-13",
       "tags": [
         "决策"
@@ -52,12 +89,18 @@
       ],
       "expires": "",
       "consolidatedInto": "",
-      "size": 562
+      "size": 562,
+      "archived": false,
+      "source": "",
+      "person": "",
+      "theme": ""
     },
     {
       "path": "决策\\2026-11-13-收工命令-索引-近期记忆-check.md",
       "kind": "决策",
       "title": "收工命令：索引+近期记忆+check 一条跑完",
+      "displayTitle": "收工命令：索引+近期记忆+check 一条跑完",
+      "summary": "每个场景收工前跑 收工 --场景 X：重建索引、重算近期记忆、跑 check、报待确认条数",
       "date": "2026-11-13",
       "tags": [
         "决策"
@@ -68,12 +111,18 @@
       ],
       "expires": "",
       "consolidatedInto": "",
-      "size": 369
+      "size": 369,
+      "archived": false,
+      "source": "",
+      "person": "",
+      "theme": ""
     },
     {
       "path": "决策\\2026-11-13-场景记忆分条化-一条一个文件.md",
       "kind": "决策",
       "title": "场景记忆分条化：一条一个文件",
+      "displayTitle": "场景记忆分条化：一条一个文件",
+      "summary": "`写`：唯一入口，落 `决策\\` / `坑\\` / `通知\\`，自动 frontmatter + 登记 `_文件索引.md` + 同轮跑 `check`。",
       "date": "2026-11-13",
       "tags": [
         "决策",
@@ -88,12 +137,18 @@
       ],
       "expires": "",
       "consolidatedInto": "定论/场景记忆.md",
-      "size": 1629
+      "size": 1629,
+      "archived": false,
+      "source": "",
+      "person": "",
+      "theme": "记忆机制"
     },
     {
       "path": "决策\\2026-11-13-写入闸门与你确认制-相似拒写-待确认队列-distinct.md",
       "kind": "决策",
       "title": "写入闸门与你确认制：相似拒写-待确认队列-distinct 消歧",
+      "displayTitle": "写入闸门与你确认制：相似拒写 待确认队列 distinct 消歧",
+      "summary": "写 前查同场景相似度：≥50% 拒写（exit 3）；同一条就改旧篇，确实是两件事加 --不是同一条",
       "date": "2026-11-13",
       "tags": [
         "决策"
@@ -105,12 +160,18 @@
       ],
       "expires": "",
       "consolidatedInto": "",
-      "size": 487
+      "size": 487,
+      "archived": false,
+      "source": "",
+      "person": "",
+      "theme": ""
     },
     {
       "path": "决策\\2026-11-13-五个场景-根因-oaApi-filesLocal.md",
       "kind": "决策",
       "title": "五个场景-根因-oaApi-filesLocal-全仓零命中",
+      "displayTitle": "五个场景 根因 oaApi filesLocal 全仓零命中",
+      "summary": "现象：面板只显示登记表那 5 个场景，社交/胡闹的大肥鱼没有节点",
       "date": "2026-11-13",
       "tags": [
         "决策",
@@ -125,12 +186,18 @@
       ],
       "expires": "",
       "consolidatedInto": "",
-      "size": 842
+      "size": 842,
+      "archived": false,
+      "source": "",
+      "person": "",
+      "theme": "神经元"
     },
     {
       "path": "坑\\2026-11-13-证据闸门上线-近30天决策坑必须能自证.md",
       "kind": "坑",
       "title": "证据闸门上线：近30天决策坑必须能自证",
+      "displayTitle": "证据闸门上线：近30天决策坑必须能自证",
+      "summary": "`记忆.mjs 写`：`--类 decisions|pitfalls` 必须带 `--证据`，或 `--无证据 \"原因\"`（写进 frontmatter `no",
       "date": "2026-11-13",
       "tags": [
         "坑"
@@ -141,12 +208,18 @@
       ],
       "expires": "",
       "consolidatedInto": "",
-      "size": 1208
+      "size": 1208,
+      "archived": false,
+      "source": "",
+      "person": "",
+      "theme": ""
     },
     {
       "path": "定论\\场景记忆.md",
       "kind": "定论",
       "title": "场景记忆",
+      "displayTitle": "场景记忆",
+      "summary": "2026-11-13 场景记忆分条化：一条一个文件：场景记忆从「一个 25 KB 巨石」改成「一条一个文件」，由工具强制，不靠约定。 · `决策\\2026-11",
       "date": "2026-11-13",
       "tags": [
         "定论",
@@ -159,27 +232,58 @@
       ],
       "expires": "",
       "consolidatedInto": "",
-      "size": 3766
+      "size": 3766,
+      "archived": false,
+      "source": "",
+      "person": "",
+      "theme": "场景记忆"
+    },
+    {
+      "path": "归档\\场景私有记忆-202611130923-拆分前.md",
+      "kind": "归档",
+      "title": "命令 · 场景私有记忆",
+      "displayTitle": "留档 · 11-13 命令 · 场景私有记忆",
+      "summary": "2026-11-11 用户定界：命令场景只负责**管理记忆**——场景记忆（`引擎数据\\.dsh\\场景记忆\\`）与项目记忆（各项目根 `memory\\`）；本次",
+      "date": "2026-11-13",
+      "tags": [],
+      "distinct": [],
+      "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 3448,
+      "archived": true,
+      "source": "",
+      "person": ""
     },
     {
       "path": "决策\\2026-11-11-职责定界-命令场景只做记忆管理场景记忆-项目记忆的体检-交接.md",
       "kind": "决策",
       "title": "职责定界：命令场景只做记忆管理（场景记忆 + 项目记忆的体检、交接、归档、召回、索引），不做代码、不改面板与会话",
+      "displayTitle": "职责定界：命令场景只做记忆管理（场景记忆 + 项目记忆的体检、交接、归档、召回、索引），不做代码、不改面板与会话",
+      "summary": "2026-11-11 职责定界：命令场景只做**记忆管理**（场景记忆 + 项目记忆的体检、交接、归档、召回、索引），不做代码、不改面板与会话；跨场景只发消息提",
       "date": "2026-11-11",
       "tags": [
         "决策",
-        "场景记忆 + 项目记忆的体检、交接、归档、召回、索引"
+        "记忆职责",
+        "场景记忆",
+        "项目记忆"
       ],
       "distinct": [],
       "evidence": [],
       "expires": "",
       "consolidatedInto": "定论/场景记忆.md",
-      "size": 1047
+      "size": 1015,
+      "archived": false,
+      "source": "场景私有记忆.md §五（2026-11-13 拆分）",
+      "person": "",
+      "theme": "记忆职责"
     },
     {
       "path": "决策\\2026-11-11-发现-场景记忆-mjs-check-的会话检查按旧布局找.md",
       "kind": "决策",
       "title": "发现：`场景记忆.mjs check` 的会话检查按旧布局找 `.dsh\\sessions\\<ws>\\<id>\\sess",
+      "displayTitle": "发现：`场景记忆.mjs check` 的会话检查按旧布局找 `.dsh\\sessions\\<ws>\\<id>\\sess",
+      "summary": "2026-11-11 发现：`场景记忆.mjs check` 的会话检查按旧布局找 `.dsh\\sessions\\<ws>\\<id>\\session.v4.js",
       "date": "2026-11-11",
       "tags": [
         "决策"
@@ -188,19 +292,11 @@
       "evidence": [],
       "expires": "",
       "consolidatedInto": "定论/场景记忆.md",
-      "size": 853
-    },
-    {
-      "path": "归档\\场景私有记忆-202611130923-拆分前.md",
-      "kind": "归档",
-      "title": "命令 · 场景私有记忆",
-      "date": "",
-      "tags": [],
-      "distinct": [],
-      "evidence": [],
-      "expires": "",
-      "consolidatedInto": "",
-      "size": 3448
+      "size": 853,
+      "archived": false,
+      "source": "场景私有记忆.md §五（2026-11-13 拆分）",
+      "person": "",
+      "theme": ""
     }
   ]
 }

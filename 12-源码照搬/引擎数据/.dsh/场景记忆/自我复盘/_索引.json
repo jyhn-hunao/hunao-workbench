@@ -1,12 +1,15 @@
 {
-  "version": 1,
+  "version": 2,
   "scene": "自我复盘",
-  "generatedAt": "2026-11-21T05:16:07.888Z",
+  "profile": "review",
+  "generatedAt": "2026-11-25T08:46:43.173Z",
   "entries": [
     {
       "path": "定论\\dom.md",
       "kind": "定论",
       "title": "dom",
+      "displayTitle": "dom",
+      "summary": "2026-11-11 用户说\"卡住\"时，先拿到那一屏（截图 / `boot:state` 快照 / DOM 探针），再回日志找判据：2026-11-11（现象先",
       "date": "2026-11-13",
       "tags": [
         "定论",
@@ -19,12 +22,18 @@
       ],
       "expires": "",
       "consolidatedInto": "",
-      "size": 4164
+      "size": 4164,
+      "archived": false,
+      "source": "",
+      "person": "",
+      "theme": "dom"
     },
     {
       "path": "定论\\git.md",
       "kind": "定论",
       "title": "git",
+      "displayTitle": "git",
+      "summary": "2026-11-11 这次能 30 秒恢复，靠的是之前把第二轮改动 `git add` 过（`git checkout --` 回到暂存版），：2026-11-",
       "date": "2026-11-13",
       "tags": [
         "定论",
@@ -37,12 +46,18 @@
       ],
       "expires": "",
       "consolidatedInto": "",
-      "size": 3450
+      "size": 3450,
+      "archived": false,
+      "source": "",
+      "person": "",
+      "theme": "git"
     },
     {
       "path": "定论\\renderers.md",
       "kind": "定论",
       "title": "renderers",
+      "displayTitle": "renderers",
+      "summary": "2026-11-11 `刷新面板.mjs` / ⟳ 只热更 `renderers.js`，改 `index.html` 的标签不算\"热更\"，要：2026-11-",
       "date": "2026-11-13",
       "tags": [
         "定论",
@@ -55,12 +70,35 @@
       ],
       "expires": "",
       "consolidatedInto": "",
-      "size": 3343
+      "size": 3343,
+      "archived": false,
+      "source": "",
+      "person": "",
+      "theme": "renderers"
+    },
+    {
+      "path": "归档\\场景私有记忆-202611130923-拆分前.md",
+      "kind": "归档",
+      "title": "自我复盘 · 场景私有记忆",
+      "displayTitle": "留档 · 11-13 自我复盘 · 场景私有记忆",
+      "summary": "2026-11-11：首次复盘。对象＝「工作台启动卡启动页」那一轮（读 2.1MB server.log → 定位 token 竞态 → 修复 dd09e6e ",
+      "date": "2026-11-13",
+      "tags": [],
+      "distinct": [],
+      "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 13228,
+      "archived": true,
+      "source": "",
+      "person": ""
     },
     {
       "path": "决策\\2026-11-11-这次能-30-秒恢复-靠的是之前把第二轮改动-git-add.md",
       "kind": "决策",
       "title": "这次能 30 秒恢复，靠的是之前把第二轮改动 `git add` 过（`git checkout --` 回到暂存版），",
+      "displayTitle": "这次能 30 秒恢复，靠的是之前把第二轮改动 `git add` 过（`git checkout ` 回到暂存版），",
+      "summary": "2026-11-11（回滚基线）：这次能 30 秒恢复，靠的是之前把第二轮改动 `git add` 过（`git checkout --` 回到暂存版），属侥幸",
       "date": "2026-11-11",
       "tags": [
         "决策",
@@ -70,12 +108,18 @@
       "evidence": [],
       "expires": "",
       "consolidatedInto": "定论/git.md",
-      "size": 928
+      "size": 928,
+      "archived": false,
+      "source": "场景私有记忆.md §五（2026-11-13 拆分）",
+      "person": "",
+      "theme": "回滚基线"
     },
     {
       "path": "决策\\2026-11-11-讲机制先破用户最可能的错误前提.md",
       "kind": "决策",
       "title": "讲机制先破用户最可能的错误前提",
+      "displayTitle": "讲机制先破用户最可能的错误前提",
+      "summary": "2026-11-11（先破错误前提）：讲机制先破用户最可能的错误前提。第一轮我只说\"token 晚到\"，用户下一句就是\"我不是配置了吗\"——因为没点破\"它不是配",
       "date": "2026-11-11",
       "tags": [
         "决策",
@@ -85,12 +129,18 @@
       "evidence": [],
       "expires": "",
       "consolidatedInto": "",
-      "size": 889
+      "size": 889,
+      "archived": false,
+      "source": "场景私有记忆.md §五（2026-11-13 拆分）",
+      "person": "",
+      "theme": "先破错误前提"
     },
     {
       "path": "决策\\2026-11-11-记忆里的当前状态区-的待办-表格要逐行替换.md",
       "kind": "决策",
       "title": "记忆里的「当前状态区」（§〇 的待办 / 表格）要逐行替换，别整段重写",
+      "displayTitle": "记忆里的「当前状态区」（§〇 的待办 / 表格）要逐行替换，别整段重写",
+      "summary": "2026-11-11（改记忆）：记忆里的「当前状态区」（§〇 的待办 / 表格）要**逐行替换**，别整段重写。我整段替换 §〇「下一步」时，把别人留下的\"第二",
       "date": "2026-11-11",
       "tags": [
         "决策",
@@ -100,12 +150,18 @@
       "evidence": [],
       "expires": "",
       "consolidatedInto": "",
-      "size": 898
+      "size": 898,
+      "archived": false,
+      "source": "场景私有记忆.md §五（2026-11-13 拆分）",
+      "person": "",
+      "theme": "改记忆"
     },
     {
       "path": "决策\\2026-11-11-给壳加省-token-提示时-12-源码照搬.md",
       "kind": "决策",
       "title": "给壳加\"省 token 提示\"时，`12-源码照搬\\*` 下的任何写入（`Set-Content`、`node fs.w",
+      "displayTitle": "给壳加\"省 token 提示\"时，`12 源码照搬\\*` 下的任何写入（`Set Content`、`node fs.w",
+      "summary": "2026-11-11（沙箱只放行仓库根·别急着改 ACL）：给壳加\"省 token 提示\"时，`12-源码照搬\\*` 下的任何写入（`Set-Content`、",
       "date": "2026-11-11",
       "tags": [
         "决策",
@@ -115,12 +171,18 @@
       "evidence": [],
       "expires": "",
       "consolidatedInto": "",
-      "size": 1289
+      "size": 1289,
+      "archived": false,
+      "source": "场景私有记忆.md §五（2026-11-13 拆分）",
+      "person": "",
+      "theme": "沙箱只放行仓库根·别急着改 ACL"
     },
     {
       "path": "决策\\2026-11-11-纯-CRLF-文件上用-git-c-core-autocrlf.md",
       "kind": "决策",
       "title": "纯 CRLF 文件上用 `git -c core.autocrlf=false diff --cached --nums",
+      "displayTitle": "纯 CRLF 文件上用 `git c core.autocrlf=false diff cached nums",
+      "summary": "2026-11-11（numstat 会骗人）：纯 CRLF 文件上用 `git -c core.autocrlf=false diff --cached --",
       "date": "2026-11-11",
       "tags": [
         "决策",
@@ -130,12 +192,18 @@
       "evidence": [],
       "expires": "",
       "consolidatedInto": "定论/git.md",
-      "size": 832
+      "size": 832,
+      "archived": false,
+      "source": "场景私有记忆.md §五（2026-11-13 拆分）",
+      "person": "",
+      "theme": "numstat 会骗人"
     },
     {
       "path": "决策\\2026-11-11-第一版用原生-select-做项目下拉-紧挨-webview.md",
       "kind": "决策",
       "title": "第一版用原生 `<select>` 做项目下拉，紧挨 `<webview>` 时被 guest 抢焦点顶掉（用户实测\"一",
+      "displayTitle": "第一版用原生 `<select>` 做项目下拉，紧挨 `<webview>` 时被 guest 抢焦点顶掉（用户实测\"一",
+      "summary": "2026-11-11（原生控件 × webview）：第一版用原生 `<select>` 做项目下拉，紧挨 `<webview>` 时被 guest 抢焦点顶掉",
       "date": "2026-11-11",
       "tags": [
         "决策",
@@ -145,12 +213,18 @@
       "evidence": [],
       "expires": "",
       "consolidatedInto": "",
-      "size": 970
+      "size": 970,
+      "archived": false,
+      "source": "场景私有记忆.md §五（2026-11-13 拆分）",
+      "person": "",
+      "theme": "原生控件 × webview"
     },
     {
       "path": "决策\\2026-11-11-用户说卡住时-先拿到那一屏截图-boot-state-快照.md",
       "kind": "决策",
       "title": "用户说\"卡住\"时，先拿到那一屏（截图 / `boot:state` 快照 / DOM 探针），再回日志找判据",
+      "displayTitle": "用户说\"卡住\"时，先拿到那一屏（截图 / `boot:state` 快照 / DOM 探针），再回日志找判据",
+      "summary": "2026-11-11（现象先行）：用户说\"卡住\"时，**先拿到那一屏**（截图 / `boot:state` 快照 / DOM 探针），再回日志找判据。上轮我扎",
       "date": "2026-11-11",
       "tags": [
         "决策",
@@ -160,12 +234,18 @@
       "evidence": [],
       "expires": "",
       "consolidatedInto": "定论/dom.md",
-      "size": 1094
+      "size": 1094,
+      "archived": false,
+      "source": "场景私有记忆.md §五（2026-11-13 拆分）",
+      "person": "",
+      "theme": "现象先行"
     },
     {
       "path": "决策\\2026-11-11-没按-code-dev-技能第-1.md",
       "kind": "决策",
       "title": "没按 `code-dev` 技能第 1 步的顺序认现场",
+      "displayTitle": "没按 `code dev` 技能第 1 步的顺序认现场",
+      "summary": "2026-11-11（认现场·最该记的一条）：**没按 `code-dev` 技能第 1 步的顺序认现场**。技能写的是「① 定位卡 → ② 场景 §〇 交接 ",
       "date": "2026-11-11",
       "tags": [
         "决策",
@@ -175,12 +255,18 @@
       "evidence": [],
       "expires": "",
       "consolidatedInto": "",
-      "size": 1185
+      "size": 1185,
+      "archived": false,
+      "source": "场景私有记忆.md §五（2026-11-13 拆分）",
+      "person": "",
+      "theme": "认现场·最该记的一条"
     },
     {
       "path": "决策\\2026-11-11-本次现在这一轮也命中竞态是推断依据日志顺序-上一轮的截图.md",
       "kind": "决策",
       "title": "本次\"现在这一轮也命中竞态\"是推断（依据日志顺序 + 上一轮的截图），不是直接观测（我看不到那屏）",
+      "displayTitle": "本次\"现在这一轮也命中竞态\"是推断（依据日志顺序 + 上一轮的截图），不是直接观测（我看不到那屏）",
+      "summary": "2026-11-11（证据与推断分开写）：本次\"现在这一轮也命中竞态\"是**推断**（依据日志顺序 + 上一轮的截图），不是直接观测（我看不到那屏）。结论里要把",
       "date": "2026-11-11",
       "tags": [
         "决策",
@@ -190,12 +276,18 @@
       "evidence": [],
       "expires": "",
       "consolidatedInto": "定论/dom.md",
-      "size": 1094
+      "size": 1094,
+      "archived": false,
+      "source": "场景私有记忆.md §五（2026-11-13 拆分）",
+      "person": "",
+      "theme": "证据与推断分开写"
     },
     {
       "path": "决策\\2026-11-11-改混合行尾的大文件-编辑工具会按主导行尾重写-CRLF.md",
       "kind": "决策",
       "title": "改混合行尾的大文件，编辑工具会按主导行尾重写，CRLF 段被统一成 LF ⇒ 1 行改动变 242/242",
+      "displayTitle": "改混合行尾的大文件，编辑工具会按主导行尾重写，CRLF 段被统一成 LF ⇒ 1 行改动变 242/242",
+      "summary": "2026-11-11（行尾）：改混合行尾的大文件，编辑工具会按主导行尾重写，CRLF 段被统一成 LF ⇒ 1 行改动变 242/242。改前先记 `git d",
       "date": "2026-11-11",
       "tags": [
         "决策",
@@ -205,12 +297,18 @@
       "evidence": [],
       "expires": "",
       "consolidatedInto": "",
-      "size": 1007
+      "size": 1007,
+      "archived": false,
+      "source": "场景私有记忆.md §五（2026-11-13 拆分）",
+      "person": "",
+      "theme": "行尾"
     },
     {
       "path": "决策\\2026-11-11-改共享入口函数前先-grep-出全部调用点再改.md",
       "kind": "决策",
       "title": "改共享入口函数前先 `grep` 出全部调用点再改",
+      "displayTitle": "改共享入口函数前先 `grep` 出全部调用点再改",
+      "summary": "2026-11-11（调用点）：改共享入口函数前先 `grep` 出**全部调用点**再改。`renderer.js` 的 `loadHarness()` 有 ",
       "date": "2026-11-11",
       "tags": [
         "决策",
@@ -220,12 +318,18 @@
       "evidence": [],
       "expires": "",
       "consolidatedInto": "",
-      "size": 874
+      "size": 874,
+      "archived": false,
+      "source": "场景私有记忆.md §五（2026-11-13 拆分）",
+      "person": "",
+      "theme": "调用点"
     },
     {
       "path": "决策\\2026-11-11-把当日-6-个会话的-assistant-message.md",
       "kind": "决策",
       "title": "把当日 6 个会话的 `assistant/message.usage` 全量累了一遍，294.9M tokens 里 ",
+      "displayTitle": "把当日 6 个会话的 `assistant/message.usage` 全量累了一遍，294.9M tokens 里",
+      "summary": "2026-11-11（token 账·长会话才是主成本）：把当日 6 个会话的 `assistant/message.usage` 全量累了一遍，294.9M ",
       "date": "2026-11-11",
       "tags": [
         "决策",
@@ -235,12 +339,18 @@
       "evidence": [],
       "expires": "",
       "consolidatedInto": "",
-      "size": 1545
+      "size": 1545,
+      "archived": false,
+      "source": "场景私有记忆.md §五（2026-11-13 拆分）",
+      "person": "",
+      "theme": "token 账·长会话才是主成本"
     },
     {
       "path": "决策\\2026-11-11-我拿不到工作台窗口的-DOM-截图-却连续做视觉层改动.md",
       "kind": "决策",
       "title": "我拿不到工作台窗口的 DOM/截图，却连续做视觉层改动，等于让用户当测试机",
+      "displayTitle": "我拿不到工作台窗口的 DOM/截图，却连续做视觉层改动，等于让用户当测试机",
+      "summary": "2026-11-11（看不见就别做视觉改动）：我拿不到工作台窗口的 DOM/截图，却连续做视觉层改动，等于让用户当测试机。改法：先造观测（`.panel` 数、",
       "date": "2026-11-11",
       "tags": [
         "决策",
@@ -250,12 +360,18 @@
       "evidence": [],
       "expires": "",
       "consolidatedInto": "定论/dom.md",
-      "size": 952
+      "size": 952,
+      "archived": false,
+      "source": "场景私有记忆.md §五（2026-11-13 拆分）",
+      "person": "",
+      "theme": "看不见就别做视觉改动"
     },
     {
       "path": "决策\\2026-11-11-开工先扫上一轮的残留物.md",
       "kind": "决策",
       "title": "开工先扫上一轮的残留物",
+      "displayTitle": "开工先扫上一轮的残留物",
+      "summary": "2026-11-11（现场残留）：开工先扫上一轮的残留物。`.tmp-diag\\` 是 18:20 另一轮诊断留下的（`server.log.before`、`",
       "date": "2026-11-11",
       "tags": [
         "决策",
@@ -265,12 +381,18 @@
       "evidence": [],
       "expires": "",
       "consolidatedInto": "",
-      "size": 810
+      "size": 810,
+      "archived": false,
+      "source": "场景私有记忆.md §五（2026-11-13 拆分）",
+      "person": "",
+      "theme": "现场残留"
     },
     {
       "path": "决策\\2026-11-11-刷新面板-返回-热更新结果-ok-只证明-script-元素.md",
       "kind": "决策",
       "title": "`刷新面板` 返回 `热更新结果: ok` 只证明 `<script>` 元素 load 了，不证明执行完成",
+      "displayTitle": "`刷新面板` 返回 `热更新结果: ok` 只证明 `<script>` 元素 load 了，不证明执行完成",
+      "summary": "2026-11-11（热更新的\"ok\"是假阳性）：`刷新面板` 返回 `热更新结果: ok` 只证明 `<script>` 元素 load 了，**不证明执行完",
       "date": "2026-11-11",
       "tags": [
         "决策",
@@ -280,12 +402,18 @@
       "evidence": [],
       "expires": "",
       "consolidatedInto": "",
-      "size": 1022
+      "size": 1022,
+      "archived": false,
+      "source": "场景私有记忆.md §五（2026-11-13 拆分）",
+      "person": "",
+      "theme": "热更新的\"ok\"是假阳性"
     },
     {
       "path": "决策\\2026-11-11-刷新面板-mjs-只热更-renderers-js-改.md",
       "kind": "决策",
       "title": "`刷新面板.mjs` / ⟳ 只热更 `renderers.js`，改 `index.html` 的标签不算\"热更\"，要",
+      "displayTitle": "`刷新面板.mjs` / ⟳ 只热更 `renderers.js`，改 `index.html` 的标签不算\"热更\"，要",
+      "summary": "2026-11-11（新增 `<script>` 标签必须重启）：`刷新面板.mjs` / ⟳ 只热更 `renderers.js`，改 `index.html",
       "date": "2026-11-11",
       "tags": [
         "决策",
@@ -295,12 +423,18 @@
       "evidence": [],
       "expires": "",
       "consolidatedInto": "定论/renderers.md",
-      "size": 935
+      "size": 935,
+      "archived": false,
+      "source": "场景私有记忆.md §五（2026-11-13 拆分）",
+      "person": "",
+      "theme": "新增 `<script>` 标签必须重启"
     },
     {
       "path": "决策\\2026-11-11-先-commit-看-git-show-stat-与-git.md",
       "kind": "决策",
       "title": "先 commit，看 `git show --stat` 与 `git diff --numstat`，确认干净再 pu",
+      "displayTitle": "先 commit，看 `git show stat` 与 `git diff numstat`，确认干净再 pu",
+      "summary": "2026-11-11（提交与推送分步）：**先 commit，看 `git show --stat` 与 `git diff --numstat`，确认干净再 ",
       "date": "2026-11-11",
       "tags": [
         "决策",
@@ -310,12 +444,18 @@
       "evidence": [],
       "expires": "",
       "consolidatedInto": "定论/git.md",
-      "size": 937
+      "size": 937,
+      "archived": false,
+      "source": "场景私有记忆.md §五（2026-11-13 拆分）",
+      "person": "",
+      "theme": "提交与推送分步"
     },
     {
       "path": "决策\\2026-11-11-node-check-只证明语法.md",
       "kind": "决策",
       "title": "`node --check` 只证明语法",
+      "displayTitle": "`node check` 只证明语法",
+      "summary": "2026-11-11（\"能跑\"的判据）：`node --check` 只证明语法；要证明**能执行到末尾并导出**，用假 DOM 跑一遍最便宜——`vm.run",
       "date": "2026-11-11",
       "tags": [
         "决策",
@@ -325,12 +465,18 @@
       "evidence": [],
       "expires": "",
       "consolidatedInto": "",
-      "size": 820
+      "size": 820,
+      "archived": false,
+      "source": "场景私有记忆.md §五（2026-11-13 拆分）",
+      "person": "",
+      "theme": "能跑\"的判据"
     },
     {
       "path": "决策\\2026-11-11-fs-writeFileSync-直接对-1-1MB-的.md",
       "kind": "决策",
       "title": "`fs.writeFileSync` 直接对 1.1MB 的 `renderers.js` 截断重写，正在运行的工作台若",
+      "displayTitle": "`fs.writeFileSync` 直接对 1.1MB 的 `renderers.js` 截断重写，正在运行的工作台若",
+      "summary": "2026-11-11（写盘要原子）：`fs.writeFileSync` 直接对 1.1MB 的 `renderers.js` 截断重写，正在运行的工作台若此时",
       "date": "2026-11-11",
       "tags": [
         "决策",
@@ -340,12 +486,18 @@
       "evidence": [],
       "expires": "",
       "consolidatedInto": "定论/renderers.md",
-      "size": 864
+      "size": 864,
+      "archived": false,
+      "source": "场景私有记忆.md §五（2026-11-13 拆分）",
+      "person": "",
+      "theme": "写盘要原子"
     },
     {
       "path": "决策\\2026-11-11-fixesc-用-split-join-批量改-replace.md",
       "kind": "决策",
       "title": "`fixesc` 用 `split/join` 批量改 `.replace(/^\\/([A-Za-z]:)/…)`，本意",
+      "displayTitle": "`fixesc` 用 `split/join` 批量改 `.replace(/^\\/([A Za z]:)/…)`，本意",
+      "summary": "2026-11-11（批量替换·这次直接造成整页白屏）：`fixesc` 用 `split/join` 批量改 `.replace(/^\\/([A-Za-z]:",
       "date": "2026-11-11",
       "tags": [
         "决策",
@@ -355,12 +507,18 @@
       "evidence": [],
       "expires": "",
       "consolidatedInto": "",
-      "size": 1170
+      "size": 1170,
+      "archived": false,
+      "source": "场景私有记忆.md §五（2026-11-13 拆分）",
+      "person": "",
+      "theme": "批量替换·这次直接造成整页白屏"
     },
     {
       "path": "决策\\2026-11-11-10-08-10-10-三分钟内热替换三次原生下拉-自绘菜单.md",
       "kind": "决策",
       "title": "10:08–10:10 三分钟内热替换三次（原生下拉→自绘菜单、文件面板跟随、对话链接桥），每轮都带新风险",
+      "displayTitle": "10:08–10:10 三分钟内热替换三次（原生下拉→自绘菜单、文件面板跟随、对话链接桥），每轮都带新风险",
+      "summary": "2026-11-11（一次一个主题）：10:08–10:10 三分钟内热替换三次（原生下拉→自绘菜单、文件面板跟随、对话链接桥），每轮都带新风险；用户在现场时尤",
       "date": "2026-11-11",
       "tags": [
         "决策",
@@ -370,12 +528,18 @@
       "evidence": [],
       "expires": "",
       "consolidatedInto": "",
-      "size": 1042
+      "size": 1042,
+      "archived": false,
+      "source": "场景私有记忆.md §五（2026-11-13 拆分）",
+      "person": "",
+      "theme": "一次一个主题"
     },
     {
       "path": "坑\\2026-11-11-renderers-js-的-blob-是-CRLF-为主.md",
       "kind": "坑",
       "title": "`renderers.js` 的 blob 是 CRLF 为主 + 242 行 LF",
+      "displayTitle": "`renderers.js` 的 blob 是 CRLF 为主 + 242 行 LF",
+      "summary": "2026-11-11（混合行尾又踩）：`renderers.js` 的 blob 是 CRLF 为主 + 242 行 LF；`git add`（autocrlf",
       "date": "2026-11-11",
       "tags": [
         "坑",
@@ -385,19 +549,11 @@
       "evidence": [],
       "expires": "",
       "consolidatedInto": "定论/renderers.md",
-      "size": 775
-    },
-    {
-      "path": "归档\\场景私有记忆-202611130923-拆分前.md",
-      "kind": "归档",
-      "title": "自我复盘 · 场景私有记忆",
-      "date": "",
-      "tags": [],
-      "distinct": [],
-      "evidence": [],
-      "expires": "",
-      "consolidatedInto": "",
-      "size": 13228
+      "size": 775,
+      "archived": false,
+      "source": "场景私有记忆.md §五（2026-11-13 拆分）",
+      "person": "",
+      "theme": "混合行尾又踩"
     }
   ]
 }

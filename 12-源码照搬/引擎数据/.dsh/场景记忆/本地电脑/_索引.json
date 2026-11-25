@@ -1,12 +1,76 @@
 {
-  "version": 1,
+  "version": 2,
   "scene": "本地电脑",
-  "generatedAt": "2026-11-21T05:16:07.492Z",
+  "profile": "ops",
+  "generatedAt": "2026-11-25T08:46:42.849Z",
   "entries": [
+    {
+      "path": "D:\\codeData\\myself\\luanyujia-workbench\\12-源码照搬\\外壳\\data\\pc-cleanup-scan.json",
+      "kind": "记录",
+      "title": "扫描 C/D/E · 88.6 秒",
+      "displayTitle": "最近一次磁盘扫描",
+      "summary": "C/D/E 三盘 · 门槛 0.5GB · 深度 3 · 已截断 · 最大 D:\\ 16.04GB",
+      "date": "2026-11-24",
+      "tags": [
+        "扫描"
+      ],
+      "distinct": [],
+      "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 0,
+      "archived": false,
+      "source": "",
+      "person": "",
+      "channel": "",
+      "theme": "扫描",
+      "status": ""
+    },
+    {
+      "path": "D:\\codeData\\myself\\luanyujia-workbench\\12-源码照搬\\外壳\\data\\pc-cleanup-log.json",
+      "kind": "记录",
+      "title": "清理 4.65GB：C 盘缓存清理：npm/pnpm/pip 缓存 + electron 旧版 + Edge/NVIDIA 缓存",
+      "displayTitle": "清理 4.65GB",
+      "summary": "C 盘缓存清理：npm/pnpm/pip 缓存 + electron 旧版 + Edge/NVIDIA 缓存 · 18.2→22.85 GB 可用；Windows 更新缓存 0.19GB 需管理员，Temp 2.16GB 多为占用中",
+      "date": "2026-11-18",
+      "tags": [
+        "清理台账"
+      ],
+      "distinct": [],
+      "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 0,
+      "archived": false,
+      "source": "",
+      "person": "",
+      "channel": "",
+      "theme": "清理",
+      "status": ""
+    },
+    {
+      "path": "归档\\场景私有记忆-202611130923-拆分前.md",
+      "kind": "归档",
+      "title": "本地电脑 · 场景私有记忆",
+      "displayTitle": "留档 · 11-13 本地电脑 · 场景私有记忆",
+      "summary": "2026-11-10：面板要的 `外壳\\scripts\\pc-scan.mjs` 原本不存在（`工作区\\` 是空的、git 历史里也没有），已按 `render",
+      "date": "2026-11-13",
+      "tags": [],
+      "distinct": [],
+      "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 2820,
+      "archived": true,
+      "source": "",
+      "person": ""
+    },
     {
       "path": "决策\\2026-11-10-面板依赖的扫描脚本从未入库-renderers-js.md",
       "kind": "决策",
       "title": "面板依赖的扫描脚本从未入库：`renderers.js:12288` 写的是 `scripts\\pc-scan.mjs`",
+      "displayTitle": "面板依赖的扫描脚本从未入库：`renderers.js:12288` 写的是 `scripts\\pc scan.mjs`",
+      "summary": "2026-11-10 面板依赖的扫描脚本从未入库：`renderers.js:12288` 写的是 `scripts\\pc-scan.mjs`，仓里没这个文件，",
       "date": "2026-11-10",
       "tags": [
         "决策"
@@ -15,12 +79,18 @@
       "evidence": [],
       "expires": "",
       "consolidatedInto": "",
-      "size": 975
+      "size": 975,
+      "archived": false,
+      "source": "场景私有记忆.md §五（2026-11-13 拆分）",
+      "person": "",
+      "theme": "dom"
     },
     {
       "path": "决策\\2026-11-10-时间上限只按目录粒度检查-遇到超大目录C-Windows.md",
       "kind": "决策",
       "title": "时间上限只按\"目录\"粒度检查，遇到超大目录（`C:\\Windows` 这类）会大幅超时：C 盘预算 400s/3 盘≈1",
+      "displayTitle": "时间上限只按\"目录\"粒度检查，遇到超大目录（`C:\\Windows` 这类）会大幅超时：C 盘预算 400s/3 盘≈1",
+      "summary": "2026-11-10 时间上限只按\"目录\"粒度检查，遇到超大目录（`C:\\Windows` 这类）会大幅超时：C 盘预算 400s/3 盘≈100s，实际 30",
       "date": "2026-11-10",
       "tags": [
         "决策",
@@ -30,12 +100,18 @@
       "evidence": [],
       "expires": "",
       "consolidatedInto": "",
-      "size": 905
+      "size": 905,
+      "archived": false,
+      "source": "场景私有记忆.md §五（2026-11-13 拆分）",
+      "person": "",
+      "theme": "`C:\\Windows` 这类"
     },
     {
       "path": "决策\\2026-11-10-12-源码照搬-工作区-缺-WRITE-OWNER-DSH.md",
       "kind": "决策",
       "title": "`12-源码照搬\\工作区` 缺 WRITE_OWNER，DSH 沙箱连 `Get-ChildItem` 都报 `SetN",
+      "displayTitle": "`12 源码照搬\\工作区` 缺 WRITE_OWNER，DSH 沙箱连 `Get ChildItem` 都报 `SetN",
+      "summary": "2026-11-10 `12-源码照搬\\工作区` 缺 WRITE_OWNER，DSH 沙箱连 `Get-ChildItem` 都报 `SetNamedSecur",
       "date": "2026-11-10",
       "tags": [
         "决策",
@@ -45,19 +121,11 @@
       "evidence": [],
       "expires": "",
       "consolidatedInto": "",
-      "size": 858
-    },
-    {
-      "path": "归档\\场景私有记忆-202611130923-拆分前.md",
-      "kind": "归档",
-      "title": "本地电脑 · 场景私有记忆",
-      "date": "",
-      "tags": [],
-      "distinct": [],
-      "evidence": [],
-      "expires": "",
-      "consolidatedInto": "",
-      "size": 2820
+      "size": 858,
+      "archived": false,
+      "source": "场景私有记忆.md §五（2026-11-13 拆分）",
+      "person": "",
+      "theme": "验证 writeOwner false→true"
     }
   ]
 }
