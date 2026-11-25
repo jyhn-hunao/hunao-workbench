@@ -1,12 +1,395 @@
 {
-  "version": 1,
+  "version": 2,
   "scene": "程序开发",
-  "generatedAt": "2026-11-21T05:16:07.767Z",
+  "profile": "project",
+  "generatedAt": "2026-11-25T09:21:39.388Z",
   "entries": [
+    {
+      "path": "决策\\2026-11-25-设置按钮只许待在场景设置卡.md",
+      "kind": "决策",
+      "title": "设置按钮只许待在场景设置卡",
+      "displayTitle": "设置按钮只许待在场景设置卡",
+      "summary": "用户2026-11-25定：任何设置都归「设置」卡分类，别的面板不许再挂设置按钮",
+      "date": "2026-11-25",
+      "tags": [
+        "决策"
+      ],
+      "distinct": [],
+      "evidence": [
+        "12-源码照搬/外壳/renderer/renderers.js::这张卡不放设置按钮",
+        "12-源码照搬/外壳/场景配置.js::openQqChannelSettings"
+      ],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 816,
+      "archived": false,
+      "source": "",
+      "person": "",
+      "theme": ""
+    },
+    {
+      "path": "决策\\2026-11-25-设置入口统一收进右侧工具条.md",
+      "kind": "决策",
+      "title": "设置入口统一收进右侧工具条\r",
+      "displayTitle": "设置入口统一收进右侧工具条",
+      "summary": "8 个场景都改成右侧一列 rail 按钮，一项设置一个按钮，点开就是弹窗；常驻设置卡（links）全部删除",
+      "date": "2026-11-25",
+      "tags": [],
+      "distinct": [],
+      "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 1696,
+      "archived": false,
+      "source": "",
+      "person": "",
+      "theme": ""
+    },
+    {
+      "path": "决策\\2026-11-25-桌宠路由与场景能力合并兜底.md",
+      "kind": "决策",
+      "title": "桌宠路由与场景能力合并兜底",
+      "displayTitle": "桌宠路由与场景能力合并兜底",
+      "summary": "桌宠设置里的 routes 一直在生效：桌宠.mjs 路由/派 读它，命中即派，级别 read/confirm 由它给",
+      "date": "2026-11-25",
+      "tags": [
+        "决策"
+      ],
+      "distinct": [],
+      "evidence": [
+        "12-源码照搬/外壳/桌宠设置.js"
+      ],
+      "expires": "",
+      "consolidatedInto": "定论/场景能力.md",
+      "size": 925,
+      "archived": false,
+      "source": "",
+      "person": "",
+      "theme": ""
+    },
+    {
+      "path": "决策\\2026-11-25-弹窗排版重做-24-边距-分组卡片.md",
+      "kind": "决策",
+      "title": "弹窗排版重做：24 边距 + 分组卡片 + 开关",
+      "displayTitle": "弹窗排版重做：24 边距 + 分组卡片 + 开关",
+      "summary": "统一骨架 cfg-head/cfg-hw/cfg-title/cfg-sub/cfg-x：头 18/24/15、体 20/24/24、脚 14/24/16；生活",
+      "date": "2026-11-25",
+      "tags": [
+        "决策"
+      ],
+      "distinct": [],
+      "evidence": [
+        "12-源码照搬/外壳/renderer/renderers.js::sc-swrow"
+      ],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 1258,
+      "archived": false,
+      "source": "",
+      "person": "",
+      "theme": ""
+    },
+    {
+      "path": "决策\\2026-11-25-工具条按钮一律能配-只读台账全撤.md",
+      "kind": "决策",
+      "title": "工具条按钮一律能配，只读台账全撤",
+      "displayTitle": "工具条按钮一律能配，只读台账全撤",
+      "summary": "8 个场景最右 38px 工具条只放『点开能改』的项：定时/劲儿、闸门、维护/换会话、工具/维护、端口、扫描口径、复盘目录、生活设定",
+      "date": "2026-11-25",
+      "tags": [
+        "决策"
+      ],
+      "distinct": [],
+      "evidence": [
+        "12-源码照搬/外壳/场景配置.js::fieldsOf(it)"
+      ],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 981,
+      "archived": false,
+      "source": "",
+      "person": "",
+      "theme": ""
+    },
+    {
+      "path": "决策\\2026-11-25-大脑与手打通-机制台账-每轮注入.md",
+      "kind": "决策",
+      "title": "大脑与手打通-机制台账-每轮注入-收工回流",
+      "displayTitle": "大脑与手打通 机制台账 每轮注入 收工回流",
+      "summary": "机制真源在 外壳\\场景能力.js 的 MECHANISMS（8 场景 40 余条），场景能力.mjs 生成 同时重建 场景能力.json、_场景能力.md、人格",
+      "date": "2026-11-25",
+      "tags": [
+        "决策"
+      ],
+      "distinct": [],
+      "evidence": [
+        "12-源码照搬\\插件\\记忆回响\\index.js::function handsBlock(query)",
+        "12-源码照搬\\工具\\场景记忆.mjs::function appendBackflow(name, dir, info)"
+      ],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 1028,
+      "archived": false,
+      "source": "",
+      "person": "",
+      "theme": ""
+    },
+    {
+      "path": "决策\\2026-11-25-壳内派发入口绕开不能拿到token.md",
+      "kind": "决策",
+      "title": "壳内派发入口绕开不能拿到token",
+      "displayTitle": "壳内派发入口绕开不能拿到token",
+      "summary": "壳外脚本永远换不到 cookie：token 只在壳主进程内存（captureToken 写 process.env.DSH_TOKEN），server.log",
+      "date": "2026-11-25",
+      "tags": [
+        "决策"
+      ],
+      "distinct": [],
+      "evidence": [
+        "12-源码照搬/外壳/main.js"
+      ],
+      "expires": "",
+      "consolidatedInto": "定论/token.md",
+      "size": 1002,
+      "archived": false,
+      "source": "",
+      "person": "",
+      "theme": "token"
+    },
+    {
+      "path": "决策\\2026-11-25-场景设置卡统一走一张表.md",
+      "kind": "决策",
+      "title": "场景设置卡统一走一张表",
+      "displayTitle": "场景设置卡统一走一张表",
+      "summary": "每个场景一张常驻 links 卡(设置)，open 写 scene-cfg:<场景id>，由 window.__cfgOpen 路由到同一个 window.op",
+      "date": "2026-11-25",
+      "tags": [
+        "决策"
+      ],
+      "distinct": [],
+      "evidence": [
+        "12-源码照搬/外壳/场景配置.js::function buildSpecs",
+        "12-源码照搬/外壳/renderer/renderers.js::window.__cfgOpen['scene-cfg:' + sid]"
+      ],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 790,
+      "archived": false,
+      "source": "",
+      "person": "",
+      "theme": ""
+    },
+    {
+      "path": "决策\\2026-11-25-场景能力目录与能力弹窗.md",
+      "kind": "决策",
+      "title": "场景能力目录与能力弹窗",
+      "displayTitle": "场景能力目录与能力弹窗",
+      "summary": "场景=能力容器：每个场景能接什么任务、有哪些面板/按钮/设置/命令，由 外壳\\场景能力.js 从 scenarios\\*.json + 场景配置.js 现算，不",
+      "date": "2026-11-25",
+      "tags": [
+        "决策"
+      ],
+      "distinct": [],
+      "evidence": [
+        "12-源码照搬/外壳/场景能力.js::KEYWORDS"
+      ],
+      "expires": "",
+      "consolidatedInto": "定论/场景能力.md",
+      "size": 1049,
+      "archived": false,
+      "source": "",
+      "person": "",
+      "theme": ""
+    },
+    {
+      "path": "决策\\2026-11-25-token落盘web-token让对话能自己派.md",
+      "kind": "决策",
+      "title": "token落盘web-token让对话能自己派",
+      "displayTitle": "token落盘web token让对话能自己派",
+      "summary": "根因不是模型不会派，是 token 只活在壳主进程内存：CLI 和引擎内 bash 都继承不到，所以换不到 cookie",
+      "date": "2026-11-25",
+      "tags": [
+        "决策"
+      ],
+      "distinct": [],
+      "evidence": [
+        "12-源码照搬/工具/引擎token.mjs"
+      ],
+      "expires": "",
+      "consolidatedInto": "定论/token.md",
+      "size": 974,
+      "archived": false,
+      "source": "",
+      "person": "",
+      "theme": "token"
+    },
+    {
+      "path": "决策\\2026-11-25-B站能力对齐不装插件.md",
+      "kind": "决策",
+      "title": "B站能力对齐不装插件",
+      "displayTitle": "B站能力对齐不装插件",
+      "summary": "官方开放平台没有关注接口（只有账号授权/用户公开信息/视频投稿删除查询/数据/专栏/直播）；关注/取关只能打网页端 x/relation/modify，必带 b",
+      "date": "2026-11-25",
+      "tags": [
+        "决策"
+      ],
+      "distinct": [],
+      "evidence": [
+        "12-源码照搬/工具/内容源/bilibili.mjs"
+      ],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 1121,
+      "archived": false,
+      "source": "",
+      "person": "",
+      "theme": ""
+    },
+    {
+      "path": "坑\\2026-11-25-psed-body-是-padding-0.md",
+      "kind": "坑",
+      "title": "psed-body 是 padding 0 不能复用",
+      "displayTitle": "psed body 是 padding 0 不能复用",
+      "summary": "styles.css 里 .psed-body 在桌宠弹窗分区卡片重做时被改成 padding:0，边距靠内层 psed-secs 补",
+      "date": "2026-11-25",
+      "tags": [
+        "坑"
+      ],
+      "distinct": [],
+      "evidence": [
+        "12-源码照搬/外壳/renderer/styles.css::.cfg-body",
+        "12-源码照搬/外壳/renderer/styles.css::.psed-body"
+      ],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 597,
+      "archived": false,
+      "source": "",
+      "person": "",
+      "theme": ""
+    },
+    {
+      "path": "定论\\token.md",
+      "kind": "定论",
+      "title": "token",
+      "displayTitle": "token",
+      "summary": "2026-11-25 壳内派发入口绕开不能拿到token：壳外脚本永远换不到 cookie：token 只在壳主进程内存（captureToken 写 proc",
+      "date": "2026-11-25",
+      "tags": [
+        "定论",
+        "token"
+      ],
+      "distinct": [],
+      "evidence": [
+        "D:/codeData/myself/luanyujia-workbench/12-源码照搬/引擎数据/.dsh/场景记忆/程序开发/决策/2026-11-25-壳内派发入口绕开不能拿到token.md::壳外脚本永远换不到 cookie：token 只在壳主进程内存（captureToken 写 process.env.D",
+        "D:/codeData/myself/luanyujia-workbench/12-源码照搬/引擎数据/.dsh/场景记忆/程序开发/决策/2026-11-25-token落盘web-token让对话能自己派.md::根因不是模型不会派，是 token 只活在壳主进程内存：CLI 和引擎内 bash 都继承不到，所以换不到 cookie"
+      ],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 3632,
+      "archived": false,
+      "source": "",
+      "person": "",
+      "theme": "token"
+    },
+    {
+      "path": "定论\\场景能力.md",
+      "kind": "定论",
+      "title": "场景能力",
+      "displayTitle": "场景能力",
+      "summary": "2026-11-25 桌宠路由与场景能力合并兜底：桌宠设置里的 routes 一直在生效：桌宠.mjs 路由/派 读它，命中即派，级别 read/confirm",
+      "date": "2026-11-25",
+      "tags": [
+        "定论",
+        "场景能力"
+      ],
+      "distinct": [],
+      "evidence": [
+        "D:/codeData/myself/luanyujia-workbench/12-源码照搬/引擎数据/.dsh/场景记忆/程序开发/决策/2026-11-25-桌宠路由与场景能力合并兜底.md::桌宠设置里的 routes 一直在生效：桌宠.mjs 路由/派 读它，命中即派，级别 read/confirm 由它给",
+        "D:/codeData/myself/luanyujia-workbench/12-源码照搬/引擎数据/.dsh/场景记忆/程序开发/决策/2026-11-25-场景能力目录与能力弹窗.md::场景=能力容器：每个场景能接什么任务、有哪些面板/按钮/设置/命令，由 外壳\\场景能力.js 从 scenarios\\*"
+      ],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 2541,
+      "archived": false,
+      "source": "",
+      "person": "",
+      "theme": "场景能力"
+    },
+    {
+      "path": "归档\\场景私有记忆-202611231129-e03067.md",
+      "kind": "归档",
+      "title": "程序开发 · 场景私有记忆",
+      "displayTitle": "留档 · 11-23 程序开发 · 场景私有记忆",
+      "summary": "完整交接在面板级文件里（下面是本场景各面板的最新指向）：",
+      "date": "2026-11-23",
+      "tags": [],
+      "distinct": [],
+      "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 7435,
+      "archived": true,
+      "source": "",
+      "person": ""
+    },
+    {
+      "path": "归档\\场景私有记忆-202611201754-e03067.md",
+      "kind": "归档",
+      "title": "程序开发 · 场景私有记忆",
+      "displayTitle": "留档 · 11-20 程序开发 · 场景私有记忆",
+      "summary": "完整交接在面板级文件里（下面是本场景各面板的最新指向）：",
+      "date": "2026-11-20",
+      "tags": [],
+      "distinct": [],
+      "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 7435,
+      "archived": true,
+      "source": "",
+      "person": ""
+    },
+    {
+      "path": "归档\\场景私有记忆-202611201808-e03067.md",
+      "kind": "归档",
+      "title": "程序开发 · 场景私有记忆",
+      "displayTitle": "留档 · 11-20 程序开发 · 场景私有记忆",
+      "summary": "完整交接在面板级文件里（下面是本场景各面板的最新指向）：",
+      "date": "2026-11-20",
+      "tags": [],
+      "distinct": [],
+      "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 7435,
+      "archived": true,
+      "source": "",
+      "person": ""
+    },
+    {
+      "path": "归档\\场景私有记忆-202611190919-e03067.md",
+      "kind": "归档",
+      "title": "程序开发 · 场景私有记忆",
+      "displayTitle": "留档 · 11-19 程序开发 · 场景私有记忆",
+      "summary": "完整交接在面板级文件里（下面是本场景各面板的最新指向）：",
+      "date": "2026-11-19",
+      "tags": [],
+      "distinct": [],
+      "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 7434,
+      "archived": true,
+      "source": "",
+      "person": ""
+    },
     {
       "path": "坑\\2026-11-18-桌宠设置六项死配置-面板能改但没人读.md",
       "kind": "坑",
       "title": "桌宠设置六项死配置-面板能改但没人读",
+      "displayTitle": "桌宠设置六项死配置 面板能改但没人读",
+      "summary": "人格卡四块只在sessions.mjs的seed里用，而seed从2026-11-17起默认关闭，等于面板改了白改；记忆回响插件2026-11-18起直接读设置",
       "date": "2026-11-18",
       "tags": [
         "坑"
@@ -17,12 +400,18 @@
       ],
       "expires": "",
       "consolidatedInto": "",
-      "size": 1218
+      "size": 1218,
+      "archived": false,
+      "source": "",
+      "person": "",
+      "theme": "dom"
     },
     {
       "path": "坑\\2026-11-18-引擎0-2-1起Agent没有sessionId.md",
       "kind": "坑",
       "title": "引擎0.2.1起Agent没有sessionId-记忆回响静默不注入",
+      "displayTitle": "引擎0.2.1起Agent没有sessionId 记忆回响静默不注入",
+      "summary": "引擎0.2.1的ReactLoopAgent字段只有session和id，没有sessionId；pre-step的payload.agent由agentEve",
       "date": "2026-11-18",
       "tags": [
         "坑"
@@ -33,12 +422,18 @@
       ],
       "expires": "",
       "consolidatedInto": "",
-      "size": 1120
+      "size": 1120,
+      "archived": false,
+      "source": "",
+      "person": "",
+      "theme": ""
     },
     {
       "path": "坑\\2026-11-17-日志脱敏只改了壳没改脚本-换会话卡死在换不到.md",
       "kind": "坑",
       "title": "日志脱敏只改了壳没改脚本，换会话卡死在换不到 cookie",
+      "displayTitle": "日志脱敏只改了壳没改脚本，换会话卡死在换不到 cookie",
+      "summary": "2026-11-14 把 server.log 的 token 打成 token=***，但六个脚本仍从日志正则取 token",
       "date": "2026-11-17",
       "tags": [
         "坑"
@@ -49,12 +444,18 @@
       ],
       "expires": "",
       "consolidatedInto": "",
-      "size": 598
+      "size": 598,
+      "archived": false,
+      "source": "",
+      "person": "",
+      "theme": ""
     },
     {
       "path": "定论\\场景记忆.md",
       "kind": "定论",
       "title": "场景记忆",
+      "displayTitle": "场景记忆",
+      "summary": "2026-11-13 壳外重启引擎会导致白屏：引擎必须由壳 spawn，token 由壳从引擎 stdout 捕获（main.js:401-403） · `坑\\",
       "date": "2026-11-17",
       "tags": [
         "定论",
@@ -67,12 +468,35 @@
       ],
       "expires": "",
       "consolidatedInto": "",
-      "size": 3828
+      "size": 3828,
+      "archived": false,
+      "source": "",
+      "person": "",
+      "theme": "场景记忆"
+    },
+    {
+      "path": "归档\\场景私有记忆-202611170931-ca13be.md",
+      "kind": "归档",
+      "title": "程序开发 · 场景私有记忆",
+      "displayTitle": "留档 · 11-17 程序开发 · 场景私有记忆",
+      "summary": "完整交接在面板级文件里（下面是本场景各面板的最新指向）：",
+      "date": "2026-11-17",
+      "tags": [],
+      "distinct": [],
+      "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 7434,
+      "archived": true,
+      "source": "",
+      "person": ""
     },
     {
       "path": "坑\\2026-11-16-换会话-1-3-崩-body0-回滚引用局部变量.md",
       "kind": "坑",
       "title": "换会话 1/3 崩 body0：回滚引用局部变量 + 交接没刷索引",
+      "displayTitle": "换会话 1/3 崩 body0：回滚引用局部变量 + 交接没刷索引",
+      "summary": "回滚必须用入口处的 §〇 快照，不能引用 rewriteSec0ToPointers 里的局部 body0",
       "date": "2026-11-16",
       "tags": [
         "坑"
@@ -84,12 +508,18 @@
       ],
       "expires": "",
       "consolidatedInto": "",
-      "size": 613
+      "size": 613,
+      "archived": false,
+      "source": "",
+      "person": "",
+      "theme": "git"
     },
     {
       "path": "坑\\2026-11-16-全仓-no-undef-扫出6类7处悬空引用.md",
       "kind": "坑",
       "title": "全仓-no-undef-扫出6类7处悬空引用",
+      "displayTitle": "全仓 no undef 扫出6类7处悬空引用",
+      "summary": "症状：ReferenceError 一抛，真实首因被盖掉；node --check 只查语法，看不见这类",
       "date": "2026-11-16",
       "tags": [
         "坑",
@@ -103,12 +533,69 @@
       ],
       "expires": "",
       "consolidatedInto": "",
-      "size": 896
+      "size": 896,
+      "archived": false,
+      "source": "",
+      "person": "",
+      "theme": "作用域"
+    },
+    {
+      "path": "归档\\场景私有记忆-202611161802-ca13be.md",
+      "kind": "归档",
+      "title": "程序开发 · 场景私有记忆",
+      "displayTitle": "留档 · 11-16 程序开发 · 场景私有记忆",
+      "summary": "完整交接在面板级文件里（下面是本场景各面板的最新指向）：",
+      "date": "2026-11-16",
+      "tags": [],
+      "distinct": [],
+      "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 7434,
+      "archived": true,
+      "source": "",
+      "person": ""
+    },
+    {
+      "path": "归档\\场景私有记忆-202611161806-ca13be.md",
+      "kind": "归档",
+      "title": "程序开发 · 场景私有记忆",
+      "displayTitle": "留档 · 11-16 程序开发 · 场景私有记忆",
+      "summary": "完整交接在面板级文件里（下面是本场景各面板的最新指向）：",
+      "date": "2026-11-16",
+      "tags": [],
+      "distinct": [],
+      "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 7434,
+      "archived": true,
+      "source": "",
+      "person": ""
+    },
+    {
+      "path": "归档\\场景私有记忆-202611161825-ca13be.md",
+      "kind": "归档",
+      "title": "程序开发 · 场景私有记忆",
+      "displayTitle": "留档 · 11-16 程序开发 · 场景私有记忆",
+      "summary": "完整交接在面板级文件里（下面是本场景各面板的最新指向）：",
+      "date": "2026-11-16",
+      "tags": [],
+      "distinct": [],
+      "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 7434,
+      "archived": true,
+      "source": "",
+      "person": ""
     },
     {
       "path": "决策\\2026-11-13-社交场景消息流面板落地.md",
       "kind": "决策",
       "title": "社交场景消息流面板落地",
+      "displayTitle": "社交场景消息流面板落地",
+      "summary": "用户拍板先做面板、通道待定：social.json 加 so-msg（type=msgflow，w2，expand）",
       "date": "2026-11-13",
       "tags": [
         "决策"
@@ -119,12 +606,18 @@
       ],
       "expires": "",
       "consolidatedInto": "",
-      "size": 702
+      "size": 702,
+      "archived": false,
+      "source": "",
+      "person": "",
+      "theme": "dom"
     },
     {
       "path": "决策\\2026-11-13-个人号只有-QQ-一条路.md",
       "kind": "决策",
       "title": "个人号只有 QQ 一条路",
+      "displayTitle": "个人号只有 QQ 一条路",
+      "summary": "dsh-im 5.10.0 无 onebot/napcat 适配器，飞书/微信/QQ 全是 bot 身份",
       "date": "2026-11-13",
       "tags": [
         "决策"
@@ -135,12 +628,18 @@
       ],
       "expires": "",
       "consolidatedInto": "定论/个人号.md",
-      "size": 600
+      "size": 600,
+      "archived": false,
+      "source": "",
+      "person": "",
+      "theme": ""
     },
     {
       "path": "决策\\2026-11-13-SnowLuma-随壳启停-控制台由社交面板按钮按需打开.md",
       "kind": "决策",
       "title": "SnowLuma 随壳启停、控制台由社交面板按钮按需打开",
+      "displayTitle": "SnowLuma 随壳启停、控制台由社交面板按钮按需打开",
+      "summary": "生命周期归壳：whenReady 里 autoStart、before-quit 里 stop；autoStart 只收 pid 文件对得上的自己那只，绝不按端",
       "date": "2026-11-13",
       "tags": [
         "决策"
@@ -149,16 +648,22 @@
       "evidence": [
         "12-源码照搬\\外壳\\桥接.js::function createService",
         "12-源码照搬\\外壳\\main.js::bridgeService.autoStart",
-        "12-源码照搬\\外壳\\renderer\\renderers.js::⚙ 桥接"
+        "12-源码照搬\\外壳\\renderer\\renderers.js::打开桥接"
       ],
       "expires": "",
       "consolidatedInto": "",
-      "size": 1041
+      "size": 1043,
+      "archived": false,
+      "source": "",
+      "person": "",
+      "theme": "dom"
     },
     {
       "path": "决策\\2026-11-13-SnowLuma-源码自建跑通-skips.md",
       "kind": "决策",
       "title": "SnowLuma 源码自建跑通-skips-QQ版本锁",
+      "displayTitle": "SnowLuma 源码自建跑通 skips QQ版本锁",
+      "summary": "发行包断供但源码仓库完整 v1.14.22，自带 win32 原生 dll/node（注入器内置）",
       "date": "2026-11-13",
       "tags": [
         "决策"
@@ -169,12 +674,18 @@
       ],
       "expires": "",
       "consolidatedInto": "",
-      "size": 803
+      "size": 803,
+      "archived": false,
+      "source": "",
+      "person": "",
+      "theme": ""
     },
     {
       "path": "决策\\2026-11-13-QQ-个人号通道已装-dsh-onebot.md",
       "kind": "决策",
       "title": "QQ 个人号通道已装 dsh-onebot-channel",
+      "displayTitle": "QQ 个人号通道已装 dsh onebot channel",
+      "summary": "命令：dsh plugin --profile web add dsh-onebot-channel，装成 0.15.2，profile bundles 已登记",
       "date": "2026-11-13",
       "tags": [
         "决策"
@@ -185,12 +696,18 @@
       ],
       "expires": "",
       "consolidatedInto": "定论/个人号.md",
-      "size": 644
+      "size": 644,
+      "archived": false,
+      "source": "",
+      "person": "",
+      "theme": ""
     },
     {
       "path": "决策\\2026-11-13-IM-通道给的是-bot-身份而非个人号.md",
       "kind": "决策",
       "title": "IM 通道给的是 bot 身份而非个人号",
+      "displayTitle": "IM 通道给的是 bot 身份而非个人号",
+      "summary": "飞书=自建应用机器人，QQ=官方 Bot，微信=有机器人入口的账号；都不是普通个人号",
       "date": "2026-11-13",
       "tags": [
         "决策"
@@ -201,12 +718,18 @@
       ],
       "expires": "",
       "consolidatedInto": "定论/个人号.md",
-      "size": 640
+      "size": 640,
+      "archived": false,
+      "source": "",
+      "person": "",
+      "theme": ""
     },
     {
       "path": "坑\\2026-11-13-壳外重启引擎会导致白屏.md",
       "kind": "坑",
       "title": "壳外重启引擎会导致白屏",
+      "displayTitle": "壳外重启引擎会导致白屏",
+      "summary": "引擎必须由壳 spawn，token 由壳从引擎 stdout 捕获（main.js:401-403）",
       "date": "2026-11-13",
       "tags": [
         "坑"
@@ -217,12 +740,18 @@
       ],
       "expires": "",
       "consolidatedInto": "定论/场景记忆.md",
-      "size": 533
+      "size": 533,
+      "archived": false,
+      "source": "",
+      "person": "",
+      "theme": "dom"
     },
     {
       "path": "坑\\2026-11-13-NapCat-安装包本机下不动.md",
       "kind": "坑",
       "title": "NapCat 安装包本机下不动",
+      "displayTitle": "NapCat 安装包本机下不动",
+      "summary": "GitHub releases 页面对本机返回空，NapCat.Shell.zip 直链 404",
       "date": "2026-11-13",
       "tags": [
         "坑"
@@ -233,12 +762,18 @@
       ],
       "expires": "",
       "consolidatedInto": "",
-      "size": 479
+      "size": 479,
+      "archived": false,
+      "source": "",
+      "person": "",
+      "theme": ""
     },
     {
       "path": "定论\\git.md",
       "kind": "定论",
       "title": "git",
+      "displayTitle": "git",
+      "summary": "2026-11-12 外壳 git 面板 `kun:git:commit`（main.js 里那段正则）拦截的是用户手写的提交信息：2026-11-12（提交约",
       "date": "2026-11-13",
       "tags": [
         "定论",
@@ -251,12 +786,18 @@
       ],
       "expires": "",
       "consolidatedInto": "",
-      "size": 3240
+      "size": 3240,
+      "archived": false,
+      "source": "",
+      "person": "",
+      "theme": "git"
     },
     {
       "path": "定论\\个人号.md",
       "kind": "定论",
       "title": "个人号",
+      "displayTitle": "个人号",
+      "summary": "2026-11-13 个人号只有 QQ 一条路：dsh-im 5.10.0 无 onebot/napcat 适配器，飞书/微信/QQ 全是 bot 身份 · `",
       "date": "2026-11-13",
       "tags": [
         "定论",
@@ -269,12 +810,18 @@
       ],
       "expires": "",
       "consolidatedInto": "",
-      "size": 2717
+      "size": 2717,
+      "archived": false,
+      "source": "",
+      "person": "",
+      "theme": "个人号"
     },
     {
       "path": "定论\\换会话.md",
       "kind": "定论",
       "title": "换会话",
+      "displayTitle": "换会话",
+      "summary": "2026-11-12 第一次真换失败在 `✗ 换不到 cookie`：2026-11-12（换会话实测·跨项目）：第一次真换失败在 `✗ 换不到 cookie`",
       "date": "2026-11-13",
       "tags": [
         "定论",
@@ -287,12 +834,18 @@
       ],
       "expires": "",
       "consolidatedInto": "",
-      "size": 7187
+      "size": 7187,
+      "archived": false,
+      "source": "",
+      "person": "",
+      "theme": "换会话"
     },
     {
       "path": "定论\\程序开发.md",
       "kind": "定论",
       "title": "程序开发",
+      "displayTitle": "程序开发",
+      "summary": "2026-11-12 `程序开发\\程序开发场景私有记忆.md` 按设计应是正本的兼容硬链接（`场景记忆.mjs:283` 在 init 时 `：2026-11-",
       "date": "2026-11-13",
       "tags": [
         "定论",
@@ -305,12 +858,35 @@
       ],
       "expires": "",
       "consolidatedInto": "",
-      "size": 4101
+      "size": 4101,
+      "archived": false,
+      "source": "",
+      "person": "",
+      "theme": "程序开发"
+    },
+    {
+      "path": "归档\\场景私有记忆-202611130923-拆分前.md",
+      "kind": "归档",
+      "title": "程序开发 · 场景私有记忆",
+      "displayTitle": "留档 · 11-13 程序开发 · 场景私有记忆",
+      "summary": "完整交接在面板级文件里（下面是本场景各面板的最新指向）：",
+      "date": "2026-11-13",
+      "tags": [],
+      "distinct": [],
+      "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 24195,
+      "archived": true,
+      "source": "",
+      "person": ""
     },
     {
       "path": "决策\\2026-11-12-顶栏-技能-工具面板是空的-但按钮在-面板代码也在.md",
       "kind": "决策",
       "title": "顶栏 ✨技能 / 🛠工具面板是空的，但按钮在、面板代码也在，断在两处互不相干的取数：① 技能 `SKILLS_DIR ",
+      "displayTitle": "顶栏 ✨技能 / 🛠工具面板是空的，但按钮在、面板代码也在，断在两处互不相干的取数：① 技能 `SKILLS_DIR",
+      "summary": "2026-11-12（界面诊断·跨项目）：顶栏 ✨技能 / 🛠工具面板是空的，但**按钮在、面板代码也在**，断在两处互不相干的取数：① 技能 `SKILLS",
       "date": "2026-11-12",
       "tags": [
         "决策",
@@ -320,12 +896,18 @@
       "evidence": [],
       "expires": "",
       "consolidatedInto": "",
-      "size": 1603
+      "size": 1603,
+      "archived": false,
+      "source": "场景私有记忆.md §五（2026-11-13 拆分）",
+      "person": "",
+      "theme": "界面诊断·跨项目"
     },
     {
       "path": "决策\\2026-11-12-第一次真换失败在-换不到-cookie.md",
       "kind": "决策",
       "title": "第一次真换失败在 `✗ 换不到 cookie`",
+      "displayTitle": "第一次真换失败在 `✗ 换不到 cookie`",
+      "summary": "2026-11-12（换会话实测·跨项目）：第一次真换失败在 `✗ 换不到 cookie` —— 不是引擎，是 `sessions.mjs` / `建会话.mj",
       "date": "2026-11-12",
       "tags": [
         "决策",
@@ -335,12 +917,18 @@
       "evidence": [],
       "expires": "",
       "consolidatedInto": "定论/换会话.md",
-      "size": 1293
+      "size": 1293,
+      "archived": false,
+      "source": "场景私有记忆.md §五（2026-11-13 拆分）",
+      "person": "",
+      "theme": "换会话实测·跨项目"
     },
     {
       "path": "决策\\2026-11-12-程序开发-程序开发场景私有记忆-md.md",
       "kind": "决策",
       "title": "`程序开发\\程序开发场景私有记忆.md` 按设计应是正本的兼容硬链接（`场景记忆.mjs:283` 在 init 时 `",
+      "displayTitle": "`程序开发\\程序开发场景私有记忆.md` 按设计应是正本的兼容硬链接（`场景记忆.mjs:283` 在 init 时 `",
+      "summary": "2026-11-12（清理·目录）：`程序开发\\程序开发场景私有记忆.md` 按设计应是正本的**兼容硬链接**（`场景记忆.mjs:283` 在 init 时",
       "date": "2026-11-12",
       "tags": [
         "决策",
@@ -350,12 +938,18 @@
       "evidence": [],
       "expires": "",
       "consolidatedInto": "定论/程序开发.md",
-      "size": 1320
+      "size": 1320,
+      "archived": false,
+      "source": "场景私有记忆.md §五（2026-11-13 拆分）",
+      "person": "",
+      "theme": "清理·目录"
     },
     {
       "path": "决策\\2026-11-12-派活是单向-session-prompt.md",
       "kind": "决策",
       "title": "派活是单向 `session/prompt`",
+      "displayTitle": "派活是单向 `session/prompt`",
+      "summary": "2026-11-12（协作机制·跨项目）：派活是单向 `session/prompt` —— 目标会话干完，派发方收不到任何东西（用户实报「任务完成了，但没有回",
       "date": "2026-11-12",
       "tags": [
         "决策",
@@ -365,12 +959,18 @@
       "evidence": [],
       "expires": "",
       "consolidatedInto": "",
-      "size": 1740
+      "size": 1740,
+      "archived": false,
+      "source": "场景私有记忆.md §五（2026-11-13 拆分）",
+      "person": "",
+      "theme": "协作机制·跨项目"
     },
     {
       "path": "决策\\2026-11-12-派发-mjs-加-project-项目名-别称-只认-共享记忆.md",
       "kind": "决策",
       "title": "① `派发.mjs` 加 `--project \"<项目名/别称>\"`：只认 `_共享记忆\\项目.json` 的 nam",
+      "displayTitle": "① `派发.mjs` 加 ` project \"<项目名/别称>\"`：只认 `_共享记忆\\项目.json` 的 nam",
+      "summary": "2026-11-12（工具修·派发/换会话）：① `派发.mjs` 加 `--project \"<项目名/别称>\"`：只认 `_共享记忆\\项目.json` 的 ",
       "date": "2026-11-12",
       "tags": [
         "决策",
@@ -380,12 +980,18 @@
       "evidence": [],
       "expires": "",
       "consolidatedInto": "定论/换会话.md",
-      "size": 1501
+      "size": 1501,
+      "archived": false,
+      "source": "场景私有记忆.md §五（2026-11-13 拆分）",
+      "person": "",
+      "theme": "工具修·派发/换会话"
     },
     {
       "path": "决策\\2026-11-12-按钮换会话把-mlw-建到了-工作区.md",
       "kind": "决策",
       "title": "按钮换会话把 mlw 建到了 工作区",
+      "displayTitle": "按钮换会话把 mlw 建到了 工作区",
+      "summary": "2026-11-12（P0·换会话 cwd）：按钮换会话把 mlw 建到了 工作区 —— sessions.mjs 轮换的 cwd 条件写反（默认 DEFAUL",
       "date": "2026-11-12",
       "tags": [
         "决策",
@@ -395,12 +1001,18 @@
       "evidence": [],
       "expires": "",
       "consolidatedInto": "定论/换会话.md",
-      "size": 924
+      "size": 924,
+      "archived": false,
+      "source": "场景私有记忆.md §五（2026-11-13 拆分）",
+      "person": "",
+      "theme": "P0·换会话 cwd"
     },
     {
       "path": "决策\\2026-11-12-按钮先写交接再换15-48-那轮-10-秒就结束了.md",
       "kind": "决策",
       "title": "按钮「先写交接再换」15:48 那轮 10 秒就结束了，脚本却报超时/没反应",
+      "displayTitle": "按钮「先写交接再换」15:48 那轮 10 秒就结束了，脚本却报超时/没反应",
+      "summary": "2026-11-12（换会话卡死根因·跨项目）：按钮「先写交接再换」15:48 那轮 10 秒就结束了，脚本却报超时/没反应。根因不是模型慢：壳用 electr",
       "date": "2026-11-12",
       "tags": [
         "决策",
@@ -410,12 +1022,18 @@
       "evidence": [],
       "expires": "",
       "consolidatedInto": "定论/换会话.md",
-      "size": 1351
+      "size": 1351,
+      "archived": false,
+      "source": "场景私有记忆.md §五（2026-11-13 拆分）",
+      "person": "",
+      "theme": "换会话卡死根因·跨项目"
     },
     {
       "path": "决策\\2026-11-12-工具不是一张要人维护的-json.md",
       "kind": "决策",
       "title": "工具不是一张要人维护的 json",
+      "displayTitle": "工具不是一张要人维护的 json",
+      "summary": "2026-11-12（工具清单来源·跨项目）：工具不是一张要人维护的 json —— 真实来源是引擎的 `node_modules\\@deepseek-ai\\d",
       "date": "2026-11-12",
       "tags": [
         "决策",
@@ -425,12 +1043,18 @@
       "evidence": [],
       "expires": "",
       "consolidatedInto": "",
-      "size": 958
+      "size": 958,
+      "archived": false,
+      "source": "场景私有记忆.md §五（2026-11-13 拆分）",
+      "person": "",
+      "theme": "工具清单来源·跨项目"
     },
     {
       "path": "决策\\2026-11-12-外壳-git-面板-kun-git-commitmain-js.md",
       "kind": "决策",
       "title": "外壳 git 面板 `kun:git:commit`（main.js 里那段正则）拦截的是用户手写的提交信息",
+      "displayTitle": "外壳 git 面板 `kun:git:commit`（main.js 里那段正则）拦截的是用户手写的提交信息",
+      "summary": "2026-11-12（提交约束·跨项目）：外壳 git 面板 `kun:git:commit`（main.js 里那段正则）拦截的是**用户手写**的提交信息 ",
       "date": "2026-11-12",
       "tags": [
         "决策",
@@ -440,12 +1064,18 @@
       "evidence": [],
       "expires": "",
       "consolidatedInto": "定论/git.md",
-      "size": 1247
+      "size": 1247,
+      "archived": false,
+      "source": "场景私有记忆.md §五（2026-11-13 拆分）",
+      "person": "",
+      "theme": "提交约束·跨项目"
     },
     {
       "path": "决策\\2026-11-12-场景记忆-mjs-两处缺陷已修.md",
       "kind": "决策",
       "title": "`场景记忆.mjs` 两处缺陷已修",
+      "displayTitle": "`场景记忆.mjs` 两处缺陷已修",
+      "summary": "2026-11-12（工具修·跨项目）：`场景记忆.mjs` 两处缺陷已修 —— ① `cmdCheck` 的 `SESS` 改成 `path.join(MEM",
       "date": "2026-11-12",
       "tags": [
         "决策",
@@ -455,12 +1085,18 @@
       "evidence": [],
       "expires": "",
       "consolidatedInto": "",
-      "size": 951
+      "size": 951,
+      "archived": false,
+      "source": "场景私有记忆.md §五（2026-11-13 拆分）",
+      "person": "",
+      "theme": "工具修·跨项目"
     },
     {
       "path": "决策\\2026-11-12-data-focus-probe-on-存在时-每个.md",
       "kind": "决策",
       "title": "`data\\focus-probe.on` 存在时，每个 webview 的 focus/blur 记一行到 serve",
+      "displayTitle": "`data\\focus probe.on` 存在时，每个 webview 的 focus/blur 记一行到 serve",
+      "summary": "2026-11-12（焦点探针·跨项目）：`data\\focus-probe.on` 存在时，每个 webview 的 focus/blur 记一行到 serv",
       "date": "2026-11-12",
       "tags": [
         "决策",
@@ -470,12 +1106,18 @@
       "evidence": [],
       "expires": "",
       "consolidatedInto": "",
-      "size": 834
+      "size": 834,
+      "archived": false,
+      "source": "场景私有记忆.md §五（2026-11-13 拆分）",
+      "person": "",
+      "theme": "焦点探针·跨项目"
     },
     {
       "path": "坑\\2026-11-12-用户看到的卡指纹过期-校验没过其实只有前者.md",
       "kind": "坑",
       "title": "用户看到的「卡指纹过期 + §〇 校验没过」其实只有前者",
+      "displayTitle": "用户看到的「卡指纹过期 + §〇 校验没过」其实只有前者",
+      "summary": "2026-11-12（换会话二次故障·跨项目）：用户看到的「卡指纹过期 + §〇 校验没过」其实只有前者——`换会话`/项目切换会改定位卡 `code-dev-",
       "date": "2026-11-12",
       "tags": [
         "坑",
@@ -485,12 +1127,18 @@
       "evidence": [],
       "expires": "",
       "consolidatedInto": "定论/换会话.md",
-      "size": 1255
+      "size": 1255,
+      "archived": false,
+      "source": "场景私有记忆.md §五（2026-11-13 拆分）",
+      "person": "",
+      "theme": "换会话二次故障·跨项目"
     },
     {
       "path": "坑\\2026-11-12-改完提交时-git-add-报-index-lock.md",
       "kind": "坑",
       "title": "改完提交时 `git add` 报 `index.lock: Permission denied`",
+      "displayTitle": "改完提交时 `git add` 报 `index.lock: Permission denied`",
+      "summary": "2026-11-12（环境坑·本机）：改完提交时 `git add` 报 `index.lock: Permission denied` —— `.git` 目",
       "date": "2026-11-12",
       "tags": [
         "坑",
@@ -500,12 +1148,256 @@
       "evidence": [],
       "expires": "",
       "consolidatedInto": "定论/git.md",
-      "size": 1000
+      "size": 1000,
+      "archived": false,
+      "source": "场景私有记忆.md §五（2026-11-13 拆分）",
+      "person": "",
+      "theme": "环境坑·本机"
+    },
+    {
+      "path": "归档\\冲突副本-程序开发场景私有记忆-2026-11-12T08-02-21.md",
+      "kind": "归档",
+      "title": "程序开发 · 场景私有记忆",
+      "displayTitle": "留档 · 11-12 程序开发 · 场景私有记忆",
+      "summary": "2026-11-11（**本会话**·工作区 / 项目会话结构调整）：程序开发拆两块 AI —— 新建工作区会话 `程序开发·工作区`（`session-f28",
+      "date": "2026-11-12",
+      "tags": [],
+      "distinct": [],
+      "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 19871,
+      "archived": true,
+      "source": "",
+      "person": ""
+    },
+    {
+      "path": "归档\\冲突副本-程序开发场景私有记忆-2026-11-12T08-21-25.md",
+      "kind": "归档",
+      "title": "程序开发 · 场景私有记忆",
+      "displayTitle": "留档 · 11-12 程序开发 · 场景私有记忆",
+      "summary": "2026/11/12 16:04:07 换会话脚本从旧会话 `session-539e9941-4acb-4216-95ea-8c5ce0135adb`（共 1",
+      "date": "2026-11-12",
+      "tags": [],
+      "distinct": [],
+      "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 24207,
+      "archived": true,
+      "source": "",
+      "person": ""
+    },
+    {
+      "path": "归档\\冲突副本-程序开发场景私有记忆-2026-11-12T09-33-01.md",
+      "kind": "归档",
+      "title": "程序开发 · 场景私有记忆",
+      "displayTitle": "留档 · 11-12 程序开发 · 场景私有记忆",
+      "summary": "2026/11/12 16:27:49 换会话脚本从旧会话 `session-1b4bfbb5-7517-4a25-8909-5bbe83cdc77b`（共 4",
+      "date": "2026-11-12",
+      "tags": [],
+      "distinct": [],
+      "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 25546,
+      "archived": true,
+      "source": "",
+      "person": ""
+    },
+    {
+      "path": "归档\\场景私有记忆-202611121103-f28099.md",
+      "kind": "归档",
+      "title": "程序开发 · 场景私有记忆",
+      "displayTitle": "留档 · 11-12 程序开发 · 场景私有记忆",
+      "summary": "2026-11-11（**本会话**·工作区 / 项目会话结构调整）：程序开发拆两块 AI —— 新建工作区会话 `程序开发·工作区`（`session-f28",
+      "date": "2026-11-12",
+      "tags": [],
+      "distinct": [],
+      "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 19871,
+      "archived": true,
+      "source": "",
+      "person": ""
+    },
+    {
+      "path": "归档\\场景私有记忆-202611121602-f28099.md",
+      "kind": "归档",
+      "title": "程序开发 · 场景私有记忆",
+      "displayTitle": "留档 · 11-12 程序开发 · 场景私有记忆",
+      "summary": "2026-11-12 本会话（mlw 大屏，接上一条交接）：窗口期口径三次纠偏后定稿——只取「所选年最近一次成功的**单设备**计算」在该年的窗口（`selec",
+      "date": "2026-11-12",
+      "tags": [],
+      "distinct": [],
+      "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 23383,
+      "archived": true,
+      "source": "",
+      "person": ""
+    },
+    {
+      "path": "归档\\场景私有记忆-202611121604-f28099.md",
+      "kind": "归档",
+      "title": "程序开发 · 场景私有记忆",
+      "displayTitle": "留档 · 11-12 程序开发 · 场景私有记忆",
+      "summary": "2026/11/12 16:04:07 换会话脚本从旧会话 `session-539e9941-4acb-4216-95ea-8c5ce0135adb`（共 1",
+      "date": "2026-11-12",
+      "tags": [],
+      "distinct": [],
+      "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 24642,
+      "archived": true,
+      "source": "",
+      "person": ""
+    },
+    {
+      "path": "归档\\场景私有记忆-202611121605-f28099.md",
+      "kind": "归档",
+      "title": "程序开发 · 场景私有记忆",
+      "displayTitle": "留档 · 11-12 程序开发 · 场景私有记忆",
+      "summary": "2026/11/12 16:04:29 换会话脚本从旧会话 `session-25c210cc-30dd-4e50-a822-407e059e0e81`（共 1",
+      "date": "2026-11-12",
+      "tags": [],
+      "distinct": [],
+      "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 23445,
+      "archived": true,
+      "source": "",
+      "person": ""
+    },
+    {
+      "path": "归档\\场景私有记忆-202611121606-f28099.md",
+      "kind": "归档",
+      "title": "程序开发 · 场景私有记忆",
+      "displayTitle": "留档 · 11-12 程序开发 · 场景私有记忆",
+      "summary": "2026/11/12 16:04:07 换会话脚本从旧会话 `session-539e9941-4acb-4216-95ea-8c5ce0135adb`（共 1",
+      "date": "2026-11-12",
+      "tags": [],
+      "distinct": [],
+      "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 24207,
+      "archived": true,
+      "source": "",
+      "person": ""
+    },
+    {
+      "path": "归档\\场景私有记忆-202611121621-f28099.md",
+      "kind": "归档",
+      "title": "程序开发 · 场景私有记忆",
+      "displayTitle": "留档 · 11-12 程序开发 · 场景私有记忆",
+      "summary": "2026/11/12 16:04:07 换会话脚本从旧会话 `session-539e9941-4acb-4216-95ea-8c5ce0135adb`（共 1",
+      "date": "2026-11-12",
+      "tags": [],
+      "distinct": [],
+      "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 25548,
+      "archived": true,
+      "source": "",
+      "person": ""
+    },
+    {
+      "path": "归档\\场景私有记忆-202611121627-e49834.md",
+      "kind": "归档",
+      "title": "程序开发 · 场景私有记忆",
+      "displayTitle": "留档 · 11-12 程序开发 · 场景私有记忆",
+      "summary": "2026/11/12 16:21:25 换会话脚本从旧会话 `session-f28099f4-f86d-4529-bad4-870c386f8a43`（共 2",
+      "date": "2026-11-12",
+      "tags": [],
+      "distinct": [],
+      "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 25459,
+      "archived": true,
+      "source": "",
+      "person": ""
+    },
+    {
+      "path": "归档\\场景私有记忆-202611121733-ca13be.md",
+      "kind": "归档",
+      "title": "程序开发 · 场景私有记忆",
+      "displayTitle": "留档 · 11-12 程序开发 · 场景私有记忆",
+      "summary": "完整交接在面板级文件里（下面是本场景各面板的最新指向）：",
+      "date": "2026-11-12",
+      "tags": [],
+      "distinct": [],
+      "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 23890,
+      "archived": true,
+      "source": "",
+      "person": ""
+    },
+    {
+      "path": "归档\\场景私有记忆-202611121740-ca13be.md",
+      "kind": "归档",
+      "title": "程序开发 · 场景私有记忆",
+      "displayTitle": "留档 · 11-12 程序开发 · 场景私有记忆",
+      "summary": "完整交接在面板级文件里（下面是本场景各面板的最新指向）：",
+      "date": "2026-11-12",
+      "tags": [],
+      "distinct": [],
+      "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 23890,
+      "archived": true,
+      "source": "",
+      "person": ""
+    },
+    {
+      "path": "归档\\场景私有记忆-§五-搬迁-20261112.md",
+      "kind": "归档",
+      "title": "场景私有记忆-§五-搬迁-20261112",
+      "displayTitle": "留档 · 11-12 场景私有记忆 §五 搬迁 20261112",
+      "summary": "2026-11-11（清理·会话台账）：按用户要求清账 —— 未绑面板的会话**归档**（此前 11 条已归档，本次新增 0 条），**空壳删掉** 2 条：`",
+      "date": "2026-11-12",
+      "tags": [],
+      "distinct": [],
+      "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 2180,
+      "archived": true,
+      "source": "",
+      "person": ""
+    },
+    {
+      "path": "归档\\程序开发场景私有记忆-旧名残留-20261112.md",
+      "kind": "归档",
+      "title": "程序开发 · 场景私有记忆",
+      "displayTitle": "留档 · 11-12 程序开发 · 场景私有记忆",
+      "summary": "2026-11-11（**本会话收工**）：工作台壳治理一轮 —— ① 启动动画插件装上又按用户要求卸干净（`75e8cd8` / `44bcbfa` / `c",
+      "date": "2026-11-12",
+      "tags": [],
+      "distinct": [],
+      "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 16202,
+      "archived": true,
+      "source": "",
+      "person": ""
     },
     {
       "path": "决策\\2026-11-11-项目记忆从单文件全量载入改成薄卡.md",
       "kind": "决策",
       "title": "项目记忆从\"单文件全量载入\"改成\"薄卡 + 按问题召回\"",
+      "displayTitle": "项目记忆从\"单文件全量载入\"改成\"薄卡 + 按问题召回\"",
+      "summary": "2026-11-11（决策·方向）：**项目记忆从\"单文件全量载入\"改成\"薄卡 + 按问题召回\"**。用户明确：开发场景的项目记忆要自主写回（不靠手动触发）、优",
       "date": "2026-11-11",
       "tags": [
         "决策",
@@ -515,12 +1407,18 @@
       "evidence": [],
       "expires": "",
       "consolidatedInto": "",
-      "size": 1270
+      "size": 1270,
+      "archived": false,
+      "source": "场景私有记忆.md §五（2026-11-13 拆分）",
+      "person": "",
+      "theme": "决策·方向"
     },
     {
       "path": "决策\\2026-11-11-零散会话的交接落点-引擎数据-dsh-场景记忆.md",
       "kind": "决策",
       "title": "零散会话的交接落点 `引擎数据\\.dsh\\场景记忆\\其他会话临时项目信息交接文档\\` 此前只有规则、目录根本不存在",
+      "displayTitle": "零散会话的交接落点 `引擎数据\\.dsh\\场景记忆\\其他会话临时项目信息交接文档\\` 此前只有规则、目录根本不存在",
+      "summary": "2026-11-11（会话治理·跨项目）：零散会话的交接落点 `引擎数据\\.dsh\\场景记忆\\其他会话临时项目信息交接文档\\` **此前只有规则、目录根本不存在",
       "date": "2026-11-11",
       "tags": [
         "决策",
@@ -530,12 +1428,18 @@
       "evidence": [],
       "expires": "",
       "consolidatedInto": "定论/场景记忆.md",
-      "size": 1210
+      "size": 1210,
+      "archived": false,
+      "source": "场景私有记忆.md §五（2026-11-13 拆分）",
+      "person": "",
+      "theme": "会话治理·跨项目"
     },
     {
       "path": "决策\\2026-11-11-记忆能力改造定稿.md",
       "kind": "决策",
       "title": "记忆能力改造定稿",
+      "displayTitle": "记忆能力改造定稿",
+      "summary": "2026-11-11（决策·跨项目）：**记忆能力改造定稿**——`<项目根>\\memory\\` 是唯一正文（8 类 + MEMORY_INDEX），工作台侧只",
       "date": "2026-11-11",
       "tags": [
         "决策",
@@ -544,13 +1448,19 @@
       "distinct": [],
       "evidence": [],
       "expires": "",
-      "consolidatedInto": "",
-      "size": 932
+      "consolidatedInto": "定论/场景能力.md",
+      "size": 975,
+      "archived": false,
+      "source": "场景私有记忆.md §五（2026-11-13 拆分）",
+      "person": "",
+      "theme": "决策·跨项目"
     },
     {
       "path": "决策\\2026-11-11-程序开发-一个场景-两块-AI-面板.md",
       "kind": "决策",
       "title": "程序开发 = 一个场景 + 两块 AI 面板",
+      "displayTitle": "程序开发 = 一个场景 + 两块 AI 面板",
+      "summary": "2026-11-11（决策·场景结构）：**程序开发 = 一个场景 + 两块 AI 面板** —— `cd-ai-home`（工作区会话，管项目：接入 / 切项",
       "date": "2026-11-11",
       "tags": [
         "决策",
@@ -560,12 +1470,18 @@
       "evidence": [],
       "expires": "",
       "consolidatedInto": "定论/程序开发.md",
-      "size": 1287
+      "size": 1287,
+      "archived": false,
+      "source": "场景私有记忆.md §五（2026-11-13 拆分）",
+      "person": "",
+      "theme": "决策·场景结构"
     },
     {
       "path": "决策\\2026-11-11-用户画像迁入规范本体.md",
       "kind": "决策",
       "title": "用户画像迁入规范本体",
+      "displayTitle": "用户画像迁入规范本体",
+      "summary": "2026-11-11（规范·跨项目）：**用户画像迁入规范本体**——身份/工作背景/协作习惯在 `~/.dsh/standards/specs/用户画像.md",
       "date": "2026-11-11",
       "tags": [
         "决策",
@@ -575,12 +1491,18 @@
       "evidence": [],
       "expires": "",
       "consolidatedInto": "",
-      "size": 946
+      "size": 946,
+      "archived": false,
+      "source": "场景私有记忆.md §五（2026-11-13 拆分）",
+      "person": "",
+      "theme": "规范·跨项目"
     },
     {
       "path": "决策\\2026-11-11-旧记忆引擎-mnemon迁进工作台文件记忆的分工.md",
       "kind": "决策",
       "title": "旧记忆引擎（`.mnemon`）迁进工作台文件记忆的分工",
+      "displayTitle": "旧记忆引擎（`.mnemon`）迁进工作台文件记忆的分工",
+      "summary": "2026-11-11（迁移判据·跨项目）：旧记忆引擎（`.mnemon`）迁进工作台文件记忆的分工——常驻记忆里跨项目的进本节 §五，项目专属的进 `项目记忆\\",
       "date": "2026-11-11",
       "tags": [
         "决策",
@@ -590,12 +1512,18 @@
       "evidence": [],
       "expires": "",
       "consolidatedInto": "定论/场景记忆.md",
-      "size": 1021
+      "size": 1021,
+      "archived": false,
+      "source": "场景私有记忆.md §五（2026-11-13 拆分）",
+      "person": "",
+      "theme": "迁移判据·跨项目"
     },
     {
       "path": "决策\\2026-11-11-排卡在加载页先比日志顺序-别先怀疑网络.md",
       "kind": "决策",
       "title": "排「卡在加载页」先比日志顺序，别先怀疑网络",
+      "displayTitle": "排「卡在加载页」先比日志顺序，别先怀疑网络",
+      "summary": "2026-11-11（判据·跨项目）：排「卡在加载页」先比日志顺序，别先怀疑网络——凡是「A 就绪」与「B 拿到资质」分两步的，先确认 B 是否晚于 A 广播。",
       "date": "2026-11-11",
       "tags": [
         "决策",
@@ -605,12 +1533,18 @@
       "evidence": [],
       "expires": "",
       "consolidatedInto": "",
-      "size": 681
+      "size": 681,
+      "archived": false,
+      "source": "场景私有记忆.md §五（2026-11-13 拆分）",
+      "person": "",
+      "theme": "判据·跨项目"
     },
     {
       "path": "决策\\2026-11-11-换项目改成面板标题栏项目下拉用户当面反馈程序开发里无法切换项目.md",
       "kind": "决策",
       "title": "换项目改成面板标题栏「项目」下拉（用户当面反馈「程序开发里无法切换项目」）",
+      "displayTitle": "换项目改成面板标题栏「项目」下拉（用户当面反馈「程序开发里无法切换项目」）",
+      "summary": "2026-11-11（决策）：**换项目改成面板标题栏「项目」下拉**（用户当面反馈「程序开发里无法切换项目」）。之前只有 `接入项目.mjs` 一条路：每次都",
       "date": "2026-11-11",
       "tags": [
         "决策",
@@ -620,12 +1554,18 @@
       "evidence": [],
       "expires": "",
       "consolidatedInto": "定论/程序开发.md",
-      "size": 1912
+      "size": 1912,
+      "archived": false,
+      "source": "场景私有记忆.md §五（2026-11-13 拆分）",
+      "person": "",
+      "theme": "dom"
     },
     {
       "path": "决策\\2026-11-11-开新会话要一步到位.md",
       "kind": "决策",
       "title": "「开新会话」要一步到位",
+      "displayTitle": "「开新会话」要一步到位",
+      "summary": "2026-11-11（协作规矩·跨项目）：**「开新会话」要一步到位**——用户说这句话时，要的是「场景当前绑定的会话换成新的、旧的归档」，不是\"建一条会话然后",
       "date": "2026-11-11",
       "tags": [
         "决策",
@@ -635,12 +1575,18 @@
       "evidence": [],
       "expires": "",
       "consolidatedInto": "",
-      "size": 1039
+      "size": 1039,
+      "archived": false,
+      "source": "场景私有记忆.md §五（2026-11-13 拆分）",
+      "person": "",
+      "theme": "协作规矩·跨项目"
     },
     {
       "path": "决策\\2026-11-11-凡实现写法参考了仓内某个现有文件-类Redis-覆盖-批量写入.md",
       "kind": "决策",
       "title": "凡实现写法参考了仓内某个现有文件/类（Redis 覆盖、批量写入、缺失补齐等），在实际参考到的分支/方法处标 `// [",
+      "displayTitle": "凡实现写法参考了仓内某个现有文件/类（Redis 覆盖、批量写入、缺失补齐等），在实际参考到的分支/方法处标 `// [",
+      "summary": "2026-11-11（交付判据·跨项目）：凡实现写法参考了仓内某个现有文件/类（Redis 覆盖、批量写入、缺失补齐等），在实际参考到的分支/方法处标 `// ",
       "date": "2026-11-11",
       "tags": [
         "决策",
@@ -650,12 +1596,18 @@
       "evidence": [],
       "expires": "",
       "consolidatedInto": "",
-      "size": 1230
+      "size": 1230,
+      "archived": false,
+      "source": "场景私有记忆.md §五（2026-11-13 拆分）",
+      "person": "",
+      "theme": "交付判据·跨项目"
     },
     {
       "path": "决策\\2026-11-11-memory-与项目-AGENTS-md-默认不入库-记忆.md",
       "kind": "决策",
       "title": "`memory\\` 与项目 `AGENTS.md` 默认不入库，`记忆.mjs init` 会把 `memory/`、`",
+      "displayTitle": "`memory\\` 与项目 `AGENTS.md` 默认不入库，`记忆.mjs init` 会把 `memory/`、`",
+      "summary": "2026-11-11（规矩·跨项目）：`memory\\` 与项目 `AGENTS.md` **默认不入库**，`记忆.mjs init` 会把 `memory/",
       "date": "2026-11-11",
       "tags": [
         "决策",
@@ -665,12 +1617,18 @@
       "evidence": [],
       "expires": "",
       "consolidatedInto": "",
-      "size": 836
+      "size": 836,
+      "archived": false,
+      "source": "场景私有记忆.md §五（2026-11-13 拆分）",
+      "person": "",
+      "theme": "规矩·跨项目"
     },
     {
       "path": "坑\\2026-11-11-改混合行尾的大文件时-用编辑工具整文件替换会把某一段-CRLF.md",
       "kind": "坑",
       "title": "改混合行尾的大文件时，用编辑工具整文件替换会把某一段 CRLF 统一成 LF，diff 从 3 行膨胀到 484 行（本",
+      "displayTitle": "改混合行尾的大文件时，用编辑工具整文件替换会把某一段 CRLF 统一成 LF，diff 从 3 行膨胀到 484 行（本",
+      "summary": "2026-11-11（工具坑·跨项目）：改**混合行尾**的大文件时，用编辑工具整文件替换会把某一段 CRLF 统一成 LF，diff 从 3 行膨胀到 484",
       "date": "2026-11-11",
       "tags": [
         "坑",
@@ -680,12 +1638,18 @@
       "evidence": [],
       "expires": "",
       "consolidatedInto": "定论/换会话.md",
-      "size": 1223
+      "size": 1223,
+      "archived": false,
+      "source": "场景私有记忆.md §五（2026-11-13 拆分）",
+      "person": "",
+      "theme": "工具坑·跨项目"
     },
     {
       "path": "坑\\2026-11-11-换会话-mjs-sessions-mjs-把记忆根写成-工作台.md",
       "kind": "坑",
       "title": "`换会话.mjs` / `sessions.mjs` 把记忆根写成 `<工作台>\\引擎\\场景记忆`（公开模板里不存在，真",
+      "displayTitle": "`换会话.mjs` / `sessions.mjs` 把记忆根写成 `<工作台>\\引擎\\场景记忆`（公开模板里不存在，真",
+      "summary": "2026-11-11（工具坑·跨项目）：`换会话.mjs` / `sessions.mjs` 把记忆根写成 `<工作台>\\引擎\\场景记忆`（公开模板里不存在，真",
       "date": "2026-11-11",
       "tags": [
         "坑",
@@ -695,12 +1659,18 @@
       "evidence": [],
       "expires": "",
       "consolidatedInto": "定论/换会话.md",
-      "size": 1322
+      "size": 1322,
+      "archived": false,
+      "source": "场景私有记忆.md §五（2026-11-13 拆分）",
+      "person": "",
+      "theme": "工具坑·跨项目"
     },
     {
       "path": "坑\\2026-11-11-内联写死深色常量-浅色默认主题下白字白底.md",
       "kind": "坑",
       "title": "内联写死深色常量 = 浅色默认主题下白字白底",
+      "displayTitle": "内联写死深色常量 = 浅色默认主题下白字白底",
+      "summary": "2026-11-11（界面坑·跨项目）：**内联写死深色常量 = 浅色默认主题下白字白底**。用量面板把 `#e6edf3`/`#8b949e` 内联到每个节点",
       "date": "2026-11-11",
       "tags": [
         "坑",
@@ -710,12 +1680,18 @@
       "evidence": [],
       "expires": "",
       "consolidatedInto": "",
-      "size": 1190
+      "size": 1190,
+      "archived": false,
+      "source": "场景私有记忆.md §五（2026-11-13 拆分）",
+      "person": "",
+      "theme": "界面坑·跨项目"
     },
     {
       "path": "坑\\2026-11-11-PowerShell-调-Maven-git-时-D-m.md",
       "kind": "坑",
       "title": "PowerShell 调 Maven/git 时 `-D`、`-m` 位置要小心",
+      "displayTitle": "PowerShell 调 Maven/git 时 ` D`、` m` 位置要小心",
+      "summary": "2026-11-11（工具坑·跨项目）：PowerShell 调 Maven/git 时 `-D`、`-m` 位置要小心——`git commit -- a.m",
       "date": "2026-11-11",
       "tags": [
         "坑",
@@ -725,12 +1701,52 @@
       "evidence": [],
       "expires": "",
       "consolidatedInto": "定论/git.md",
-      "size": 931
+      "size": 931,
+      "archived": false,
+      "source": "场景私有记忆.md §五（2026-11-13 拆分）",
+      "person": "",
+      "theme": "工具坑·跨项目"
+    },
+    {
+      "path": "归档\\mlw-mnemon-2026-11-11.md",
+      "kind": "归档",
+      "title": "MLW · 旧记忆引擎（.mnemon）原始档案（2026-11-11 迁移）",
+      "displayTitle": "留档 · 11-11 MLW · 旧记忆引擎（.mnemon）原始档案（2026-11-11 迁移）",
+      "summary": "[1] MLW 项目 IDEA 本地/远程启动运行配置（.run）",
+      "date": "2026-11-11",
+      "tags": [],
+      "distinct": [],
+      "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 238399,
+      "archived": true,
+      "source": "",
+      "person": ""
+    },
+    {
+      "path": "归档\\场景私有记忆-202611111747-05b703.md",
+      "kind": "归档",
+      "title": "程序开发 · 场景私有记忆",
+      "displayTitle": "留档 · 11-11 程序开发 · 场景私有记忆",
+      "summary": "2026-11-11（**今日收工**）：mlw 态势大屏交付完成，全天 **22 个提交**（我 8 + 接力 14），HEAD `1584e2ef`，全部本",
+      "date": "2026-11-11",
+      "tags": [],
+      "distinct": [],
+      "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 13874,
+      "archived": true,
+      "source": "",
+      "person": ""
     },
     {
       "path": "决策\\2026-11-10-规范分三处放.md",
       "kind": "决策",
       "title": "规范分三处放",
+      "displayTitle": "规范分三处放",
+      "summary": "2026-11-10（决策）：规范分三处放——铁律/方法在 `~/.dsh/standards`（唯一真源）、项目值在各仓 `AGENTS.md`、场景层（本文",
       "date": "2026-11-10",
       "tags": [
         "决策",
@@ -740,12 +1756,18 @@
       "evidence": [],
       "expires": "",
       "consolidatedInto": "",
-      "size": 570
+      "size": 570,
+      "archived": false,
+      "source": "场景私有记忆.md §五（2026-11-13 拆分）",
+      "person": "",
+      "theme": ""
     },
     {
       "path": "决策\\2026-11-10-删除工作台定制场景-其职责并入本场景的当前项目见-第-2.md",
       "kind": "决策",
       "title": "删除「工作台定制」场景，其职责并入本场景的当前项目（见 §〇 第 2 小节）",
+      "displayTitle": "删除「工作台定制」场景，其职责并入本场景的当前项目（见 §〇 第 2 小节）",
+      "summary": "2026-11-10（决策）：删除「工作台定制」场景，其职责并入本场景的**当前项目**（见 §〇 第 2 小节）。理由：两个场景在同一仓库里做同一件事，同一仓",
       "date": "2026-11-10",
       "tags": [
         "决策",
@@ -755,12 +1777,18 @@
       "evidence": [],
       "expires": "",
       "consolidatedInto": "",
-      "size": 1061
+      "size": 1061,
+      "archived": false,
+      "source": "场景私有记忆.md §五（2026-11-13 拆分）",
+      "person": "",
+      "theme": ""
     },
     {
       "path": "决策\\2026-11-10-一个场景多项目-一个项目一条会话.md",
       "kind": "决策",
       "title": "一个场景多项目、一个项目一条会话",
+      "displayTitle": "一个场景多项目、一个项目一条会话",
+      "summary": "2026-11-10（决策）：**一个场景多项目、一个项目一条会话**。理由：规范按会话 cwd 生效，混用会让几套项目规则互相干扰；项目数会持续增长，若一项目",
       "date": "2026-11-10",
       "tags": [
         "决策",
@@ -770,12 +1798,18 @@
       "evidence": [],
       "expires": "",
       "consolidatedInto": "",
-      "size": 736
+      "size": 736,
+      "archived": false,
+      "source": "场景私有记忆.md §五（2026-11-13 拆分）",
+      "person": "",
+      "theme": ""
     },
     {
       "path": "坑\\2026-11-10-建会话-mjs-等脚本原先写死-3080-端口取-token.md",
       "kind": "坑",
       "title": "`建会话.mjs` 等脚本原先写死 3080 端口取 token，本机 3083 全废",
+      "displayTitle": "`建会话.mjs` 等脚本原先写死 3080 端口取 token，本机 3083 全废",
+      "summary": "2026-11-10（坑）：`建会话.mjs` 等脚本原先写死 3080 端口取 token，本机 3083 全废；已修（提交 7c4a386）。新增脚本一律按",
       "date": "2026-11-10",
       "tags": [
         "坑",
@@ -784,308 +1818,148 @@
       "distinct": [],
       "evidence": [],
       "expires": "",
-      "consolidatedInto": "",
-      "size": 686
-    },
-    {
-      "path": "归档\\mlw-mnemon-2026-11-11.md",
-      "kind": "归档",
-      "title": "MLW · 旧记忆引擎（.mnemon）原始档案（2026-11-11 迁移）",
-      "date": "",
-      "tags": [],
-      "distinct": [],
-      "evidence": [],
-      "expires": "",
-      "consolidatedInto": "",
-      "size": 238399
-    },
-    {
-      "path": "归档\\冲突副本-程序开发场景私有记忆-2026-11-12T08-02-21.md",
-      "kind": "归档",
-      "title": "程序开发 · 场景私有记忆",
-      "date": "",
-      "tags": [],
-      "distinct": [],
-      "evidence": [],
-      "expires": "",
-      "consolidatedInto": "",
-      "size": 19871
-    },
-    {
-      "path": "归档\\冲突副本-程序开发场景私有记忆-2026-11-12T08-21-25.md",
-      "kind": "归档",
-      "title": "程序开发 · 场景私有记忆",
-      "date": "",
-      "tags": [],
-      "distinct": [],
-      "evidence": [],
-      "expires": "",
-      "consolidatedInto": "",
-      "size": 24207
-    },
-    {
-      "path": "归档\\冲突副本-程序开发场景私有记忆-2026-11-12T09-33-01.md",
-      "kind": "归档",
-      "title": "程序开发 · 场景私有记忆",
-      "date": "",
-      "tags": [],
-      "distinct": [],
-      "evidence": [],
-      "expires": "",
-      "consolidatedInto": "",
-      "size": 25546
-    },
-    {
-      "path": "归档\\场景私有记忆-202611111747-05b703.md",
-      "kind": "归档",
-      "title": "程序开发 · 场景私有记忆",
-      "date": "",
-      "tags": [],
-      "distinct": [],
-      "evidence": [],
-      "expires": "",
-      "consolidatedInto": "",
-      "size": 13874
-    },
-    {
-      "path": "归档\\场景私有记忆-202611121103-f28099.md",
-      "kind": "归档",
-      "title": "程序开发 · 场景私有记忆",
-      "date": "",
-      "tags": [],
-      "distinct": [],
-      "evidence": [],
-      "expires": "",
-      "consolidatedInto": "",
-      "size": 19871
-    },
-    {
-      "path": "归档\\场景私有记忆-202611121602-f28099.md",
-      "kind": "归档",
-      "title": "程序开发 · 场景私有记忆",
-      "date": "",
-      "tags": [],
-      "distinct": [],
-      "evidence": [],
-      "expires": "",
-      "consolidatedInto": "",
-      "size": 23383
-    },
-    {
-      "path": "归档\\场景私有记忆-202611121604-f28099.md",
-      "kind": "归档",
-      "title": "程序开发 · 场景私有记忆",
-      "date": "",
-      "tags": [],
-      "distinct": [],
-      "evidence": [],
-      "expires": "",
-      "consolidatedInto": "",
-      "size": 24642
-    },
-    {
-      "path": "归档\\场景私有记忆-202611121605-f28099.md",
-      "kind": "归档",
-      "title": "程序开发 · 场景私有记忆",
-      "date": "",
-      "tags": [],
-      "distinct": [],
-      "evidence": [],
-      "expires": "",
-      "consolidatedInto": "",
-      "size": 23445
-    },
-    {
-      "path": "归档\\场景私有记忆-202611121606-f28099.md",
-      "kind": "归档",
-      "title": "程序开发 · 场景私有记忆",
-      "date": "",
-      "tags": [],
-      "distinct": [],
-      "evidence": [],
-      "expires": "",
-      "consolidatedInto": "",
-      "size": 24207
-    },
-    {
-      "path": "归档\\场景私有记忆-202611121621-f28099.md",
-      "kind": "归档",
-      "title": "程序开发 · 场景私有记忆",
-      "date": "",
-      "tags": [],
-      "distinct": [],
-      "evidence": [],
-      "expires": "",
-      "consolidatedInto": "",
-      "size": 25548
-    },
-    {
-      "path": "归档\\场景私有记忆-202611121627-e49834.md",
-      "kind": "归档",
-      "title": "程序开发 · 场景私有记忆",
-      "date": "",
-      "tags": [],
-      "distinct": [],
-      "evidence": [],
-      "expires": "",
-      "consolidatedInto": "",
-      "size": 25459
-    },
-    {
-      "path": "归档\\场景私有记忆-202611121733-ca13be.md",
-      "kind": "归档",
-      "title": "程序开发 · 场景私有记忆",
-      "date": "",
-      "tags": [],
-      "distinct": [],
-      "evidence": [],
-      "expires": "",
-      "consolidatedInto": "",
-      "size": 23890
-    },
-    {
-      "path": "归档\\场景私有记忆-202611121740-ca13be.md",
-      "kind": "归档",
-      "title": "程序开发 · 场景私有记忆",
-      "date": "",
-      "tags": [],
-      "distinct": [],
-      "evidence": [],
-      "expires": "",
-      "consolidatedInto": "",
-      "size": 23890
-    },
-    {
-      "path": "归档\\场景私有记忆-202611130923-拆分前.md",
-      "kind": "归档",
-      "title": "程序开发 · 场景私有记忆",
-      "date": "",
-      "tags": [],
-      "distinct": [],
-      "evidence": [],
-      "expires": "",
-      "consolidatedInto": "",
-      "size": 24195
-    },
-    {
-      "path": "归档\\场景私有记忆-202611161802-ca13be.md",
-      "kind": "归档",
-      "title": "程序开发 · 场景私有记忆",
-      "date": "",
-      "tags": [],
-      "distinct": [],
-      "evidence": [],
-      "expires": "",
-      "consolidatedInto": "",
-      "size": 7434
-    },
-    {
-      "path": "归档\\场景私有记忆-202611161806-ca13be.md",
-      "kind": "归档",
-      "title": "程序开发 · 场景私有记忆",
-      "date": "",
-      "tags": [],
-      "distinct": [],
-      "evidence": [],
-      "expires": "",
-      "consolidatedInto": "",
-      "size": 7434
-    },
-    {
-      "path": "归档\\场景私有记忆-202611161825-ca13be.md",
-      "kind": "归档",
-      "title": "程序开发 · 场景私有记忆",
-      "date": "",
-      "tags": [],
-      "distinct": [],
-      "evidence": [],
-      "expires": "",
-      "consolidatedInto": "",
-      "size": 7434
-    },
-    {
-      "path": "归档\\场景私有记忆-202611170931-ca13be.md",
-      "kind": "归档",
-      "title": "程序开发 · 场景私有记忆",
-      "date": "",
-      "tags": [],
-      "distinct": [],
-      "evidence": [],
-      "expires": "",
-      "consolidatedInto": "",
-      "size": 7434
-    },
-    {
-      "path": "归档\\场景私有记忆-202611190919-e03067.md",
-      "kind": "归档",
-      "title": "程序开发 · 场景私有记忆",
-      "date": "",
-      "tags": [],
-      "distinct": [],
-      "evidence": [],
-      "expires": "",
-      "consolidatedInto": "",
-      "size": 7434
-    },
-    {
-      "path": "归档\\场景私有记忆-202611201754-e03067.md",
-      "kind": "归档",
-      "title": "程序开发 · 场景私有记忆",
-      "date": "",
-      "tags": [],
-      "distinct": [],
-      "evidence": [],
-      "expires": "",
-      "consolidatedInto": "",
-      "size": 7435
-    },
-    {
-      "path": "归档\\场景私有记忆-202611201808-e03067.md",
-      "kind": "归档",
-      "title": "程序开发 · 场景私有记忆",
-      "date": "",
-      "tags": [],
-      "distinct": [],
-      "evidence": [],
-      "expires": "",
-      "consolidatedInto": "",
-      "size": 7435
-    },
-    {
-      "path": "归档\\场景私有记忆-§五-搬迁-20261112.md",
-      "kind": "归档",
-      "title": "场景私有记忆-§五-搬迁-20261112",
-      "date": "",
-      "tags": [],
-      "distinct": [],
-      "evidence": [],
-      "expires": "",
-      "consolidatedInto": "",
-      "size": 2180
+      "consolidatedInto": "定论/token.md",
+      "size": 722,
+      "archived": false,
+      "source": "场景私有记忆.md §五（2026-11-13 拆分）",
+      "person": "",
+      "theme": "token"
     },
     {
       "path": "归档\\工作台定制-场景私有记忆-2026-11-10.md",
       "kind": "归档",
       "title": "工作台定制 · 场景私有记忆",
-      "date": "",
+      "displayTitle": "留档 · 11-10 工作台定制 · 场景私有记忆",
+      "summary": "2026-11-10：场景建立。面板 = 预览(view) + 文件(file) + AI(harness)；会话「工作台定制」跑在仓库目录 `D:\\codeD",
+      "date": "2026-11-10",
       "tags": [],
       "distinct": [],
       "evidence": [],
       "expires": "",
       "consolidatedInto": "",
-      "size": 6983
+      "size": 6983,
+      "archived": true,
+      "source": "",
+      "person": ""
     },
     {
-      "path": "归档\\程序开发场景私有记忆-旧名残留-20261112.md",
-      "kind": "归档",
-      "title": "程序开发 · 场景私有记忆",
+      "path": "面板交接\\cd-ai-home-上一版.md",
+      "kind": "面板交接",
+      "title": "面板交接 · AI·工作区（cd-ai-home）",
+      "displayTitle": "面板交接 · AI·工作区（cd ai home）",
+      "summary": "（旧会话无新业务轮次 ⇒ 沿用上一次交接；上一版见 `cd-ai-home-上一版.md` 或 归档\\）",
       "date": "",
       "tags": [],
       "distinct": [],
       "evidence": [],
       "expires": "",
       "consolidatedInto": "",
-      "size": 16202
+      "size": 1741,
+      "archived": false,
+      "source": "",
+      "person": ""
+    },
+    {
+      "path": "面板交接\\cd-ai-home.md",
+      "kind": "面板交接",
+      "title": "面板交接 · AI多项目管理（cd-ai-home）",
+      "displayTitle": "面板交接 · AI多项目管理（cd ai home）",
+      "summary": "你是「AI多项目管理」（面板 `cd-ai-home`），不是项目实现会话。",
+      "date": "",
+      "tags": [],
+      "distinct": [],
+      "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 2926,
+      "archived": false,
+      "source": "",
+      "person": ""
+    },
+    {
+      "path": "面板交接\\cd-ai-上一版.md",
+      "kind": "面板交接",
+      "title": "面板交接 · AI·项目（cd-ai）",
+      "displayTitle": "面板交接 · AI·项目（cd ai）",
+      "summary": "background job pwsh-85b293bf377943a7 (pwsh: npm run build 2>&1 | Select-Object -",
+      "date": "",
+      "tags": [],
+      "distinct": [],
+      "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 4811,
+      "archived": false,
+      "source": "",
+      "person": ""
+    },
+    {
+      "path": "面板交接\\cd-ai.md",
+      "kind": "面板交接",
+      "title": "面板交接 · AI·项目（cd-ai）",
+      "displayTitle": "面板交接 · AI·项目（cd ai）",
+      "summary": "你是「AI·项目」（面板 `cd-ai`），当前项目会话，cwd = 项目根。",
+      "date": "",
+      "tags": [],
+      "distinct": [],
+      "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 3481,
+      "archived": false,
+      "source": "",
+      "person": ""
+    },
+    {
+      "path": "项目记忆\\ai-compilation-specifications.md",
+      "kind": "项目记忆",
+      "title": "ai-compilation-specifications · 项目记忆",
+      "displayTitle": "ai compilation specifications · 项目记忆",
+      "summary": "**状态**：进行中",
+      "date": "",
+      "tags": [],
+      "distinct": [],
+      "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 1076,
+      "archived": false,
+      "source": "",
+      "person": ""
+    },
+    {
+      "path": "项目记忆\\luanyujia-workbench.md",
+      "kind": "项目记忆",
+      "title": "luanyujia-workbench · 记忆薄卡",
+      "displayTitle": "luanyujia workbench · 记忆薄卡",
+      "summary": "项目根：`D:\\codeData\\myself\\luanyujia-workbench`",
+      "date": "",
+      "tags": [],
+      "distinct": [],
+      "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 1669,
+      "archived": false,
+      "source": "",
+      "person": ""
+    },
+    {
+      "path": "项目记忆\\mlw.md",
+      "kind": "项目记忆",
+      "title": "mlw · 记忆薄卡",
+      "displayTitle": "mlw · 记忆薄卡",
+      "summary": "项目根：`D:\\codeData\\workData\\workCode\\mlw`",
+      "date": "",
+      "tags": [],
+      "distinct": [],
+      "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 1797,
+      "archived": false,
+      "source": "",
+      "person": ""
     }
   ]
 }
