@@ -1,0 +1,48 @@
+{
+  "enabled": true,
+  "dailyMax": 2,
+  "skipProb": 0.3,
+  "deepRead": 1,
+  "taste": {
+    "like": [
+      "原神",
+      "三角洲行动",
+      "游戏",
+      "猫咪",
+      "AI绘画",
+      "音乐",
+      "蓝色大肥鱼",
+      "大肥鱼小课堂"
+    ],
+    "block": [
+      "营销号",
+      "标题党",
+      "擦边"
+    ]
+  },
+  "sources": [
+    {
+      "id": "B站热门",
+      "name": "B站热门",
+      "platform": "bilibili",
+      "weight": 3,
+      "limit": 12,
+      "enabled": true,
+      "kind": "popular"
+    },
+    {
+      "id": "大肥鱼小课堂",
+      "name": "大肥鱼小课堂",
+      "platform": "bilibili",
+      "kind": "up",
+      "mid": "171452765",
+      "author": "卡布奇诺ultra",
+      "series": "大肥鱼小课堂",
+      "match": "大肥鱼小课堂",
+      "weight": 5,
+      "limit": 5,
+      "must": true,
+      "enabled": true
+    }
+  ]
+}

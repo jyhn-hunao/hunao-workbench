@@ -1,100 +1,113 @@
 {
   "version": 1,
-  "generatedAt": "2026-11-23T01:54:10.981Z",
+  "generatedAt": "2026-11-25T09:30:45.386Z",
   "scenes": [
     {
       "name": "本地电脑",
       "id": "pc-cleanup",
       "panels": [
+        "pc-rail",
         "pc-drives",
         "pc-r1",
         "pc-r2",
         "pc-r3",
         "pc-ai"
       ],
-      "entries": 4,
+      "entries": 6,
+      "profile": "ops",
       "hasPrivate": true,
       "hasIdentity": true,
-      "updatedAt": "2026-11-23T01:54:10.494Z"
+      "updatedAt": "2026-11-25T08:46:42.861Z"
     },
     {
       "name": "程序开发",
       "id": "code-dev",
       "panels": [
-        "cd-view",
         "cd-files",
         "cd-git",
+        "cd-view",
         "cd-ai",
-        "cd-ai-home"
+        "cd-ai-home",
+        "cd-rail",
+        "cd-search"
       ],
-      "entries": 75,
+      "entries": 97,
+      "profile": "project",
       "hasPrivate": true,
       "hasIdentity": true,
-      "updatedAt": "2026-11-23T01:54:10.800Z"
+      "updatedAt": "2026-11-25T09:21:39.399Z"
     },
     {
       "name": "胡闹的大肥鱼",
       "id": "pet",
       "panels": [
-        "pet-ai",
-        "pet-msg",
-        "pet-dog"
+        "pet-rail",
+        "pet-ai"
       ],
-      "entries": 14,
+      "entries": 34,
+      "profile": "persona",
       "hasPrivate": true,
       "hasIdentity": true,
-      "updatedAt": "2026-11-23T01:54:10.872Z"
+      "updatedAt": "2026-11-25T09:30:45.385Z"
     },
     {
       "name": "记忆",
       "id": "memory",
       "panels": [
+        "mem-rail",
         "mem-neuron",
-        "mem-chat"
+        "mem-chat",
+        "mem-inject"
       ],
-      "entries": 12,
+      "entries": 13,
+      "profile": "meta",
       "hasPrivate": true,
       "hasIdentity": true,
-      "updatedAt": "2026-11-23T01:54:10.969Z"
+      "updatedAt": "2026-11-25T09:20:38.188Z"
     },
     {
       "name": "社交",
       "id": "social",
       "panels": [
+        "ch-rail",
         "ch-hub",
-        "so-msg",
-        "sl-console"
+        "so-msg"
       ],
-      "entries": 2,
+      "entries": 8,
+      "profile": "channel",
       "hasPrivate": true,
       "hasIdentity": true,
-      "updatedAt": "2026-11-23T01:54:10.511Z"
+      "updatedAt": "2026-11-25T08:46:42.940Z"
+    },
+    {
+      "name": "生活",
+      "id": "life",
+      "panels": [
+        "life-rail",
+        "bv-web",
+        "life-ai"
+      ],
+      "entries": 15,
+      "profile": "life",
+      "hasPrivate": true,
+      "hasIdentity": true,
+      "updatedAt": "2026-11-25T09:09:43.892Z"
     },
     {
       "name": "自我复盘",
       "id": "self-review",
       "panels": [
+        "sr-rail",
         "sr-doc",
         "sr-files",
         "sr-site-bl",
         "sr-ai"
       ],
       "entries": 26,
+      "profile": "review",
       "hasPrivate": true,
       "hasIdentity": true,
-      "updatedAt": "2026-11-23T01:54:10.934Z"
-    },
-    {
-      "name": "B站",
-      "id": "bilibili",
-      "panels": [
-        "bv-web",
-        "bv-ai"
-      ],
-      "entries": 0,
-      "hasPrivate": true,
-      "hasIdentity": true,
-      "updatedAt": "2026-11-23T01:54:10.453Z"
+      "updatedAt": "2026-11-25T08:46:43.187Z"
     }
   ]
 }

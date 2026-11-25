@@ -1,0 +1,316 @@
+{
+  "version": 2,
+  "scene": "生活",
+  "profile": "life",
+  "generatedAt": "2026-11-25T09:09:43.887Z",
+  "entries": [
+    {
+      "path": "决策\\2026-11-25-追更目标更正-大肥鱼小课堂是卡布奇诺ultra的系列.md",
+      "kind": "决策",
+      "title": "追更目标更正：大肥鱼小课堂是卡布奇诺ultra的系列",
+      "displayTitle": "追更目标更正：大肥鱼小课堂是卡布奇诺ultra的系列",
+      "summary": "「大肥鱼小课堂」是系列名，制作方 UP「卡布奇诺ultra」mid 171452765（已关注）",
+      "date": "2026-11-25",
+      "tags": [
+        "决策"
+      ],
+      "distinct": [],
+      "evidence": [
+        "12-源码照搬/工具/追更.mjs::const DECIDER"
+      ],
+      "expires": "",
+      "consolidatedInto": "定论/大肥鱼小课.md",
+      "size": 830,
+      "archived": false,
+      "source": "",
+      "person": "",
+      "theme": ""
+    },
+    {
+      "path": "决策\\2026-11-25-追更大肥鱼小课堂-已关注-每天-20-00.md",
+      "kind": "决策",
+      "title": "追更大肥鱼小课堂：已关注 + 每天 20:00 学一期",
+      "displayTitle": "追更大肥鱼小课堂：已关注 + 每天 20:00 学一期",
+      "summary": "关注 UP 大肥鱼小课堂（mid 3747573900774713），relation attribute=2 已核实",
+      "date": "2026-11-25",
+      "tags": [
+        "决策"
+      ],
+      "distinct": [],
+      "evidence": [
+        "12-源码照搬/工具/追更.mjs::盯住某个 UP/系列"
+      ],
+      "expires": "",
+      "consolidatedInto": "定论/大肥鱼小课.md",
+      "size": 789,
+      "archived": false,
+      "source": "",
+      "person": "",
+      "theme": ""
+    },
+    {
+      "path": "决策\\2026-11-25-生活配置面板.md",
+      "kind": "决策",
+      "title": "生活配置面板",
+      "displayTitle": "生活配置面板",
+      "summary": "内容源/每日次数/跳过概率/深读/口味/发布出口/小号账号全在面板改，不手填 JSON",
+      "date": "2026-11-25",
+      "tags": [
+        "决策"
+      ],
+      "distinct": [],
+      "evidence": [
+        "12-源码照搬\\外壳\\main.js::life:config:get"
+      ],
+      "expires": "",
+      "consolidatedInto": "定论/大肥鱼小课.md",
+      "size": 721,
+      "archived": false,
+      "source": "",
+      "person": "",
+      "theme": "dom"
+    },
+    {
+      "path": "决策\\2026-11-25-生活设置改为弹窗入口.md",
+      "kind": "决策",
+      "title": "生活设置改为弹窗入口",
+      "displayTitle": "生活设置改为弹窗入口",
+      "summary": "生活配置面板同口径改弹窗：life.json 的 life-entry(type=links, open=openLifeConfig)",
+      "date": "2026-11-25",
+      "tags": [
+        "决策"
+      ],
+      "distinct": [
+        "生活配置面板"
+      ],
+      "evidence": [
+        "12-源码照搬/外壳/scenarios/life.json::\"life-rail\"",
+        "12-源码照搬/外壳/renderer/renderers.js::window.openLifeConfig = function ()"
+      ],
+      "expires": "",
+      "consolidatedInto": "定论/大肥鱼小课.md",
+      "size": 947,
+      "archived": false,
+      "source": "",
+      "person": "",
+      "theme": ""
+    },
+    {
+      "path": "决策\\2026-11-25-必刷项与决定权归人格.md",
+      "kind": "决策",
+      "title": "必刷项与决定权归人格",
+      "displayTitle": "必刷项与决定权归人格",
+      "summary": "边界（2026-11-25 主人定）：生活只提供取素材与通道（搜人/搜系列/拉投稿/深读/关注/评论/私信），看不看/学不学/关注谁由「胡闹的大肥鱼」定；脚本里",
+      "date": "2026-11-25",
+      "tags": [
+        "决策"
+      ],
+      "distinct": [],
+      "evidence": [
+        "12-源码照搬/工具/刷内容.mjs"
+      ],
+      "expires": "",
+      "consolidatedInto": "定论/大肥鱼小课.md",
+      "size": 1121,
+      "archived": false,
+      "source": "",
+      "person": "",
+      "theme": ""
+    },
+    {
+      "path": "决策\\2026-11-25-对外说话白盒.md",
+      "kind": "决策",
+      "title": "对外说话白盒",
+      "displayTitle": "对外说话白盒",
+      "summary": "评论/私信/动态统一走 B站操作.mjs，额度脚本内管（12/时·30/天·120 秒·同视频 7 天）",
+      "date": "2026-11-25",
+      "tags": [
+        "决策"
+      ],
+      "distinct": [],
+      "evidence": [
+        "12-源码照搬\\工具\\B站操作.mjs::function gateOutbound"
+      ],
+      "expires": "",
+      "consolidatedInto": "定论/大肥鱼小课.md",
+      "size": 504,
+      "archived": false,
+      "source": "",
+      "person": "",
+      "theme": ""
+    },
+    {
+      "path": "决策\\2026-11-25-刷内容升级为多源版-对标-dsh-bili-whale-还原.md",
+      "kind": "决策",
+      "title": "刷内容升级为多源版，对标 dsh-bili-whale 还原：生物钟（清醒时段 + 30 分钟评估）、跳过权利（skip",
+      "displayTitle": "刷内容升级为多源版，对标 dsh bili whale 还原：生物钟（清醒时段 + 30 分钟评估）、跳过权利（skip",
+      "summary": "2026-11-25：刷内容升级为多源版，对标 dsh-bili-whale 还原：生物钟（清醒时段 + 30 分钟评估）、跳过权利（skipProb 30% ",
+      "date": "2026-11-25",
+      "tags": [
+        "决策",
+        "清醒时段 + 30 分钟评估"
+      ],
+      "distinct": [],
+      "evidence": [],
+      "expires": "",
+      "consolidatedInto": "定论/大肥鱼小课.md",
+      "size": 1120,
+      "archived": false,
+      "source": "场景私有记忆.md §五（2026-11-25 拆分）",
+      "person": "",
+      "theme": "清醒时段 + 30 分钟评估"
+    },
+    {
+      "path": "决策\\2026-11-25-B站-生活.md",
+      "kind": "决策",
+      "title": "B站 → 生活",
+      "displayTitle": "B站 → 生活",
+      "summary": "2026-11-25：B站 → 生活",
+      "date": "2026-11-25",
+      "tags": [
+        "决策",
+        "避免和人格/社交/记忆打架"
+      ],
+      "distinct": [],
+      "evidence": [],
+      "expires": "",
+      "consolidatedInto": "定论/大肥鱼小课.md",
+      "size": 449,
+      "archived": false,
+      "source": "场景私有记忆.md §五（2026-11-25 拆分）",
+      "person": "",
+      "theme": "避免和人格/社交/记忆打架"
+    },
+    {
+      "path": "坑\\2026-11-25-会话标题漂移.md",
+      "kind": "坑",
+      "title": "会话标题漂移",
+      "displayTitle": "会话标题漂移",
+      "summary": "场景改名后引擎侧标题仍是旧的，面板 sessionTitle 对不上会话，记忆注入/开口按标题都认不到",
+      "date": "2026-11-25",
+      "tags": [
+        "坑"
+      ],
+      "distinct": [],
+      "evidence": [
+        "12-源码照搬\\工具\\标题自愈.mjs::wanted()"
+      ],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 525,
+      "archived": false,
+      "source": "",
+      "person": "",
+      "theme": ""
+    },
+    {
+      "path": "定论\\大肥鱼小课.md",
+      "kind": "定论",
+      "title": "大肥鱼小课",
+      "displayTitle": "大肥鱼小课",
+      "summary": "2026-11-25 追更目标更正：大肥鱼小课堂是卡布奇诺ultra的系列：「大肥鱼小课堂」是系列名，制作方 UP「卡布奇诺ultra」mid 17145276",
+      "date": "2026-11-25",
+      "tags": [
+        "定论",
+        "大肥鱼小课"
+      ],
+      "distinct": [],
+      "evidence": [
+        "D:/codeData/myself/luanyujia-workbench/12-源码照搬/引擎数据/.dsh/场景记忆/生活/决策/2026-11-25-追更目标更正-大肥鱼小课堂是卡布奇诺ultra的系列.md::「大肥鱼小课堂」是系列名，制作方 UP「卡布奇诺ultra」mid 171452765（已关注）",
+        "D:/codeData/myself/luanyujia-workbench/12-源码照搬/引擎数据/.dsh/场景记忆/生活/决策/2026-11-25-追更大肥鱼小课堂-已关注-每天-20-00.md::关注 UP 大肥鱼小课堂（mid 3747573900774713），relation attribute=2 已核实"
+      ],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 4722,
+      "archived": false,
+      "source": "",
+      "person": "",
+      "theme": "大肥鱼小课"
+    },
+    {
+      "path": "归档\\场景私有记忆-202611251134-拆分前.md",
+      "kind": "归档",
+      "title": "生活 · 场景私有记忆",
+      "displayTitle": "留档 · 11-25 生活 · 场景私有记忆",
+      "summary": "2026-11-25：B站场景改名为「生活」；定位从「看B站的地方」改成「她过日子的地方」——作息、喜好、看什么、记什么。",
+      "date": "2026-11-25",
+      "tags": [],
+      "distinct": [],
+      "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 3997,
+      "archived": true,
+      "source": "",
+      "person": ""
+    },
+    {
+      "path": "内容\\2026-11-25.md",
+      "kind": "内容",
+      "title": "2026-11-25 · 内容账",
+      "displayTitle": "2026-11-25 · 内容账",
+      "summary": "看到：今天没什么想看的",
+      "date": "2026-11-25",
+      "tags": [],
+      "distinct": [],
+      "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 345,
+      "archived": false,
+      "source": "",
+      "person": ""
+    },
+    {
+      "path": "内容\\学习\\2026-11-25-BV1pRyDzCEzm.md",
+      "kind": "内容",
+      "title": "大肥鱼小课堂 · ⚡️你怎么穿着我的衣服⚡️大肥鱼小课堂 DSH",
+      "displayTitle": "大肥鱼小课堂 · ⚡️你怎么穿着我的衣服⚡️大肥鱼小课堂 DSH",
+      "summary": "日期：2026-11-25",
+      "date": "2026-11-25",
+      "tags": [],
+      "distinct": [],
+      "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 1530,
+      "archived": false,
+      "source": "",
+      "person": ""
+    },
+    {
+      "path": "内容\\学习\\误抓\\2026-11-25-BV1FYH56YEam.md",
+      "kind": "内容",
+      "title": "大肥鱼小课堂 · 《敢骗一条鱼？你犯法了知道吗？【大肥鱼小课堂01：法律与AI】》",
+      "displayTitle": "大肥鱼小课堂 · 《敢骗一条鱼？你犯法了知道吗？【大肥鱼小课堂01：法律与AI】》",
+      "summary": "日期：2026-11-25",
+      "date": "2026-11-25",
+      "tags": [],
+      "distinct": [],
+      "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 2157,
+      "archived": false,
+      "source": "",
+      "person": ""
+    },
+    {
+      "path": "内容\\学习\\误抓\\2026-11-25-BV1gzno6vERS.md",
+      "kind": "内容",
+      "title": "大肥鱼小课堂 · 《大肥鱼能随便用吗？鱼灾背后的二创边界在哪里？【大肥鱼小课堂02：法律与AI】》",
+      "displayTitle": "大肥鱼小课堂 · 《大肥鱼能随便用吗？鱼灾背后的二创边界在哪里？【大肥鱼小课堂02：法律与AI】》",
+      "summary": "日期：2026-11-25",
+      "date": "2026-11-25",
+      "tags": [],
+      "distinct": [],
+      "evidence": [],
+      "expires": "",
+      "consolidatedInto": "",
+      "size": 2219,
+      "archived": false,
+      "source": "",
+      "person": ""
+    }
+  ]
+}

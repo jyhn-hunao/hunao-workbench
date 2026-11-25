@@ -1,0 +1,26 @@
+{
+  "series": [
+    {
+      "id": "dafayu-class",
+      "name": "大肥鱼小课堂",
+      "platform": "bilibili",
+      "mid": "171452765",
+      "author": "卡布奇诺ultra",
+      "match": "大肥鱼小课堂",
+      "enabled": true,
+      "followedAt": 1795597681535,
+      "addedAt": 1795595976203,
+      "lastCheckAt": 1795597752261,
+      "lastEpisode": "bili:BV1pRyDzCEzm",
+      "since": 1795363200
+    }
+  ],
+  "progress": {
+    "bili:BV1pRyDzCEzm": {
+      "seriesId": "dafayu-class",
+      "title": "⚡️你怎么穿着我的衣服⚡️大肥鱼小课堂 DSH",
+      "learnedAt": 1795597742042,
+      "note": "引擎数据/.dsh/场景记忆/生活/内容/学习/2026-11-25-BV1pRyDzCEzm.md"
+    }
+  }
+}

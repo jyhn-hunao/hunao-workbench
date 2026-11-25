@@ -9,12 +9,12 @@
    "panel": "mem-chat"
   },
   {
-   "id": "bilibili",
-   "name": "B站",
-   "owner": "bv-ai",
-   "memory": "场景记忆/B站",
-   "file": "areas/bilibili.md",
-   "panel": "bv-ai"
+   "id": "life",
+   "name": "生活",
+   "owner": "life-ai",
+   "memory": "场景记忆/生活",
+   "file": "areas/life.md",
+   "panel": "life-ai"
   },
   {
    "id": "self-review",
